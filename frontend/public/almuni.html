@@ -1,0 +1,76 @@
+<!-- alumni.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LinkedIn Helper – Alumni</title>
+  <link rel="stylesheet" href="almuni_style.css" />
+</head>
+<body>
+  <header class="appbar" role="banner">
+    <div class="appbar-inner">
+      <div class="brand" aria-label="LinkedIn Helper">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
+        LinkedIn Helper <small>Alumni</small>
+      </div>
+      <div class="app-actions">
+        <a class="btn secondary" href="index.html">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="page" role="main">
+    <!-- Filters sidebar -->
+    <aside class="filters" aria-label="Filters">
+      <h3>Filters</h3>
+      <div class="search" role="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-3.5-3.5"></path></svg>
+        <input id="q" type="search" placeholder="Search by name, role, or company" aria-label="Search" />
+      </div>
+
+      <div class="group" id="loc-group">
+        <div class="label">Location</div>
+        <div class="checklist" id="locChecks"></div>
+      </div>
+
+      <div class="group" id="role-group">
+        <div class="label">Job Title/Industry</div>
+        <div class="checklist" id="roleChecks"></div>
+      </div>
+
+      <div class="group" id="grad-group">
+        <div class="label">Graduation Year</div>
+        <select id="gradSelect" aria-label="Graduation year">
+          <option value="">All years</option>
+        </select>
+      </div>
+    </aside>
+
+    <!-- Results area -->
+    <section>
+      <div class="results-head">
+        <h2>Alumni Profiles <span class="pill" id="count">(0)</span></h2>
+      </div>
+      <div id="grid" class="grid" aria-live="polite">
+        <!-- Space for alumni profiles dynamically added via backend -->
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="stamp">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
+      LinkedIn Helper
+    </div>
+    <nav aria-label="Footer links">
+      <a href="#">About LinkedIn Helper</a>
+      <a href="#">Alumni</a>
+      <a href="#">Engineering</a>
+    </nav>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
