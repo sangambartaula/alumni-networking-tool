@@ -130,17 +130,7 @@
     .btn:hover{ background:var(--brand-dark); }
     .btn .li-icon{ width:18px;height:18px; display:inline-block; }
 
-    /* Panel footer inside container */
-    .panel-footer{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      margin-top:18px;
-      padding-top:14px;
-      border-top:1px solid var(--border);
-      flex-wrap:wrap;
-      gap:10px;
-    }
+
     .links{
       display:flex; gap:18px; font-size:14px;
     }
@@ -169,10 +159,26 @@
       .content{ grid-template-columns:1fr; }
       .hero{ min-height:280px; }
     }
+
+    /* Footer layout */
+    .panel-footer{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-top:18px;
+      padding-top:14px;
+      border-top:1px solid var(--border);
+      flex-wrap:wrap;
+      gap:14px;
+    }
+
+    /* Icon sizing when using <img> */
+    .btn .li-icon{ width:18px; height:18px; display:inline-block; }
+    .social a img{ width:18px; height:18px; display:inline-block; }
   </style>
 </head>
 <body>
-  <div class="appbar">LinkedIn Login</div>
+
 
   <main class="container">
 
@@ -192,38 +198,29 @@
         </p>
 
         <a class="btn" href="/auth/linkedin">
-          <svg class="li-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d="M20.45 20.45h-3.55v-5.64c0-1.35-.02-3.08-1.88-3.08-1.88 0-2.17 1.47-2.17 2.98v5.74H9.3V9h3.41v1.57h.05c.47-.9 1.62-1.86 3.33-1.86 3.56 0 4.21 2.34 4.21 5.38v6.36zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.11 20.45H3.56V9h3.55v11.45zM22 2H2v20h20V2z" />
-          </svg>
+          <img class="li-icon" src="./assets/linkedin.svg" alt="" />
           Sign in with LinkedIn
         </a>
       </aside>
     </section>
 
+    <!-- Wrap footer links and social into a panel-footer -->
     <div class="panel-footer">
-      <div class="brand-inline" aria-label="LinkedIn Helper">
-        <svg class="spark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 2v5M12 17v5M4.93 4.93l3.54 3.54M15.53 15.53l3.54 3.54M2 12h5M17 12h5M4.93 19.07l3.54-3.54M15.53 8.47l3.54-3.54"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <span class="brand-script">LinkedIn Helper</span>
-      </div>
-
       <nav class="links" aria-label="Footer">
-        <a href="/about">About LinkedIn Helper</a>
-        <a href="https://untalumni.com/">Alumni</a>
-        <a href="https://engineering.unt.edu/index.html">Engineering</a>
+        <a href="/about" target="_blank" rel="noopener noreferrer">About LinkedIn Helper</a>
+        <a href="https://untalumni.com/" target="_blank" rel="noopener noreferrer">Alumni</a>
+        <a href="https://engineering.unt.edu/index.html" target="_blank" rel="noopener noreferrer">Engineering</a>
       </nav>
 
       <div class="social" aria-label="Social media">
-        <a href="https://www.linkedin.com/school/untengineering/" aria-label="LinkedIn">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.98 3.5C4.98 4.88 3.86 6 2.5 6S0 4.88 0 3.5 1.12 1 2.5 1s2.48 1.12 2.48 2.5zM0 8h5v16H0zM8 8h4.8v2.2h.07c.67-1.26 2.3-2.6 4.73-2.6C22.4 7.6 24 10 24 14.1V24h-5v-8.8c0-2.1-.04-4.8-2.92-4.8-2.92 0-3.37 2.28-3.37 4.64V24H8z"/></svg>
+        <a href="https://www.linkedin.com/school/untengineering/" aria-label="LinkedIn" target="_blank" rel="noopener noreferrer">
+          <img src="./assets/linkedin.svg" alt="LinkedIn" loading="lazy" />
         </a>
-        <a href="https://x.com/untengineering" aria-label="X (Twitter)">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.245 2H21.5l-7.5 8.57L23.5 22h-6.8l-5.32-6.42L5.3 22H2l8.06-9.2L.5 2h6.95l4.79 5.77L18.245 2z"/></svg>
+        <a href="https://x.com/untengineering" aria-label="X (Twitter)" target="_blank" rel="noopener noreferrer">
+          <img src="./assets/x.svg" alt="X" loading="lazy" />
         </a>
-        <a href="https://www.instagram.com/untengineering/" aria-label="Instagram">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2c3.2 0 3.58.01 4.85.07 1.17.05 1.96.24 2.62.51.71.28 1.31.66 1.89 1.24.58.58.96 1.18 1.24 1.89.27.66.46 1.45.51 2.62.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.24 1.96-.51 2.62-.28.71-.66 1.31-1.24 1.89-.58.58-1.18.96-1.89 1.24-.66.27-1.45.46-2.62.51-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.96-.24-2.62-.51a5.26 5.26 0 0 1-1.89-1.24 5.26 5.26 0 0 1-1.24-1.89c-.27-.66-.46-1.45-.51-2.62C2.21 15.58 2.2 15.2 2.2 12s.01-3.58.07-4.85c.05-1.17.24-1.96.51-2.62.28-.71.66-1.31 1.24-1.89.58-.58 1.18-.96 1.89-1.24.66-.27 1.45-.46 2.62-.51C8.42 2.21 8.8 2.2 12 2.2m0 1.8c-3.16 0-3.53.01-4.77.07-.98.05-1.51.21-1.86.35-.47.18-.8.39-1.15.74-.35.35-.56.68-.74 1.15-.14.35-.3.88-.35 1.86-.06 1.24-.07 1.61-.07 4.77s.01 3.53.07 4.77c.05 1 .21 1.51.35 1.86.18.47.39.8.74 1.15.35.35.68.56 1.15.74.35.14.88.3 1.86.35 1.24.06 1.61.07 4.77.07s3.53-.01 4.77-.07c.98-.05 1.51-.21 1.86-.35.47-.18.8-.39 1.15-.74.35-.35 .56-.68 .74-1.15 .14-.35 .3-.88 .35-1.86 .06-1.24 .07-1.61 .07-4.77s-.01-3.53 -.07-4.77c-.05-.98 -.21-1.51 -.35-1.86 -.18-.47 -.39-.8 -.74-1.15a3.47 3.47 0 0 0-1.15-.74c-.35-.14 -.88-.3 -1.86-.35 -1.24-.06 -1.61-.07 -4.77-.07zM12 6.8a5.2 5.2 0 1 1 0 10.4 5.2 5.2 0 0 1 0-10.4m0 1.8a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8zM17.9 5.9a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z"/></svg>
+        <a href="https://www.instagram.com/untengineering/" aria-label="Instagram" target="_blank" rel="noopener noreferrer">
+          <img src="./assets/instagram.svg" alt="Instagram" loading="lazy" />
         </a>
       </div>
     </div>

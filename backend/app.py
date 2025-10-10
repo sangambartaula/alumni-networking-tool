@@ -15,6 +15,10 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
 def home():
     return send_from_directory('../frontend/public', 'index.html')
 
+@app.route('/about')
+def about():
+    return 'About page coming soon', 200
+
 @app.route('/assets/<path:filename>')
 def assets(filename):
     return send_from_directory('../frontend/public/assets', filename)
