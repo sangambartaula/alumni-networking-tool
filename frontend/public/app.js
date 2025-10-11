@@ -131,4 +131,19 @@ function setupFiltering(list) {
   populateFilters(fakeAlumni);
   renderProfiles(fakeAlumni);
   setupFiltering(fakeAlumni);
+  // Sorting feature
+const sortSelect = document.getElementById("sortSelect");
+sortSelect?.addEventListener("change", () => {
+  const value = sortSelect.value;
+  let sorted = [...fakeAlumni];
+
+  if (value === "name") {
+    sorted.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (value === "year") {
+    sorted.sort((a, b) => b.class - a.class);
+  }
+
+  renderProfiles(sorted);
+});
+
 })();
