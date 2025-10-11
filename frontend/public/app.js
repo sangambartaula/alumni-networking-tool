@@ -33,6 +33,7 @@ function createCard(p) {
         </svg>
       </a>
       <button class="btn connect" type="button">Connect</button>
+       <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
     </div>
   `;
 
@@ -42,6 +43,14 @@ function createCard(p) {
     connectBtn.textContent = 'Requested';
     connectBtn.disabled = true;
   });
+
+  // Added: Bookmark button action
+  const starBtn = card.querySelector('.btn.star');
+  starBtn.addEventListener('click', () => {
+    card.classList.toggle('bookmarked');
+    starBtn.textContent = card.classList.contains('bookmarked') ? '★' : '⭐';
+  });
+
 
   return card;
 }

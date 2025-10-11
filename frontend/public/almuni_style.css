@@ -53,3 +53,17 @@ footer a{color:#374151;text-decoration:none}
 footer a:hover{text-decoration:underline}
 .stamp{display:flex;align-items:center;gap:8px;color:var(--brand);font-weight:700}
 .stamp svg{width:18px;height:18px}
+/* Highlight bookmarked cards */
+.card.bookmarked {
+  border: 2px solid gold;
+  box-shadow: 0 0 10px #ffd70060;
+}
+.btn.star {
+  background: #fff8dc;
+  border: 1px solid #fcd34d;
+  color: #b45309;
+  font-size: 16px;
+}
+.btn.star:hover {
+  background: #fef3c7;
+}
