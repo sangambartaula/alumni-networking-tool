@@ -19,6 +19,15 @@ def home():
 def about():
     return 'About page coming soon', 200
 
+@app.route('/alumni')
+def alumni_page():
+    return send_from_directory('../frontend/public', 'alumni.html')
+
+@app.route('/alumni_style.css')
+def alumni_css():
+    return send_from_directory('../frontend/public', 'alumni_style.css')
+
+
 @app.route('/assets/<path:filename>')
 def assets(filename):
     return send_from_directory('../frontend/public/assets', filename)
