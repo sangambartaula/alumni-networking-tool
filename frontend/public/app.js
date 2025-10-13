@@ -8,10 +8,6 @@ const fakeAlumni = [
   { id:5, name:"Abishek Lamichane", role:"Cloud Architect", company:"Global Cloud Services", class:2022, location:"Remote", linkedin:"https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/"},
 ];
 
-// DOM references
-const grid = document.getElementById('grid');
-const count = document.getElementById('count');
-
 // Create profile card element
 function createCard(p) {
   const card = document.createElement('article');
@@ -56,9 +52,13 @@ function createCard(p) {
 }
 
 // Render list to grid
-function renderProfiles(list) {
-  grid.innerHTML = '';
-  list.forEach(p => grid.appendChild(createCard(p)));
+function renderProfiles(list, gridElement, countElement) {
+  const grid = gridElement || document.getElementById('grid');
+  const count = countElement || document.getElementById('count');
+  if (grid) {
+    grid.innerHTML = '';
+    list.forEach(p => grid.appendChild(createCard(p)));
+  }
   if (count) count.textContent = `(${list.length})`;
 }
 
@@ -135,6 +135,34 @@ function setupFiltering(list) {
   });
 }
 
+// Utility function to extract unique values from list
+function extractUniqueValues(list, key) {
+  return Array.from(new Set(list.map(x => x[key]))).sort();
+}
+
+// Utility function to sort alumni by name or year
+function sortAlumni(list, sortBy) {
+  const sorted = [...list];
+  if (sortBy === "name") {
+    sorted.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (sortBy === "year") {
+    sorted.sort((a, b) => b.class - a.class);
+  }
+  return sorted;
+}
+
+// Utility function to filter alumni
+function filterAlumni(list, filters) {
+  return list.filter(a => {
+    const t = `${a.name} ${a.role} ${a.company}`.toLowerCase();
+    const matchTerm = !filters.term || t.includes(filters.term);
+    const matchLoc = !filters.loc || !filters.loc.length || filters.loc.includes(a.location);
+    const matchRole = !filters.role || !filters.role.length || filters.role.includes(a.role);
+    const matchYear = !filters.year || String(a.class) === String(filters.year);
+    return matchTerm && matchLoc && matchRole && matchYear;
+  });
+}
+
 // Initialize
 (function init() {
   populateFilters(fakeAlumni);
@@ -144,15 +172,21 @@ function setupFiltering(list) {
 const sortSelect = document.getElementById("sortSelect");
 sortSelect?.addEventListener("change", () => {
   const value = sortSelect.value;
-  let sorted = [...fakeAlumni];
-
-  if (value === "name") {
-    sorted.sort((a, b) => a.name.localeCompare(b.name));
-  } else if (value === "year") {
-    sorted.sort((a, b) => b.class - a.class);
-  }
-
+  const sorted = sortAlumni(fakeAlumni, value);
   renderProfiles(sorted);
 });
 
 })();
+
+// Export functions for testing (Node.js environment)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    createCard,
+    renderProfiles,
+    populateFilters,
+    extractUniqueValues,
+    sortAlumni,
+    filterAlumni,
+    fakeAlumni
+  };
+}

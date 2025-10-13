@@ -3,3 +3,6 @@ flask
 werkzeug
 mysql-connector-python
 python-dotenv
+pytest
+pytest-cov
+pytest-mock

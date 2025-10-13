@@ -50,20 +50,61 @@ python app.py
 
 Open your browser at `http://localhost:5000`
 
+## Running Tests
+
+### Backend Tests (Python)
+
+Run all backend tests with pytest:
+
+```bash
+pytest backend/tests/ -v
+```
+
+Run with coverage report:
+
+```bash
+pytest backend/tests/ --cov=backend --cov-report=html
+```
+
+### Frontend Tests (JavaScript)
+
+Install Node.js dependencies first (one-time setup):
+
+```bash
+npm install
+```
+
+Run all frontend tests with Jest:
+
+```bash
+npm test
+```
+
+Run with coverage report:
+
+```bash
+npm run test:coverage
+```
+
 ## Project Structure
 
 ```
 alumni-networking-tool/
 │
-├── app.py                 # Main application
-├── requirements.txt       # Python dependencies
+├── backend/               # Backend Python code
+│   ├── app.py            # Flask application
+│   ├── database.py       # Database utilities
+│   └── tests/            # Backend tests
 ├── frontend/              # Frontend code
-│   └── public/            # HTML templates and static assets
-│       ├── assets/        # Images, icons, other media
-│       └── index.html     # Main HTML file
-├── static/                # Additional CSS, JS, images (if any)
-├── README.md              # Project documentation
-└── .env                   # Environment variables (not committed)
+│   ├── public/           # HTML templates and static assets
+│   │   ├── assets/       # Images, icons, other media
+│   │   ├── app.js        # Frontend JavaScript
+│   │   └── index.html    # Main HTML file
+│   └── tests/            # Frontend tests
+├── requirements.txt       # Python dependencies
+├── package.json          # Node.js dependencies and scripts
+├── README.md             # Project documentation
+└── .env                  # Environment variables (not committed)
 ```
 
 ## Group Members
