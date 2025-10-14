@@ -2,10 +2,10 @@
 // Fake alumni data (temporary). Remove or replace when backend is ready.
 const fakeAlumni = [
   { id:1, name:"Sachin Banjade", role:"Software Engineer", company:"Tech Solutions Inc.", class:2020, location:"Dallas", linkedin:"https://www.linkedin.com/in/sachin-banjade-345339248/"},
-  { id:2, name:"Sangam Bartuala", role:"Data Scientist", company:"Data Insights Co.", class:2021, location:"Austin", linkedin:"https://www.linkedin.com/in/sangambartaula/"},
+  { id:2, name:"Sangam Bartaula", role:"Data Scientist", company:"Data Insights Co.", class:2021, location:"Austin", linkedin:"https://www.linkedin.com/in/sangambartaula/"},
   { id:3, name:"Shrish Acharya", role:"Product Manager", company:"Innovate Labs", class:2023, location:"Houston", linkedin:"https://www.linkedin.com/in/shrish-acharya-53b46932b/"},
   { id:4, name:"Niranjan Paudel", role:"Cybersecurity Analyst", company:"SecureNet Systems", class:2020, location:"Dallas", linkedin:"https://www.linkedin.com/in/niranjan-paudel-14a31a330/"},
-  { id:5, name:"Abishek Lamichane", role:"Cloud Architect", company:"Global Cloud Services", class:2022, location:"Remote", linkedin:"https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/"},
+  { id:5, name:"Abishek Lamichhane", role:"Cloud Architect", company:"Global Cloud Services", class:2022, location:"Remote", linkedin:"https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/"},
 ];
 
 // DOM references

@@ -3,3 +3,4 @@ flask
 werkzeug
 mysql-connector-python
 python-dotenv
+pytest
