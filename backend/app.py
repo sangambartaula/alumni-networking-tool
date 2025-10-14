@@ -1,12 +1,17 @@
 # app.py
-from flask import Flask, redirect, request, url_for, session, send_from_directory
-from dotenv import load_dotenv
+# app.py  (TOP OF FILE)
+
 import os
+from dotenv import load_dotenv  # <- import this BEFORE calling it
+load_dotenv(os.getenv("DOTENV_PATH", ".env"))  # <- load .env early
+
+from flask import Flask, redirect, request, url_for, session, send_from_directory
 import requests  # for OAuth token exchange
-import mysql.connector # for MySQL connection
+import mysql.connector  # for MySQL connection
 import secrets
 
-load_dotenv()
+
+
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
