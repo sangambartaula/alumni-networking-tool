@@ -8,9 +8,100 @@ const fakeAlumni = [
   { id:5, name:"Abishek Lamichhane", role:"Cloud Architect", company:"Global Cloud Services", class:2022, location:"Remote", linkedin:"https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/"},
 ];
 
+// Store user interactions in memory
+let userInteractions = {};
+
 // DOM references
 const grid = document.getElementById('grid');
 const count = document.getElementById('count');
+
+// Load user interactions from backend
+async function loadUserInteractions() {
+  try {
+    const response = await fetch('/api/user-interactions');
+    const data = await response.json();
+    
+    if (data.success) {
+      // Convert interactions array to a map for easy lookup
+      // Key: "alumni_id-interaction_type", Value: interaction data
+      userInteractions = {};
+      data.interactions.forEach(interaction => {
+        const key = `${interaction.alumni_id}-${interaction.interaction_type}`;
+        userInteractions[key] = interaction;
+      });
+      console.log('User interactions loaded:', userInteractions);
+    }
+  } catch (error) {
+    console.error('Error loading user interactions:', error);
+  }
+}
+
+// Save interaction to backend
+async function saveInteraction(alumniId, interactionType, notes = '') {
+  try {
+    const response = await fetch('/api/interaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        alumni_id: alumniId,
+        interaction_type: interactionType,
+        notes: notes
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      console.log(`${interactionType} saved for alumni ${alumniId}`);
+      // Update local state
+      const key = `${alumniId}-${interactionType}`;
+      userInteractions[key] = { alumni_id: alumniId, interaction_type: interactionType, notes };
+      return true;
+    } else {
+      console.error('Error saving interaction:', data.error);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error saving interaction:', error);
+    return false;
+  }
+}
+
+// Remove interaction from backend
+async function removeInteraction(alumniId, interactionType) {
+  try {
+    const response = await fetch('/api/interaction', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        alumni_id: alumniId,
+        interaction_type: interactionType
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      console.log(`${interactionType} removed for alumni ${alumniId}`);
+      // Update local state
+      const key = `${alumniId}-${interactionType}`;
+      delete userInteractions[key];
+      return true;
+    } else {
+      console.error('Error removing interaction:', data.error);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error removing interaction:', error);
+    return false;
+  }
+}
+
+// Check if user has an interaction for an alumni
+function hasInteraction(alumniId, interactionType) {
+  const key = `${alumniId}-${interactionType}`;
+  return key in userInteractions;
+}
 
 // Create profile card element
 function createCard(p) {
@@ -33,24 +124,67 @@ function createCard(p) {
         </svg>
       </a>
       <button class="btn connect" type="button">Connect</button>
-       <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
+      <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
     </div>
   `;
 
-  // Connect button action
+  // Connect button action - TOGGLE between Connect and Requested
   const connectBtn = card.querySelector('.btn.connect');
-  connectBtn.addEventListener('click', () => {
+  
+  // Check if already connected
+  if (hasInteraction(p.id, 'connected')) {
     connectBtn.textContent = 'Requested';
-    connectBtn.disabled = true;
+    connectBtn.classList.add('requested');
+  }
+  
+  connectBtn.addEventListener('click', async () => {
+    const isCurrentlyConnected = connectBtn.classList.contains('requested');
+    
+    if (isCurrentlyConnected) {
+      // Remove connection
+      const success = await removeInteraction(p.id, 'connected');
+      if (success) {
+        connectBtn.textContent = 'Connect';
+        connectBtn.classList.remove('requested');
+      }
+    } else {
+      // Add connection
+      const success = await saveInteraction(p.id, 'connected');
+      if (success) {
+        connectBtn.textContent = 'Requested';
+        connectBtn.classList.add('requested');
+      }
+    }
   });
 
-  // Added: Bookmark button action
+  // Bookmark button action - TOGGLE between ⭐ and ★
   const starBtn = card.querySelector('.btn.star');
-  starBtn.addEventListener('click', () => {
-    card.classList.toggle('bookmarked');
-    starBtn.textContent = card.classList.contains('bookmarked') ? '★' : '⭐';
+  
+  // Check if already bookmarked
+  if (hasInteraction(p.id, 'bookmarked')) {
+    card.classList.add('bookmarked');
+    starBtn.textContent = '★';
+  }
+  
+  starBtn.addEventListener('click', async () => {
+    const isCurrentlyBookmarked = card.classList.contains('bookmarked');
+    
+    if (isCurrentlyBookmarked) {
+      // Remove bookmark
+      const success = await removeInteraction(p.id, 'bookmarked');
+      if (success) {
+        card.classList.remove('bookmarked');
+        starBtn.textContent = '⭐';
+      }
+    } else {
+      // Add bookmark
+      const success = await saveInteraction(p.id, 'bookmarked');
+      if (success) {
+        card.classList.add('bookmarked');
+        starBtn.textContent = '★';
+      }
+    }
   });
-
 
   return card;
 }
@@ -136,23 +270,26 @@ function setupFiltering(list) {
 }
 
 // Initialize
-(function init() {
+(async function init() {
+  // Load interactions from backend first
+  await loadUserInteractions();
+  
   populateFilters(fakeAlumni);
   renderProfiles(fakeAlumni);
   setupFiltering(fakeAlumni);
+  
   // Sorting feature
-const sortSelect = document.getElementById("sortSelect");
-sortSelect?.addEventListener("change", () => {
-  const value = sortSelect.value;
-  let sorted = [...fakeAlumni];
+  const sortSelect = document.getElementById("sortSelect");
+  sortSelect?.addEventListener("change", () => {
+    const value = sortSelect.value;
+    let sorted = [...fakeAlumni];
 
-  if (value === "name") {
-    sorted.sort((a, b) => a.name.localeCompare(b.name));
-  } else if (value === "year") {
-    sorted.sort((a, b) => b.class - a.class);
-  }
+    if (value === "name") {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (value === "year") {
+      sorted.sort((a, b) => b.class - a.class);
+    }
 
-  renderProfiles(sorted);
-});
-
+    renderProfiles(sorted);
+  });
 })();
