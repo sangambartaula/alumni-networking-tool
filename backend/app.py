@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from functools import wraps
 import os
 import requests  # for OAuth token exchange
-import mysql.connector # for MySQL connection
+import mysql.connector  # for MySQL connection
 import secrets
 from database import get_connection
 
@@ -13,7 +13,11 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
 
-# MySQL credentials
+# Development toggle: set DISABLE_DB=1 in .env to skip all DB work (useful when RDS is down)
+DISABLE_DB = os.getenv("DISABLE_DB", "0") == "1"
+app.logger.info(f"DISABLE_DB = {DISABLE_DB}")
+
+# MySQL credentials (kept for reference; connections use get_connection())
 mysql_host = os.getenv('MYSQLHOST')
 mysql_user = os.getenv('MYSQLUSER')
 mysql_pass = os.getenv('MYSQLPASSWORD')
@@ -26,16 +30,22 @@ CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
 
 # ---------------------- Helper functions ----------------------
-
 def get_current_user_id():
-    """Get the current logged-in user's ID from LinkedIn profile"""
+    """Get the current logged-in user's DB id from LinkedIn profile.
+       In dev (DISABLE_DB=1), return a stable placeholder id from session.
+    """
     if 'linkedin_profile' not in session:
         return None
-    
+
     linkedin_profile = session['linkedin_profile']
     linkedin_id = linkedin_profile.get('sub')  # LinkedIn's unique ID
-    
-    # Get user from database
+
+    if DISABLE_DB:
+        # Give APIs a consistent user id during demos with no DB
+        session.setdefault('_dev_user_id', 1)
+        return session['_dev_user_id']
+
+    conn = None
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -46,7 +56,11 @@ def get_current_user_id():
         print(f"Error getting user ID: {e}")
         return None
     finally:
-        conn.close()
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def login_required(f):
     """Decorator to require login"""
@@ -66,7 +80,7 @@ def api_login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ---------------------- Existing routes ----------------------
+# ---------------------- Static/Basic routes ----------------------
 @app.route('/')
 def home():
     return send_from_directory('../frontend/public', 'index.html')
@@ -74,7 +88,6 @@ def home():
 @app.route('/about')
 def about():
     return 'About page coming soon', 200
-
 
 @app.route('/alumni_style.css')
 def alumni_css():
@@ -93,9 +106,7 @@ def logout():
     session.clear()
     return redirect('/')
 
-
 # ---------------------- LinkedIn OAuth routes ----------------------
-
 @app.route('/login/linkedin')
 def login_linkedin():
     """Redirect user to LinkedIn's OAuth authorization page"""
@@ -108,10 +119,9 @@ def login_linkedin():
     auth_url = (
         f"https://www.linkedin.com/oauth/v2/authorization?"
         f"response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-        f"&scope={scope}&state={state}&prompt=login" # force login each time for demonstration!
+        f"&scope={scope}&state={state}&prompt=login"  # force login each time for demonstration
     )
     return redirect(auth_url)
-
 
 @app.route('/auth/linkedin/callback')
 def linkedin_callback():
@@ -119,7 +129,7 @@ def linkedin_callback():
     code = request.args.get('code')
     state = request.args.get('state')
 
-    # Verify state to prevent CSRF (Cross-Site Request Forgery)
+    # Verify state to prevent CSRF
     if state != session.get('oauth_state'):
         return "Error: State mismatch. Potential CSRF attack.", 400
 
@@ -142,17 +152,23 @@ def linkedin_callback():
     access_token = resp.json().get('access_token')
     session['linkedin_token'] = access_token
 
-    # Fetch user profile and email
+    # Fetch user profile (OpenID Connect userinfo)
     headers = {'Authorization': f'Bearer {access_token}'}
     userinfo_resp = requests.get('https://api.linkedin.com/v2/userinfo', headers=headers)
-
     if userinfo_resp.status_code != 200:
         return f"Error fetching LinkedIn user info: {userinfo_resp.text}", 400
 
     linkedin_profile = userinfo_resp.json()
     session['linkedin_profile'] = linkedin_profile
 
-    # NEW: Save/update user in database
+    # ---- DEV BYPASS: skip DB completely if disabled ----
+    if DISABLE_DB:
+        app.logger.info("DB BYPASS active; redirecting to /alumni")
+        return redirect('/alumni')
+    # ----------------------------------------------------
+
+    # Save/update user in database (safe connection handling)
+    conn = None
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -174,9 +190,14 @@ def linkedin_callback():
             ))
             conn.commit()
     except Exception as e:
-        print(f"Error saving user to database: {e}")
+        app.logger.error(f"Error saving user to database: {e}")
+        # Let user proceed even if DB write failed
     finally:
-        conn.close()
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     # After successful login, redirect to alumni dashboard
     return redirect('/alumni')
@@ -187,61 +208,34 @@ def linkedin_callback():
 def alumni_page():
     return send_from_directory('../frontend/public', 'alumni.html')
 
-
 # ---------------------- API endpoints for user interactions ----------------------
-
 @app.route('/api/interaction', methods=['POST'])
 @api_login_required
 def add_interaction():
     """
     Add or update a user interaction (bookmarked, connected)
-    
-    Expected JSON body:
-    {
-        "alumni_id": 123,
-        "interaction_type": "bookmarked" or "connected",
-        "notes": "optional notes"
-    }
+    Body:
+    { "alumni_id": 123, "interaction_type": "bookmarked"|"connected", "notes": "..." }
     """
+    # Short-circuit in dev when DB is disabled
+    if DISABLE_DB:
+        return jsonify({"success": True, "message": "DB disabled (dev). No-op."}), 200
+
     try:
-        print("DEBUG: add_interaction called")
-        print(f"DEBUG: Session keys: {session.keys()}")
-        print(f"DEBUG: Session linkedin_profile: {session.get('linkedin_profile')}")
-        
         data = request.get_json()
         alumni_id = data.get('alumni_id')
         interaction_type = data.get('interaction_type')
         notes = data.get('notes', '')
-        
-        print(f"DEBUG: Request data - alumni_id: {alumni_id}, type: {interaction_type}")
-        
-        # Validate input
+
         if not alumni_id or not interaction_type:
             return jsonify({"error": "Missing alumni_id or interaction_type"}), 400
-        
         if interaction_type not in ['bookmarked', 'connected']:
             return jsonify({"error": "Invalid interaction_type. Must be 'bookmarked' or 'connected'"}), 400
-        
-        # Get current user
+
         user_id = get_current_user_id()
-        print(f"DEBUG: user_id returned: {user_id}")
-        
         if not user_id:
-            print("DEBUG: User not found! Checking database...")
-            # Debug: check if user exists in database
-            try:
-                conn = get_connection()
-                with conn.cursor() as cur:
-                    cur.execute("SELECT id, linkedin_id, email FROM users LIMIT 5")
-                    users = cur.fetchall()
-                    print(f"DEBUG: Users in database: {users}")
-                conn.close()
-            except Exception as debug_err:
-                print(f"DEBUG: Error checking database: {debug_err}")
-            
             return jsonify({"error": "User not found"}), 401
-        
-        # Insert or update interaction
+
         conn = get_connection()
         try:
             with conn.cursor() as cur:
@@ -253,50 +247,43 @@ def add_interaction():
                         updated_at = CURRENT_TIMESTAMP
                 """, (user_id, alumni_id, interaction_type, notes))
                 conn.commit()
-            
-            print(f"DEBUG: Interaction saved successfully")
-            return jsonify({
-                "success": True,
-                "message": f"{interaction_type} added successfully"
-            }), 200
+            return jsonify({"success": True, "message": f"{interaction_type} added successfully"}), 200
         except mysql.connector.Error as err:
-            print(f"DEBUG: MySQL error: {err}")
             conn.rollback()
             return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
-            conn.close()
-    
-    except Exception as e:
-        print(f"DEBUG: Exception: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+            try:
+                conn.close()
+            except Exception:
+                pass
 
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 @app.route('/api/interaction', methods=['DELETE'])
 @api_login_required
 def remove_interaction():
     """
     Remove a user interaction
-    
-    Expected JSON body:
-    {
-        "alumni_id": 123,
-        "interaction_type": "bookmarked" or "connected"
-    }
+    Body:
+    { "alumni_id": 123, "interaction_type": "bookmarked"|"connected" }
     """
+    # Short-circuit in dev when DB is disabled
+    if DISABLE_DB:
+        return jsonify({"success": True, "message": "DB disabled (dev). No-op."}), 200
+
     try:
         data = request.get_json()
         alumni_id = data.get('alumni_id')
         interaction_type = data.get('interaction_type')
-        
+
         if not alumni_id or not interaction_type:
             return jsonify({"error": "Missing alumni_id or interaction_type"}), 400
-        
+
         user_id = get_current_user_id()
         if not user_id:
             return jsonify({"error": "User not found"}), 401
-        
+
         conn = get_connection()
         try:
             with conn.cursor() as cur:
@@ -305,31 +292,34 @@ def remove_interaction():
                     WHERE user_id = %s AND alumni_id = %s AND interaction_type = %s
                 """, (user_id, alumni_id, interaction_type))
                 conn.commit()
-            
             return jsonify({"success": True, "message": "Interaction removed"}), 200
         except mysql.connector.Error as err:
             conn.rollback()
             return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
-            conn.close()
-    
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
-
 
 @app.route('/api/user-interactions', methods=['GET'])
 @api_login_required
 def get_user_interactions():
     """
     Get all interactions for current user
-    
-    Returns array of interactions with alumni_id, interaction_type, notes, etc.
     """
+    # Short-circuit in dev when DB is disabled
+    if DISABLE_DB:
+        return jsonify({"success": True, "interactions": []}), 200
+
     try:
         user_id = get_current_user_id()
         if not user_id:
             return jsonify({"error": "User not found"}), 401
-        
+
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
@@ -340,22 +330,21 @@ def get_user_interactions():
                     ORDER BY updated_at DESC
                 """, (user_id,))
                 interactions = cur.fetchall()
-            
+
             # Convert datetime objects to strings for JSON serialization
             for interaction in interactions:
                 interaction['created_at'] = interaction['created_at'].isoformat() if interaction['created_at'] else None
                 interaction['updated_at'] = interaction['updated_at'].isoformat() if interaction['updated_at'] else None
-            
-            return jsonify({
-                "success": True,
-                "interactions": interactions
-            }), 200
+
+            return jsonify({"success": True, "interactions": interactions}), 200
         finally:
-            conn.close()
-    
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
-
 
 # ---------------------- Error handler ----------------------
 @app.errorhandler(404)
