@@ -1,3 +1,6 @@
 .env
 __pycache__
 venv
+scraper/linkedin_cookies.json
+scraper/names_to_search.csv
+scraper/output/UNT_Alumni_Data
