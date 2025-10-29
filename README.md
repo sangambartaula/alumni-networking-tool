@@ -1,75 +1,88 @@
 # Alumni Networking Tool
 
-A web-based application designed to help the College of Engineering connect with students and alumni using the LinkedIn API. The tool provides an interface for exploring alumni profiles, networking opportunities, and fostering engagement between current students and graduates.
+A web-based application designed to help the College of Engineering connect with students and alumni using LinkedIn data. The tool includes a powerful scraper to extract alumni information and provides an interface for exploring alumni profiles, networking opportunities, and fostering engagement between current students and graduates.
 
-## Features
+---
 
-* **Alumni Search:** Find alumni by name, graduation year, degree, or department.
-* **Profile Insights:** View LinkedIn profiles, career paths, and current positions.
-* **Networking:** Connect students with alumni for mentorship, internships, and professional guidance.
-* **Interactive Dashboard:** Visualize alumni distribution by location, industry, and role.
-* **Secure LinkedIn Integration:** Uses LinkedIn API for secure login and access
+## 🚀 Features
 
-## Getting Started
+- **LinkedIn Alumni Scraper:** Automated scraping of UNT alumni profiles with anti-bot measures  
+- **Alumni Search:** Find alumni by name, graduation year, degree, or department  
+- **Profile Insights:** View LinkedIn profiles, career paths, and current positions  
+- **Networking:** Connect students with alumni for mentorship, internships, and professional guidance  
+- **Interactive Dashboard:** Visualize alumni distribution by location, industry, and role  
+- **Secure Data Storage:** All scraped data stored locally in CSV format  
+
+---
+
+## ⚙️ Getting Started
 
 ### Prerequisites
 
-* Python 3.10+
-* LinkedIn Account
+- Python 3.10+  
+- LinkedIn account (for cookie authentication)  
+- Chrome/Chromium browser (for Selenium scraper)  
+- Google Chrome WebDriver (chromedriver)  
 
 ### Installation
 
-1. Clone the repository:
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/sangambartaula/alumni-networking-tool
+   cd alumni-networking-tool
 
-```bash
-git clone https://github.com/sangambartaula/alumni-networking-tool
-cd alumni-networking-tool
-```
-
-2. Create a virtual environment:
-
-```bash
+2. **Create a virtual environment**
 python3 -m venv venv
 source venv/bin/activate  # macOS/Linux
 venv\Scripts\activate     # Windows
-```
 
-3. Install dependencies:
-
-```bash
+3. **Install Dependencies**
 pip install -r requirements.txt
-```
 
-4. Set up environment variables (LinkedIn credentials, etc.) in a `.env` file.
+4. **Environment Variables**
+Create a .env file in the project root and add LinkedIn credentials, scraper options, and database settings (see .env.example).
 
-5. Run the application:
+5. **Run the application (or scraper):**
 
-```bash
-python app.py
-```
+   ```bash
+   python app.py                # Run the Flask web app
+   # or
+   python scraper/linkedin_scraper.py  # Run the LinkedIn scraper directly
 
-Open your browser at `http://localhost:5000`
+Open your browser at:
+http://localhost:5000
 
 ## Project Structure
 
-```
+```bash
 alumni-networking-tool/
 │
-├── app.py                 # Main application
-├── requirements.txt       # Python dependencies
-├── frontend/              # Frontend code
-│   └── public/            # HTML templates and static assets
-│       ├── assets/        # Images, icons, other media
-│       └── index.html     # Main HTML file
-├── static/                # Additional CSS, JS, images (if any)
-├── README.md              # Project documentation
-└── .env                   # Environment variables (not committed)
-```
+├── .gitignore                     # Git ignore rules
+├── README.md                      # Project documentation
+├── requirements.txt               # Python dependencies
+│
+├── backend/                       # Backend code
+│   ├── app.py                     # Main Flask application
+│   ├── database.py                # Database connection and models
+│   └── tests/                     # Unit and integration tests
+│       ├── __init__.py
+│       ├── conftest.py
+│       ├── test_linkedin.py       # Tests for scraper and integration
+│       └── test_smoke.py          # Basic functional and sanity tests
+│
+├── frontend/                      # Frontend interface
+│   ├── assets/                    # Images, icons, and other static files
+│   ├── alumni_style.css           # Stylesheet for alumni pages
+│   ├── alumni.html                # Alumni profile page
+│   ├── app.js                     # Frontend JavaScript logic
+│   └── index.html                 # Main landing page
+│
+└── scraper/                       # LinkedIn scraper module
+    ├── linkedin_scraper.py        # Selenium-based scraper
+    ├── playwright_scraper.py      # Playwright-based scraper (alternative)
+    ├── parsers.py                 # Parsing logic for extracted data
+    ├── names_to_search.csv        # Input CSV of names (ignored in Git)
+    ├── linkedin_cookies.json      # Exported LinkedIn cookies (ignored in Git)
+    └── output/                    # Generated data from scraper
+        └── UNT_Alumni_Data.csv    # Scraped alumni data output (ignored in Git)
 
-## Group Members
-
-* **Sangam Bartaula** - @sangambartaula
-* **Sachin Banjade** - @sbanjade
-* **Abishek Lamichhane** - @lamichhaneabishek1
-* **Shrish Acharya** - @Shrish63
-* **Niranjan Paudel** - @aashishs421
