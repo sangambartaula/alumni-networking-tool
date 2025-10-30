@@ -86,3 +86,19 @@ alumni-networking-tool/
     └── output/                    # Generated data from scraper
         └── UNT_Alumni_Data.csv    # Scraped alumni data output (ignored in Git)
 
+## 🔎 Scraper Quick Check (local)
+
+Use these helper commands to validate your local scraper setup without changing any scraper code.
+
+### 1) Requirements
+- `.env` at **repo root** with:
+  - `LINKEDIN_EMAIL=...`
+  - `LINKEDIN_PASSWORD=...`
+- Google Chrome installed (or run Selenium headless if supported)
+- `chromedriver` installed (Homebrew): `brew install chromedriver`
+
+### 2) Run the scraper (short test)
+From the `scraper` folder:
+```bash
+cd scraper
+python3 linkedin_scraper.py

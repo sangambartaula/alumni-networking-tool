@@ -1,6 +1,14 @@
+# Environment & system files
 .env
-__pycache__
-venv
+.env.*
+.DS_Store
+
+# Python cache and virtual environment
+__pycache__/
+venv/
+
+# Scraper outputs
 scraper/linkedin_cookies.json
 scraper/names_to_search.csv
-scraper/output/UNT_Alumni_Data
+scraper/output/
+
