@@ -212,32 +212,30 @@ class LinkedInSearchScraper:
         time.sleep(2)
     
     def extract_profile_urls_from_page(self):
-        """Extract all profile URLs from current page - ONLY main profile links"""
+        """Extract all profile URLs from current LinkedIn search page (2025 layout)."""
         logger.info("Extracting profile URLs...")
-        
+
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
-        profile_urls = []
-        
-        # Find all LI elements (profile cards)
-        profile_cards = soup.find_all('li', {'class': lambda x: x and 'oFSVJaxbBHFfrSHdNWzNIBrfZiDqkXRVqJhws' in (x or '')})
-        logger.info(f"Found {len(profile_cards)} profile cards")
-        
-        for card in profile_cards:
-            # Find ONLY the main profile link (the first one in the card that has miniProfileUrn)
-            # This is the actual person's profile, not mutual connections
-            main_link = card.find('a', {'href': lambda x: x and '/in/' in (x or '') and 'miniProfileUrn' in (x or '')})
-            
-            if main_link:
-                href = main_link.get('href', '')
-                profile_url = href.split('?')[0]
-                if not profile_url.startswith('http'):
-                    profile_url = f"https://www.linkedin.com{profile_url}"
-                
-                if profile_url not in profile_urls:
-                    profile_urls.append(profile_url)
-        
-        logger.info(f"Extracted {len(profile_urls)} unique URLs")
-        return profile_urls
+
+        # Try multiple patterns, since LinkedIn randomizes container classes
+        selectors = [
+            "a.app-aware-link[href*='/in/']",                      # modern layout
+            "a[href*='/in/']:not([tabindex='-1'])",                # fallback
+            "div.entity-result__content a.app-aware-link[href*='/in/']"
+        ]
+
+        profile_urls = set()
+        for selector in selectors:
+            for a in soup.select(selector):
+                href = a.get("href", "").split("?")[0]
+                if href and "/in/" in href:
+                    if not href.startswith("http"):
+                        href = f"https://www.linkedin.com{href}"
+                    profile_urls.add(href)
+
+        logger.info(f"Extracted {len(profile_urls)} unique profile URLs")
+        return list(profile_urls)
+
     
     def extract_profile_from_search_result(self, profile_url):
         """Extract basic profile info from search result - match by URL correctly"""
