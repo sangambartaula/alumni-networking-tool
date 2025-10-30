@@ -4,3 +4,14 @@ venv
 scraper/linkedin_cookies.json
 scraper/names_to_search.csv
 scraper/output/UNT_Alumni_Data
+
+# PDF Reader outputs
+backend/data_pdfs/
+backend/engineering_students.csv
+backend/search_queries.txt
+backend/output/
+uploads/
+outputs/
+# Scraper outputs
+scraper/output/
+scraper/__pycache__/
