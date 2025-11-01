@@ -352,4 +352,13 @@ def not_found(e):
     return 'Page not found', 404
 
 if __name__ == "__main__":
+    # Initialize database first
+    from database import init_db, seed_alumni_data
+    if not DISABLE_DB:
+        try:
+            init_db()
+            seed_alumni_data()  # Import CSV data if available
+        except Exception as e:
+            app.logger.error(f"Failed to initialize database: {e}")
+            exit(1)
     app.run()

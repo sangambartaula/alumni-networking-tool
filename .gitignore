@@ -5,6 +5,9 @@
 Thumbs.db
 *.log
 
+# Test files
+backend/test_db.py
+
 # Python cache and virtual environments
 __pycache__/
 *.py[cod]

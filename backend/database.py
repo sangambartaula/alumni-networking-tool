@@ -45,10 +45,20 @@ def get_connection(with_db=True):
         "user": MYSQLUSER,
         "password": MYSQLPASSWORD,
         "port": MYSQLPORT,
+        "connect_timeout": 10,  # 10 seconds timeout
+        "connection_timeout": 10,  # 10 seconds timeout
     }
     if with_db and MYSQL_DATABASE:
         kwargs["database"] = MYSQL_DATABASE
-    return mysql.connector.connect(**kwargs)
+    try:
+        return mysql.connector.connect(**kwargs)
+    except mysql.connector.Error as err:
+        if err.errno == 2003:  # Can't connect to MySQL server
+            logger.error(f"Cannot connect to MySQL server at {MYSQLHOST}:{MYSQLPORT}. Please check:")
+            logger.error("1. The RDS instance is running and accessible")
+            logger.error("2. The security group allows inbound traffic from your IP")
+            logger.error("3. The VPC and subnet settings are correct")
+        raise
 
 def ensure_database():
     """Create database if it doesn't exist"""
@@ -155,30 +165,80 @@ def init_db():
         if conn:
             conn.close()
 
-def seed_alumni_data():
-    """Seed the database with fake alumni data for testing"""
-    fake_alumni = [
-        (1, "Sachin", "Banjade", 2020, "Software Engineering", "https://www.linkedin.com/in/sachin-banjade-345339248/", "Software Engineer", "Dallas"),
-        (2, "Sangam", "Bartaula", 2021, "Data Science", "https://www.linkedin.com/in/sangambartaula/", "Data Scientist", "Austin"),
-        (3, "Shrish", "Acharya", 2023, "Product Management", "https://www.linkedin.com/in/shrish-acharya-53b46932b/", "Product Manager", "Houston"),
-        (4, "Niranjan", "Paudel", 2020, "Cybersecurity", "https://www.linkedin.com/in/niranjan-paudel-14a31a330/", "Cybersecurity Analyst", "Dallas"),
-        (5, "Abishek", "Lamichhane", 2022, "Cloud Computing", "https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/", "Cloud Architect", "Remote"),
-    ]
+def import_alumni_csv(csv_path):
+    """Import alumni data from UNT_Alumni_Data.csv into the database"""
+    import pandas as pd
     
-    conn = get_connection(with_db=True)
+    logger.info(f"Importing alumni data from {csv_path}")
+    
     try:
-        with conn.cursor() as cur:
-            for alumni in fake_alumni:
-                cur.execute("""
-                    INSERT IGNORE INTO alumni (id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, location)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, alumni)
-            conn.commit()
-        logger.info(f"Seeded {len(fake_alumni)} alumni records")
-    except Exception as err:
-        logger.error(f"Error seeding alumni data: {err}")
-    finally:
-        conn.close()
+        # Read CSV file
+        df = pd.read_csv(csv_path)
+        
+        # Process each row
+        alumni_data = []
+        for _, row in df.iterrows():
+            # Split name into first and last name
+            name_parts = row['name'].strip().split(maxsplit=1)
+            first_name = name_parts[0] if name_parts else ""
+            last_name = name_parts[1] if len(name_parts) > 1 else ""
+            
+            # Convert graduation year to integer or None
+            try:
+                grad_year = int(row['graduation_year']) if pd.notna(row['graduation_year']) else None
+            except (ValueError, TypeError):
+                grad_year = None
+            
+            # Create alumni record
+            alumni_record = (
+                None,  # id will be auto-generated
+                first_name,
+                last_name,
+                grad_year,
+                row['major'] if pd.notna(row['major']) else None,
+                row['profile_url'] if pd.notna(row['profile_url']) else None,
+                row['job_title'] if pd.notna(row['job_title']) else None,
+                row['company'] if pd.notna(row['company']) else None,
+                row['location'] if pd.notna(row['location']) else None
+            )
+            alumni_data.append(alumni_record)
+        
+        # Insert data into database
+        conn = get_connection(with_db=True)
+        try:
+            with conn.cursor() as cur:
+                cur.executemany("""
+                    INSERT INTO alumni 
+                    (id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                    grad_year = VALUES(grad_year),
+                    degree = VALUES(degree),
+                    current_job_title = VALUES(current_job_title),
+                    company = VALUES(company),
+                    location = VALUES(location),
+                    updated_at = CURRENT_TIMESTAMP
+                """, alumni_data)
+                conn.commit()
+                logger.info(f"Successfully imported {len(alumni_data)} alumni records")
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error importing alumni data: {e}")
+        raise
+
+def seed_alumni_data():
+    """Import alumni data from CSV file"""
+    csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scraper', 'output', 'UNT_Alumni_Data.csv')
+    if os.path.exists(csv_path):
+        import_alumni_csv(csv_path)
+    else:
+        logger.warning(f"Alumni data file not found at {csv_path}")
+        logger.info("Database initialized without any seed data - waiting for real data import")
+    
+    # Database is initialized and ready for data import
+    # No initial seed data - waiting for real alumni data
 
 if __name__ == "__main__":
     try:
