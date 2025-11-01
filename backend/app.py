@@ -346,6 +346,65 @@ def get_user_interactions():
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
+
+@app.route('/api/alumni', methods=['GET'])
+def api_get_alumni():
+    """
+    Return a list of alumni from the database.
+    Query params: limit (default 100), offset (default 0)
+    """
+    # Short-circuit in dev when DB is disabled
+    if DISABLE_DB:
+        return jsonify({"success": True, "alumni": []}), 200
+
+    try:
+        try:
+            limit = int(request.args.get('limit', 100))
+        except Exception:
+            limit = 100
+        try:
+            offset = int(request.args.get('offset', 0))
+        except Exception:
+            offset = 0
+
+        conn = get_connection()
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location
+                    FROM alumni
+                    ORDER BY last_name ASC, first_name ASC
+                    LIMIT %s OFFSET %s
+                """, (limit, offset))
+                rows = cur.fetchall()
+
+            alumni = []
+            for r in rows:
+                alumni.append({
+                    "id": r.get('id'),
+                    "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
+                    "role": r.get('current_job_title'),
+                    "company": r.get('company'),
+                    "class": r.get('grad_year'),
+                    "degree": r.get('degree'),
+                    "location": r.get('location'),
+                    "linkedin": r.get('linkedin_url')
+                })
+
+            return jsonify({"success": True, "alumni": alumni}), 200
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    except mysql.connector.Error as err:
+        app.logger.error(f"MySQL error fetching alumni: {err}")
+        return jsonify({"error": f"Database error: {str(err)}"}), 500
+    except Exception as e:
+        app.logger.error(f"Error fetching alumni: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 # ---------------------- Error handler ----------------------
 @app.errorhandler(404)
 def not_found(e):

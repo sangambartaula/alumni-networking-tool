@@ -1,5 +1,5 @@
 // app.js
-// Fake alumni data (temporary). Remove or replace when backend is ready.
+// Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
 const fakeAlumni = [
   { id:1, name:"Sachin Banjade", role:"Software Engineer", company:"Tech Solutions Inc.", class:2020, location:"Dallas", linkedin:"https://www.linkedin.com/in/sachin-banjade-345339248/"},
   { id:2, name:"Sangam Bartaula", role:"Data Scientist", company:"Data Insights Co.", class:2021, location:"Austin", linkedin:"https://www.linkedin.com/in/sangambartaula/"},
@@ -269,20 +269,45 @@ function setupFiltering(list) {
   });
 }
 
-// Initialize
+// Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
 (async function init() {
+  // Attempt to fetch alumni from backend
+  let alumniData = fakeAlumni;
+  try {
+    const resp = await fetch('/api/alumni?limit=500');
+    const data = await resp.json();
+    if (data && data.success && Array.isArray(data.alumni) && data.alumni.length > 0) {
+      // Map backend shape to frontend expected fields if needed
+      alumniData = data.alumni.map(a => ({
+        id: a.id,
+        name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim(),
+        role: a.role || a.degree || '',
+        company: a.company || '',
+        class: a.class || a.grad_year || '',
+        location: a.location || '',
+        linkedin: a.linkedin || a.linkedin_url || ''
+      }));
+      console.log('Loaded alumni from API, count=', alumniData.length);
+    } else {
+      console.log('No alumni returned from API, using fallback data');
+    }
+  } catch (err) {
+    console.error('Error fetching alumni from API, using fallback data', err);
+  }
+
   // Load interactions from backend first
   await loadUserInteractions();
-  
-  populateFilters(fakeAlumni);
-  renderProfiles(fakeAlumni);
-  setupFiltering(fakeAlumni);
-  
+
+  // Populate UI with the alumni data (from API or fallback)
+  populateFilters(alumniData);
+  renderProfiles(alumniData);
+  setupFiltering(alumniData);
+
   // Sorting feature
   const sortSelect = document.getElementById("sortSelect");
   sortSelect?.addEventListener("change", () => {
     const value = sortSelect.value;
-    let sorted = [...fakeAlumni];
+    let sorted = [...alumniData];
 
     if (value === "name") {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
