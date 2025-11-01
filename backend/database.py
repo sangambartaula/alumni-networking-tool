@@ -175,9 +175,19 @@ def import_alumni_csv(csv_path):
         # Read CSV file
         df = pd.read_csv(csv_path)
         
+        # Drop any duplicate rows in the CSV itself
+        df = df.drop_duplicates(subset=['name', 'profile_url'], keep='first')
+        
         # Process each row
         alumni_data = []
+        seen_profiles = set()  # Track profiles we've already processed
+        
         for _, row in df.iterrows():
+            # Skip if we've already processed this profile
+            profile_url = row['profile_url'] if pd.notna(row['profile_url']) else None
+            if profile_url and profile_url in seen_profiles:
+                continue
+            
             # Split name into first and last name
             name_parts = row['name'].strip().split(maxsplit=1)
             first_name = name_parts[0] if name_parts else ""
@@ -196,31 +206,58 @@ def import_alumni_csv(csv_path):
                 last_name,
                 grad_year,
                 row['major'] if pd.notna(row['major']) else None,
-                row['profile_url'] if pd.notna(row['profile_url']) else None,
+                profile_url,
                 row['job_title'] if pd.notna(row['job_title']) else None,
                 row['company'] if pd.notna(row['company']) else None,
                 row['location'] if pd.notna(row['location']) else None
             )
+            
+            # Add to our tracking set and data list
+            if profile_url:
+                seen_profiles.add(profile_url)
             alumni_data.append(alumni_record)
         
         # Insert data into database
         conn = get_connection(with_db=True)
         try:
             with conn.cursor() as cur:
-                cur.executemany("""
-                    INSERT INTO alumni 
-                    (id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                    grad_year = VALUES(grad_year),
-                    degree = VALUES(degree),
-                    current_job_title = VALUES(current_job_title),
-                    company = VALUES(company),
-                    location = VALUES(location),
-                    updated_at = CURRENT_TIMESTAMP
-                """, alumni_data)
-                conn.commit()
-                logger.info(f"Successfully imported {len(alumni_data)} alumni records")
+                # First, get existing profile URLs to avoid duplicates
+                cur.execute("SELECT linkedin_url FROM alumni WHERE linkedin_url IS NOT NULL")
+                existing_urls = {row[0] for row in cur.fetchall()}
+                
+                # Filter out records that already exist
+                new_alumni_data = []
+                for record in alumni_data:
+                    profile_url = record[5]  # linkedin_url is at index 5
+                    if not profile_url or profile_url not in existing_urls:
+                        new_alumni_data.append(record)
+                    
+                if new_alumni_data:
+                    # Insert each record individually with duplicate checking
+                    inserted_count = 0
+                    for record in new_alumni_data:
+                        try:
+                            cur.execute("""
+                                INSERT INTO alumni 
+                                (id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location)
+                                SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                WHERE NOT EXISTS (
+                                    SELECT 1 FROM alumni 
+                                    WHERE linkedin_url = %s
+                                    OR (first_name = %s AND last_name = %s AND grad_year = %s)
+                                )
+                            """, record + (record[5], record[1], record[2], record[3]))
+                            if cur.rowcount > 0:
+                                inserted_count += 1
+                        except mysql.connector.Error as err:
+                            logger.warning(f"Skipping duplicate record for {record[1]} {record[2]}: {err}")
+                            continue
+                    
+                    conn.commit()
+                    logger.info(f"Added {inserted_count} new alumni records")
+                else:
+                    logger.info("No new alumni records to import")
+                logger.info(f"Successfully processed {len(alumni_data)} alumni records")
         finally:
             conn.close()
             
