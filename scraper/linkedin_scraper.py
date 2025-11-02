@@ -17,6 +17,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
+import urllib
 
 # Setup logging
 logging.basicConfig(
@@ -39,8 +40,8 @@ HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 TESTING = os.getenv("TESTING", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
-print("DEBUG EMAIL:", LINKEDIN_EMAIL)
-print("DEBUG PASSWORD:", LINKEDIN_PASSWORD)
+#print("DEBUG EMAIL:", LINKEDIN_EMAIL)
+#print("DEBUG PASSWORD:", LINKEDIN_PASSWORD)
 # Set delay based on TESTING mode
 if TESTING:
     MIN_DELAY = 15  # 15 seconds for testing
@@ -59,6 +60,19 @@ CSV_COLUMNS = ['name', 'headline', 'location', 'job_title', 'company', 'educatio
 
 logger.info(f"TESTING MODE: {TESTING}")
 logger.info(f"DELAY RANGE: {MIN_DELAY}s - {MAX_DELAY}s")
+
+def load_names_from_csv(csv_path):
+    """Read a list of names (column 'name') from a CSV file."""
+    try:
+        df = pd.read_csv(csv_path)
+        if 'name' not in df.columns:
+            raise ValueError("Input CSV must contain a 'name' column")
+        names = [str(n).strip() for n in df['name'].dropna().unique() if str(n).strip()]
+        logger.info(f"Loaded {len(names)} names from {csv_path}")
+        return names
+    except Exception as e:
+        logger.error(f"Failed to read names from {csv_path}: {e}")
+        return []
 
 
 class LinkedInSearchScraper:
@@ -241,87 +255,90 @@ class LinkedInSearchScraper:
 
     
     def extract_profile_from_search_result(self, profile_url):
-        """Extract basic profile info from search result - match by URL correctly"""
+        """
+        Extract name, headline, and location from a LinkedIn search result (2025 layout).
+        Always saves at least the profile URL, even if other info is missing.
+        """
         try:
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            
-            # Find all profile cards
-            profile_cards = soup.find_all('li', {'class': lambda x: x and 'oFSVJaxbBHFfrSHdNWzNIBrfZiDqkXRVqJhws' in (x or '')})
-            
-            # Find the card that contains this exact profile URL as main link
-            profile_card = None
-            for card in profile_cards:
-                main_link = card.find('a', {'href': lambda x: x and profile_url in (x or '') and 'miniProfileUrn' in (x or '')})
-                if main_link:
-                    profile_card = card
-                    break
-            
-            if not profile_card:
-                return None
-            
-            # Extract name from the main link ONLY
-            name = "Not Found"
-            main_link = profile_card.find('a', {'href': lambda x: x and profile_url in (x or '')})
-            if main_link:
-                all_text = main_link.get_text().strip()
-                name = ' '.join(all_text.split())
-                if 'View' in name:
-                    name = name.split('View')[0].strip()
-                name = name.replace('<!---->', '').strip()
-                name = ' '.join(name.split())
-            
-            if not name or len(name) < 2 or 'Status' in name:
-                return None
-            
-            # Extract headline
-            headline = "Not Found"
-            all_divs = profile_card.find_all('div')
-            for div in all_divs:
-                text = div.get_text().strip()
-                text = ' '.join(text.split())
-                
-                if (len(text) > 10 and len(text) < 300 and 
-                    any(word in text.lower() for word in ['at', 'student', 'engineer', 'developer', 'manager', 'analyst', 'pursuing', 'graduate', 'undergraduate']) and
-                    ',' not in text[:50] and
-                    'Status is' not in text and
-                    'View' not in text and
-                    'Connect' not in text and
-                    'mutual' not in text.lower() and
-                    len(text) < 200):
-                    headline = text
-                    break
-            
-            # Extract location
-            location = "Not Found"
-            states = ['TX', 'CA', 'NY', 'FL', 'PA', 'IL', 'OH', 'GA', 'NC', 'MI', 'NJ', 'VA', 'WA', 'AZ', 'MA', 'TN', 'IN', 'MD', 'MO', 'WI', 'CO', 'MN', 'SC', 'AL', 'LA', 'KY', 'OR', 'OK', 'CT', 'UT', 'NM', 'NV', 'AR', 'MS', 'KS', 'IA', 'NE', 'ID', 'HI', 'NH', 'ME', 'MT', 'RI', 'DE', 'SD', 'ND', 'AK', 'VT', 'WY', 'WV']
-            for div in all_divs:
-                text = div.get_text().strip()
-                text = ' '.join(text.split())
-                
-                if (',' in text and len(text) < 100 and len(text) > 3 and
-                    text.count(',') <= 2 and
-                    not any(skip in text for skip in ['Student at', 'at the', 'pursuing', 'View', 'Connect', 'mutual']) and
-                    any(state in text for state in states)):
-                    location = text
-                    break
-            
-            logger.info(f"  Name: {name} | Headline: {headline} | Location: {location}")
-            
+
+            # Main result cards (LinkedIn 2025 search layout)
+            cards = soup.find_all("li", class_="reusable-search__result-container")
+
+            # Iterate through cards
+            for card in cards:
+                a_tag = card.find("a", href=True)
+                if not a_tag or "/in/" not in a_tag["href"]:
+                    continue
+
+                full_url = a_tag["href"].split("?")[0]
+                if not full_url.startswith("http"):
+                    full_url = "https://www.linkedin.com" + full_url
+
+                # Match the correct card for this profile
+                if not profile_url.endswith(full_url.split("/")[-2]):
+                    continue
+
+                # Extract name
+                name_tag = card.select_one("span[dir='auto'], span.entity-result__title-text")
+                name = name_tag.get_text(strip=True) if name_tag else "Not Found"
+
+                # Extract headline
+                headline_tag = card.select_one(
+                    "div.entity-result__primary-subtitle, div.t-14.t-normal"
+                )
+                headline = headline_tag.get_text(strip=True) if headline_tag else "Not Found"
+
+                # Extract location
+                loc_tag = card.select_one(
+                    "div.entity-result__secondary-subtitle, div.t-12.t-normal.t-black--light"
+                )
+                location = loc_tag.get_text(strip=True) if loc_tag else "Not Found"
+
+                logger.info(f"  ✓ Name: {name} | Headline: {headline} | Location: {location}")
+
+                return {
+                    "name": name,
+                    "headline": headline,
+                    "location": location,
+                    "job_title": headline if headline != "Not Found" else "Not Found",
+                    "company": "Not Found",
+                    "education": "Not Found",
+                    "major": "Not Found",
+                    "graduation_year": "Not Found",
+                    "profile_url": profile_url,
+                }
+
+            #  If no card matched, save minimal info (profile URL only)
+            logger.warning(f" No profile details found for {profile_url}, saving minimal data.")
             return {
-                'name': name,
-                'headline': headline,
-                'location': location,
-                'job_title': "Not Found",
-                'company': "Not Found",
-                'education': "Not Found",
-                'major': "Not Found",
-                'graduation_year': "Not Found",
-                'profile_url': profile_url
+                "name": "Not Found",
+                "headline": "Not Found",
+                "location": "Not Found",
+                "job_title": "Not Found",
+                "company": "Not Found",
+                "education": "Not Found",
+                "major": "Not Found",
+                "graduation_year": "Not Found",
+                "profile_url": profile_url,
             }
-        
+
         except Exception as e:
-            logger.debug(f"Error extracting profile: {e}")
-            return None
+            logger.error(f" Error extracting profile data: {e}")
+            # Even on fatal parsing error, still return minimal record
+            return {
+                "name": "Not Found",
+                "headline": "Not Found",
+                "location": "Not Found",
+                "job_title": "Not Found",
+                "company": "Not Found",
+                "education": "Not Found",
+                "major": "Not Found",
+                "graduation_year": "Not Found",
+                "profile_url": profile_url,
+            }
+
+
     
     def scrape_profile_in_new_tab(self, profile_url):
         """Open profile in new tab, scrape it, then close tab"""
@@ -446,104 +463,108 @@ class LinkedInSearchScraper:
             remaining = delay - (increment * (i + 1))
             if remaining > 0:
                 logger.info(f"   ...{remaining:.0f}s remaining")
-    
     def run(self):
-        """Main scraping loop"""
+        """Main scraping loop — updated to read names from CSV"""
         try:
+            # Setup browser and load any existing scraped profiles
             self.setup_driver()
             self.load_existing_profiles()
-            
+
+            # Login first
             if not self.login():
                 logger.error("Failed to login")
                 return
-            
-            base_search_url = "https://www.linkedin.com/search/results/people/?industry=%5B%226%22%2C%2296%22%2C%224%22%5D&origin=FACETED_SEARCH&schoolFilter=%5B%226464%22%5D"
-            
-            page = 1
+
+            # === NEW: Load names from CSV and search per name ===
+            input_csv_path = os.getenv("INPUT_CSV", "names_to_search.csv")
+            names = load_names_from_csv(Path(__file__).resolve().parent.parent / input_csv_path)
+            if not names:
+                logger.error("No names found to search. Add rows to names_to_search.csv under column 'name'.")
+                return
+
             profiles_scraped = 0
-            
-            while True:
-                logger.info(f"\n{'='*60}")
-                logger.info(f"PAGE {page}")
-                logger.info(f"{'='*60}\n")
-                
-                if page == 1:
-                    search_url = base_search_url
-                else:
-                    search_url = f"{base_search_url}&page={page}"
-                
-                logger.info(f"Loading page...")
+
+            for name_idx, name in enumerate(names, start=1):
+                logger.info(f"\n{'='*60}\nNAME {name_idx}/{len(names)}: {name}\n{'='*60}")
+
+                # Build LinkedIn people search URL for this name
+                q = urllib.parse.quote_plus(name)
+                search_url = f"https://www.linkedin.com/search/results/people/?keywords={q}&origin=GLOBAL_SEARCH_HEADER"
+
+                logger.info("Loading search results page...")
                 self.driver.get(search_url)
                 time.sleep(5)
-                
-                # Scroll full page
+
+                # Scroll to load all profiles
                 self.scroll_full_page()
-                
-                # Extract URLs
                 profile_urls = self.extract_profile_urls_from_page()
-                
                 if not profile_urls:
-                    logger.info("No more profiles. Done!")
-                    break
-                
-                logger.info(f"\nProcessing {len(profile_urls)} profiles...\n")
-                
-                # Process each profile
-                for idx, profile_url in enumerate(profile_urls):
+                    logger.info(f"No profiles found for '{name}'.")
+                    continue
+
+                # Limit number of results per name (from .env)
+                try:
+                    limit = int(os.getenv("RESULTS_PER_SEARCH", "5"))
+                except:
+                    limit = 5
+                profile_urls = profile_urls[:limit]
+
+                logger.info(f"\nProcessing {len(profile_urls)} profiles for '{name}'...\n")
+
+                # Process each found profile
+                for idx, profile_url in enumerate(profile_urls, start=1):
                     if profile_url in self.existing_profiles:
-                        logger.info(f"[{idx + 1}/{len(profile_urls)}] ⊘ Already scraped")
+                        logger.info(f"[{idx}/{len(profile_urls)}] ⊘ Already scraped: {profile_url}")
                         continue
-                    
-                    logger.info(f"[{idx + 1}/{len(profile_urls)}] Extracting from search...")
-                    
+
+                    logger.info(f"[{idx}/{len(profile_urls)}] Extracting from search… {profile_url}")
                     try:
-                        # Extract basic info from search page
+                        # Extract summary info from search list HTML
                         profile_data = self.extract_profile_from_search_result(profile_url)
-                        
                         if not profile_data:
-                            logger.warning(f"  Could not extract profile data")
+                            logger.warning("  Could not extract profile data from search list")
                             continue
-                        
-                        # Scrape detailed info in new tab
-                        logger.info(f"  Opening profile in new tab...")
+
+                        # Fallback: use searched name if extraction failed
+                        if not profile_data.get('name') or profile_data['name'] == "Not Found":
+                            profile_data['name'] = name
+
+                        # Open detailed profile in new tab and enrich
+                        logger.info("  Opening profile in new tab...")
                         detail_data = self.scrape_profile_in_new_tab(profile_url)
                         profile_data.update(detail_data)
-                        
-                        # Save
+                        profile_data['profile_url'] = profile_url
+
+                        # Save result
                         if self.save_profile(profile_data):
                             self.existing_profiles.add(profile_url)
                             profiles_scraped += 1
-                        
-                        # WAIT AFTER SCRAPING
-                        if idx < len(profile_urls) - 1:
+
+                        # Wait a random delay between profiles (shorter if TESTING=True)
+                        if idx < len(profile_urls):
                             self.wait_between_profiles()
-                    
+
                     except NoSuchWindowException:
-                        logger.error("  Browser window closed, restarting...")
+                        logger.error("  Browser window closed, restarting driver...")
                         self.setup_driver()
                         if not self.login():
-                            logger.error("Failed to login again")
+                            logger.error("Failed to login again after browser restart")
                             return
                         self.driver.get(search_url)
                         time.sleep(5)
                     except Exception as e:
-                        logger.error(f"  Error: {e}")
-                        if idx < len(profile_urls) - 1:
+                        logger.error(f"  Error while processing profile: {e}")
+                        if idx < len(profile_urls):
                             self.wait_between_profiles()
-                
-                page += 1
-            
-            logger.info(f"\n{'='*60}")
-            logger.info(f"Scraping Complete!")
-            logger.info(f"Total profiles scraped: {profiles_scraped}")
-            logger.info(f"Results saved to: {OUTPUT_CSV}")
-            logger.info(f"{'='*60}\n")
-        
+
+            # === End of name loop ===
+            logger.info(f"\n{'='*60}\nDone! Total profiles scraped: {profiles_scraped}\nSaved to: {OUTPUT_CSV}\n{'='*60}\n")
+
         except Exception as e:
             logger.error(f"Fatal error: {e}")
             import traceback
             traceback.print_exc()
-        
+
         finally:
             try:
                 if self.driver:
@@ -551,6 +572,8 @@ class LinkedInSearchScraper:
                     logger.info("✓ WebDriver closed")
             except:
                 pass
+            
+
 
 
 if __name__ == "__main__":
