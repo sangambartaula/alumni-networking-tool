@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
+
+
 logger.info(f"Loading .env from: {env_path}")
 
 # Configuration
@@ -37,7 +39,8 @@ HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 TESTING = os.getenv("TESTING", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
-
+print("DEBUG EMAIL:", LINKEDIN_EMAIL)
+print("DEBUG PASSWORD:", LINKEDIN_PASSWORD)
 # Set delay based on TESTING mode
 if TESTING:
     MIN_DELAY = 15  # 15 seconds for testing
