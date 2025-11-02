@@ -81,7 +81,16 @@ class LinkedInSearchScraper:
         self.wait = None
         self.existing_profiles = set()
         self.ensure_csv_headers()
-        
+
+    def safe_get_text(self, selector, parent=None):
+        try:
+            context = parent if parent else self.driver
+            element = context.find_element(By.CSS_SELECTOR, selector)
+            return element.text.strip()
+        except Exception:
+            return ""
+     
+
     def ensure_csv_headers(self):
         """Ensure CSV has correct headers"""
         try:
@@ -338,90 +347,83 @@ class LinkedInSearchScraper:
                 "profile_url": profile_url,
             }
 
-
-    
+  
+    # scrape_profile_in_new_tab is defined later in the class and will be used.
     def scrape_profile_in_new_tab(self, profile_url):
-        """Open profile in new tab, scrape it, then close tab"""
+        """Open a LinkedIn profile in a new tab and extract job, company, and education info."""
         main_window = self.driver.current_window_handle
-        
+        profile_data = {
+            "job_title": "Not Found",
+            "company": "Not Found",
+            "education": "Not Found",
+            "major": "Not Found",
+            "graduation_year": "Not Found"
+        }
+
         try:
-            # Open in new tab
-            self.driver.execute_script(f"window.open('{profile_url}');")
-            time.sleep(random.uniform(1, 2))
-            
-            # Switch to new tab
+            # Open new tab
+            self.driver.execute_script(f"window.open('{profile_url}', '_blank');")
+            time.sleep(2)
             self.driver.switch_to.window(self.driver.window_handles[-1])
             time.sleep(3)
-            
-            # Scroll to load content
-            for _ in range(3):
-                self.driver.execute_script("window.scrollBy(0, 300);")
-                time.sleep(random.uniform(0.5, 1))
-            
+
+            # Scroll multiple times to ensure all sections load
+            for _ in range(6):
+                self.driver.execute_script("window.scrollBy(0, 400);")
+                time.sleep(random.uniform(0.8, 1.2))
+
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            profile_data = {}
-            
-            # Extract job info
-            try:
-                exp_section = soup.find('div', {'id': 'experience'})
-                if exp_section:
-                    job_card = exp_section.find('li')
-                    if job_card:
-                        title_elem = job_card.find('h3', {'class': lambda x: x and 'title' in (x or '').lower()})
-                        if title_elem:
-                            profile_data['job_title'] = title_elem.get_text().strip()
-                            logger.info(f"    ✓ Job: {profile_data['job_title']}")
-                        
-                        company_elem = job_card.find('span', {'class': lambda x: x and 'subtitle' in (x or '').lower()})
-                        if company_elem:
-                            profile_data['company'] = company_elem.get_text().strip()
-                            logger.info(f"    ✓ Company: {profile_data['company']}")
-            except Exception as e:
-                logger.debug(f"Error extracting job: {e}")
-            
-            # Extract education
-            try:
-                edu_section = soup.find('div', {'id': 'education'})
-                if edu_section:
-                    edu_li = edu_section.find('li')
-                    if edu_li:
-                        edu_heading = edu_li.find('h3')
-                        if edu_heading:
-                            profile_data['education'] = edu_heading.get_text().strip()
-                            logger.info(f"    ✓ Education: {profile_data['education']}")
-                        
-                        subtitle = edu_li.find('span', {'class': lambda x: x and 'subtitle' in (x or '').lower()})
-                        if subtitle:
-                            profile_data['major'] = subtitle.get_text().strip()
-                            logger.info(f"    ✓ Major: {profile_data['major']}")
-                        
-                        date_elem = edu_li.find('span', {'class': lambda x: x and 'date' in (x or '').lower()})
-                        if date_elem:
-                            date_text = date_elem.get_text().strip()
-                            year_match = re.search(r'(\d{4})', date_text)
-                            if year_match:
-                                profile_data['graduation_year'] = year_match.group(1)
-                                logger.info(f"    ✓ Year: {profile_data['graduation_year']}")
-            except Exception as e:
-                logger.debug(f"Error extracting education: {e}")
-            
-            # Close new tab
-            self.driver.close()
-            
-            # Switch back to main window
-            self.driver.switch_to.window(main_window)
-            time.sleep(random.uniform(1, 2))
-            
-            return profile_data
-        
+
+            # 🔹 Extract current job info
+            job_section = soup.find_all("span", class_="visually-hidden")
+            for span in job_section:
+                text = span.get_text(strip=True)
+                if any(word in text.lower() for word in ["intern", "developer", "engineer", "manager", "analyst", "student", "researcher"]):
+                    profile_data["job_title"] = text
+                    break
+
+            # 🔹 Extract company name
+            for span in job_section:
+                text = span.get_text(strip=True)
+                if "at " in text.lower() and len(text.split()) <= 6:
+                    profile_data["company"] = text
+                    break
+
+            # 🔹 Extract education info
+            edu_section = soup.find_all("span", class_="visually-hidden")
+            for span in edu_section:
+                text = span.get_text(strip=True)
+                if "university" in text.lower() or "college" in text.lower():
+                    profile_data["education"] = text
+                    break
+
+            # 🔹 Extract graduation year and major (if available)
+            date_texts = [span.get_text(strip=True) for span in edu_section if re.search(r"\d{4}", span.get_text())]
+            if date_texts:
+                match = re.search(r"(\d{4})", date_texts[0])
+                if match:
+                    profile_data["graduation_year"] = match.group(1)
+
+            major_texts = [span.get_text(strip=True) for span in edu_section if any(x in span.get_text().lower() for x in ["bachelor", "master", "computer", "science", "engineering", "degree", "technology"])]
+            if major_texts:
+                profile_data["major"] = major_texts[0]
+
+            logger.info(f"    ✓ Job: {profile_data['job_title']} | Company: {profile_data['company']}")
+            logger.info(f"    ✓ Education: {profile_data['education']} | Major: {profile_data['major']} | Year: {profile_data['graduation_year']}")
+
         except Exception as e:
-            logger.error(f"Error scraping profile in new tab: {e}")
+            logger.error(f"Error scraping profile {profile_url}: {e}")
+
+        finally:
+            # Close tab and return
             try:
                 self.driver.close()
                 self.driver.switch_to.window(main_window)
             except:
                 pass
-            return {}
+
+        return profile_data
+
     
     def save_profile(self, profile_data):
         """Save a single profile to CSV"""
@@ -488,8 +490,28 @@ class LinkedInSearchScraper:
                 logger.info(f"\n{'='*60}\nNAME {name_idx}/{len(names)}: {name}\n{'='*60}")
 
                 # Build LinkedIn people search URL for this name
-                q = urllib.parse.quote_plus(name)
-                search_url = f"https://www.linkedin.com/search/results/people/?keywords={q}&origin=GLOBAL_SEARCH_HEADER"
+                #q = urllib.parse.quote_plus(f'"{name}"')
+                #search_url = f"https://www.linkedin.com/search/results/people/?keywords={q}&origin=GLOBAL_SEARCH_HEADER"
+                #q = urllib.parse.quote_plus(f'"{name}"')
+                #school_id = "6464"  # University of North Texas
+                #search_url = (
+                #f"https://www.linkedin.com/search/results/people/?"
+                #f"keywords={q}"
+                #f"&schoolFilter=%5B%22{school_id}%22%5D"
+                #f"&network=%5B%22F%22%2C%22S%22%5D"
+                #f"&origin=FACETED_SEARCH"
+                #f"&title=alumni"
+                #)
+
+                school_id = "6464"  # University of North Texas
+                q = urllib.parse.quote_plus(f'"{name}"')
+
+                search_url = (
+                    f"https://www.linkedin.com/search/results/people/?"
+                    f"keywords={q}"
+                    f"&schoolFilter=%5B%22{school_id}%22%5D"
+                    f"&origin=FACETED_SEARCH"
+                )
 
                 logger.info("Loading search results page...")
                 self.driver.get(search_url)
@@ -517,7 +539,8 @@ class LinkedInSearchScraper:
                         logger.info(f"[{idx}/{len(profile_urls)}] ⊘ Already scraped: {profile_url}")
                         continue
 
-                    logger.info(f"[{idx}/{len(profile_urls)}] Extracting from search… {profile_url}")
+                    logger.info(f"[{idx}/{len(profile_urls)}] Extracting full profile: {profile_url}")
+
                     try:
                         # Extract summary info from search list HTML
                         profile_data = self.extract_profile_from_search_result(profile_url)
