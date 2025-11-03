@@ -1,3 +1,49 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.list-item {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px #00000008;
+  padding: 18px 20px;
+  gap: 32px;
+  transition: box-shadow 0.2s;
+}
+.list-item:hover {
+  box-shadow: 0 4px 16px #00000018;
+}
+.list-details {
+  flex: 1;
+  min-width: 220px;
+}
+.list-details .name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+}
+.list-details .role {
+  font-size: 1rem;
+  color: #4B5563;
+  margin: 0 0 2px 0;
+}
+.list-details .class {
+  font-size: 0.95rem;
+  color: #6B7280;
+}
+.list-item .actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.list-item.bookmarked {
+  border: 2px solid gold;
+  box-shadow: 0 0 10px #ffd70060;
+}
 /* style.css (updated smaller search icon) */
 :root{
   --page:#F5F7FB;
