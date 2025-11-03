@@ -81,7 +81,7 @@ alumni-networking-tool/
     ├── linkedin_scraper.py        # Selenium-based scraper
     ├── playwright_scraper.py      # Playwright-based scraper (alternative)
     ├── parsers.py                 # Parsing logic for extracted data
-    ├── names_to_search.csv        # Input CSV of names (ignored in Git)
+   ├── backend/engineering_graduate.csv        # Input CSV of names produced by the PDF reader (ignored in Git)
     ├── linkedin_cookies.json      # Exported LinkedIn cookies (ignored in Git)
     └── output/                    # Generated data from scraper
         └── UNT_Alumni_Data.csv    # Scraped alumni data output (ignored in Git)

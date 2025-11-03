@@ -48,7 +48,7 @@ coverage.xml
 
 # Scraper outputs
 scraper/linkedin_cookies.json
-scraper/names_to_search.csv
+backend/engineering_graduate.csv
 scraper/output/
 *.csv
 backend/engineering_students.csv

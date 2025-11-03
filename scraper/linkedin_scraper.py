@@ -65,9 +65,25 @@ def load_names_from_csv(csv_path):
     """Read a list of names (column 'name') from a CSV file."""
     try:
         df = pd.read_csv(csv_path)
-        if 'name' not in df.columns:
-            raise ValueError("Input CSV must contain a 'name' column")
-        names = [str(n).strip() for n in df['name'].dropna().unique() if str(n).strip()]
+
+        # Support multiple input formats:
+        # - 'name' column containing full name
+        # - 'first_name' + 'last_name' columns produced by the PDF reader
+        if 'name' in df.columns:
+            names = [str(n).strip() for n in df['name'].dropna().unique() if str(n).strip()]
+        elif 'first_name' in df.columns and 'last_name' in df.columns:
+            names = [f"{str(r).strip()} {str(l).strip()}".strip() for r, l in zip(df['first_name'].fillna(''), df['last_name'].fillna('')) if (str(r).strip() or str(l).strip())]
+            # dedupe while preserving order
+            seen = set()
+            uniq = []
+            for n in names:
+                if n not in seen:
+                    seen.add(n)
+                    uniq.append(n)
+            names = uniq
+        else:
+            raise ValueError("Input CSV must contain either a 'name' column or 'first_name' and 'last_name' columns")
+
         logger.info(f"Loaded {len(names)} names from {csv_path}")
         return names
     except Exception as e:
@@ -478,10 +494,11 @@ class LinkedInSearchScraper:
                 return
 
             # === NEW: Load names from CSV and search per name ===
-            input_csv_path = os.getenv("INPUT_CSV", "names_to_search.csv")
+            # Default to the engineering graduates CSV produced by the PDF reader
+            input_csv_path = os.getenv("INPUT_CSV", "backend/engineering_graduate.csv")
             names = load_names_from_csv(Path(__file__).resolve().parent.parent / input_csv_path)
             if not names:
-                logger.error("No names found to search. Add rows to names_to_search.csv under column 'name'.")
+                logger.error("No names found to search. Add rows to backend/engineering_graduate.csv (first_name,last_name) or set INPUT_CSV in .env")
                 return
 
             profiles_scraped = 0
