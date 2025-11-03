@@ -253,10 +253,10 @@ function setupFiltering(list) {
 
   function getSorted(listToSort) {
     if (!sortSelect) return listToSort;
-    const value = sortSelect.value;
+    // If no sort selected, treat as 'Default'
+    const value = sortSelect.value || "";
     let sorted = [...listToSort];
     if (value === "bookmarked") {
-      // Only show bookmarked alumni
       sorted = sorted.filter(a => hasInteraction(a.id, 'bookmarked'));
     } else if (value === "name") {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
@@ -319,4 +319,9 @@ function setupFiltering(list) {
   // Populate UI with the alumni data (from API or fallback)
   populateFilters(alumniData);
   setupFiltering(alumniData);
+  // Show all profiles on first load (default sort)
+  const sortSelect = document.getElementById('sortSelect');
+  if (sortSelect) sortSelect.value = "";
+  // Manually trigger initial rendering
+  if (typeof renderProfiles === 'function') renderProfiles(alumniData);
 })();
