@@ -231,20 +231,17 @@ function populateFilters(list) {
 function setupFiltering(list) {
   const q = document.getElementById('q');
   const gradSelect = document.getElementById('gradSelect');
+  const sortSelect = document.getElementById('sortSelect');
 
-    const clearBtn = document.getElementById('clear-filters');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => {
-        // Uncheck all location and role checkboxes
-        document.querySelectorAll('input[name="location"], input[name="role"]').forEach(cb => cb.checked = false);
-        // Reset graduation year dropdown
-        if (gradSelect) gradSelect.value = '';
-  
-        if (q) q.value = '';
-    
-        apply();
-      });
-    }
+  const clearBtn = document.getElementById('clear-filters');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      document.querySelectorAll('input[name="location"], input[name="role"]').forEach(cb => cb.checked = false);
+      if (gradSelect) gradSelect.value = '';
+      if (q) q.value = '';
+      apply();
+    });
+  }
 
   function getFilters() {
     const term = q ? q.value.trim().toLowerCase() : '';
@@ -254,9 +251,21 @@ function setupFiltering(list) {
     return { term, loc, role, year };
   }
 
+  function getSorted(listToSort) {
+    if (!sortSelect) return listToSort;
+    const value = sortSelect.value;
+    let sorted = [...listToSort];
+    if (value === "name") {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (value === "year") {
+      sorted.sort((a, b) => b.class - a.class);
+    }
+    return sorted;
+  }
+
   function apply() {
     const f = getFilters();
-    const out = list.filter(a => {
+    const filtered = list.filter(a => {
       const t = `${a.name} ${a.role} ${a.company}`.toLowerCase();
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
@@ -264,13 +273,15 @@ function setupFiltering(list) {
       const matchYear = !f.year || String(a.class) === String(f.year);
       return matchTerm && matchLoc && matchRole && matchYear;
     });
-    renderProfiles(out);
+    const sortedFiltered = getSorted(filtered);
+    renderProfiles(sortedFiltered);
   }
 
   if (q) q.addEventListener('input', apply);
   document.addEventListener('change', (e) => {
     if (e.target.matches('input[name="location"], input[name="role"], #gradSelect')) apply();
   });
+  if (sortSelect) sortSelect.addEventListener('change', apply);
 }
 
 // Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
@@ -304,21 +315,5 @@ function setupFiltering(list) {
 
   // Populate UI with the alumni data (from API or fallback)
   populateFilters(alumniData);
-  renderProfiles(alumniData);
   setupFiltering(alumniData);
-
-  // Sorting feature
-  const sortSelect = document.getElementById("sortSelect");
-  sortSelect?.addEventListener("change", () => {
-    const value = sortSelect.value;
-    let sorted = [...alumniData];
-
-    if (value === "name") {
-      sorted.sort((a, b) => a.name.localeCompare(b.name));
-    } else if (value === "year") {
-      sorted.sort((a, b) => b.class - a.class);
-    }
-
-    renderProfiles(sorted);
-  });
 })();
