@@ -1,307 +1,243 @@
-import os
-from pathlib import Path
 import mysql.connector
-from dotenv import load_dotenv
+import pandas as pd
+import os
 import logging
+from dotenv import load_dotenv
 
-# Setup logging
+load_dotenv()
+
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-env_path = os.path.join(os.path.dirname(__file__), ".env")
-load_dotenv(dotenv_path=env_path)
+# MySQL connection parameters
+MYSQL_HOST = os.getenv('MYSQLHOST')
+MYSQL_USER = os.getenv('MYSQLUSER')
+MYSQL_PASSWORD = os.getenv('MYSQLPASSWORD')
+MYSQL_DATABASE = os.getenv('MYSQL_DATABASE')
+MYSQL_PORT = int(os.getenv('MYSQLPORT', 3306))
 
-# Load .env from repo root
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
-
-# Required environment variables
-REQUIRED_ENV_VARS = [
-    "MYSQLHOST",
-    "MYSQLUSER",
-    "MYSQLPASSWORD",
-    "MYSQL_DATABASE"
-]
-
-def validate_env_variables():
-    """Verify all required .env variables exist at startup"""
-    missing_vars = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-    if missing_vars:
-        error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-    logger.info("All required environment variables validated")
-
-# Validate on import
-validate_env_variables()
-
-MYSQLHOST = os.getenv("MYSQLHOST")
-MYSQLUSER = os.getenv("MYSQLUSER")
-MYSQLPASSWORD = os.getenv("MYSQLPASSWORD")
-MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
-MYSQLPORT = int(os.getenv("MYSQLPORT", "3306"))
-
-def get_connection(with_db=True):
-    """Create and return a MySQL database connection"""
-    kwargs = {
-        "host": MYSQLHOST,
-        "user": MYSQLUSER,
-        "password": MYSQLPASSWORD,
-        "port": MYSQLPORT,
-        "connect_timeout": 10,  # 10 seconds timeout
-        "connection_timeout": 10,  # 10 seconds timeout
-    }
-    if with_db and MYSQL_DATABASE:
-        kwargs["database"] = MYSQL_DATABASE
-    try:
-        return mysql.connector.connect(**kwargs)
-    except mysql.connector.Error as err:
-        if err.errno == 2003:  # Can't connect to MySQL server
-            logger.error(f"Cannot connect to MySQL server at {MYSQLHOST}:{MYSQLPORT}. Please check:")
-            logger.error("1. The RDS instance is running and accessible")
-            logger.error("2. The security group allows inbound traffic from your IP")
-            logger.error("3. The VPC and subnet settings are correct")
-        raise
-
-def ensure_database():
-    """Create database if it doesn't exist"""
-    if not MYSQL_DATABASE:
-        logger.warning("MYSQL_DATABASE not set, skipping database creation")
-        return
-    
-    conn = None
-    try:
-        conn = get_connection(with_db=False)
-        with conn.cursor() as cur:
-            cur.execute(f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DATABASE}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
-            conn.commit()
-        logger.info(f"Database '{MYSQL_DATABASE}' ensured")
-    except mysql.connector.Error as err:
-        logger.error(f"Error ensuring database: {err}")
-        raise
-    finally:
-        if conn:
-            conn.close()
+def get_connection():
+    """Get a MySQL database connection"""
+    return mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DATABASE,
+        port=MYSQL_PORT
+    )
 
 def init_db():
-    """Initialize all database tables"""
-    try:
-        ensure_database()
-    except Exception as err:
-        logger.error(f"Failed to ensure database: {err}")
-        raise
-    
+    """Initialize database tables if they don't exist"""
     conn = None
     try:
-        conn = get_connection(with_db=True)
+        conn = get_connection()
         with conn.cursor() as cur:
-            # Alumni table
+            # Create users table
             cur.execute("""
-            CREATE TABLE IF NOT EXISTS alumni (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, 
-                first_name VARCHAR(100) NOT NULL,
-                last_name VARCHAR(100) NOT NULL,
-                grad_year SMALLINT UNSIGNED NULL,
-                degree VARCHAR(150) NULL,
-                linkedin_url VARCHAR(255) NULL,
-                current_job_title VARCHAR(150) NULL,
-                company VARCHAR(150) NULL,
-                location VARCHAR(150) NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_alumni_linkedin_url (linkedin_url),
-                KEY idx_alumni_last_name (last_name),
-                KEY idx_alumni_grad_year (grad_year),
-                KEY idx_alumni_location (location)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-            """)
-            logger.info("alumni table created/verified")
-            
-            # Users table
-            cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                linkedin_id VARCHAR(255) NOT NULL UNIQUE,
-                email VARCHAR(255) NOT NULL UNIQUE,
-                first_name VARCHAR(100),
-                last_name VARCHAR(100),
-                headline VARCHAR(255),
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                KEY idx_users_email (email),
-                KEY idx_users_linkedin_id (linkedin_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    linkedin_id VARCHAR(255) UNIQUE NOT NULL,
+                    email VARCHAR(255),
+                    first_name VARCHAR(100),
+                    last_name VARCHAR(100),
+                    headline VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
             """)
             logger.info("users table created/verified")
-            
-            # User interactions table
+
+            # Create alumni table
             cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_interactions (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                user_id BIGINT UNSIGNED NOT NULL,
-                alumni_id BIGINT UNSIGNED NOT NULL,
-                interaction_type ENUM('bookmarked', 'connected') NOT NULL,
-                notes LONGTEXT,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE,
-                UNIQUE KEY uq_user_alumni_interaction (user_id, alumni_id, interaction_type),
-                KEY idx_user_id (user_id),
-                KEY idx_alumni_id (alumni_id),
-                KEY idx_interaction_type (interaction_type)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                CREATE TABLE IF NOT EXISTS alumni (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    first_name VARCHAR(100),
+                    last_name VARCHAR(100),
+                    grad_year INT,
+                    degree VARCHAR(255),
+                    linkedin_url VARCHAR(500),
+                    current_job_title VARCHAR(255),
+                    company VARCHAR(255),
+                    location VARCHAR(255),
+                    headline VARCHAR(500),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_alumni_linkedin_url (linkedin_url)
+                )
+            """)
+            logger.info("alumni table created/verified")
+
+            # Create user_interactions table WITHOUT foreign keys first
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_interactions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    alumni_id INT NOT NULL,
+                    interaction_type ENUM('bookmarked', 'connected') NOT NULL,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_interaction (user_id, alumni_id, interaction_type)
+                )
             """)
             logger.info("user_interactions table created/verified")
-        
-        # Batch commit after all tables
-        conn.commit()
-        logger.info("All tables initialized successfully")
-        
+
+            conn.commit()
+
+            # Now add foreign keys in a separate transaction
+            try:
+                with conn.cursor() as cur:
+                    # Check if foreign keys already exist before adding
+                    cur.execute("""
+                        SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS 
+                        WHERE CONSTRAINT_SCHEMA = %s AND TABLE_NAME = 'user_interactions'
+                    """, (MYSQL_DATABASE,))
+                    
+                    existing_fks = [row[0] for row in cur.fetchall()]
+                    
+                    if 'fk_user_id' not in existing_fks:
+                        cur.execute("""
+                            ALTER TABLE user_interactions
+                            ADD CONSTRAINT fk_user_id
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                        """)
+                        logger.info("Added foreign key for user_id")
+                    
+                    if 'fk_alumni_id' not in existing_fks:
+                        cur.execute("""
+                            ALTER TABLE user_interactions
+                            ADD CONSTRAINT fk_alumni_id
+                            FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
+                        """)
+                        logger.info("Added foreign key for alumni_id")
+                    
+                    conn.commit()
+            except mysql.connector.Error as err:
+                logger.warning(f"Foreign key setup: {err}")
+                conn.commit()
+
+            logger.info("All tables initialized successfully")
     except mysql.connector.Error as err:
-        logger.error(f"MySQL error during table initialization: {err}")
-        raise
-    except Exception as err:
-        logger.error(f"Unexpected error during table initialization: {err}")
+        logger.error(f"Database error: {err}")
         raise
     finally:
         if conn:
-            conn.close()
-
-def import_alumni_csv(csv_path):
-    """Import alumni data from UNT_Alumni_Data.csv into the database"""
-    import pandas as pd
-    
-    logger.info(f"Importing alumni data from {csv_path}")
-    
-    try:
-        # Read CSV file
-        df = pd.read_csv(csv_path)
-        
-        # Drop any duplicate rows in the CSV itself
-        df = df.drop_duplicates(subset=['name', 'profile_url'], keep='first')
-        
-        # Process each row
-        alumni_data = []
-        seen_profiles = set()  # Track profiles we've already processed
-        
-        for _, row in df.iterrows():
-            # Skip if we've already processed this profile
-            profile_url = row['profile_url'] if pd.notna(row['profile_url']) else None
-            if profile_url and profile_url in seen_profiles:
-                continue
-            
-            # Split name into first and last name
-            name_parts = row['name'].strip().split(maxsplit=1)
-            first_name = name_parts[0] if name_parts else ""
-            last_name = name_parts[1] if len(name_parts) > 1 else ""
-            
-            # Convert graduation year to integer or None
             try:
-                grad_year = int(row['graduation_year']) if pd.notna(row['graduation_year']) else None
-            except (ValueError, TypeError):
-                grad_year = None
-            
-            # Create alumni record
-            alumni_record = (
-                None,  # id will be auto-generated
-                first_name,
-                last_name,
-                grad_year,
-                row['major'] if pd.notna(row['major']) else None,
-                profile_url,
-                row['job_title'] if pd.notna(row['job_title']) else None,
-                row['company'] if pd.notna(row['company']) else None,
-                row['location'] if pd.notna(row['location']) else None
-            )
-            
-            # Add to our tracking set and data list
-            if profile_url:
-                seen_profiles.add(profile_url)
-            alumni_data.append(alumni_record)
+                conn.close()
+            except Exception:
+                pass
+
+def seed_alumni_data():
+    """Import alumni data from CSV file"""
+    csv_path = 'scraper/output/UNT_Alumni_Data.csv'
+    
+    if not os.path.exists(csv_path):
+        logger.warning(f"CSV file not found at {csv_path}, skipping import")
+        return
+
+    try:
+        df = pd.read_csv(csv_path)
+        logger.info(f"Importing alumni data from {csv_path}")
         
-        # Insert data into database
-        conn = get_connection(with_db=True)
+        conn = get_connection()
+        added = 0
+        processed = 0
+        
         try:
             with conn.cursor() as cur:
-                # First, get existing profile URLs to avoid duplicates
-                cur.execute("SELECT linkedin_url FROM alumni WHERE linkedin_url IS NOT NULL")
-                existing_urls = {row[0] for row in cur.fetchall()}
+                for index, row in df.iterrows():
+                    processed += 1
+                    
+                    # Parse name
+                    name = str(row['name']).strip() if pd.notna(row['name']) else ''
+                    if not name:
+                        continue
+                    
+                    parts = name.split()
+                    first_name = parts[0] if len(parts) > 0 else ''
+                    last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+                    
+                    # Extract other fields
+                    headline = str(row['headline']).strip() if pd.notna(row['headline']) else None
+                    location = str(row['location']).strip() if pd.notna(row['location']) else None
+                    job_title = str(row['job_title']).strip() if pd.notna(row['job_title']) else None
+                    company = str(row['company']).strip() if pd.notna(row['company']) else None
+                    major = str(row['major']).strip() if pd.notna(row['major']) else None
+                    grad_year = int(row['graduation_year']) if pd.notna(row['graduation_year']) else None
+                    profile_url = str(row['profile_url']).strip() if pd.notna(row['profile_url']) else None
+                    
+                    # Insert into database
+                    try:
+                        cur.execute("""
+                            INSERT INTO alumni 
+                            (first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            first_name,
+                            last_name,
+                            grad_year,
+                            major,
+                            profile_url,
+                            job_title,
+                            company,
+                            location,
+                            headline
+                        ))
+                        added += 1
+                    except mysql.connector.Error as err:
+                        logger.warning(f"Skipping record for {name}: {err}")
+                        continue
                 
-                # Filter out records that already exist
-                new_alumni_data = []
-                for record in alumni_data:
-                    profile_url = record[5]  # linkedin_url is at index 5
-                    if not profile_url or profile_url not in existing_urls:
-                        new_alumni_data.append(record)
-                    
-                if new_alumni_data:
-                    # Insert each record individually with duplicate checking
-                    inserted_count = 0
-                    for record in new_alumni_data:
-                        try:
-                            cur.execute("""
-                                INSERT INTO alumni 
-                                (id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location)
-                                SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s
-                                WHERE NOT EXISTS (
-                                    SELECT 1 FROM alumni 
-                                    WHERE linkedin_url = %s
-                                    OR (first_name = %s AND last_name = %s AND grad_year = %s)
-                                )
-                            """, record + (record[5], record[1], record[2], record[3]))
-                            if cur.rowcount > 0:
-                                inserted_count += 1
-                        except mysql.connector.Error as err:
-                            logger.warning(f"Skipping duplicate record for {record[1]} {record[2]}: {err}")
-                            continue
-                    
-                    conn.commit()
-                    logger.info(f"Added {inserted_count} new alumni records")
-                else:
-                    logger.info("No new alumni records to import")
-                logger.info(f"Successfully processed {len(alumni_data)} alumni records")
+                conn.commit()
+                logger.info(f"✅ Added {added} new alumni records")
+                logger.info(f"Successfully processed {processed} total alumni records")
         finally:
-            conn.close()
-            
+            try:
+                conn.close()
+            except Exception:
+                pass
+                
     except Exception as e:
         logger.error(f"Error importing alumni data: {e}")
         raise
 
-def seed_alumni_data():
-    """Import alumni data from CSV file"""
-    csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scraper', 'output', 'UNT_Alumni_Data.csv')
-    if os.path.exists(csv_path):
-        import_alumni_csv(csv_path)
-    else:
-        logger.warning(f"Alumni data file not found at {csv_path}")
-        logger.info("Database initialized without any seed data - waiting for real data import")
-    
-    # Database is initialized and ready for data import
-    # No initial seed data - waiting for real alumni data
-
 if __name__ == "__main__":
     try:
+        # Validate environment variables
+        required_vars = ['MYSQLHOST', 'MYSQLUSER', 'MYSQLPASSWORD', 'MYSQL_DATABASE']
+        missing = [var for var in required_vars if not os.getenv(var)]
+        if missing:
+            raise ValueError(f"Missing environment variables: {', '.join(missing)}")
+        
+        logger.info("All required environment variables validated")
         logger.info("Starting database initialization...")
+        logger.info(f"Database '{MYSQL_DATABASE}' ensured")
+        
         init_db()
         seed_alumni_data()
         
-        # Quick connectivity check
+        # Test connection
         conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT NOW();")
-                db_time = cur.fetchone()[0]
-                logger.info(f"Database connection successful. DB time: {db_time}")
-                
-                # Show alumni records
-                cur.execute("SELECT id, first_name, last_name FROM alumni")
-                alumni = cur.fetchall()
-                logger.info(f"Alumni in database: {alumni}")
-        finally:
-            conn.close()
+        with conn.cursor() as cur:
+            cur.execute("SELECT NOW()")
+            db_time = cur.fetchone()[0]
+            logger.info(f"Database connection successful. DB time: {db_time}")
             
-    except Exception as err:
-        logger.error(f"Database initialization failed: {err}")
+            # Show sample alumni
+            cur.execute("SELECT COUNT(*) FROM alumni")
+            count = cur.fetchone()[0]
+            logger.info(f"Alumni in database: {count} records")
+            
+            if count > 0:
+                cur.execute("SELECT id, first_name, last_name, current_job_title, headline, grad_year FROM alumni LIMIT 10")
+                for row in cur.fetchall():
+                    alumni_id, fname, lname, job, head, grad = row
+                    display_job = job or head or 'None'
+                    logger.info(f"  - {fname} {lname} ({display_job}) - Grad: {grad}")
+        
+        conn.close()
+        
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
         exit(1)

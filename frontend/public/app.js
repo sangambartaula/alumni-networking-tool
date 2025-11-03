@@ -112,16 +112,12 @@ function createListItem(p) {
       <div class="list-main">
         <div class="list-details">
           <h3 class="name">${p.name}</h3>
-          <p class="role">${p.role} at ${p.company}</p>
-          <div class="class">Class of ${p.class} · ${p.location}</div>
+          <p class="role">${p.role || p.headline || ''}</p>
+          <div class="class">Class of ${p.class}${p.location ? ' · ' + p.location : ''}</div>
         </div>
         <div class="list-actions">
-          <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener">LinkedIn Profile
-            <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-              <path d="m15 3 6 6"/>
-              <path d="M21 3h-6v6"/>
-            </svg>
+          <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener" title="View LinkedIn Profile">
+            <img src="/assets/linkedin.svg" alt="LinkedIn" class="linkedin-icon" />
           </a>
           <button class="btn connect" type="button">Connect</button>
           <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
@@ -188,9 +184,9 @@ function renderProfiles(list) {
 
 // Populate filters (location, role, graduation)
 function populateFilters(list) {
-  const locations = Array.from(new Set(list.map(x => x.location))).sort();
-  const roles = Array.from(new Set(list.map(x => x.role))).sort();
-  const years = Array.from(new Set(list.map(x => x.class))).sort((a,b)=>b-a);
+  const locations = Array.from(new Set(list.map(x => x.location).filter(Boolean))).sort();
+  const roles = Array.from(new Set(list.map(x => x.role).filter(Boolean))).sort();
+  const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a,b)=>b-a);
 
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
@@ -269,7 +265,7 @@ function setupFiltering(list) {
   function apply() {
     const f = getFilters();
     const filtered = list.filter(a => {
-      const t = `${a.name} ${a.role} ${a.company}`.toLowerCase();
+      const t = `${a.name} ${a.role} ${a.company} ${a.headline}`.toLowerCase();
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
       const matchRole = !f.role.length || f.role.includes(a.role);
@@ -294,16 +290,18 @@ function setupFiltering(list) {
   try {
     const resp = await fetch('/api/alumni?limit=500');
     const data = await resp.json();
+    
     if (data && data.success && Array.isArray(data.alumni) && data.alumni.length > 0) {
-      // Map backend shape to frontend expected fields if needed
+      // Map backend response to frontend expected fields
       alumniData = data.alumni.map(a => ({
         id: a.id,
-        name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim(),
-        role: a.role || a.degree || '',
+        name: a.name || '',
+        role: a.role || '',
         company: a.company || '',
-        class: a.class || a.grad_year || '',
+        class: a.class || '',
         location: a.location || '',
-        linkedin: a.linkedin || a.linkedin_url || ''
+        headline: a.headline || '',
+        linkedin: a.linkedin || ''
       }));
       console.log('Loaded alumni from API, count=', alumniData.length);
     } else {

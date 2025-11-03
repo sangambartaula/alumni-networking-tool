@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, redirect, request, url_for, session, send_from_directory, jsonify
 from dotenv import load_dotenv
 from functools import wraps
@@ -371,7 +370,7 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location
+                    SELECT id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline
                     FROM alumni
                     ORDER BY last_name ASC, first_name ASC
                     LIMIT %s OFFSET %s
@@ -384,9 +383,8 @@ def api_get_alumni():
                     "id": r.get('id'),
                     "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
                     "role": r.get('current_job_title'),
-                    "company": r.get('company'),
+                    "headline": r.get('headline'),
                     "class": r.get('grad_year'),
-                    "degree": r.get('degree'),
                     "location": r.get('location'),
                     "linkedin": r.get('linkedin_url')
                 })
@@ -411,12 +409,13 @@ def not_found(e):
     return 'Page not found', 404
 
 if __name__ == "__main__":
-    # Initialize database first
+    # Initialize database first (but skip re-seeding if data exists)
     from database import init_db, seed_alumni_data
     if not DISABLE_DB:
         try:
             init_db()
-            seed_alumni_data()  # Import CSV data if available
+            # Only seed if we're setting up fresh - comment out to skip on every startup
+            # seed_alumni_data()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
             exit(1)
