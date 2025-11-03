@@ -12,7 +12,7 @@ const fakeAlumni = [
 let userInteractions = {};
 
 // DOM references
-const grid = document.getElementById('grid');
+const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
 // Load user interactions from backend
@@ -103,52 +103,47 @@ function hasInteraction(alumniId, interactionType) {
   return key in userInteractions;
 }
 
-// Create profile card element
-function createCard(p) {
-  const card = document.createElement('article');
-  card.className = 'card';
-  card.setAttribute('data-id', p.id);
-
-  card.innerHTML = `
-    <div>
-      <h3 class="name">${p.name}</h3>
-      <p class="role">${p.role} at ${p.company}</p>
-      <div class="class">Class of ${p.class} · ${p.location}</div>
-    </div>
-    <div class="actions">
-      <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener">LinkedIn Profile
-        <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-          <path d="m15 3 6 6"/>
-          <path d="M21 3h-6v6"/>
-        </svg>
-      </a>
-      <button class="btn connect" type="button">Connect</button>
-      <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
-    </div>
-  `;
+// Create profile list item element (horizontal row)
+function createListItem(p) {
+  const item = document.createElement('div');
+  item.className = 'list-item';
+  item.setAttribute('data-id', p.id);
+    item.innerHTML = `
+      <div class="list-main">
+        <div class="list-details">
+          <h3 class="name">${p.name}</h3>
+          <p class="role">${p.role} at ${p.company}</p>
+          <div class="class">Class of ${p.class} · ${p.location}</div>
+        </div>
+        <div class="list-actions">
+          <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener">LinkedIn Profile
+            <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <path d="m15 3 6 6"/>
+              <path d="M21 3h-6v6"/>
+            </svg>
+          </a>
+          <button class="btn connect" type="button">Connect</button>
+          <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
+        </div>
+      </div>
+    `;
 
   // Connect button action - TOGGLE between Connect and Requested
-  const connectBtn = card.querySelector('.btn.connect');
-  
-  // Check if already connected
+  const connectBtn = item.querySelector('.btn.connect');
   if (hasInteraction(p.id, 'connected')) {
     connectBtn.textContent = 'Requested';
     connectBtn.classList.add('requested');
   }
-  
   connectBtn.addEventListener('click', async () => {
     const isCurrentlyConnected = connectBtn.classList.contains('requested');
-    
     if (isCurrentlyConnected) {
-      // Remove connection
       const success = await removeInteraction(p.id, 'connected');
       if (success) {
         connectBtn.textContent = 'Connect';
         connectBtn.classList.remove('requested');
       }
     } else {
-      // Add connection
       const success = await saveInteraction(p.id, 'connected');
       if (success) {
         connectBtn.textContent = 'Requested';
@@ -158,41 +153,36 @@ function createCard(p) {
   });
 
   // Bookmark button action - TOGGLE between ⭐ and ★
-  const starBtn = card.querySelector('.btn.star');
-  
-  // Check if already bookmarked
+  const starBtn = item.querySelector('.btn.star');
   if (hasInteraction(p.id, 'bookmarked')) {
-    card.classList.add('bookmarked');
+    item.classList.add('bookmarked');
     starBtn.textContent = '★';
   }
-  
   starBtn.addEventListener('click', async () => {
-    const isCurrentlyBookmarked = card.classList.contains('bookmarked');
-    
+    const isCurrentlyBookmarked = item.classList.contains('bookmarked');
     if (isCurrentlyBookmarked) {
-      // Remove bookmark
       const success = await removeInteraction(p.id, 'bookmarked');
       if (success) {
-        card.classList.remove('bookmarked');
+        item.classList.remove('bookmarked');
         starBtn.textContent = '⭐';
       }
     } else {
-      // Add bookmark
       const success = await saveInteraction(p.id, 'bookmarked');
       if (success) {
-        card.classList.add('bookmarked');
+        item.classList.add('bookmarked');
         starBtn.textContent = '★';
       }
     }
   });
-
-  return card;
+  return item;
 }
 
 // Render list to grid
 function renderProfiles(list) {
-  grid.innerHTML = '';
-  list.forEach(p => grid.appendChild(createCard(p)));
+  if (listContainer) {
+    listContainer.innerHTML = '';
+    list.forEach(p => listContainer.appendChild(createListItem(p)));
+  }
   if (count) count.textContent = `(${list.length})`;
 }
 
@@ -241,20 +231,17 @@ function populateFilters(list) {
 function setupFiltering(list) {
   const q = document.getElementById('q');
   const gradSelect = document.getElementById('gradSelect');
+  const sortSelect = document.getElementById('sortSelect');
 
-    const clearBtn = document.getElementById('clear-filters');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => {
-        // Uncheck all location and role checkboxes
-        document.querySelectorAll('input[name="location"], input[name="role"]').forEach(cb => cb.checked = false);
-        // Reset graduation year dropdown
-        if (gradSelect) gradSelect.value = '';
-  
-        if (q) q.value = '';
-    
-        apply();
-      });
-    }
+  const clearBtn = document.getElementById('clear-filters');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      document.querySelectorAll('input[name="location"], input[name="role"]').forEach(cb => cb.checked = false);
+      if (gradSelect) gradSelect.value = '';
+      if (q) q.value = '';
+      apply();
+    });
+  }
 
   function getFilters() {
     const term = q ? q.value.trim().toLowerCase() : '';
@@ -264,9 +251,24 @@ function setupFiltering(list) {
     return { term, loc, role, year };
   }
 
+  function getSorted(listToSort) {
+    if (!sortSelect) return listToSort;
+    const value = sortSelect.value;
+    let sorted = [...listToSort];
+    if (value === "bookmarked") {
+      // Only show bookmarked alumni
+      sorted = sorted.filter(a => hasInteraction(a.id, 'bookmarked'));
+    } else if (value === "name") {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (value === "year") {
+      sorted.sort((a, b) => b.class - a.class);
+    }
+    return sorted;
+  }
+
   function apply() {
     const f = getFilters();
-    const out = list.filter(a => {
+    const filtered = list.filter(a => {
       const t = `${a.name} ${a.role} ${a.company}`.toLowerCase();
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
@@ -274,13 +276,15 @@ function setupFiltering(list) {
       const matchYear = !f.year || String(a.class) === String(f.year);
       return matchTerm && matchLoc && matchRole && matchYear;
     });
-    renderProfiles(out);
+    const sortedFiltered = getSorted(filtered);
+    renderProfiles(sortedFiltered);
   }
 
   if (q) q.addEventListener('input', apply);
   document.addEventListener('change', (e) => {
     if (e.target.matches('input[name="location"], input[name="role"], #gradSelect')) apply();
   });
+  if (sortSelect) sortSelect.addEventListener('change', apply);
 }
 
 // Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
@@ -314,21 +318,5 @@ function setupFiltering(list) {
 
   // Populate UI with the alumni data (from API or fallback)
   populateFilters(alumniData);
-  renderProfiles(alumniData);
   setupFiltering(alumniData);
-
-  // Sorting feature
-  const sortSelect = document.getElementById("sortSelect");
-  sortSelect?.addEventListener("change", () => {
-    const value = sortSelect.value;
-    let sorted = [...alumniData];
-
-    if (value === "name") {
-      sorted.sort((a, b) => a.name.localeCompare(b.name));
-    } else if (value === "year") {
-      sorted.sort((a, b) => b.class - a.class);
-    }
-
-    renderProfiles(sorted);
-  });
 })();
