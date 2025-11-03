@@ -242,6 +242,20 @@ function setupFiltering(list) {
   const q = document.getElementById('q');
   const gradSelect = document.getElementById('gradSelect');
 
+    const clearBtn = document.getElementById('clear-filters');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        // Uncheck all location and role checkboxes
+        document.querySelectorAll('input[name="location"], input[name="role"]').forEach(cb => cb.checked = false);
+        // Reset graduation year dropdown
+        if (gradSelect) gradSelect.value = '';
+  
+        if (q) q.value = '';
+    
+        apply();
+      });
+    }
+
   function getFilters() {
     const term = q ? q.value.trim().toLowerCase() : '';
     const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
