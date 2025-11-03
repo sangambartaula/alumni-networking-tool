@@ -108,26 +108,26 @@ function createListItem(p) {
   const item = document.createElement('div');
   item.className = 'list-item';
   item.setAttribute('data-id', p.id);
-  item.innerHTML = `
-    <div class="list-main">
-      <div class="list-details">
-        <h3 class="name">${p.name}</h3>
-        <p class="role">${p.role} at ${p.company}</p>
-        <div class="class">Class of ${p.class} · ${p.location}</div>
+    item.innerHTML = `
+      <div class="list-main">
+        <div class="list-details">
+          <h3 class="name">${p.name}</h3>
+          <p class="role">${p.role} at ${p.company}</p>
+          <div class="class">Class of ${p.class} · ${p.location}</div>
+        </div>
+        <div class="list-actions">
+          <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener">LinkedIn Profile
+            <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <path d="m15 3 6 6"/>
+              <path d="M21 3h-6v6"/>
+            </svg>
+          </a>
+          <button class="btn connect" type="button">Connect</button>
+          <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
+        </div>
       </div>
-      <div class="actions">
-        <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener">LinkedIn Profile
-          <svg class="ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <path d="m15 3 6 6"/>
-            <path d="M21 3h-6v6"/>
-          </svg>
-        </a>
-        <button class="btn connect" type="button">Connect</button>
-        <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
-      </div>
-    </div>
-  `;
+    `;
 
   // Connect button action - TOGGLE between Connect and Requested
   const connectBtn = item.querySelector('.btn.connect');
@@ -255,7 +255,10 @@ function setupFiltering(list) {
     if (!sortSelect) return listToSort;
     const value = sortSelect.value;
     let sorted = [...listToSort];
-    if (value === "name") {
+    if (value === "bookmarked") {
+      // Only show bookmarked alumni
+      sorted = sorted.filter(a => hasInteraction(a.id, 'bookmarked'));
+    } else if (value === "name") {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
     } else if (value === "year") {
       sorted.sort((a, b) => b.class - a.class);

@@ -1,3 +1,21 @@
+.list-main {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.list-details {
+  flex: 1 1 0;
+  min-width: 220px;
+}
+.list-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 260px;
+}
 .list {
   display: flex;
   flex-direction: column;
