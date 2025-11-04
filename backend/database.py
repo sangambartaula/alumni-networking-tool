@@ -68,7 +68,7 @@ def init_db():
             """)
             logger.info("alumni table created/verified")
 
-            # Create user_interactions table WITHOUT foreign keys first
+            # Create user_interactions table WITH inline foreign keys
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_interactions (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -78,46 +78,32 @@ def init_db():
                     notes TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    UNIQUE KEY unique_interaction (user_id, alumni_id, interaction_type)
+                    UNIQUE KEY unique_interaction (user_id, alumni_id, interaction_type),
+                    CONSTRAINT fk_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_alumni_id FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
                 )
             """)
             logger.info("user_interactions table created/verified")
 
+            # Create notes table WITH inline foreign keys
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS notes (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    alumni_id INT NOT NULL,
+                    note_content LONGTEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_user_alumni (user_id, alumni_id),
+                    CONSTRAINT fk_notes_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_notes_alumni_id FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
+                )
+            """)
+            logger.info("notes table created/verified")
+
             conn.commit()
-
-            # Now add foreign keys in a separate transaction
-            try:
-                with conn.cursor() as cur:
-                    # Check if foreign keys already exist before adding
-                    cur.execute("""
-                        SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS 
-                        WHERE CONSTRAINT_SCHEMA = %s AND TABLE_NAME = 'user_interactions'
-                    """, (MYSQL_DATABASE,))
-                    
-                    existing_fks = [row[0] for row in cur.fetchall()]
-                    
-                    if 'fk_user_id' not in existing_fks:
-                        cur.execute("""
-                            ALTER TABLE user_interactions
-                            ADD CONSTRAINT fk_user_id
-                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                        """)
-                        logger.info("Added foreign key for user_id")
-                    
-                    if 'fk_alumni_id' not in existing_fks:
-                        cur.execute("""
-                            ALTER TABLE user_interactions
-                            ADD CONSTRAINT fk_alumni_id
-                            FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
-                        """)
-                        logger.info("Added foreign key for alumni_id")
-                    
-                    conn.commit()
-            except mysql.connector.Error as err:
-                logger.warning(f"Foreign key setup: {err}")
-                conn.commit()
-
             logger.info("All tables initialized successfully")
+            
     except mysql.connector.Error as err:
         logger.error(f"Database error: {err}")
         raise

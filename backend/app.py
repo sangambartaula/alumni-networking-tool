@@ -403,6 +403,141 @@ def api_get_alumni():
         app.logger.error(f"Error fetching alumni: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
+# ===== NOTES API ENDPOINTS =====
+
+@app.route('/api/notes/<int:alumni_id>', methods=['GET'])
+@api_login_required
+def get_notes(alumni_id):
+    """Get notes for a specific alumni (for current logged-in user)"""
+    try:
+        user_id = get_current_user_id()
+        
+        if DISABLE_DB:
+            return jsonify({"success": True, "note": None}), 200
+        
+        conn = get_connection()
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT id, note_content, created_at, updated_at
+                    FROM notes
+                    WHERE user_id = %s AND alumni_id = %s
+                    LIMIT 1
+                """, (user_id, alumni_id))
+                
+                note = cur.fetchone()
+                
+                if note:
+                    return jsonify({
+                        "success": True,
+                        "note": {
+                            "id": note['id'],
+                            "note_content": note['note_content'],
+                            "created_at": note['created_at'].isoformat() if note['created_at'] else None,
+                            "updated_at": note['updated_at'].isoformat() if note['updated_at'] else None
+                        }
+                    }), 200
+                else:
+                    return jsonify({"success": True, "note": None}), 200
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        
+    except Exception as e:
+        app.logger.error(f"Error getting notes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/notes/<int:alumni_id>', methods=['POST'])
+@api_login_required
+def save_notes(alumni_id):
+    """Save or update notes for a specific alumni"""
+    try:
+        user_id = get_current_user_id()
+        data = request.get_json()
+        note_content = data.get('note_content', '')
+        
+        if DISABLE_DB:
+            return jsonify({"success": True, "message": "Notes saved (DB disabled)"}), 200
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Check if note exists
+                cur.execute("""
+                    SELECT id FROM notes
+                    WHERE user_id = %s AND alumni_id = %s
+                """, (user_id, alumni_id))
+                
+                existing_note = cur.fetchone()
+                
+                if existing_note:
+                    # Update existing note
+                    cur.execute("""
+                        UPDATE notes
+                        SET note_content = %s, updated_at = NOW()
+                        WHERE user_id = %s AND alumni_id = %s
+                    """, (note_content, user_id, alumni_id))
+                else:
+                    # Create new note
+                    cur.execute("""
+                        INSERT INTO notes (user_id, alumni_id, note_content, created_at, updated_at)
+                        VALUES (%s, %s, %s, NOW(), NOW())
+                    """, (user_id, alumni_id, note_content))
+                
+                conn.commit()
+                
+                return jsonify({"success": True, "message": "Note saved successfully"}), 200
+        except mysql.connector.Error as err:
+            conn.rollback()
+            return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        
+    except Exception as e:
+        app.logger.error(f"Error saving notes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/notes/<int:alumni_id>', methods=['DELETE'])
+@api_login_required
+def delete_notes(alumni_id):
+    """Delete notes for a specific alumni"""
+    try:
+        user_id = get_current_user_id()
+        
+        if DISABLE_DB:
+            return jsonify({"success": True, "message": "Notes deleted (DB disabled)"}), 200
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM notes
+                    WHERE user_id = %s AND alumni_id = %s
+                """, (user_id, alumni_id))
+                
+                conn.commit()
+                
+                return jsonify({"success": True, "message": "Note deleted successfully"}), 200
+        except mysql.connector.Error as err:
+            conn.rollback()
+            return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        
+    except Exception as e:
+        app.logger.error(f"Error deleting notes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # ---------------------- Error handler ----------------------
 @app.errorhandler(404)
 def not_found(e):
