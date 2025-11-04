@@ -15,6 +15,109 @@ let userInteractions = {};
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
+// ===== NOTES MODAL CLASS =====
+class NotesModal {
+  constructor() {
+    this.modal = null;
+    this.currentAlumniId = null;
+    this.currentAlumniName = null;
+  }
+
+  create() {
+    const modalHTML = `
+      <div id="notesOverlay" class="notes-overlay">
+        <div class="notes-modal">
+          <div class="notes-modal-header">
+            <h3 id="notesTitle">Notes for Alumni</h3>
+            <button class="notes-close-btn" id="notesCloseBtn">&times;</button>
+          </div>
+          <textarea id="notesTextarea" class="notes-textarea" placeholder="Write your notes here..."></textarea>
+          <div class="notes-modal-footer">
+            <button id="notesSaveBtn" class="notes-save-btn">Save</button>
+            <button id="notesCancelBtn" class="notes-cancel-btn">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    this.modal = document.getElementById('notesOverlay');
+    this.setupEventListeners();
+  }
+
+  setupEventListeners() {
+    document.getElementById('notesCloseBtn').addEventListener('click', () => this.close());
+    document.getElementById('notesCancelBtn').addEventListener('click', () => this.close());
+    document.getElementById('notesSaveBtn').addEventListener('click', () => this.saveNote());
+  }
+
+  async open(alumniId, alumniName) {
+    this.currentAlumniId = alumniId;
+    this.currentAlumniName = alumniName;
+    document.getElementById('notesTitle').textContent = `Notes for ${alumniName}`;
+    
+    // Load existing notes
+    await this.loadNote();
+    
+    this.modal.style.display = 'flex';
+    document.getElementById('notesTextarea').focus();
+  }
+
+  close() {
+    this.modal.style.display = 'none';
+    document.getElementById('notesTextarea').value = '';
+  }
+
+  async loadNote() {
+    try {
+      const response = await fetch(`/api/notes/${this.currentAlumniId}`);
+      const data = await response.json();
+      
+      if (data.success && data.note) {
+        document.getElementById('notesTextarea').value = data.note.note_content;
+      } else {
+        document.getElementById('notesTextarea').value = '';
+      }
+    } catch (error) {
+      console.error('Error loading note:', error);
+      document.getElementById('notesTextarea').value = '';
+    }
+  }
+
+  async saveNote() {
+    const noteContent = document.getElementById('notesTextarea').value;
+    
+    try {
+      const response = await fetch(`/api/notes/${this.currentAlumniId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note_content: noteContent })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('Note saved successfully');
+        // Update the button styling
+        const notesBtn = document.querySelector(`[data-alumni-id="${this.currentAlumniId}"]`);
+        if (notesBtn && noteContent.trim()) {
+          notesBtn.classList.add('has-note');
+        } else if (notesBtn) {
+          notesBtn.classList.remove('has-note');
+        }
+        this.close();
+      } else {
+        alert('Error saving note: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error saving note:', error);
+      alert('Error saving note');
+    }
+  }
+}
+
+// Initialize notes modal
+const notesModal = new NotesModal();
+
 // Load user interactions from backend
 async function loadUserInteractions() {
   try {
@@ -125,6 +228,7 @@ function createListItem(p) {
           </a>
           <button class="btn connect" type="button">Connect</button>
           <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
+          <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${p.name}"><img src="/assets/note.svg" alt="Notes" class="notes-icon" /></button>
         </div>
       </div>
     `;
@@ -174,6 +278,28 @@ function createListItem(p) {
       }
     }
   });
+
+  // Notes button action - OPEN MODAL
+  const notesBtn = item.querySelector('.btn.notes');
+  notesBtn.addEventListener('click', async () => {
+    const alumniId = parseInt(notesBtn.dataset.alumniId);
+    const alumniName = notesBtn.dataset.alumniName;
+    notesModal.open(alumniId, alumniName);
+  });
+
+  // Load notes status on initial render
+  (async () => {
+    try {
+      const response = await fetch(`/api/notes/${p.id}`);
+      const data = await response.json();
+      if (data.success && data.note && data.note.note_content && data.note.note_content.trim()) {
+        notesBtn.classList.add('has-note');
+      }
+    } catch (error) {
+      console.error('Error loading notes status:', error);
+    }
+  })();
+
   return item;
 }
 
@@ -289,6 +415,9 @@ function setupFiltering(list) {
 
 // Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
 (async function init() {
+  // Create notes modal first
+  notesModal.create();
+
   // Attempt to fetch alumni from backend
   let alumniData = fakeAlumni;
   try {

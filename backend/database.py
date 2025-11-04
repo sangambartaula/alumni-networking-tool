@@ -134,31 +134,63 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """)
             logger.info("users table created/verified")
-            
-            # User interactions table
+
+            # Create alumni table
             cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_interactions (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                user_id BIGINT UNSIGNED NOT NULL,
-                alumni_id BIGINT UNSIGNED NOT NULL,
-                interaction_type ENUM('bookmarked', 'connected') NOT NULL,
-                notes LONGTEXT,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE,
-                UNIQUE KEY uq_user_alumni_interaction (user_id, alumni_id, interaction_type),
-                KEY idx_user_id (user_id),
-                KEY idx_alumni_id (alumni_id),
-                KEY idx_interaction_type (interaction_type)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                CREATE TABLE IF NOT EXISTS alumni (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    first_name VARCHAR(100),
+                    last_name VARCHAR(100),
+                    grad_year INT,
+                    degree VARCHAR(255),
+                    linkedin_url VARCHAR(500),
+                    current_job_title VARCHAR(255),
+                    company VARCHAR(255),
+                    location VARCHAR(255),
+                    headline VARCHAR(500),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_alumni_linkedin_url (linkedin_url)
+                )
+            """)
+            logger.info("alumni table created/verified")
+
+            # Create user_interactions table WITH inline foreign keys
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_interactions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    alumni_id INT NOT NULL,
+                    interaction_type ENUM('bookmarked', 'connected') NOT NULL,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_interaction (user_id, alumni_id, interaction_type),
+                    CONSTRAINT fk_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_alumni_id FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
+                )
             """)
             logger.info("user_interactions table created/verified")
-        
-        # Batch commit after all tables
-        conn.commit()
-        logger.info("All tables initialized successfully")
-        
+
+            # Create notes table WITH inline foreign keys
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS notes (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    alumni_id INT NOT NULL,
+                    note_content LONGTEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_user_alumni (user_id, alumni_id),
+                    CONSTRAINT fk_notes_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_notes_alumni_id FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
+                )
+            """)
+            logger.info("notes table created/verified")
+
+            conn.commit()
+            logger.info("All tables initialized successfully")
+            
     except mysql.connector.Error as err:
         logger.error(f"MySQL error during table initialization: {err}")
         raise
