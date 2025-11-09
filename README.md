@@ -4,7 +4,7 @@ A web-based application designed to help the College of Engineering connect with
 
 ---
 
-## 🚀 Features
+##  Features
 
 - **LinkedIn Alumni Scraper:** Automated scraping of UNT alumni profiles with anti-bot measures  
 - **Alumni Search:** Find alumni by name, graduation year, degree, or department  
@@ -15,7 +15,7 @@ A web-based application designed to help the College of Engineering connect with
 
 ---
 
-## ⚙️ Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -86,7 +86,7 @@ alumni-networking-tool/
     └── output/                    # Generated data from scraper
         └── UNT_Alumni_Data.csv    # Scraped alumni data output (ignored in Git)
 
-## 🔎 Scraper Quick Check (local)
+##  Scraper Quick Check (local)
 
 Use these helper commands to validate your local scraper setup without changing any scraper code.
 
@@ -102,3 +102,30 @@ From the `scraper` folder:
 ```bash
 cd scraper
 python3 linkedin_scraper.py
+
+##  Testing and Quality Assurance
+
+The project includes automated and manual tests to ensure backend reliability, scraper stability, and API correctness.
+
+### Automated Tests
+- **Pytest-based testing suite** (`backend/tests/`) covers:
+  - LinkedIn OAuth login flow (mocked using `responses`)
+  - API route validation for alumni data fetching and notes
+  - Environment variable and app configuration verification
+- **Database Health Check:** `test_db.py` ensures MySQL connectivity, table access, and query performance.
+- **Scraper Validation:** `test_scraper.py` uses mock HTML to verify data extraction logic without hitting LinkedIn servers.
+
+Run all tests:
+```bash
+cd backend
+pytest -q
+
+##  Testing Environment Setup
+
+1. Copy `.env.example` to `.env` and configure database + LinkedIn test credentials.  
+2. Activate your virtual environment:
+   ```bash
+   source venv/bin/activate
+
+
+
