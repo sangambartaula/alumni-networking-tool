@@ -11,6 +11,7 @@ A web-based application designed to help the College of Engineering connect with
 - **Profile Insights:** View LinkedIn profiles, career paths, and current positions  
 - **Networking:** Connect students with alumni for mentorship, internships, and professional guidance  
 - **Interactive Dashboard:** Visualize alumni distribution by location, industry, and role  
+- **Alumni Location Heatmap:** 🗺️ **NEW!** Interactive map showing alumni distribution worldwide with geocoded coordinates and location clustering  
 - **Secure Data Storage:** All scraped data stored locally in CSV format  
 
 ---
@@ -64,6 +65,7 @@ alumni-networking-tool/
 ├── backend/                       # Backend code
 │   ├── app.py                     # Main Flask application
 │   ├── database.py                # Database connection and models
+│   ├── geocoding.py               # 🗺️ Location geocoding service (NEW)
 │   └── tests/                     # Unit and integration tests
 │       ├── __init__.py
 │       ├── conftest.py
@@ -74,6 +76,9 @@ alumni-networking-tool/
 │   ├── assets/                    # Images, icons, and other static files
 │   ├── alumni_style.css           # Stylesheet for alumni pages
 │   ├── alumni.html                # Alumni profile page
+│   ├── heatmap.html               # 🗺️ Alumni location heatmap page (NEW)
+│   ├── heatmap.js                 # 🗺️ Heatmap logic and interactions (NEW)
+│   ├── heatmap_style.css          # 🗺️ Heatmap styling (NEW)
 │   ├── app.js                     # Frontend JavaScript logic
 │   └── index.html                 # Main landing page
 │
@@ -126,6 +131,36 @@ pytest -q
 2. Activate your virtual environment:
    ```bash
    source venv/bin/activate
+
+---
+
+## 🗺️ Alumni Location Heatmap (NEW)
+
+### Quick Start
+```bash
+# 1. Geocode all alumni locations (one-time setup)
+cd backend
+python geocoding.py
+
+# 2. Start the app and visit the heatmap
+cd ..
+python backend/app.py
+# Open: http://localhost:5000/heatmap
+```
+
+### Features
+- **Interactive Leaflet Map** - Zoom, pan, and explore
+- **Color-coded Clustering** - Blue (low) to Red (high) alumni density
+- **Clickable Locations** - View alumni count and sample profiles per location
+- **Real-time Statistics** - Total alumni and unique locations
+- **Responsive Design** - Works on desktop, tablet, and mobile
+
+### How It Works
+1. **Geocoding Service** (`backend/geocoding.py`) converts location strings like "Denton, Texas, United States" into latitude/longitude coordinates using the free **Nominatim** API
+2. **API Endpoint** (`GET /api/heatmap`) returns aggregated location data with alumni counts
+3. **Frontend** renders an interactive Leaflet-based heatmap with clustered markers
+
+
 
 
 
