@@ -61,9 +61,12 @@ def init_db():
                     company VARCHAR(255),
                     location VARCHAR(255),
                     headline VARCHAR(500),
+                    latitude DOUBLE NULL,
+                    longitude DOUBLE NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    UNIQUE KEY uq_alumni_linkedin_url (linkedin_url)
+                    UNIQUE KEY uq_alumni_linkedin_url (linkedin_url),
+                    INDEX idx_coordinates (latitude, longitude)
                 )
             """)
             logger.info("alumni table created/verified")

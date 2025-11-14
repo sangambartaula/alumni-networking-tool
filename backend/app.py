@@ -207,6 +207,19 @@ def linkedin_callback():
 def alumni_page():
     return send_from_directory('../frontend/public', 'alumni.html')
 
+@app.route('/heatmap')
+@login_required
+def heatmap_page():
+    return send_from_directory('../frontend/public', 'heatmap.html')
+
+@app.route('/heatmap.js')
+def serve_heatmap_js():
+    return send_from_directory('../frontend/public', 'heatmap.js')
+
+@app.route('/heatmap_style.css')
+def serve_heatmap_css():
+    return send_from_directory('../frontend/public', 'heatmap_style.css')
+
 # ---------------------- API endpoints for user interactions ----------------------
 @app.route('/api/interaction', methods=['POST'])
 @api_login_required
@@ -537,6 +550,95 @@ def delete_notes(alumni_id):
     except Exception as e:
         app.logger.error(f"Error deleting notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+# ===== HEATMAP API ENDPOINT =====
+
+@app.route('/api/heatmap', methods=['GET'])
+def get_heatmap_data():
+    """
+    Get alumni location data (latitude, longitude, count) for heatmap visualization.
+    Returns aggregated data grouped by location to reduce payload size.
+    """
+    # Short-circuit in dev when DB is disabled
+    if DISABLE_DB:
+        return jsonify({"success": True, "locations": []}), 200
+
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                # Get all alumni with valid coordinates
+                cur.execute("""
+                    SELECT id, first_name, last_name, location, latitude, longitude, 
+                           current_job_title, headline, company
+                    FROM alumni
+                    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                    ORDER BY location ASC
+                """)
+                rows = cur.fetchall()
+
+            # Aggregate locations (group by lat/lon rounded to 2 decimals for clustering)
+            location_clusters = {}
+            location_details = {}  # Store first alumni at each unique location
+            
+            for row in rows:
+                lat = row['latitude']
+                lon = row['longitude']
+                
+                # Use rounded coordinates as cluster key (reduces fragmentation)
+                cluster_key = (round(lat, 2), round(lon, 2))
+                
+                if cluster_key not in location_clusters:
+                    location_clusters[cluster_key] = 0
+                    location_details[cluster_key] = {
+                        "location": row['location'],
+                        "latitude": lat,
+                        "longitude": lon,
+                        "sample_alumni": []
+                    }
+                
+                location_clusters[cluster_key] += 1
+                
+                # Store first 3 alumni examples at each location
+                if len(location_details[cluster_key]["sample_alumni"]) < 3:
+                    location_details[cluster_key]["sample_alumni"].append({
+                        "id": row['id'],
+                        "name": f"{row['first_name']} {row['last_name']}".strip(),
+                        "role": row['current_job_title'] or row['headline'] or 'Alumni',
+                        "company": row['company']
+                    })
+            
+            # Build final response
+            locations = []
+            for cluster_key, count in location_clusters.items():
+                details = location_details[cluster_key]
+                locations.append({
+                    "latitude": details["latitude"],
+                    "longitude": details["longitude"],
+                    "location": details["location"],
+                    "count": count,
+                    "sample_alumni": details["sample_alumni"]
+                })
+            
+            return jsonify({
+                "success": True,
+                "locations": locations,
+                "total_alumni": len(rows)
+            }), 200
+            
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    except mysql.connector.Error as err:
+        app.logger.error(f"MySQL error fetching heatmap data: {err}")
+        return jsonify({"error": f"Database error: {str(err)}"}), 500
+    except Exception as e:
+        app.logger.error(f"Error fetching heatmap data: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 # ---------------------- Error handler ----------------------
 @app.errorhandler(404)
