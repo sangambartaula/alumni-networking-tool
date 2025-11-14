@@ -1,0 +1,68 @@
+<!-- heatmap.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LinkedIn Helper – Alumni Heatmap</title>
+  <link rel="stylesheet" href="alumni_style.css" />
+  <!-- Leaflet CSS for mapping -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <!-- Leaflet Heat plugin for heatmap -->
+  <link rel="stylesheet" href="heatmap_style.css" />
+</head>
+<body>
+  <header class="appbar" role="banner">
+    <div class="appbar-inner">
+      <div class="brand" aria-label="LinkedIn Helper">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
+        LinkedIn Helper <small>Alumni Heatmap</small>
+      </div>
+      <div class="app-actions">
+        <a class="btn secondary" href="/alumni">Back to Alumni</a>
+        <a class="btn secondary" href="/logout">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="page heatmap-page" role="main">
+    <section class="heatmap-section">
+      <div class="heatmap-header">
+        <h2>Alumni Distribution Heatmap</h2>
+        <p class="heatmap-description">Visualization of where our alumni are located worldwide</p>
+        <div class="heatmap-stats" id="heatmapStats"></div>
+      </div>
+      
+      <!-- Map container -->
+      <div id="heatmapContainer" class="heatmap-container"></div>
+      
+      <!-- Location details panel -->
+      <aside class="heatmap-sidebar" id="heatmapSidebar">
+        <h3>Location Details</h3>
+        <div id="locationDetails" class="location-details-content">
+          <p class="info-text">Click on a cluster on the map to see details</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <footer>
+    <div class="stamp">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
+      LinkedIn Helper
+    </div>
+    <nav aria-label="Footer links">
+      <a href="#">About LinkedIn Helper</a>
+      <a href="#">Alumni</a>
+      <a href="#">Engineering</a>
+    </nav>
+  </footer>
+
+  <!-- Leaflet JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <!-- Leaflet Heat plugin -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-heat/0.2.0/leaflet-heat.js"></script>
+  <!-- Heatmap app -->
+  <script src="/heatmap.js"></script>
+</body>
+</html>
