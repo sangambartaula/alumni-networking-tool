@@ -5,7 +5,13 @@
 Thumbs.db
 *.log
 
-
+# Documentation files (kept locally, not versioned)
+HEATMAP_SETUP.md
+HEATMAP_IMPLEMENTATION.md
+HEATMAP_QUICKSTART.md
+IMPLEMENTATION_SUMMARY.md
+FEATURE_OVERVIEW.md
+DELIVERABLES.md
 
 # Python cache and virtual environments
 __pycache__/
