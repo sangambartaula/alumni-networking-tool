@@ -100,6 +100,19 @@ async function loadHeatmapData() {
       // Popup with location info
       const popupContent = createLocationPopup(location);
       marker.bindPopup(popupContent);
+
+      // Permanent count badge shown on the map (centered on the marker)
+      // Use a tooltip with a custom class so we can style it as a badge
+      try {
+        marker.bindTooltip(`${location.count}`, {
+          permanent: true,
+          direction: 'center',
+          className: 'count-badge'
+        }).openTooltip();
+      } catch (e) {
+        // In case bindTooltip fails for some versions, silently continue
+        console.warn('Could not bind tooltip for count badge', e);
+      }
       
       // Click event to show details in sidebar
       marker.on('click', () => {

@@ -82,6 +82,27 @@
   line-height: 1.4;
 }
 
+/* Tooltip badge showing count on the map markers */
+.count-badge {
+  background: rgba(255,255,255,0.95);
+  color: #222;
+  border: 2px solid rgba(0,0,0,0.08);
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  text-align: center;
+  line-height: 1;
+}
+
+.count-badge.leaflet-tooltip-top:before,
+.count-badge.leaflet-tooltip-bottom:before,
+.count-badge.leaflet-tooltip-left:before,
+.count-badge.leaflet-tooltip-right:before {
+  display: none; /* remove the little arrow */
+}
+
 .popup-content {
   width: auto;
   max-width: 300px;
