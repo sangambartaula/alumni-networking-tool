@@ -46,23 +46,45 @@ async function loadHeatmapData() {
       Math.min(1.0, loc.count / 10) // Normalize intensity (0-1 scale, capped at count=10)
     ]);
     
-    // Add heat layer to map
+    // Add heat layer to map (use Leaflet Heat if available, otherwise fall back)
     if (heatLayer) {
       map.removeLayer(heatLayer);
     }
-    heatLayer = L.heatLayer(heatmapData, {
-      radius: 25,
-      blur: 15,
-      maxZoom: 17,
-      minOpacity: 0.3,
-      gradient: {
-        0.0: '#0000ff',  // Blue
-        0.25: '#00ff00', // Green
-        0.5: '#ffff00',  // Yellow
-        0.75: '#ff8800',  // Orange
-        1.0: '#ff0000'   // Red
-      }
-    }).addTo(map);
+
+    if (typeof L.heatLayer === 'function') {
+      heatLayer = L.heatLayer(heatmapData, {
+        radius: 25,
+        blur: 15,
+        maxZoom: 17,
+        minOpacity: 0.3,
+        gradient: {
+          0.0: '#0000ff',  // Blue
+          0.25: '#00ff00', // Green
+          0.5: '#ffff00',  // Yellow
+          0.75: '#ff8800',  // Orange
+          1.0: '#ff0000'   // Red
+        }
+      }).addTo(map);
+    } else {
+      // Fallback: create a layer group of semi-transparent circles to approximate a heatmap
+      console.warn('Leaflet heat plugin not available; using circle-marker fallback.');
+      const fallbackLayer = L.layerGroup();
+      heatmapData.forEach(([lat, lon, intensity]) => {
+        // intensity is normalized 0..1; scale radius and opacity accordingly
+        const countEstimate = Math.round(intensity * 10);
+        const radiusMeters = 2000 + intensity * 12000; // meters (visual scale)
+        const circle = L.circle([lat, lon], {
+          radius: radiusMeters,
+          fillColor: getColorForCount(countEstimate),
+          color: '#333',
+          weight: 1,
+          opacity: 0.6,
+          fillOpacity: 0.15 + intensity * 0.6
+        });
+        fallbackLayer.addLayer(circle);
+      });
+      heatLayer = fallbackLayer.addTo(map);
+    }
     
     // Add clickable markers for each location cluster
     locationClusters.forEach(location => {
