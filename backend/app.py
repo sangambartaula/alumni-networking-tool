@@ -553,12 +553,33 @@ def delete_notes(alumni_id):
 
 # ===== HEATMAP API ENDPOINT =====
 
+def get_continent(lat, lon):
+    """Rough bounding-box mapping from lat/lon → continent."""
+    if lat >= 5 and lat <= 83 and lon >= -170 and lon <= -52:
+        return "North America"
+    if lat >= -56 and lat <= 13 and lon >= -81 and lon <= -34:
+        return "South America"
+    if lat >= 35 and lat <= 71 and lon >= -25 and lon <= 45:
+        return "Europe"
+    if lat >= 1 and lat <= 77 and lon >= 26 and lon <= 180:
+        return "Asia"
+    if lat >= -35 and lat <= 38 and lon >= -20 and lon <= 52:
+        return "Africa"
+    if lat >= -50 and lat <= 0 and lon >= 110 and lon <= 180:
+        return "Oceania"
+    if lat <= -60:
+        return "Antarctica"
+    return "Unknown"
+
+
 @app.route('/api/heatmap', methods=['GET'])
 def get_heatmap_data():
     """
     Get alumni location data (latitude, longitude, count) for heatmap visualization.
     Returns aggregated data grouped by location to reduce payload size.
     """
+    continent_filter = request.args.get("continent")
+
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
         return jsonify({"success": True, "locations": []}), 200
@@ -584,7 +605,10 @@ def get_heatmap_data():
             for row in rows:
                 lat = row['latitude']
                 lon = row['longitude']
-                
+
+                continent = get_continent(lat, lon)
+                if continent_filter and continent != continent_filter:
+                    continue
                 # Use rounded coordinates as cluster key (reduces fragmentation)
                 cluster_key = (round(lat, 2), round(lon, 2))
                 
@@ -594,6 +618,7 @@ def get_heatmap_data():
                         "location": row['location'],
                         "latitude": lat,
                         "longitude": lon,
+                        "continent": continent,
                         "sample_alumni": []
                     }
                 
@@ -616,6 +641,7 @@ def get_heatmap_data():
                     "latitude": details["latitude"],
                     "longitude": details["longitude"],
                     "location": details["location"],
+                    "continent": details["continent"],
                     "count": count,
                     "sample_alumni": details["sample_alumni"]
                 })
