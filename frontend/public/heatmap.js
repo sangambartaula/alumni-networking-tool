@@ -5,6 +5,17 @@ let map;
 let heatLayer;
 let locationClusters = [];
 
+// Lat/Lon bounding boxes for each continent
+const CONTINENT_BOUNDS = {
+  "North America": [[5, -170], [83, -52]],
+  "South America": [[-56, -81], [13, -34]],
+  "Europe": [[35, -25], [71, 45]],
+  "Asia": [[1, 26], [77, 180]],
+  "Africa": [[-35, -20], [38, 52]],
+  "Oceania": [[-50, 110], [0, 180]],
+  "Antarctica": [[-90, -180], [-60, 180]]
+};
+
 // Initialize map on page load
 document.addEventListener('DOMContentLoaded', () => {
   initializeMap();
@@ -22,7 +33,24 @@ function initializeMap() {
   }).addTo(map);
 }
 
-async function loadHeatmapData() {
+function filterByContinent(continent) {
+  const url = `/api/heatmap?continent=${encodeURIComponent(continent)}`;
+  loadHeatmapData(url);
+
+  // Zoom the map to the selected continent
+  if (CONTINENT_BOUNDS[continent]) {
+    map.fitBounds(CONTINENT_BOUNDS[continent]);
+  }
+}
+
+function resetContinent() {
+  // Reset map view to full US-centered view
+  map.setView([39.8283, -98.5795], 4);
+  loadHeatmapData('/api/heatmap');
+}
+
+
+async function loadHeatmapData(url = '/api/heatmap') {
   try {
     const response = await fetch('/api/heatmap');
     const data = await response.json();
