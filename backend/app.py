@@ -625,7 +625,7 @@ def get_heatmap_data():
                 location_clusters[cluster_key] += 1
                 
                 # Store first 3 alumni examples at each location
-                if len(location_details[cluster_key]["sample_alumni"]) < 3:
+                if len(location_details[cluster_key]["sample_alumni"]) < 50:
                     location_details[cluster_key]["sample_alumni"].append({
                         "id": row['id'],
                         "name": f"{row['first_name']} {row['last_name']}".strip(),
