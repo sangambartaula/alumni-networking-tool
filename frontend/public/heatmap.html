@@ -48,6 +48,12 @@
       <!-- Map container -->
       <div id="heatmapContainer" class="heatmap-container"></div>
       
+      <!-- Pie chart container -->
+      <div class="pie-chart-container">
+        <h3>Alumni Distribution by Continent</h3>
+        <canvas id="continentPieChart"></canvas>
+      </div>
+      
       <!-- Location details panel -->
       <aside class="heatmap-sidebar" id="heatmapSidebar">
         <h3>Location Details</h3>
@@ -74,6 +80,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <!-- Leaflet Heat plugin -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-heat/0.2.0/leaflet-heat.js"></script>
+  <!-- Chart.js for pie chart -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
   <!-- Heatmap app -->
   <script src="/heatmap.js"></script>
 </body>
