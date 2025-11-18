@@ -31,7 +31,18 @@
         <h2>Alumni Distribution Heatmap</h2>
         <p class="heatmap-description">Visualization of where our alumni are located worldwide</p>
         <div class="heatmap-stats" id="heatmapStats"></div>
-      </div>
+      
+        <div id="continentFilters">
+          <button onclick="filterByContinent('North America')">North America</button>
+          <button onclick="filterByContinent('South America')">South America</button>
+          <button onclick="filterByContinent('Europe')">Europe</button>
+          <button onclick="filterByContinent('Asia')">Asia</button>
+          <button onclick="filterByContinent('Africa')">Africa</button>
+          <button onclick="filterByContinent('Oceania')">Oceania</button>
+          <button onclick="filterByContinent('Antarctica')">Antarctica</button>
+          <button onclick="resetContinent()">Show All</button>
+        </div>
+      </div>  
       
       <!-- Map container -->
       <div id="heatmapContainer" class="heatmap-container"></div>

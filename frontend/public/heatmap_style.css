@@ -285,3 +285,27 @@
     min-height: 300px;
   }
 }
+
+/* Continent filter buttons */
+#continentFilters {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#continentFilters button {
+  background: white;
+  border: 1px solid #ddd;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+#continentFilters button:hover {
+  background: #f2f2f2;
+  border-color: #ccc;
+}
+
