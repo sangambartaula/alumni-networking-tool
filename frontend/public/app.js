@@ -11,6 +11,10 @@ const fakeAlumni = [
 // Store user interactions in memory
 let userInteractions = {};
 
+// Pagination state
+let currentPage = 1;
+const itemsPerPage = 20;
+
 // DOM references
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
@@ -306,6 +310,114 @@ function renderProfiles(list) {
     list.forEach(p => listContainer.appendChild(createListItem(p)));
   }
   if (count) count.textContent = `(${list.length})`;
+  // Render pagination controls
+  renderPagination(list);
+}
+
+// Pagination: Get paginated subset of profiles
+function getPaginated(list) {
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  return list.slice(startIndex, endIndex);
+}
+
+// Render pagination controls
+function renderPagination(fullList) {
+  const paginationContainer = document.getElementById('pagination');
+  if (!paginationContainer) return;
+
+  const totalPages = Math.ceil(fullList.length / itemsPerPage);
+  
+  // If only one page or no results, hide pagination
+  if (totalPages <= 1) {
+    paginationContainer.innerHTML = '';
+    paginationContainer.style.display = 'none';
+    return;
+  }
+  
+  paginationContainer.style.display = 'flex';
+  paginationContainer.innerHTML = '';
+
+  // Previous button
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'pagination-btn';
+  prevBtn.textContent = '← Previous';
+  prevBtn.disabled = currentPage === 1;
+  prevBtn.addEventListener('click', () => {
+    if (currentPage > 1) {
+      currentPage--;
+      applyFiltersAndSort();
+    }
+  });
+  paginationContainer.appendChild(prevBtn);
+
+  // Page number buttons
+  const maxVisiblePages = 7;
+  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+  
+  // Adjust start if we're near the end
+  if (endPage - startPage < maxVisiblePages - 1) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+
+  // First page + ellipsis if needed
+  if (startPage > 1) {
+    const firstBtn = createPageButton(1, fullList);
+    paginationContainer.appendChild(firstBtn);
+    if (startPage > 2) {
+      const ellipsis = document.createElement('span');
+      ellipsis.className = 'pagination-ellipsis';
+      ellipsis.textContent = '...';
+      paginationContainer.appendChild(ellipsis);
+    }
+  }
+
+  // Visible page buttons
+  for (let i = startPage; i <= endPage; i++) {
+    const pageBtn = createPageButton(i, fullList);
+    paginationContainer.appendChild(pageBtn);
+  }
+
+  // Last page + ellipsis if needed
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      const ellipsis = document.createElement('span');
+      ellipsis.className = 'pagination-ellipsis';
+      ellipsis.textContent = '...';
+      paginationContainer.appendChild(ellipsis);
+    }
+    const lastBtn = createPageButton(totalPages, fullList);
+    paginationContainer.appendChild(lastBtn);
+  }
+
+  // Next button
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'pagination-btn';
+  nextBtn.textContent = 'Next →';
+  nextBtn.disabled = currentPage === totalPages;
+  nextBtn.addEventListener('click', () => {
+    if (currentPage < totalPages) {
+      currentPage++;
+      applyFiltersAndSort();
+    }
+  });
+  paginationContainer.appendChild(nextBtn);
+}
+
+// Helper: Create a page number button
+function createPageButton(pageNum, fullList) {
+  const btn = document.createElement('button');
+  btn.className = 'pagination-btn page-number';
+  if (pageNum === currentPage) {
+    btn.classList.add('active');
+  }
+  btn.textContent = pageNum;
+  btn.addEventListener('click', () => {
+    currentPage = pageNum;
+    applyFiltersAndSort();
+  });
+  return btn;
 }
 
 // Populate filters (location, role, graduation)
@@ -361,6 +473,7 @@ function setupFiltering(list) {
       document.querySelectorAll('input[name="location"], input[name="role"]').forEach(cb => cb.checked = false);
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
+      currentPage = 1; // Reset to page 1 when clearing filters
       apply();
     });
   }
@@ -399,14 +512,34 @@ function setupFiltering(list) {
       return matchTerm && matchLoc && matchRole && matchYear;
     });
     const sortedFiltered = getSorted(filtered);
-    renderProfiles(sortedFiltered);
+    const paginated = getPaginated(sortedFiltered);
+    renderProfiles(sortedFiltered); // Pass full list for count and pagination
+    
+    // Render only paginated items
+    if (listContainer) {
+      listContainer.innerHTML = '';
+      paginated.forEach(p => listContainer.appendChild(createListItem(p)));
+    }
+    if (count) count.textContent = `(${sortedFiltered.length})`;
   }
 
-  if (q) q.addEventListener('input', apply);
-  document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], #gradSelect')) apply();
+  // Store reference to apply function globally
+  window.applyFiltersAndSort = apply;
+
+  if (q) q.addEventListener('input', () => {
+    currentPage = 1; // Reset to page 1 on search
+    apply();
   });
-  if (sortSelect) sortSelect.addEventListener('change', apply);
+  document.addEventListener('change', (e) => {
+    if (e.target.matches('input[name="location"], input[name="role"], #gradSelect')) {
+      currentPage = 1; // Reset to page 1 on filter change
+      apply();
+    }
+  });
+  if (sortSelect) sortSelect.addEventListener('change', () => {
+    currentPage = 1; // Reset to page 1 on sort change
+    apply();
+  });
 }
 
 // Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
