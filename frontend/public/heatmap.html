@@ -33,14 +33,15 @@
         <div class="heatmap-stats" id="heatmapStats"></div>
       
         <div id="continentFilters">
-          <button onclick="filterByContinent('North America')">North America</button>
-          <button onclick="filterByContinent('South America')">South America</button>
-          <button onclick="filterByContinent('Europe')">Europe</button>
-          <button onclick="filterByContinent('Asia')">Asia</button>
-          <button onclick="filterByContinent('Africa')">Africa</button>
-          <button onclick="filterByContinent('Oceania')">Oceania</button>
-          <button onclick="filterByContinent('Antarctica')">Antarctica</button>
-          <button onclick="resetContinent()">Show All</button>
+          <button class="continent-btn" data-continent="North America" onclick="filterByContinent('North America')">North America</button>
+          <button class="continent-btn" data-continent="Europe" onclick="filterByContinent('Europe')">Europe</button>
+          <button class="continent-btn" data-continent="Asia" onclick="filterByContinent('Asia')">Asia</button>
+          <button class="continent-btn" data-continent="Africa" onclick="filterByContinent('Africa')">Africa</button>
+          <button class="continent-btn" data-continent="Oceania" onclick="filterByContinent('Oceania')">Oceania</button>
+          <button class="continent-btn" data-continent="South America" onclick="filterByContinent('South America')">South America</button>
+          <button class="continent-btn" data-continent="Antarctica" onclick="filterByContinent('Antarctica')">Antarctica</button>
+          <button class="continent-btn" onclick="resetContinent()">Show All</button>
+
         </div>
       </div>  
       

@@ -9,7 +9,13 @@ from database import get_connection
 
 load_dotenv()
 
-app = Flask(__name__)
+#app = Flask(__name__)
+app = Flask(
+    __name__,
+    static_folder="../frontend/public",
+    static_url_path=""
+)
+
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
 
 # Development toggle: set DISABLE_DB=1 in .env to skip all DB work (useful when RDS is down)
@@ -591,7 +597,7 @@ def get_heatmap_data():
                 # Get all alumni with valid coordinates
                 cur.execute("""
                     SELECT id, first_name, last_name, location, latitude, longitude, 
-                           current_job_title, headline, company
+                           current_job_title, headline, company, linkedin_url
                     FROM alumni
                     WHERE latitude IS NOT NULL AND longitude IS NOT NULL
                     ORDER BY location ASC
@@ -630,7 +636,8 @@ def get_heatmap_data():
                         "id": row['id'],
                         "name": f"{row['first_name']} {row['last_name']}".strip(),
                         "role": row['current_job_title'] or row['headline'] or 'Alumni',
-                        "company": row['company']
+                        "company": row['company'],
+                        "linkedin": row['linkedin_url']
                     })
             
             # Build final response

@@ -242,6 +242,24 @@
   padding-right: 4px;      /* little space for scrollbar */
 }
 
+.alumni-linkedin-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid #0a66c2;
+  color: #0a66c2;
+  background: #eef5ff;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.alumni-linkedin-btn:hover {
+  background: #dbeafe;
+}
+
 
 .location-alumni-item {
   padding: 0.75rem;
@@ -331,3 +349,48 @@
   color: #888;
   font-style: italic;
 }
+
+.continent-btn.selected {
+  background-color: #4f46e5; /* purple highlight */
+  color: rgb(94, 73, 232);
+  font-weight: 600;
+  border: 1px solid #312e81;
+}
+
+.location-alumni-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid #e6e6e6;
+}
+
+.alumni-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.linkedin-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1.5px solid #dcdcdc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.linkedin-icon-btn img {
+  width: 18px;
+  height: 18px;
+}
+
+.linkedin-icon-btn:hover {
+  background: #f3f3f3;
+  border-color: #bfbfbf;
+}
+

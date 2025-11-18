@@ -33,8 +33,22 @@ function initializeMap() {
   }).addTo(map);
 }
 
+function highlightButton(continent) {
+  const buttons = document.querySelectorAll(".continent-btn");
+  buttons.forEach(btn => btn.classList.remove("selected"));
+
+  if (!continent) return;
+
+  const selected = document.querySelector(`.continent-btn[data-continent="${continent}"]`);
+  if (selected) {
+    selected.classList.add("selected");
+  }
+}
+
+
 function filterByContinent(continent) {
   // Hide sidebar when switching continents
+  highlightButton(continent);
   //document.getElementById('heatmapSidebar').style.display = 'none';
   document.getElementById('heatmapSidebar').classList.remove('visible');
   const url = `/api/heatmap?continent=${encodeURIComponent(continent)}`;
@@ -53,6 +67,7 @@ function filterByContinent(continent) {
 }
 
 function resetContinent() {
+  highlightButton(null);
   //document.getElementById('heatmapSidebar').style.display = 'none';
   document.getElementById('heatmapSidebar').classList.remove('visible');
   // Reset map view to full US-centered view
@@ -196,16 +211,25 @@ function showLocationDetails(location) {
     sidebarContainer.classList.add('visible');
   }
   
-  const alumniItems = location.sample_alumni
+  
+    const alumniItems = location.sample_alumni
     .map(a => `
       <div class="location-alumni-item">
+      <div class="alumni-info">
         <div class="alumni-name">${a.name}</div>
         <div class="alumni-role">${a.role}</div>
         ${a.company ? `<div class="alumni-company">${a.company}</div>` : ''}
       </div>
-    `)
-    .join('');
-  
+
+      ${a.linkedin ? `
+        <a class="linkedin-icon-btn" href="${a.linkedin}" target="_blank" rel="noopener noreferrer">
+          <img src="linkedin.svg" alt="LinkedIn" />
+        </a>
+      ` : ''}
+    </div>
+  `)
+  .join('');
+
   sidebar.innerHTML = `
     <div class="location-details-card">
       <h4>${location.location}</h4>
