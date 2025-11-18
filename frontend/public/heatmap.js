@@ -7,7 +7,7 @@ let locationClusters = [];
 
 // Lat/Lon bounding boxes for each continent
 const CONTINENT_BOUNDS = {
-  "North America": [[5, -170], [83, -52]],
+  "North America": [[10, -170], [83, -50]],
   "South America": [[-56, -81], [13, -34]],
   "Europe": [[35, -25], [71, 45]],
   "Asia": [[1, 26], [77, 180]],
@@ -37,8 +37,14 @@ function filterByContinent(continent) {
   const url = `/api/heatmap?continent=${encodeURIComponent(continent)}`;
   loadHeatmapData(url);
 
-  // Zoom the map to the selected continent
-  if (CONTINENT_BOUNDS[continent]) {
+  if (continent === "North America") {
+    // Center around US/Mexico/Canada
+    map.setView([40, -100], 3);
+  } else if (continent === "Oceania") {
+    // Center around Australia/NZ
+    map.setView([-25, 135], 4);
+  } else if (CONTINENT_BOUNDS[continent]) {
+    // Use bounds for the rest
     map.fitBounds(CONTINENT_BOUNDS[continent]);
   }
 }
@@ -175,7 +181,7 @@ function createLocationPopup(location) {
     <div class="popup-content">
       <h4>${location.location}</h4>
       <p><strong>Alumni Count:</strong> ${location.count}</p>
-      <p><strong>Sample Alumni:</strong></p>
+      <p><strong>Alumni:</strong></p>
       <ul style="margin: 0; padding-left: 20px;">
         ${alumniList}
       </ul>
@@ -184,7 +190,12 @@ function createLocationPopup(location) {
 }
 
 function showLocationDetails(location) {
+  const sidebarContainer = document.getElementById('heatmapSidebar');
   const sidebar = document.getElementById('locationDetails');
+
+  if (sidebarContainer) {
+    sidebarContainer.style.display = 'block';
+  }
   
   const alumniItems = location.sample_alumni
     .map(a => `
@@ -204,7 +215,7 @@ function showLocationDetails(location) {
         <span class="badge badge-secondary">Lat: ${location.latitude.toFixed(3)}</span>
         <span class="badge badge-secondary">Lon: ${location.longitude.toFixed(3)}</span>
       </div>
-      <h5>Sample Alumni (${Math.min(3, location.sample_alumni.length)})</h5>
+      <h5>Alumni (${location.count})</h5>
       <div class="alumni-list">
         ${alumniItems}
       </div>
