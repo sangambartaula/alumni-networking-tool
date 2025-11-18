@@ -394,3 +394,23 @@
   border-color: #bfbfbf;
 }
 
+/* Pie chart container styling */
+.pie-chart-container {
+  padding: 2rem;
+  background: white;
+  border-top: 1px solid #e0e0e0;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.pie-chart-container h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+#continentPieChart {
+  max-width: 100%;
+}
+
