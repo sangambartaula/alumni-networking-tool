@@ -4,6 +4,7 @@
 let map;
 let heatLayer;
 let locationClusters = [];
+let pieChart = null;
 
 // Lat/Lon bounding boxes for each continent
 const CONTINENT_BOUNDS = {
@@ -14,6 +15,17 @@ const CONTINENT_BOUNDS = {
   "Africa": [[-35, -20], [38, 52]],
   "Oceania": [[-50, 110], [0, 180]],
   "Antarctica": [[-90, -180], [-60, 180]]
+};
+
+// Color mapping for continents
+const CONTINENT_COLORS = {
+  "North America": "#667eea",
+  "South America": "#764ba2",
+  "Europe": "#f093fb",
+  "Asia": "#4facfe",
+  "Africa": "#ffa400",
+  "Oceania": "#43e97b",
+  "Antarctica": "#fa709a"
 };
 
 // Initialize map on page load
@@ -177,6 +189,9 @@ async function loadHeatmapData(url = '/api/heatmap') {
     // Update statistics
     updateStatistics(data.total_alumni, locationClusters.length);
     
+    // Update pie chart
+    updatePieChart(locationClusters);
+    
   } catch (error) {
     console.error('Error loading heatmap data:', error);
     showError('Error loading heatmap data: ' + error.message);
@@ -284,3 +299,88 @@ document.addEventListener('click', function (event) {
   // If click is anywhere else on the page  then close sidebar
   sidebar.classList.remove('visible');
 });
+
+function aggregateAlumniByContinent(locations) {
+  // Aggregate alumni counts by continent based on location coordinates
+  const continentCounts = {};
+  
+  // Initialize all continents with 0
+  Object.keys(CONTINENT_BOUNDS).forEach(continent => {
+    continentCounts[continent] = 0;
+  });
+  
+  locations.forEach(location => {
+    const lat = location.latitude;
+    const lon = location.longitude;
+    
+    // Determine which continent this location belongs to
+    for (const [continent, [[minLat, minLon], [maxLat, maxLon]]] of Object.entries(CONTINENT_BOUNDS)) {
+      if (lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon) {
+        continentCounts[continent] += location.count;
+        break;
+      }
+    }
+  });
+  
+  return continentCounts;
+}
+
+function updatePieChart(locations) {
+  const continentCounts = aggregateAlumniByContinent(locations);
+  
+  // Filter out continents with 0 alumni
+  const labels = Object.keys(continentCounts).filter(continent => continentCounts[continent] > 0);
+  const data = labels.map(continent => continentCounts[continent]);
+  const colors = labels.map(continent => CONTINENT_COLORS[continent] || "#999");
+  
+  const chartCanvas = document.getElementById('continentPieChart');
+  
+  if (!chartCanvas) {
+    console.warn('Pie chart canvas element not found');
+    return;
+  }
+  
+  // Destroy existing chart if it exists
+  if (pieChart) {
+    pieChart.destroy();
+  }
+  
+  // Create new pie chart
+  const ctx = chartCanvas.getContext('2d');
+  pieChart = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderColor: '#fff',
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            padding: 15,
+            font: {
+              size: 13
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const percentage = ((context.parsed / total) * 100).toFixed(1);
+              return `${context.label}: ${context.parsed} (${percentage}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
