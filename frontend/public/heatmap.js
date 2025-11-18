@@ -34,6 +34,9 @@ function initializeMap() {
 }
 
 function filterByContinent(continent) {
+  // Hide sidebar when switching continents
+  //document.getElementById('heatmapSidebar').style.display = 'none';
+  document.getElementById('heatmapSidebar').classList.remove('visible');
   const url = `/api/heatmap?continent=${encodeURIComponent(continent)}`;
   loadHeatmapData(url);
 
@@ -50,6 +53,8 @@ function filterByContinent(continent) {
 }
 
 function resetContinent() {
+  //document.getElementById('heatmapSidebar').style.display = 'none';
+  document.getElementById('heatmapSidebar').classList.remove('visible');
   // Reset map view to full US-centered view
   map.setView([39.8283, -98.5795], 4);
   loadHeatmapData('/api/heatmap');
@@ -133,7 +138,7 @@ async function loadHeatmapData(url = '/api/heatmap') {
       
       // Popup with location info
       const popupContent = createLocationPopup(location);
-      marker.bindPopup(popupContent);
+      //marker.bindPopup(popupContent);
 
       // Permanent count badge shown on the map (centered on the marker)
       // Use a tooltip with a custom class so we can style it as a badge
@@ -173,28 +178,22 @@ function getColorForCount(count) {
 }
 
 function createLocationPopup(location) {
-  const alumniList = location.sample_alumni
-    .map(a => `<li><strong>${a.name}</strong><br/>${a.role}${a.company ? '<br/>@ ' + a.company : ''}</li>`)
-    .join('');
-  
   return `
     <div class="popup-content">
       <h4>${location.location}</h4>
       <p><strong>Alumni Count:</strong> ${location.count}</p>
-      <p><strong>Alumni:</strong></p>
-      <ul style="margin: 0; padding-left: 20px;">
-        ${alumniList}
-      </ul>
+      <p class="popup-hint">Click this marker to view detailed alumni info in the side panel.</p>
     </div>
   `;
 }
+
 
 function showLocationDetails(location) {
   const sidebarContainer = document.getElementById('heatmapSidebar');
   const sidebar = document.getElementById('locationDetails');
 
   if (sidebarContainer) {
-    sidebarContainer.style.display = 'block';
+    sidebarContainer.classList.add('visible');
   }
   
   const alumniItems = location.sample_alumni
@@ -241,3 +240,23 @@ function showError(message) {
   const sidebar = document.getElementById('locationDetails');
   sidebar.innerHTML = `<p style="color: #e74c3c;">${message}</p>`;
 }
+// Close sidebar when clicking outside it
+document.addEventListener('click', function (event) {
+  const sidebar = document.getElementById('heatmapSidebar');
+  const mapContainer = document.getElementById('heatmapContainer');
+
+  // If sidebar is hidden, do nothing
+  if (!sidebar || sidebar.style.display === 'none') return;
+
+  // If click is inside sidebar, do nothing
+  if (sidebar.contains(event.target)) return;
+
+  // If click is a marker, do NOT close sidebar (marker click will update it)
+  if (event.target.closest('.leaflet-marker-icon') || 
+      event.target.closest('.leaflet-interactive')) {
+    return;
+  }
+
+  // If click is anywhere else on the page  then close sidebar
+  sidebar.classList.remove('visible');
+});

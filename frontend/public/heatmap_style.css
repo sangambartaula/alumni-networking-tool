@@ -147,7 +147,16 @@
   z-index: 400;
   padding: 1.5rem;
   display: none; /* hidden by default */
+  display: none;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
 
+}
+.heatmap-sidebar.visible {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .heatmap-sidebar h3 {
@@ -271,8 +280,9 @@
     bottom: 1rem;
     right: 1rem;
     max-height: 300px;
+    
   }
-  
+
   .heatmap-header {
     padding: 1.5rem 1rem;
   }
@@ -315,3 +325,9 @@
   border-color: #ccc;
 }
 
+.popup-hint {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #888;
+  font-style: italic;
+}
