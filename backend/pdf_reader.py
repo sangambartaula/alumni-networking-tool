@@ -135,7 +135,12 @@ def is_valid_name(name: str) -> bool:
     return True
 
 def extract_engineering_names(pdf_path: Path, year: int) -> pd.DataFrame:
-    """Extract all names from College of Engineering sections."""
+    """Extract all names from College of Engineering sections.
+    
+    Returns DataFrame with columns: Name, Degree, SemYr, Honors
+    """
+    from datetime import datetime
+    
     # Read and clean PDF text
     lines = extract_text_from_pdf(pdf_path)
     
@@ -143,255 +148,76 @@ def extract_engineering_names(pdf_path: Path, year: int) -> pd.DataFrame:
     sections = find_engineering_section(lines)
     if not sections:
         print("No College of Engineering section found!", file=sys.stderr)
-        return pd.DataFrame()
-        
-    # Department patterns for major detection
-    department_patterns = {
-        "Computer Science": [
-            r"computer\s+science",
-            r"computing",
-            r"artificial intelligence",
-            r"machine learning",
-            r"data science"
-        ],
-        "Electrical Engineering": [
-            r"electrical\s+engineering",
-            r"computer\s+engineering",
-            r"electronics"
-        ],
-        "Mechanical Engineering": [
-            r"mechanical\s+engineering",
-            r"aerospace",
-            r"robotics"
-        ],
-        "Biomedical Engineering": [
-            r"biomedical\s+engineering",
-            r"bioengineering"
-        ],
-        "Materials Science": [
-            r"materials\s+science",
-            r"materials\s+engineering"
-        ],
-        "Engineering Technology": [
-            r"engineering\s+technology",
-            r"industrial\s+technology"
-        ]
-    }
+        return pd.DataFrame(columns=["Name", "Degree", "SemYr", "Honors"])
     
-    # Extract names
-    names = []
+    # Detect semester from current date
+    month = datetime.now().month
+    if month <= 5:
+        semester = "Spring"
+    elif month <= 7:
+        semester = "Summer"
+    else:
+        semester = "Fall"
+    semyr = f"{semester} {year}"
+    
+    # Honors patterns to detect
+    honors_patterns = [
+        "Summa Cum Laude",
+        "Magna Cum Laude",
+        "Cum Laude",
+        "Honors College",
+        "With Highest Honors",
+        "With High Honors",
+        "With Honors",
+    ]
+    
+    graduates = []
     
     for start, end in sections:
-        current_degree = None
-        current_major = None
+        current_degree_full = None
         
-        # Get section text for context
-        section_text = " ".join(lines[start:end]).lower()
-        
-        # Determine major from section context
-        for major, patterns in department_patterns.items():
-            if any(re.search(pattern, section_text) for pattern in patterns):
-                current_major = major
-                break
-                
-        for i in range(start, end):
-            line = lines[i].strip()
-            line_lower = line.lower()
+        for line in lines[start:end]:
+            raw = line.strip()
+            if not raw:
+                continue
             
-            # Enhanced degree level detection
-            if any(x in line_lower for x in [
-                "bachelor of", "b.s.", "bs in", "b.s in", "undergraduate",
-                "bachelor's", "bachelors", "bs degree", "b.s. degree",
-                "bachelor of science", "b.sc.", "b.s"
-            ]):
-                current_degree = "BS"
+            # Check if this is a degree header line
+            up = raw.upper()
+            if "BACHELOR" in up or "MASTER" in up or "DOCTOR" in up:
+                # Normalize: Title case, keep 'in' lowercase
+                d = re.sub(r"\s+", " ", raw).strip()
+                d = re.sub(r"\sIN\s", " in ", d, flags=re.IGNORECASE)
+                current_degree_full = d.title().replace(" In ", " in ")
+                continue
+            
+            # Extract honors and clean name
+            honors_found = []
+            for pat in honors_patterns:
+                if pat in raw:
+                    honors_found.append(pat)
+                    raw = raw.replace(pat, "").strip()
+            
+            # Check if valid name
+            if is_valid_name(raw):
+                name = re.sub(r"\s+", " ", raw).strip()
                 
-            # Check for master's degree indicators
-            elif any(x in line_lower for x in [
-                "master of", "m.s.", "ms in", "m.s in", "master's",
-                "masters", "ms degree", "m.s. degree", "master of science",
-                "m.sc.", "m.s", "graduate degree"
-            ]):
-                current_degree = "MS"
+                # Use degree from header, or fallback to "Bachelor of Science"
+                degree_str = current_degree_full or "Bachelor of Science"
                 
-            # Check for doctoral degree indicators
-            elif any(x in line_lower for x in [
-                "doctor", "ph.d", "ph.d.", "philosophy", "dissertation",
-                "doctoral", "doctorate", "doctor of philosophy",
-                "d.phil.", "phd candidate", "doctoral candidate"
-            ]):
-                current_degree = "PhD"
-                
-            # Look for degree hints in surrounding context if not found
-            if not current_degree:
-                context_start = max(start, i - 3)
-                context_end = min(end, i + 3)
-                context = " ".join(lines[context_start:context_end]).lower()
-                
-                if any(x in context for x in ["bachelor", "b.s.", "undergraduate"]):
-                    current_degree = "BS"
-                elif any(x in context for x in ["master", "m.s.", "graduate"]):
-                    current_degree = "MS"
-                elif any(x in context for x in ["doctor", "ph.d", "dissertation"]):
-                    current_degree = "PhD"
-                
-            # Update major if found in line
-            for major, patterns in department_patterns.items():
-                if any(re.search(pattern, line_lower) for pattern in patterns):
-                    current_major = major
-                    break
-                
-            # Process potential name
-            if is_valid_name(line):
-                parts = line.split()
-                
-                # Handle titles
-                titles = {"Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Professor", "Sir", "Lady"}
-                if parts[0] in titles:
-                    parts = parts[1:]
-                
-                # Handle suffixes and credentials
-                suffixes = {
-                    "Jr.", "Sr.", "II", "III", "IV", "V",
-                    "Jr", "Sr", "I", "PhD", "Ph.D.", "M.D.",
-                    "D.D.S.", "Esq.", "P.E."
-                }
-                
-                suffix = None
-                if parts[-1] in suffixes:
-                    suffix = parts[-1]
-                    parts = parts[:-1]
-                
-                if len(parts) >= 2:
-                    first_name = parts[0]
-                    last_name = " ".join(parts[1:])
-                    if suffix:
-                        last_name = f"{last_name} {suffix}"
-                        
-                    names.append({
-                        "first_name": first_name,
-                        "last_name": last_name,
-                        "major": current_major or "Unknown",
-                        "degree": current_degree or "Unknown",
-                        "graduation_year": year
-                    })
+                graduates.append({
+                    "Name": name,
+                    "Degree": degree_str,
+                    "SemYr": semyr,
+                    "Honors": ", ".join(honors_found) if honors_found else "",
+                })
     
-    # Create DataFrame
-    df = pd.DataFrame(names)
+    # Create DataFrame with correct columns
+    df = pd.DataFrame(graduates, columns=["Name", "Degree", "SemYr", "Honors"])
     
     if not df.empty:
-        # Remove duplicates
-        df = df.drop_duplicates(subset=["first_name", "last_name"], keep="first")
-        # Sort by name
-        df = df.sort_values(["last_name", "first_name"])
-        
-    return df
+        df = df.drop_duplicates(subset=["Name"], keep="first")
+        df = df.sort_values(["Name"])
     
-    # Extract names
-    names = []
-    
-    for start, end in sections:
-        current_degree = None
-        current_major = None
-        
-        # Get section text for context
-        section_text = " ".join(lines[start:end]).lower()
-        
-        # Determine major from section context
-        for major, patterns in department_patterns.items():
-            if any(re.search(pattern, section_text) for pattern in patterns):
-                current_major = major
-                break
-        
-        for i in range(start, end):
-            line = lines[i].strip()
-            line_lower = line.lower()
-            
-            # Enhanced degree level detection
-            line_lower = line.lower().strip()
-            
-            # Check for bachelor's degree indicators
-            if any(x in line_lower for x in [
-                "bachelor of", "b.s.", "bs in", "b.s in", "undergraduate",
-                "bachelor's", "bachelors", "bs degree", "b.s. degree",
-                "bachelor of science", "b.sc.", "b.s"
-            ]):
-                current_degree = "BS"
-                
-            # Check for master's degree indicators
-            elif any(x in line_lower for x in [
-                "master of", "m.s.", "ms in", "m.s in", "master's",
-                "masters", "ms degree", "m.s. degree", "master of science",
-                "m.sc.", "m.s", "graduate degree"
-            ]):
-                current_degree = "MS"
-                
-            # Check for doctoral degree indicators
-            elif any(x in line_lower for x in [
-                "doctor", "ph.d", "ph.d.", "philosophy", "dissertation",
-                "doctoral", "doctorate", "doctor of philosophy",
-                "d.phil.", "phd candidate", "doctoral candidate"
-            ]):
-                current_degree = "PhD"
-                
-            # Look for degree hints in surrounding context
-            context_start = max(start, i - 3)
-            context_end = min(end, i + 3)
-            context = " ".join(lines[context_start:context_end]).lower()
-            
-            if not current_degree:
-                if any(x in context for x in ["bachelor of", "b.s.", "bs in", "b.s in", "undergraduate", "bachelor's"]):
-                    current_degree = "BS"
-                elif any(x in context for x in ["master of", "m.s.", "ms in", "m.s in", "master's"]):
-                    current_degree = "MS"
-                elif any(x in context for x in ["doctor", "ph.d", "ph.d.", "philosophy", "dissertation"]):
-                    current_degree = "PhD"
-                
-            # Update major if found in line
-            for major, patterns in department_patterns.items():
-                if any(re.search(pattern, line_lower) for pattern in patterns):
-                    current_major = major
-                    break
-                
-            # Process potential name
-            if is_valid_name(line):
-                parts = line.split()
-                
-                # Handle titles
-                titles = {"Dr.", "Mr.", "Mrs.", "Ms.", "Prof."}
-                if parts[0] in titles:
-                    parts = parts[1:]
-                
-                # Handle suffixes
-                suffixes = {"Jr.", "Sr.", "II", "III", "IV"}
-                suffix = None
-                if parts[-1] in suffixes:
-                    suffix = parts[-1]
-                    parts = parts[:-1]
-                
-                if len(parts) >= 2:
-                    first_name = parts[0]
-                    last_name = " ".join(parts[1:])
-                    if suffix:
-                        last_name = f"{last_name} {suffix}"
-                        
-                    names.append({
-                        "first_name": first_name,
-                        "last_name": last_name,
-                        "major": current_major or "Computer Science",
-                        "degree": current_degree or "MS",
-                        "graduation_year": year
-                    })
-    
-    # Create DataFrame
-    df = pd.DataFrame(names)
-    
-    if not df.empty:
-        # Remove duplicates
-        df = df.drop_duplicates(subset=["first_name", "last_name"], keep="first")
-        # Sort by name
-        df = df.sort_values(["last_name", "first_name"])
-        
     return df
 
 def main():
@@ -401,8 +227,8 @@ def main():
     parser.add_argument("pdf", help="Path to the commencement PDF file")
     parser.add_argument(
         "-o", "--output",
-        default="engineering_graduates.csv",
-        help="Output CSV file path (default: engineering_graduates.csv)"
+        default="engineering_graduate.csv",
+        help="Output CSV file path (default: engineering_graduate.csv)"
     )
     parser.add_argument(
         "-y", "--year",
@@ -426,20 +252,16 @@ def main():
         print("No names found in engineering sections!", file=sys.stderr)
         sys.exit(1)
         
-    # Save results with only name and year columns
+    # Save results to CSV
     output_path = Path(args.output)
     
-    # Print detailed summary before filtering columns
-    print(f"\nExtracted {len(df)} names from engineering sections:")
-    print("\nDegree distribution:")
-    print(df["degree"].value_counts())
-    print("\nMajor distribution:")
-    print(df["major"].value_counts())
+    print(f"\nExtracted {len(df)} graduates from engineering sections")
+    print("\nFirst 5 rows:")
+    print(df.head().to_string(index=False))
     
-    # Now save only names and year to CSV
-    df = df[["first_name", "last_name", "graduation_year"]]  # Only keep name and year
+    # Save full DataFrame with all columns (Name, Degree, SemYr, Honors)
     df.to_csv(output_path, index=False)
-    print(f"\nResults saved to: {output_path} (names and graduation year only)")
+    print(f"\nResults saved to: {output_path}")
 
 if __name__ == "__main__":
     main()
