@@ -69,9 +69,9 @@
   --muted:#6B7280;
   --text:#111827;
   --border:#E5E7EB;
-  --brand:#0A7A3D;
-  --brand-600:#086233;
-  --accent:#22c55e20;
+  --brand:#059669;
+  --brand-600:#047857;
+  --accent:#10b98120;
   --link:#2563EB;
   --radius:12px;
 }
@@ -97,7 +97,56 @@ body{margin:0;background:var(--page);color:var(--text);font-family:Inter,system-
 .check{display:flex;gap:8px;align-items:center;font-size:14px;color:#374151}
 select{width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;background:#fff}
 .results-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.pill{background:var(--accent);border:1px solid #22c55e40;color:#065f46;padding:4px 8px;border-radius:999px;font-size:12px}
+.pill{background:var(--accent);border:1px solid #10b98140;color:#047857;padding:4px 8px;border-radius:999px;font-size:12px}
+
+/* Action buttons styling for header */
+.app-actions .btn.action-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-actions .btn.action-btn:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+  transform: translateY(-2px);
+}
+
+.app-actions .btn.action-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.2);
+}
+
+/* Sort area styling */
+.sort-area {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sort-area label {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.sort-area select {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  font-size: 14px;
+}
+
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 @media (max-width:1024px){.grid{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:640px){.page{grid-template-columns:1fr}.filters{position:static}.grid{grid-template-columns:1fr}}
