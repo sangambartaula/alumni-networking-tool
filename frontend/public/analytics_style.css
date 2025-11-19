@@ -5,17 +5,17 @@
   max-width: 1400px;
   margin: 0 auto;
   padding: 2rem;
-  background: #f8f9fa;
+  background: #f0fdf4;
 }
 
 .analytics-header {
   text-align: center;
   margin-bottom: 3rem;
-  padding: 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 2.5rem;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 8px 16px rgba(16, 185, 129, 0.2);
 }
 
 .analytics-header h1 {
@@ -63,7 +63,7 @@
   margin: 0;
   font-size: 2rem;
   font-weight: 700;
-  color: #667eea;
+  color: #059669;
 }
 
 .stat-content p {
@@ -125,7 +125,7 @@
 .job-rank {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #667eea;
+  color: #059669;
   min-width: 40px;
   text-align: center;
 }
@@ -157,7 +157,7 @@
 
 .job-bar {
   height: 100%;
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
   border-radius: 4px;
   transition: width 0.3s ease;
 }
@@ -277,18 +277,18 @@
 }
 
 .rank-badge.gold {
-  background: linear-gradient(135deg, #FFD700, #FFA500);
-  color: #000;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
 }
 
 .rank-badge.silver {
-  background: linear-gradient(135deg, #C0C0C0, #808080);
-  color: #000;
+  background: linear-gradient(135deg, #6ee7b7, #10b981);
+  color: white;
 }
 
 .rank-badge.bronze {
-  background: linear-gradient(135deg, #CD7F32, #8B4513);
-  color: #fff;
+  background: linear-gradient(135deg, #a7f3d0, #6ee7b7);
+  color: #047857;
 }
 
 .rank-badge.default {
