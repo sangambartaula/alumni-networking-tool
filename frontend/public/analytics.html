@@ -1,0 +1,187 @@
+<!-- analytics.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LinkedIn Helper – Analytics</title>
+  <link rel="stylesheet" href="alumni_style.css" />
+  <link rel="stylesheet" href="analytics_style.css" />
+  <!-- Chart.js for visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body>
+  <header class="appbar" role="banner">
+    <div class="appbar-inner">
+      <div class="brand" aria-label="LinkedIn Helper">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
+        LinkedIn Helper <small>Analytics</small>
+      </div>
+      <div class="app-actions">
+        <a class="btn secondary" href="/alumni">Back to Alumni</a>
+        <a class="btn secondary" href="/logout">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="analytics-page" role="main">
+    <!-- Page Header -->
+    <section class="analytics-header">
+      <h1>Alumni Analytics Dashboard</h1>
+      <p class="analytics-description">Comprehensive insights into alumni career paths, locations, and trends</p>
+    </section>
+
+    <!-- Summary Statistics -->
+    <section class="stats-overview">
+      <div class="stat-card">
+        <div class="stat-icon">👥</div>
+        <div class="stat-content">
+          <h3 id="totalAlumni">0</h3>
+          <p>Total Alumni</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🏢</div>
+        <div class="stat-content">
+          <h3 id="totalCompanies">0</h3>
+          <p>Unique Companies</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🌍</div>
+        <div class="stat-content">
+          <h3 id="totalLocations">0</h3>
+          <p>Locations</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">💼</div>
+        <div class="stat-content">
+          <h3 id="totalJobs">0</h3>
+          <p>Job Titles</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Top 5 Common Jobs -->
+    <section class="analytics-section">
+      <div class="section-header">
+        <h2>Top 5 Most Common Job Titles</h2>
+        <p>Most popular career paths among alumni</p>
+      </div>
+      <div class="top-jobs-container">
+        <div id="topJobsList" class="top-jobs-list"></div>
+      </div>
+    </section>
+
+    <!-- Charts Grid -->
+    <section class="charts-grid">
+      <!-- Job Distribution Pie Chart -->
+      <div class="chart-card">
+        <h3>Job Title Distribution</h3>
+        <div class="chart-wrapper">
+          <canvas id="jobPieChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Company Distribution Pie Chart -->
+      <div class="chart-card">
+        <h3>Top Companies</h3>
+        <div class="chart-wrapper">
+          <canvas id="companyPieChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Location Distribution Pie Chart -->
+      <div class="chart-card">
+        <h3>Location Distribution</h3>
+        <div class="chart-wrapper">
+          <canvas id="locationPieChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Industry Distribution Pie Chart -->
+      <div class="chart-card">
+        <h3>Industry Distribution</h3>
+        <div class="chart-wrapper">
+          <canvas id="industryPieChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Line Charts Section -->
+    <section class="analytics-section">
+      <div class="section-header">
+        <h2>Alumni Trends Over Time</h2>
+        <p>Graduation trends and career progression</p>
+      </div>
+      <div class="line-charts-container">
+        <!-- Graduation Timeline -->
+        <div class="chart-card full-width">
+          <h3>Alumni by Graduation Year</h3>
+          <div class="chart-wrapper">
+            <canvas id="graduationLineChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Additional Insights -->
+    <section class="analytics-section">
+      <div class="section-header">
+        <h2>Detailed Breakdown</h2>
+        <p>Top companies and career paths</p>
+      </div>
+      <div class="insights-grid">
+        <!-- Top Companies Table -->
+        <div class="insight-card">
+          <h3>🏢 Top 10 Employers</h3>
+          <div class="table-container">
+            <table id="topCompaniesTable">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Company</th>
+                  <th>Alumni Count</th>
+                </tr>
+              </thead>
+              <tbody id="topCompaniesBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Top Locations Table -->
+        <div class="insight-card">
+          <h3>📍 Top 10 Locations</h3>
+          <div class="table-container">
+            <table id="topLocationsTable">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Location</th>
+                  <th>Alumni Count</th>
+                </tr>
+              </thead>
+              <tbody id="topLocationsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="stamp">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
+      LinkedIn Helper
+    </div>
+    <nav aria-label="Footer links">
+      <a href="#">About LinkedIn Helper</a>
+      <a href="/alumni">Alumni</a>
+      <a href="#">Engineering</a>
+    </nav>
+  </footer>
+
+  <script src="analytics.js"></script>
+</body>
+</html>
