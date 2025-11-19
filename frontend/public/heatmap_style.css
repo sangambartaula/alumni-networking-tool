@@ -25,20 +25,49 @@
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
   color: white;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition: transform 0.4s ease, opacity 0.4s ease;
   transform: translateY(0);
   opacity: 1;
   backdrop-filter: blur(10px);
-}
-
-.heatmap-header.auto-hide {
-  /* Auto-hide mode styling */
 }
 
 .heatmap-header.hidden {
   transform: translateY(-100%);
   opacity: 0;
   pointer-events: none;
+}
+
+.header-toggle-btn {
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  z-index: 1001;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.header-toggle-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+}
+
+.header-toggle-btn.rotated svg {
+  transform: rotate(180deg);
+  transition: transform 0.3s ease;
+}
+
+.header-toggle-btn svg {
+  transition: transform 0.3s ease;
 }
 
 .heatmap-header.collapsed {
@@ -187,11 +216,12 @@
   font-weight: 600;
 }
 
-.heatmap-container {
+.heatmap-container,
+.map-container {
   flex: 1;
   min-height: 600px;
   width: 100%;
-  background: #f5f5f5;
+  background: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -202,18 +232,21 @@
 /* Leaflet map styling */
 
 /* Leaflet map styling */
-.heatmap-container .leaflet-container {
-  background: #fff;
+.heatmap-container .leaflet-container,
+.map-container .leaflet-container {
+  background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-.heatmap-container .leaflet-popup-content-wrapper {
+.heatmap-container .leaflet-popup-content-wrapper,
+.map-container .leaflet-popup-content-wrapper {
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.heatmap-container .leaflet-popup-content {
+.heatmap-container .leaflet-popup-content,
+.map-container .leaflet-popup-content {
   margin: 0;
   line-height: 1.4;
 }
@@ -271,18 +304,18 @@
 /* Sidebar for location details */
 .heatmap-sidebar {
   position: absolute;
-  bottom: 2rem;
-  right: 2rem;
+  top: 100px;
+  right: 20px;
   width: 320px;
-  max-height: 400px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  border: 1px solid #e0e0e0;
+  max-height: 50vh;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   overflow-y: auto;
-  z-index: 400;
+  z-index: 999;
   padding: 1.5rem;
-  display: none; /* hidden by default */
   display: none;
   opacity: 0;
   transform: translateY(10px);
@@ -532,11 +565,17 @@
 
 /* Pie chart container styling */
 .pie-chart-container {
-  padding: 2rem;
-  background: white;
-  border-top: 1px solid #e0e0e0;
-  max-width: 500px;
-  margin: 0 auto;
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  max-width: 350px;
+  min-width: 300px;
 }
 
 .pie-chart-container h3 {
@@ -564,6 +603,133 @@
 
 .leaflet-bottom.leaflet-left {
   margin-bottom: 20px;
+}
+
+/* 2D/3D View Toggle */
+.view-mode-toggle {
+  position: absolute;
+  bottom: 30px;
+  right: 390px;
+  z-index: 1000;
+}
+
+.toggle-panel {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+  font-size: 13px;
+  color: #666;
+}
+
+.toggle-btn:hover {
+  background: rgba(102, 126, 234, 0.1);
+  color: #667eea;
+}
+
+.toggle-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.toggle-btn svg {
+  flex-shrink: 0;
+}
+
+/* Cesium Layer Control Panel */
+.layer-control,
+.cesium-layer-control {
+  position: absolute;
+  bottom: 40px;
+  left: 20px;
+  z-index: 1000;
+}
+
+.layer-control-panel {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  padding: 16px;
+  min-width: 200px;
+}
+
+.layer-control-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 12px;
+  text-align: center;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #667eea;
+}
+
+.layer-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s;
+  margin-bottom: 4px;
+}
+
+.layer-option:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.layer-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #667eea;
+}
+
+.layer-option span {
+  font-size: 13px;
+  color: #333;
+  font-weight: 500;
+}
+
+/* Cesium widget overrides */
+.cesium-viewer {
+  width: 100%;
+  height: 100%;
+}
+
+.cesium-viewer-bottom {
+  display: none !important; /* Hide Cesium branding */
+}
+
+.cesium-infoBox {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cesium-infoBox-title {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
 }
 
 .leaflet-control-layers-expanded {

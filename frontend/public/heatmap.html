@@ -6,9 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LinkedIn Helper – Alumni Heatmap</title>
   <link rel="stylesheet" href="alumni_style.css" />
-  <!-- Leaflet CSS for mapping -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-  <!-- Leaflet Heat plugin for heatmap -->
+  <!-- Leaflet CSS for 2D mapping -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  <!-- Cesium CSS for 3D globe -->
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" />
   <link rel="stylesheet" href="heatmap_style.css" />
 </head>
 <body>
@@ -27,7 +28,12 @@
 
   <main class="page heatmap-page" role="main">
     <section class="heatmap-section">
-      <div class="heatmap-header auto-hide" id="heatmapHeader">
+      <button id="headerToggleBtn" class="header-toggle-btn" title="Toggle Header">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <path d="M7 10l5 5 5-5z"/>
+        </svg>
+      </button>
+      <div class="heatmap-header" id="heatmapHeader">
         <div class="header-content">
           <div class="header-info">
             <h2>Alumni Distribution Heatmap</h2>
@@ -58,8 +64,9 @@
         </div>
       </div>  
       
-      <!-- Map container -->
-      <div id="heatmapContainer" class="heatmap-container"></div>
+      <!-- Map containers - both 2D and 3D -->
+      <div id="map2DContainer" class="map-container"></div>
+      <div id="map3DContainer" class="map-container" style="display: none;"></div>
       
       <!-- Pie chart container -->
       <div class="pie-chart-container">
@@ -89,13 +96,14 @@
     </nav>
   </footer>
 
-  <!-- Leaflet JS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <!-- Leaflet Heat plugin -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-heat/0.2.0/leaflet-heat.js"></script>
+  <!-- Leaflet JS for 2D -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+  <!-- Cesium JS for 3D Globe -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
   <!-- Chart.js for pie chart -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-  <!-- Heatmap app -->
-  <script src="/heatmap.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <!-- Dual Heatmap app -->
+  <script src="heatmap_dual.js"></script>
 </body>
 </html>
