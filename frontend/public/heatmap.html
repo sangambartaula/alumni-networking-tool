@@ -27,10 +27,24 @@
 
   <main class="page heatmap-page" role="main">
     <section class="heatmap-section">
-      <div class="heatmap-header">
-        <h2>Alumni Distribution Heatmap</h2>
-        <p class="heatmap-description">Visualization of where our alumni are located worldwide</p>
-        <div class="heatmap-stats" id="heatmapStats"></div>
+      <div class="heatmap-header auto-hide" id="heatmapHeader">
+        <div class="header-content">
+          <div class="header-info">
+            <h2>Alumni Distribution Heatmap</h2>
+            <p class="heatmap-description">Visualization of where our alumni are located worldwide</p>
+            <div class="heatmap-stats" id="heatmapStats"></div>
+          </div>
+          <div class="header-buttons">
+            <button id="fullscreenBtn" class="fullscreen-btn" title="Toggle Fullscreen">
+              <svg class="fullscreen-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+              </svg>
+              <svg class="exit-fullscreen-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       
         <div id="continentFilters">
           <button class="continent-btn" data-continent="North America" onclick="filterByContinent('North America')">North America</button>
@@ -41,7 +55,6 @@
           <button class="continent-btn" data-continent="South America" onclick="filterByContinent('South America')">South America</button>
           <button class="continent-btn" data-continent="Antarctica" onclick="filterByContinent('Antarctica')">Antarctica</button>
           <button class="continent-btn" onclick="resetContinent()">Show All</button>
-
         </div>
       </div>  
       

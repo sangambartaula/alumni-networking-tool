@@ -12,13 +12,67 @@
   flex-direction: column;
   flex: 1;
   gap: 0;
+  position: relative;
 }
 
 .heatmap-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
   padding: 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
   color: white;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  transform: translateY(0);
+  opacity: 1;
+  backdrop-filter: blur(10px);
+}
+
+.heatmap-header.auto-hide {
+  /* Auto-hide mode styling */
+}
+
+.heatmap-header.hidden {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.heatmap-header.collapsed {
+  padding: 1rem 2rem;
+}
+
+.heatmap-header.collapsed .header-info {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.heatmap-header.collapsed .header-content {
+  margin-bottom: 0.5rem;
+}
+
+.header-info {
+  max-height: 500px;
+  opacity: 1;
+  transition: all 0.3s ease;
+  margin-bottom: 1rem;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 8px;
 }
 
 .heatmap-header h2 {
@@ -31,6 +85,81 @@
   margin: 0 0 1rem 0;
   opacity: 0.9;
   font-size: 0.95rem;
+}
+
+/* Toggle header button */
+.toggle-header-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+}
+
+.toggle-header-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(1.05);
+}
+
+.toggle-header-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Fullscreen button */
+.fullscreen-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+}
+
+.fullscreen-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(1.05);
+}
+
+.fullscreen-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Fullscreen mode */
+.heatmap-section.fullscreen-mode {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  background: white;
+  margin: 0;
+}
+
+.heatmap-section.fullscreen-mode .heatmap-container {
+  min-height: 100vh;
+  height: 100vh;
+}
+
+.heatmap-section.fullscreen-mode .pie-chart-container {
+  display: none;
 }
 
 .heatmap-stats {
@@ -63,7 +192,14 @@
   min-height: 600px;
   width: 100%;
   background: #f5f5f5;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
+
+/* Leaflet map styling */
 
 /* Leaflet map styling */
 .heatmap-container .leaflet-container {
@@ -421,6 +557,13 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   border: 1px solid #e0e0e0;
   padding: 12px;
+  margin-bottom: 80px !important;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.leaflet-bottom.leaflet-left {
+  margin-bottom: 20px;
 }
 
 .leaflet-control-layers-expanded {

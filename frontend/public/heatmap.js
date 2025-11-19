@@ -32,7 +32,97 @@ const CONTINENT_COLORS = {
 document.addEventListener('DOMContentLoaded', () => {
   initializeMap();
   loadHeatmapData();
+  setupFullscreenToggle();
+  setupAutoHideHeader();
 });
+
+// Auto-hide header on mouse movement
+function setupAutoHideHeader() {
+  const header = document.getElementById('heatmapHeader');
+  const heatmapSection = document.querySelector('.heatmap-section');
+  let hideTimeout;
+  let isHeaderVisible = true;
+  
+  // Show header initially for 3 seconds, then hide
+  setTimeout(() => {
+    header.classList.add('hidden');
+    isHeaderVisible = false;
+  }, 3000);
+  
+  // Track mouse movement
+  heatmapSection.addEventListener('mousemove', (e) => {
+    const mouseY = e.clientY;
+    
+    // Only show header when mouse is very close to the top (within 30px)
+    if (mouseY < 30) {
+      if (!isHeaderVisible) {
+        header.classList.remove('hidden');
+        isHeaderVisible = true;
+      }
+      
+      // Clear any existing timeout
+      clearTimeout(hideTimeout);
+    } else if (mouseY > 100 && isHeaderVisible) {
+      // Hide header when mouse moves away from top area
+      clearTimeout(hideTimeout);
+      hideTimeout = setTimeout(() => {
+        header.classList.add('hidden');
+        isHeaderVisible = false;
+      }, 800);
+    }
+  });
+  
+  // Keep header visible when mouse is over it
+  header.addEventListener('mouseenter', () => {
+    clearTimeout(hideTimeout);
+    header.classList.remove('hidden');
+    isHeaderVisible = true;
+  });
+  
+  // Hide header when mouse leaves it and is not near the top
+  header.addEventListener('mouseleave', (e) => {
+    if (e.clientY > 100) {
+      hideTimeout = setTimeout(() => {
+        header.classList.add('hidden');
+        isHeaderVisible = false;
+      }, 1500);
+    }
+  });
+}
+
+// Fullscreen toggle functionality
+function setupFullscreenToggle() {
+  const fullscreenBtn = document.getElementById('fullscreenBtn');
+  const heatmapSection = document.querySelector('.heatmap-section');
+  const fullscreenIcon = fullscreenBtn.querySelector('.fullscreen-icon');
+  const exitFullscreenIcon = fullscreenBtn.querySelector('.exit-fullscreen-icon');
+  
+  fullscreenBtn.addEventListener('click', () => {
+    heatmapSection.classList.toggle('fullscreen-mode');
+    
+    if (heatmapSection.classList.contains('fullscreen-mode')) {
+      fullscreenIcon.style.display = 'none';
+      exitFullscreenIcon.style.display = 'block';
+      document.body.style.overflow = 'hidden';
+    } else {
+      fullscreenIcon.style.display = 'block';
+      exitFullscreenIcon.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+    
+    // Invalidate map size after transition
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 300);
+  });
+  
+  // ESC key to exit fullscreen
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && heatmapSection.classList.contains('fullscreen-mode')) {
+      fullscreenBtn.click();
+    }
+  });
+}
 
 function initializeMap() {
   // Create map centered on USA
@@ -40,42 +130,49 @@ function initializeMap() {
   
   // Define base layers (different map styles)
   
-  // OpenStreetMap Standard (original)
-  const osmStandard = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19
-  });
-  
-  // CartoDB Positron - Clean, detailed map with good labels
-  const cartoPositron = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  // Esri World Street Map - Very detailed like Google Maps
+  const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
     maxZoom: 20
   });
   
-  // Satellite imagery from Esri World Imagery
-  const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+  // OpenStreetMap with detailed labels
+  const osmDetailed = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
     maxZoom: 19
   });
   
-  // Hybrid view (satellite + labels)
+  // CartoDB Voyager - Clean, detailed map with good labels
+  const cartoVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    maxZoom: 20
+  });
+  
+  // Esri World Topo Map - Topographic with terrain details
+  const esriTopo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 20
+  });
+  
+  // Hybrid view (satellite + labels) - Multiple layers for best detail
   const hybridImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
     maxZoom: 19
   });
   
+  // Transportation layer for roads on satellite
+  const transportationLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '',
+    maxZoom: 19
+  });
+  
+  // Boundaries and places for labels on satellite
   const hybridLabels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
     attribution: '',
     maxZoom: 19
   });
   
-  const hybridLayer = L.layerGroup([hybridImagery, hybridLabels]);
-  
-  // Esri World Street Map - Very detailed like Google Maps
-  const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom',
-    maxZoom: 20
-  });
+  const hybridLayer = L.layerGroup([hybridImagery, transportationLayer, hybridLabels]);
   
   // Add default layer (detailed street map)
   esriStreet.addTo(map);
@@ -83,15 +180,15 @@ function initializeMap() {
   // Create layer control object
   const baseLayers = {
     "<span style='font-weight: 500;'>🗺️ Detailed Streets (Recommended)</span>": esriStreet,
-    "<span style='font-weight: 500;'>📍 Voyager Map</span>": cartoPositron,
-    "<span style='font-weight: 500;'>🗺️ Standard Map</span>": osmStandard,
-    "<span style='font-weight: 500;'>🛰️ Satellite</span>": satelliteLayer,
-    "<span style='font-weight: 500;'>🌍 Hybrid (Satellite + Labels)</span>": hybridLayer
+    "<span style='font-weight: 500;'>🏔️ Topographic Map</span>": esriTopo,
+    "<span style='font-weight: 500;'>📍 Voyager Map</span>": cartoVoyager,
+    "<span style='font-weight: 500;'>🗺️ OpenStreetMap</span>": osmDetailed,
+    "<span style='font-weight: 500;'>🛰️ Satellite + Roads & Labels</span>": hybridLayer
   };
   
-  // Add layer control to map (top-left corner, away from sidebar)
+  // Add layer control to map (bottom-left corner, away from header)
   L.control.layers(baseLayers, null, {
-    position: 'topleft',
+    position: 'bottomleft',
     collapsed: false
   }).addTo(map);
 }
