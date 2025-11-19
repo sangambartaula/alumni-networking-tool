@@ -414,3 +414,44 @@
   max-width: 100%;
 }
 
+/* Layer Control Styling */
+.leaflet-control-layers {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e0e0e0;
+  padding: 12px;
+}
+
+.leaflet-control-layers-expanded {
+  padding: 12px 16px;
+}
+
+.leaflet-control-layers-base label {
+  display: flex;
+  align-items: center;
+  padding: 8px 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+  border-radius: 4px;
+}
+
+.leaflet-control-layers-base label:hover {
+  background: #f5f5f5;
+}
+
+.leaflet-control-layers input[type="radio"] {
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.leaflet-control-layers-toggle {
+  width: 40px;
+  height: 40px;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%23333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>');
+  background-size: 20px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+

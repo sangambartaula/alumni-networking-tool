@@ -38,10 +38,61 @@ function initializeMap() {
   // Create map centered on USA
   map = L.map('heatmapContainer').setView([39.8283, -98.5795], 4);
   
-  // Add OpenStreetMap tiles
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // Define base layers (different map styles)
+  
+  // OpenStreetMap Standard (original)
+  const osmStandard = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19
+  });
+  
+  // CartoDB Positron - Clean, detailed map with good labels
+  const cartoPositron = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20
+  });
+  
+  // Satellite imagery from Esri World Imagery
+  const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    maxZoom: 19
+  });
+  
+  // Hybrid view (satellite + labels)
+  const hybridImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 19
+  });
+  
+  const hybridLabels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '',
+    maxZoom: 19
+  });
+  
+  const hybridLayer = L.layerGroup([hybridImagery, hybridLabels]);
+  
+  // Esri World Street Map - Very detailed like Google Maps
+  const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom',
+    maxZoom: 20
+  });
+  
+  // Add default layer (detailed street map)
+  esriStreet.addTo(map);
+  
+  // Create layer control object
+  const baseLayers = {
+    "<span style='font-weight: 500;'>🗺️ Detailed Streets (Recommended)</span>": esriStreet,
+    "<span style='font-weight: 500;'>📍 Voyager Map</span>": cartoPositron,
+    "<span style='font-weight: 500;'>🗺️ Standard Map</span>": osmStandard,
+    "<span style='font-weight: 500;'>🛰️ Satellite</span>": satelliteLayer,
+    "<span style='font-weight: 500;'>🌍 Hybrid (Satellite + Labels)</span>": hybridLayer
+  };
+  
+  // Add layer control to map (top-left corner, away from sidebar)
+  L.control.layers(baseLayers, null, {
+    position: 'topleft',
+    collapsed: false
   }).addTo(map);
 }
 
