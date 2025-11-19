@@ -218,6 +218,11 @@ def alumni_page():
 def heatmap_page():
     return send_from_directory('../frontend/public', 'heatmap.html')
 
+@app.route('/analytics')
+@login_required
+def analytics_page():
+    return send_from_directory('../frontend/public', 'analytics.html')
+
 @app.route('/heatmap.js')
 def serve_heatmap_js():
     return send_from_directory('../frontend/public', 'heatmap.js')
