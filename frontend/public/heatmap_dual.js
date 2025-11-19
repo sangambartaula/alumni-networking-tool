@@ -6,7 +6,6 @@ Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
 let map2D;
 let map3D;
 let locationClusters = [];
-let pieChart = null;
 let currentMode = '2d'; // Start with 2D
 let markers2D = [];
 let entities3D = [];
@@ -296,9 +295,6 @@ async function loadHeatmapData(url = '/api/heatmap') {
     // Update statistics
     updateStatistics(data.total_alumni, locationClusters.length);
     
-    // Update pie chart
-    updatePieChart(locationClusters);
-    
   } catch (error) {
     console.error('Error loading heatmap data:', error);
     showError('Error loading heatmap data: ' + error.message);
@@ -516,42 +512,6 @@ function aggregateAlumniByContinent(locations) {
   });
   
   return continentCounts;
-}
-
-// Update pie chart
-function updatePieChart(locations) {
-  const continentCounts = aggregateAlumniByContinent(locations);
-  const labels = Object.keys(continentCounts).filter(continent => continentCounts[continent] > 0);
-  const data = labels.map(continent => continentCounts[continent]);
-  const colors = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#ffa400', '#43e97b', '#fa709a'];
-  
-  const chartCanvas = document.getElementById('continentPieChart');
-  if (!chartCanvas) return;
-  
-  if (pieChart) pieChart.destroy();
-  
-  const ctx = chartCanvas.getContext('2d');
-  pieChart = new Chart(ctx, {
-    type: 'pie',
-    data: {
-      labels: labels,
-      datasets: [{
-        data: data,
-        backgroundColor: colors,
-        borderColor: '#fff',
-        borderWidth: 2
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: {
-          position: 'bottom'
-        }
-      }
-    }
-  });
 }
 
 // Manual header toggle functionality

@@ -64,18 +64,16 @@
         </div>
       </div>  
       
-      <!-- Map containers - both 2D and 3D -->
-      <div id="map2DContainer" class="map-container"></div>
-      <div id="map3DContainer" class="map-container" style="display: none;"></div>
-      
-      <!-- Pie chart container -->
-      <div class="pie-chart-container">
-        <h3>Alumni Distribution by Continent</h3>
-        <canvas id="continentPieChart"></canvas>
+      <!-- Map wrapper to contain absolute positioned maps -->
+      <div class="map-wrapper">
+        <!-- Map containers - both 2D and 3D -->
+        <div id="map2DContainer" class="map-container"></div>
+        <div id="map3DContainer" class="map-container" style="display: none;"></div>
       </div>
       
       <!-- Location details panel -->
       <aside class="heatmap-sidebar" id="heatmapSidebar">
+        <button class="sidebar-close-btn" onclick="document.getElementById('heatmapSidebar').classList.remove('visible')">&times;</button>
         <h3>Location Details</h3>
         <div id="locationDetails" class="location-details-content">
           <p class="info-text">Click on a cluster on the map to see details</p>
@@ -101,8 +99,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
   <!-- Cesium JS for 3D Globe -->
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
-  <!-- Chart.js for pie chart -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
   <!-- Dual Heatmap app -->
   <script src="heatmap_dual.js"></script>
 </body>
