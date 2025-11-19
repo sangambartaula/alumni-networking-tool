@@ -35,26 +35,6 @@ function initialize2DMap() {
     attribution: 'Google Earth',
     maxZoom: 20
   }).addTo(map2D);
-  
-  // Store initial position
-  window.lastCameraPosition = {
-    lat: 20,
-    lng: 0,
-    zoom: 2,
-    altitude: 15000000
-  };
-  
-  // Track map movements
-  map2D.on('moveend', () => {
-    const center = map2D.getCenter();
-    const zoom = map2D.getZoom();
-    window.lastCameraPosition = {
-      lat: center.lat,
-      lng: center.lng,
-      zoom: zoom,
-      altitude: getAltitudeFromZoom(zoom)
-    };
-  });
 }
 
 // Convert Leaflet zoom to Cesium altitude
@@ -81,60 +61,48 @@ function initialize3DMap() {
     selectionIndicator: true,
     timeline: false,
     navigationHelpButton: false,
-    navigationInstructionsInitiallyVisible: false
+    navigationInstructionsInitiallyVisible: false,
+    imageryProvider: new Cesium.IonImageryProvider({ assetId: 2 })
   });
 
-  // Remove default imagery and add Google satellite
-  map3D.imageryLayers.removeAll();
-  map3D.imageryLayers.addImageryProvider(
-    new Cesium.UrlTemplateImageryProvider({
-      url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-      maximumLevel: 20,
-      credit: 'Google'
-    })
-  );
+  // Wait for globe to be ready, then replace with Google imagery
+  setTimeout(() => {
+    map3D.imageryLayers.removeAll();
+    
+    // Add Google satellite imagery
+    const googleSatellite = map3D.imageryLayers.addImageryProvider(
+      new Cesium.UrlTemplateImageryProvider({
+        url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+        maximumLevel: 20
+      })
+    );
+    
+    // Add labels overlay
+    const googleLabels = map3D.imageryLayers.addImageryProvider(
+      new Cesium.UrlTemplateImageryProvider({
+        url: 'https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
+        maximumLevel: 20
+      })
+    );
+  }, 1000);
 
-  // Add roads and labels overlay
-  map3D.imageryLayers.addImageryProvider(
-    new Cesium.UrlTemplateImageryProvider({
-      url: 'https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
-      maximumLevel: 20,
-      credit: 'Google'
-    })
-  );
-
-  // Disable lighting to prevent blue tint
+  // Configure scene
   map3D.scene.globe.enableLighting = false;
   map3D.scene.globe.showGroundAtmosphere = true;
   map3D.scene.skyBox.show = true;
+  map3D.scene.moon.show = false;
+  map3D.scene.sun.show = false;
+  map3D.scene.globe.show = true;
+  map3D.scene.requestRenderMode = false;
   
-  // Set initial camera position
+  // Set initial camera position closer to see the globe better
   map3D.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(-95.0, 40.0, 15000000),
+    destination: Cesium.Cartesian3.fromDegrees(-95.0, 40.0, 12000000),
     orientation: {
       heading: 0.0,
-      pitch: Cesium.Math.toRadians(-60),
+      pitch: Cesium.Math.toRadians(-50),
       roll: 0.0
     }
-  });
-  
-  // Store initial view for later sync
-  window.lastCameraPosition = {
-    lat: 40.0,
-    lng: -95.0,
-    zoom: 2,
-    altitude: 15000000
-  };
-  
-  // Track 3D camera movements
-  map3D.camera.moveEnd.addEventListener(() => {
-    const cameraPos = map3D.camera.positionCartographic;
-    window.lastCameraPosition = {
-      lat: Cesium.Math.toDegrees(cameraPos.latitude),
-      lng: Cesium.Math.toDegrees(cameraPos.longitude),
-      altitude: cameraPos.height,
-      zoom: getZoomFromAltitude(cameraPos.height)
-    };
   });
 }
 
@@ -183,76 +151,24 @@ function switchMapMode(mode) {
   const map3DContainer = document.getElementById('map3DContainer');
   
   if (mode === '2d') {
-    // Get current 3D camera position before switching
-    if (map3D) {
-      const cameraPos = map3D.camera.positionCartographic;
-      const lat = Cesium.Math.toDegrees(cameraPos.latitude);
-      const lng = Cesium.Math.toDegrees(cameraPos.longitude);
-      const altitude = cameraPos.height;
-      
-      // Store for 3D return
-      window.lastCameraPosition = { lat, lng, altitude };
-    }
-    
     map2DContainer.style.display = 'block';
     map3DContainer.style.display = 'none';
     
-    // Refresh Leaflet map and set to same position
+    // Refresh Leaflet map
     setTimeout(() => {
       map2D.invalidateSize();
-      if (window.lastCameraPosition) {
-        const zoom = getZoomFromAltitude(window.lastCameraPosition.altitude);
-        map2D.setView(
-          [window.lastCameraPosition.lat, window.lastCameraPosition.lng],
-          zoom,
-          { animate: true, duration: 1 }
-        );
-      }
     }, 100);
   } else {
-    // Get current 2D position before switching
-    if (map2D) {
-      const center = map2D.getCenter();
-      const zoom = map2D.getZoom();
-      window.lastCameraPosition = {
-        lat: center.lat,
-        lng: center.lng,
-        zoom: zoom,
-        altitude: getAltitudeFromZoom(zoom)
-      };
-    }
-    
     map2DContainer.style.display = 'none';
     map3DContainer.style.display = 'block';
     
-    // Refresh Cesium viewer and fly to same position
+    // Refresh Cesium viewer
     setTimeout(() => {
       if (map3D) {
         map3D.resize();
-        if (window.lastCameraPosition) {
-          map3D.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(
-              window.lastCameraPosition.lng,
-              window.lastCameraPosition.lat,
-              window.lastCameraPosition.altitude
-            ),
-            orientation: {
-              heading: 0.0,
-              pitch: Cesium.Math.toRadians(-60),
-              roll: 0.0
-            },
-            duration: 1.5
-          });
-        }
       }
     }, 100);
   }
-}
-
-// Convert altitude to Leaflet zoom level
-function getZoomFromAltitude(altitude) {
-  const zoom = Math.round(21 - Math.log2(altitude / 156543.03392));
-  return Math.max(1, Math.min(20, zoom));
 }
 
 // Add custom layer controls
