@@ -62,6 +62,12 @@ function getAltitudeFromZoom(zoom) {
   return Math.pow(2, 21 - zoom) * 156543.03392;
 }
 
+// Convert altitude to Leaflet zoom level
+function getZoomFromAltitude(altitude) {
+  const zoom = Math.round(21 - Math.log2(altitude / 156543.03392));
+  return Math.max(1, Math.min(20, zoom));
+}
+
 // Initialize 3D Cesium Globe
 function initialize3DMap() {
   map3D = new Cesium.Viewer('map3DContainer', {
@@ -119,6 +125,17 @@ function initialize3DMap() {
     zoom: 2,
     altitude: 15000000
   };
+  
+  // Track 3D camera movements
+  map3D.camera.moveEnd.addEventListener(() => {
+    const cameraPos = map3D.camera.positionCartographic;
+    window.lastCameraPosition = {
+      lat: Cesium.Math.toDegrees(cameraPos.latitude),
+      lng: Cesium.Math.toDegrees(cameraPos.longitude),
+      altitude: cameraPos.height,
+      zoom: getZoomFromAltitude(cameraPos.height)
+    };
+  });
 }
 
 // Add 2D/3D toggle button
