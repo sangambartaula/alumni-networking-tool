@@ -62,48 +62,65 @@ function initialize3DMap() {
     timeline: false,
     navigationHelpButton: false,
     navigationInstructionsInitiallyVisible: false,
-    imageryProvider: new Cesium.IonImageryProvider({ assetId: 2 })
+    baseLayer: false
   });
 
-  // Wait for globe to be ready, then replace with Google imagery
-  setTimeout(() => {
-    map3D.imageryLayers.removeAll();
-    
-    // Add Google satellite imagery
-    const googleSatellite = map3D.imageryLayers.addImageryProvider(
-      new Cesium.UrlTemplateImageryProvider({
-        url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-        maximumLevel: 20
-      })
-    );
-    
-    // Add labels overlay
-    const googleLabels = map3D.imageryLayers.addImageryProvider(
-      new Cesium.UrlTemplateImageryProvider({
-        url: 'https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
-        maximumLevel: 20
-      })
-    );
-  }, 1000);
+  // Remove all default layers first
+  map3D.imageryLayers.removeAll();
+  
+  // Add Google satellite imagery
+  map3D.imageryLayers.addImageryProvider(
+    new Cesium.UrlTemplateImageryProvider({
+      url: 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+      subdomains: ['0', '1', '2', '3'],
+      maximumLevel: 20,
+      credit: 'Google'
+    })
+  );
 
-  // Configure scene
-  map3D.scene.globe.enableLighting = false;
+  // Add labels overlay
+  map3D.imageryLayers.addImageryProvider(
+    new Cesium.UrlTemplateImageryProvider({
+      url: 'https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
+      subdomains: ['0', '1', '2', '3'],
+      maximumLevel: 20,
+      credit: 'Google'
+    })
+  );
+
+  // Configure scene for better rendering
+  map3D.scene.globe.enableLighting = true;
   map3D.scene.globe.showGroundAtmosphere = true;
+  map3D.scene.globe.atmosphereLightIntensity = 10.0;
+  map3D.scene.globe.atmosphereSaturationShift = 0.0;
+  map3D.scene.globe.atmosphereHueShift = 0.0;
   map3D.scene.skyBox.show = true;
   map3D.scene.moon.show = false;
-  map3D.scene.sun.show = false;
+  map3D.scene.sun.show = true;
   map3D.scene.globe.show = true;
+  map3D.scene.globe.baseColor = Cesium.Color.WHITE;
   map3D.scene.requestRenderMode = false;
+  map3D.scene.highDynamicRange = true;
   
-  // Set initial camera position closer to see the globe better
+  // Set fixed camera view focused on USA
   map3D.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(-95.0, 40.0, 12000000),
+    destination: Cesium.Cartesian3.fromDegrees(-98.5795, 39.8283, 8000000),
     orientation: {
       heading: 0.0,
-      pitch: Cesium.Math.toRadians(-50),
+      pitch: Cesium.Math.toRadians(-45),
       roll: 0.0
     }
   });
+  
+  // Enable camera controls so users can navigate
+  map3D.scene.screenSpaceCameraController.enableRotate = true;
+  map3D.scene.screenSpaceCameraController.enableZoom = true;
+  map3D.scene.screenSpaceCameraController.enableTilt = true;
+  map3D.scene.screenSpaceCameraController.enableLook = true;
+  
+  // Set minimum and maximum zoom distances
+  map3D.scene.screenSpaceCameraController.minimumZoomDistance = 1000; // Can't zoom closer than 1km
+  map3D.scene.screenSpaceCameraController.maximumZoomDistance = 20000000; // Can't zoom out past 20,000km
 }
 
 // Add 2D/3D toggle button
@@ -175,6 +192,9 @@ function switchMapMode(mode) {
 function addLayerControls() {
   const controlDiv = document.createElement('div');
   controlDiv.className = 'layer-control';
+  controlDiv.style.display = 'block';
+  controlDiv.style.visibility = 'visible';
+  controlDiv.style.opacity = '1';
   controlDiv.innerHTML = `
     <div class="layer-control-panel">
       <div class="layer-control-title">Map Layers</div>
@@ -190,6 +210,7 @@ function addLayerControls() {
   `;
   
   document.querySelector('.heatmap-section').appendChild(controlDiv);
+  console.log('Layer controls added:', controlDiv);
   
   // Handle layer switching
   const radios = controlDiv.querySelectorAll('input[type="radio"]');
