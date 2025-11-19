@@ -130,60 +130,54 @@ function initializeMap() {
   
   // Define base layers (different map styles)
   
-  // Esri World Street Map - Very detailed like Google Maps
-  const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 20
+  // Google Maps - Default road map (like when you open Google Maps)
+  const googleMaps = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+    attribution: '&copy; Google Maps',
+    maxZoom: 20,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
   });
   
-  // OpenStreetMap with detailed labels
-  const osmDetailed = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19
+  // Google Earth Hybrid - Satellite with roads and labels (like Google Earth)
+  const googleEarthHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    attribution: '&copy; Google Earth',
+    maxZoom: 20,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
   });
   
-  // CartoDB Voyager - Clean, detailed map with good labels
-  const cartoVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    maxZoom: 20
+  // Google Terrain - Shows elevation and terrain features
+  const googleTerrain = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+    attribution: '&copy; Google',
+    maxZoom: 20,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
   });
   
-  // Esri World Topo Map - Topographic with terrain details
-  const esriTopo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri',
-    maxZoom: 20
-  });
-  
-  // Hybrid view (satellite + labels) - Multiple layers for best detail
+  // Esri Satellite + Labels (backup option)
   const hybridImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri',
     maxZoom: 19
   });
   
-  // Transportation layer for roads on satellite
   const transportationLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
     attribution: '',
     maxZoom: 19
   });
   
-  // Boundaries and places for labels on satellite
   const hybridLabels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
     attribution: '',
     maxZoom: 19
   });
   
-  const hybridLayer = L.layerGroup([hybridImagery, transportationLayer, hybridLabels]);
+  const esriHybrid = L.layerGroup([hybridImagery, transportationLayer, hybridLabels]);
   
-  // Add default layer (detailed street map)
-  esriStreet.addTo(map);
+  // Add default layer (Google Earth View)
+  googleEarthHybrid.addTo(map);
   
   // Create layer control object
   const baseLayers = {
-    "<span style='font-weight: 500;'>🗺️ Detailed Streets (Recommended)</span>": esriStreet,
-    "<span style='font-weight: 500;'>🏔️ Topographic Map</span>": esriTopo,
-    "<span style='font-weight: 500;'>📍 Voyager Map</span>": cartoVoyager,
-    "<span style='font-weight: 500;'>🗺️ OpenStreetMap</span>": osmDetailed,
-    "<span style='font-weight: 500;'>🛰️ Satellite + Roads & Labels</span>": hybridLayer
+    "<span style='font-weight: 500;'>🌍 Google Earth View (Recommended)</span>": googleEarthHybrid,
+    "<span style='font-weight: 500;'>🗺️ Google Maps</span>": googleMaps,
+    "<span style='font-weight: 500;'>⛰️ Google Terrain</span>": googleTerrain,
+    "<span style='font-weight: 500;'>🛰️ Satellite + Labels (Esri)</span>": esriHybrid
   };
   
   // Add layer control to map (bottom-left corner, away from header)
