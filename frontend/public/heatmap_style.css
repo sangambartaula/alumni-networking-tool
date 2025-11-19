@@ -19,7 +19,7 @@
   position: relative;
   z-index: 10;
   padding: 2rem;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.95) 0%, rgba(5, 150, 105, 0.95) 100%);
   color: white;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   transition: max-height 0.4s ease, padding 0.4s ease, opacity 0.4s ease;
@@ -42,14 +42,14 @@
   top: 10px;
   right: 20px;
   z-index: 1001;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: white;
   border: none;
   border-radius: 50%;
   width: 44px;
   height: 44px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -58,7 +58,7 @@
 
 .header-toggle-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
 }
 
 .header-toggle-btn.rotated svg {
@@ -421,7 +421,7 @@
 }
 
 .badge-primary {
-  background: #667eea;
+  background: #059669;
   color: white;
 }
 
@@ -469,7 +469,7 @@
   padding: 0.75rem;
   background: #f9f9f9;
   border-radius: 4px;
-  border-left: 3px solid #667eea;
+  border-left: 3px solid #059669;
 }
 
 .alumni-name {
@@ -566,10 +566,10 @@
 }
 
 .continent-btn.selected {
-  background-color: #4f46e5;
+  background-color: #059669;
   color: white;
   font-weight: 600;
-  border: 1px solid #312e81;
+  border: 1px solid #047857;
 }
 
 .location-alumni-item {
@@ -689,15 +689,15 @@
 }
 
 .toggle-btn:hover {
-  background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
 }
 
 .toggle-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: white;
   border-color: transparent;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 }
 
 .toggle-btn svg {
@@ -732,7 +732,7 @@
   margin-bottom: 12px;
   text-align: center;
   padding-bottom: 10px;
-  border-bottom: 2px solid #667eea;
+  border-bottom: 2px solid #059669;
 }
 
 .layer-option {
@@ -747,14 +747,14 @@
 }
 
 .layer-option:hover {
-  background: rgba(102, 126, 234, 0.1);
+  background: rgba(16, 185, 129, 0.1);
 }
 
 .layer-option input[type="radio"] {
   width: 18px;
   height: 18px;
   cursor: pointer;
-  accent-color: #667eea;
+  accent-color: #059669;
 }
 
 .layer-option span {
@@ -779,7 +779,7 @@
   margin-bottom: 12px;
   text-align: center;
   padding-bottom: 10px;
-  border-bottom: 2px solid #667eea;
+  border-bottom: 2px solid #059669;
 }
 
 .layer-option {
@@ -794,14 +794,14 @@
 }
 
 .layer-option:hover {
-  background: rgba(102, 126, 234, 0.1);
+  background: rgba(16, 185, 129, 0.1);
 }
 
 .layer-option input[type="radio"] {
   width: 18px;
   height: 18px;
   cursor: pointer;
-  accent-color: #667eea;
+  accent-color: #059669;
 }
 
 .layer-option span {
@@ -828,7 +828,7 @@
 }
 
 .cesium-infoBox-title {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: white;
 }
 
