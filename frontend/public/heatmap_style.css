@@ -505,6 +505,23 @@
   border: 1px solid #047857;
 }
 
+/* Solar System button styling */
+.solar-system-btn {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+  color: #fbbf24 !important;
+  font-weight: 600 !important;
+  border: 2px solid #fbbf24 !important;
+  font-size: 0.9rem !important;
+}
+
+.solar-system-btn:hover {
+  background: linear-gradient(135deg, #0f172a 0%, #020617 100%) !important;
+  color: #fcd34d !important;
+  border-color: #fcd34d !important;
+  transform: scale(1.05);
+  box-shadow: 0 0 15px rgba(251, 191, 36, 0.5);
+}
+
 .location-alumni-item {
   display: flex;
   justify-content: space-between;
@@ -820,7 +837,10 @@
   right: 0;
   width: 100%;
   z-index: 10005;
-  padding: 1.5rem 2rem;
+  padding: 1rem 2rem;
+  background: transparent;
+  border-bottom: none;
+  backdrop-filter: none;
 }
 
 .heatmap-section:fullscreen .heatmap-description,
@@ -829,12 +849,33 @@
 }
 
 .heatmap-section:fullscreen .header-content {
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
 }
 
 .heatmap-section:fullscreen .heatmap-header h2 {
-  font-size: 1.5rem;
-  margin-bottom: 0;
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+  color: white;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.heatmap-section:fullscreen #continentFilters {
+  margin-top: 0.5rem;
+}
+
+.heatmap-section:fullscreen #continentFilters button {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  font-weight: 500;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.heatmap-section:fullscreen #continentFilters button:hover {
+  background: rgba(16, 185, 129, 0.5);
+  border-color: rgba(16, 185, 129, 0.7);
+  transform: translateY(-2px);
 }
 
 /* Ensure proper stacking in fullscreen */
