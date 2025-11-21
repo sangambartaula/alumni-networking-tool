@@ -15,10 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initialize2DMap();
   initialize3DMap();
   loadHeatmapData();
-  setupFullscreenToggle();
-  setupHeaderToggle();
   add2D3DToggle();
   addLayerControls();
+  addCustomFullscreenButton();
 });
 
 // Initialize 2D Leaflet Map
@@ -52,7 +51,7 @@ function initialize3DMap() {
   map3D = new Cesium.Viewer('map3DContainer', {
     animation: false,
     baseLayerPicker: false,
-    fullscreenButton: true,
+    fullscreenButton: false,
     geocoder: false,
     homeButton: true,
     infoBox: true,
@@ -165,10 +164,16 @@ function switchMapMode(mode) {
   
   const map2DContainer = document.getElementById('map2DContainer');
   const map3DContainer = document.getElementById('map3DContainer');
+  const cesiumToolbar = document.querySelector('.cesium-viewer-toolbar');
   
   if (mode === '2d') {
     map2DContainer.style.display = 'block';
     map3DContainer.style.display = 'none';
+    
+    // Show Cesium fullscreen button for 2D mode too
+    if (cesiumToolbar) {
+      cesiumToolbar.style.display = 'block';
+    }
     
     // Refresh Leaflet map
     setTimeout(() => {
@@ -178,12 +183,46 @@ function switchMapMode(mode) {
     map2DContainer.style.display = 'none';
     map3DContainer.style.display = 'block';
     
+    // Show Cesium fullscreen button for 3D mode
+    if (cesiumToolbar) {
+      cesiumToolbar.style.display = 'block';
+    }
+    
     // Refresh Cesium viewer
     setTimeout(() => {
       if (map3D) {
         map3D.resize();
       }
     }, 100);
+  }
+}
+
+// Toggle fullscreen for the entire heatmap section
+function toggleFullscreen() {
+  const heatmapSection = document.querySelector('.heatmap-section');
+  
+  if (!document.fullscreenElement) {
+    heatmapSection.requestFullscreen().then(() => {
+      setTimeout(() => {
+        if (currentMode === '2d') {
+          map2D.invalidateSize();
+        } else if (map3D) {
+          map3D.resize();
+        }
+      }, 100);
+    }).catch(err => {
+      console.error('Error attempting to enable fullscreen:', err);
+    });
+  } else {
+    document.exitFullscreen().then(() => {
+      setTimeout(() => {
+        if (currentMode === '2d') {
+          map2D.invalidateSize();
+        } else if (map3D) {
+          map3D.resize();
+        }
+      }, 100);
+    });
   }
 }
 
@@ -323,6 +362,7 @@ function add2DMarker(location) {
 // Add marker to 3D Cesium map
 function add3DMarker(location) {
   const entity = map3D.entities.add({
+    name: location.location || 'Unknown Location',
     position: Cesium.Cartesian3.fromDegrees(location.longitude, location.latitude, 0),
     point: {
       pixelSize: 15 + Math.sqrt(location.count) * 3,
@@ -390,7 +430,6 @@ function create3DPopupContent(location) {
 
   return `
     <div style="max-width: 350px; font-family: Arial, sans-serif;">
-      <h3 style="margin: 0 0 12px 0; color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 8px;">${location.location}</h3>
       <div style="margin-bottom: 12px; padding: 8px; background: #e8f0fe; border-radius: 4px;">
         <strong style="color: #333;">Total Alumni:</strong> <span style="color: #667eea; font-weight: 600;">${location.count}</span>
       </div>
@@ -560,5 +599,42 @@ function setupFullscreenToggle() {
         map3D.resize();
       }
     }, 300);
+  });
+}
+
+// Add custom fullscreen button that works for both 2D and 3D maps
+function addCustomFullscreenButton() {
+  const fullscreenDiv = document.createElement('div');
+  fullscreenDiv.className = 'cesium-fullscreen-wrapper';
+  fullscreenDiv.innerHTML = `
+    <button class="cesium-button cesium-toolbar-button" title="Toggle Fullscreen">
+      <svg viewBox="0 0 28 28" width="14" height="14">
+        <path d="M4,11V4h7 M24,11V4h-7 M4,17v7h7 M24,17v7h-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </button>
+  `;
+  
+  document.querySelector('.heatmap-section').appendChild(fullscreenDiv);
+  
+  const btn = fullscreenDiv.querySelector('.cesium-button');
+  btn.addEventListener('click', () => {
+    toggleFullscreen();
+  });
+  
+  // Update icon on fullscreen change
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) {
+      btn.innerHTML = `
+        <svg viewBox="0 0 28 28" width="14" height="14">
+          <path d="M11,4v7H4 M17,4v7h7 M11,24v-7H4 M17,24v-7h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      `;
+    } else {
+      btn.innerHTML = `
+        <svg viewBox="0 0 28 28" width="14" height="14">
+          <path d="M4,11V4h7 M24,11V4h-7 M4,17v7h7 M24,17v7h-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      `;
+    }
   });
 }

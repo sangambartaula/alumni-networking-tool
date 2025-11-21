@@ -22,63 +22,6 @@
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.95) 0%, rgba(5, 150, 105, 0.95) 100%);
   color: white;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  transition: max-height 0.4s ease, padding 0.4s ease, opacity 0.4s ease;
-  max-height: 500px;
-  opacity: 1;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-}
-
-.heatmap-header.hidden {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.header-toggle-btn {
-  position: fixed;
-  top: 10px;
-  right: 20px;
-  z-index: 1001;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  border: none;
-  border-radius: 50%;
-  width: 44px;
-  height: 44px;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.3s ease;
-}
-
-.header-toggle-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
-}
-
-.header-toggle-btn.rotated svg {
-  transform: rotate(180deg);
-  transition: transform 0.3s ease;
-}
-
-.header-toggle-btn svg {
-  transition: transform 0.3s ease;
-}
-
-.heatmap-header.collapsed {
-  padding: 1rem 2rem;
-}
-
-.heatmap-header.collapsed .header-info {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  margin-bottom: 0;
 }
 
 .header-content {
@@ -88,20 +31,10 @@
   margin-bottom: 1rem;
 }
 
-.heatmap-header.collapsed .header-content {
-  margin-bottom: 0.5rem;
-}
-
 .header-info {
   max-height: 500px;
   opacity: 1;
-  transition: all 0.3s ease;
   margin-bottom: 1rem;
-}
-
-.header-buttons {
-  display: flex;
-  gap: 8px;
 }
 
 .heatmap-header h2 {
@@ -830,6 +763,105 @@
 .cesium-infoBox-title {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: white;
+}
+
+/* Keep Cesium home button in original position within 3D viewer */
+.cesium-viewer-toolbar {
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+}
+
+/* Position fullscreen button container outside of 3D viewer to work for both maps */
+.cesium-fullscreen-wrapper {
+  position: absolute;
+  bottom: 30px;
+  right: 30px;
+  z-index: 10002;
+}
+
+.cesium-fullscreen-wrapper .cesium-button {
+  background: rgba(38, 38, 38, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  color: #fff;
+  fill: #fff;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 5px;
+}
+
+.cesium-fullscreen-wrapper .cesium-button:hover {
+  background: rgba(48, 48, 48, 0.9);
+}
+
+/* Keep all controls visible in fullscreen mode */
+.heatmap-section:fullscreen .view-mode-toggle,
+.heatmap-section:fullscreen .layer-control,
+.heatmap-section:fullscreen .cesium-fullscreen-wrapper,
+.heatmap-section:fullscreen .cesium-viewer-toolbar,
+.heatmap-section:fullscreen #continentFilters,
+.heatmap-section:fullscreen .heatmap-header {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* In fullscreen, show only title and continent filters */
+.heatmap-section:fullscreen .heatmap-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: 10005;
+  padding: 1.5rem 2rem;
+}
+
+.heatmap-section:fullscreen .heatmap-description,
+.heatmap-section:fullscreen .heatmap-stats {
+  display: none !important;
+}
+
+.heatmap-section:fullscreen .header-content {
+  margin-bottom: 1rem;
+}
+
+.heatmap-section:fullscreen .heatmap-header h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0;
+}
+
+/* Ensure proper stacking in fullscreen */
+.heatmap-section:fullscreen {
+  z-index: 9999;
+}
+
+.heatmap-section:fullscreen .map-wrapper {
+  height: 100vh !important;
+  min-height: 100vh !important;
+}
+
+.heatmap-section:fullscreen .map-container {
+  height: 100vh !important;
+  min-height: 100vh !important;
+}
+
+.heatmap-section:fullscreen .cesium-fullscreen-wrapper {
+  z-index: 10002 !important;
+}
+
+.heatmap-section:fullscreen .view-mode-toggle {
+  z-index: 10001 !important;
+}
+
+.heatmap-section:fullscreen .layer-control {
+  z-index: 10001 !important;
 }
 
 .leaflet-control-layers-expanded {
