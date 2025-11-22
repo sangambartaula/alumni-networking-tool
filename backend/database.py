@@ -119,8 +119,8 @@ def init_db():
             except Exception:
                 pass
 
-def update_alumni_timestamps():
-    """Update existing alumni records with default scrape timestamp (11/3/2025 8:25 PM)"""
+def ensure_alumni_timestamp_columns():
+    """Ensure scraped_at and last_updated columns exist in alumni table"""
     conn = None
     try:
         conn = get_connection()
@@ -151,17 +151,9 @@ def update_alumni_timestamps():
                 else:
                     raise
             
-            # Update all existing records with default scrape timestamp
-            cur.execute("""
-                UPDATE alumni 
-                SET scraped_at = '2025-11-03 20:25:00', 
-                    last_updated = '2025-11-03 20:25:00'
-            """)
-            updated_count = cur.rowcount
             conn.commit()
-            logger.info(f"Updated {updated_count} alumni records with default scrape timestamp (11/3/2025 8:25 PM)")
     except mysql.connector.Error as err:
-        logger.error(f"Error updating timestamps: {err}")
+        logger.error(f"Error ensuring timestamp columns: {err}")
         raise
     finally:
         if conn:
@@ -257,7 +249,7 @@ if __name__ == "__main__":
         logger.info(f"Database '{MYSQL_DATABASE}' ensured")
         
         init_db()
-        update_alumni_timestamps()
+        ensure_alumni_timestamp_columns()
         seed_alumni_data()
         
         # Test connection
