@@ -126,6 +126,35 @@
       </div>
     </section>
 
+    <!-- Alumni Modal -->
+    <div id="alumniModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h2 id="modalTitle">Filtered Alumni</h2>
+            <p id="modalDescription">Click on any chart to filter alumni</p>
+          </div>
+          <button id="closeModalBtn" class="close-modal-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="table-container">
+            <table id="filteredAlumniTable">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Job Title</th>
+                  <th>Company</th>
+                  <th>Location</th>
+                  <th>Grad Year</th>
+                </tr>
+              </thead>
+              <tbody id="filteredAlumniBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Additional Insights -->
     <section class="analytics-section">
       <div class="section-header">
