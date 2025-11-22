@@ -6,7 +6,7 @@ import csv
 import logging
 import random
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -41,6 +41,7 @@ USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
 SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()  # 'names' or 'search'
 OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
+UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
 
 # Set delay based on TESTING mode
 if TESTING:
@@ -56,7 +57,7 @@ OUTPUT_CSV = OUTPUT_DIR / OUTPUT_CSV_ENV
 COOKIES_FILE = OUTPUT_DIR / LINKEDIN_COOKIES_PATH
 
 # Column names - same for both modes now
-CSV_COLUMNS = ['name', 'headline', 'location', 'job_title', 'company', 'education', 'major', 'graduation_year', 'profile_url']
+CSV_COLUMNS = ['name', 'headline', 'location', 'job_title', 'company', 'education', 'major', 'graduation_year', 'profile_url', 'scraped_at']
 
 logger.info(f"SCRAPER_MODE: {SCRAPER_MODE}")
 logger.info(f"TESTING MODE: {TESTING}")
@@ -65,6 +66,63 @@ logger.info(f"OUTPUT_CSV from .env: {OUTPUT_CSV_ENV}")
 logger.info(f"OUTPUT_CSV full path: {OUTPUT_CSV.absolute()}")
 logger.info(f"OUTPUT_DIR: {OUTPUT_DIR.absolute()}")
 logger.info(f"OUTPUT_DIR exists: {OUTPUT_DIR.exists()}")
+
+def parse_frequency(frequency_str):
+    """Parse frequency string like '6 months', '1 year', '2 years' into a timedelta"""
+    try:
+        parts = frequency_str.strip().lower().split()
+        if len(parts) != 2:
+            logger.warning(f"Invalid frequency format: {frequency_str}. Using default 6 months.")
+            return timedelta(days=180)
+        
+        amount = int(parts[0])
+        unit = parts[1].rstrip('s')  # Remove trailing 's' for consistency
+        
+        if unit == "day":
+            return timedelta(days=amount)
+        elif unit == "month":
+            return timedelta(days=amount * 30)  # Approximate
+        elif unit == "year":
+            return timedelta(days=amount * 365)
+        else:
+            logger.warning(f"Unknown time unit: {unit}. Using default 6 months.")
+            return timedelta(days=180)
+    except Exception as e:
+        logger.warning(f"Error parsing frequency: {e}. Using default 6 months.")
+        return timedelta(days=180)
+
+def get_outdated_profiles():
+    """Get alumni profiles that need updating based on UPDATE_FREQUENCY"""
+    try:
+        import mysql.connector
+        
+        conn = mysql.connector.connect(
+            host=os.getenv('MYSQLHOST'),
+            user=os.getenv('MYSQLUSER'),
+            password=os.getenv('MYSQLPASSWORD'),
+            database=os.getenv('MYSQL_DATABASE'),
+            port=int(os.getenv('MYSQLPORT', 3306))
+        )
+        
+        frequency_delta = parse_frequency(UPDATE_FREQUENCY)
+        cutoff_date = datetime.now() - frequency_delta
+        
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT linkedin_url, first_name, last_name, last_updated
+                FROM alumni
+                WHERE last_updated < %s
+                ORDER BY last_updated ASC
+            """, (cutoff_date,))
+            
+            profiles = cur.fetchall()
+        
+        conn.close()
+        return profiles, cutoff_date
+    
+    except Exception as e:
+        logger.error(f"Error fetching outdated profiles: {e}")
+        return [], None
 
 def load_names_from_csv(csv_path):
     """Read a list of names (column 'name') from a CSV file."""
@@ -339,7 +397,8 @@ class LinkedInSearchScraper:
             "education": "",
             "major": "",
             "graduation_year": "",
-            "profile_url": profile_url
+            "profile_url": profile_url,
+            "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
         try:
@@ -573,6 +632,51 @@ class LinkedInSearchScraper:
             if remaining > 0:
                 logger.info(f"   ...{remaining:.0f}s remaining")
 
+    def run_update_mode(self, outdated_profiles):
+        """Update mode: Re-scrape outdated alumni profiles"""
+        profiles_updated = 0
+        
+        logger.info(f"Processing {len(outdated_profiles)} outdated profiles...\n")
+        
+        for idx, profile_info in enumerate(outdated_profiles, start=1):
+            profile_url, first_name, last_name, last_updated = profile_info
+            full_name = f"{first_name} {last_name}".strip()
+            
+            logger.info(f"\n{'='*60}")
+            logger.info(f"PROFILE {idx}/{len(outdated_profiles)}: {full_name}")
+            logger.info(f"Last updated: {last_updated}")
+            logger.info(f"{'='*60}")
+            
+            try:
+                # Scrape the profile
+                profile_data = self.scrape_profile_page(profile_url)
+                profile_data['name'] = full_name
+                
+                # Save (this will update the existing record)
+                if self.save_profile(profile_data):
+                    profiles_updated += 1
+                    logger.info(f"✅ Updated profile for {full_name}")
+                
+                # Wait before next profile
+                if idx < len(outdated_profiles):
+                    self.wait_between_profiles()
+            
+            except NoSuchWindowException:
+                logger.error("  Browser window closed, restarting driver...")
+                self.setup_driver()
+                if not self.login():
+                    logger.error("Failed to login again after browser restart")
+                    return
+            except Exception as e:
+                logger.error(f"  Error updating profile: {e}")
+                if idx < len(outdated_profiles):
+                    self.wait_between_profiles()
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Update Complete!")
+        logger.info(f"Total profiles updated: {profiles_updated}/{len(outdated_profiles)}")
+        logger.info(f"{'='*60}\n")
+
     def run(self):
         """Main scraping loop - routes to names or search mode"""
         try:
@@ -583,6 +687,30 @@ class LinkedInSearchScraper:
                 logger.error("Failed to login")
                 return
 
+            # Check for outdated profiles that need updating
+            outdated_profiles, cutoff_date = get_outdated_profiles()
+            
+            logger.info(f"\n{'='*60}")
+            logger.info(f"🔄 UPDATE CHECK")
+            logger.info(f"{'='*60}")
+            
+            if outdated_profiles:
+                logger.info(f"You have {len(outdated_profiles)} alumni records that were last updated")
+                logger.info(f"over {UPDATE_FREQUENCY} ago (before {cutoff_date.strftime('%Y-%m-%d')})")
+                logger.info(f"{'='*60}\n")
+                
+                response = input("Would you like to run the scraper to update their info now? (y/n): ").strip().lower()
+                
+                if response == 'y' or response == 'yes':
+                    logger.info(f"\n🔄 Starting update of {len(outdated_profiles)} profiles...\n")
+                    self.run_update_mode(outdated_profiles)
+                    return
+                else:
+                    logger.info("Skipping update. Running normal scraping mode...\n")
+            else:
+                logger.info(f"✅ All alumni records are up to date (last updated within {UPDATE_FREQUENCY})")
+                logger.info(f"{'='*60}\n")
+            
             if self.scraper_mode == "names":
                 self.run_names_mode()
             elif self.scraper_mode == "search":
@@ -611,7 +739,9 @@ class LinkedInSearchScraper:
         
         names = load_names_from_csv(full_input_path)
         if not names:
-            logger.error(f"No names found to search. Add rows to {input_csv_path}")
+            logger.warning(f"\n⚠️  No names found in {input_csv_path}")
+            logger.warning("Defaulting to general UNT alumni search mode...\n")
+            self.run_search_mode()
             return
 
         profiles_scraped = 0
