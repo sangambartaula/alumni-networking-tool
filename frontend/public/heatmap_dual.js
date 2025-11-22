@@ -716,3 +716,67 @@ function addCustomFullscreenButton() {
     }
   });
 }
+
+const input = document.getElementById("locationSearchInput");
+const suggestionsBox = document.getElementById("locationSuggestions");
+
+input.addEventListener("input", () => {
+    const query = input.value.trim().toLowerCase();
+    if (!query) {
+        suggestionsBox.style.display = "none";
+        return;
+    }
+
+    const matches = locationClusters.filter(loc =>
+        loc.location.toLowerCase().includes(query)
+    );
+
+    if (matches.length === 0) {
+        suggestionsBox.style.display = "none";
+        return;
+    }
+
+    renderSuggestions(matches);
+});
+
+function renderSuggestions(list) {
+    suggestionsBox.innerHTML = "";
+    list.slice(0, 7).forEach(loc => {
+        const div = document.createElement("div");
+        div.classList.add("suggestion-item");
+        div.textContent = `${loc.location} (${loc.count})`;
+        div.onclick = () => selectLocation(loc);
+        suggestionsBox.appendChild(div);
+    });
+
+    suggestionsBox.style.display = "block";
+}
+
+function selectLocation(location) {
+    document.getElementById("locationSearchInput").value = location.location;
+    suggestionsBox.style.display = "none";
+    zoomToLocation(location);
+    showLocationDetails(location);
+}
+
+document.getElementById("locationSearchButton").onclick = () => {
+    const query = input.value.trim().toLowerCase();
+    const match = locationClusters.find(loc =>
+        loc.location.toLowerCase().includes(query)
+    );
+    if (match) {
+        zoomToLocation(match);
+        showLocationDetails(match);
+    }
+};
+
+function zoomToLocation(loc) {
+    if (currentMode === '2d') {
+        map2D.setView([loc.latitude, loc.longitude], 8);
+    } else {
+        map3D.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(loc.longitude, loc.latitude, 2000000),
+            duration: 2
+        });
+    }
+}

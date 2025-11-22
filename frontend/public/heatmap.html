@@ -47,9 +47,15 @@
           <button class="continent-btn" data-continent="South America" onclick="filterByContinent('South America')">South America</button>
           <button class="continent-btn" data-continent="Antarctica" onclick="filterByContinent('Antarctica')">Antarctica</button>
           <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
+          
         </div>
       </div>  
-      
+      <div class="heatmap-search">
+          <input id="locationSearchInput" type="text" placeholder="Search city, state, or country…">
+          <div id="locationSuggestions" class="suggestions-box"></div>
+          <button id="locationSearchButton" class="search-btn">Search</button>
+      </div>
+
       <!-- Map wrapper to contain absolute positioned maps -->
       <div class="map-wrapper">
         <!-- Map containers - both 2D and 3D -->
