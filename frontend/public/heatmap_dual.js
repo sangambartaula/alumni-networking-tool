@@ -719,6 +719,12 @@ function addCustomFullscreenButton() {
 
 const input = document.getElementById("locationSearchInput");
 const suggestionsBox = document.getElementById("locationSuggestions");
+// Prevent suggestions from disappearing before click
+const suggestionWrapper = document.getElementById("locationSuggestions");
+suggestionWrapper.addEventListener("mousedown", (e) => {
+    e.preventDefault();  // keeps the suggestion list open
+});
+
 
 input.addEventListener("input", () => {
     const query = input.value.trim().toLowerCase();
@@ -780,3 +786,85 @@ function zoomToLocation(loc) {
         });
     }
 }
+
+// AUTOCOMPLETE — fetch Nominatim suggestions
+async function fetchSuggestions(query) {
+  if (!query || query.length < 2) return [];
+
+  const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
+  const data = await res.json();
+
+  if (!data.success) return [];
+  return data.results.slice(0, 5); // top 5 suggestions
+}
+
+// Render dropdown suggestions
+function showSuggestions(list) {
+  const box = document.getElementById('locationSuggestions');
+  if (!box) return;
+
+  if (list.length === 0) {
+    box.style.display = "none";
+    return;
+  }
+
+  box.innerHTML = "";
+  list.forEach(item => {
+    const div = document.createElement("div");
+    div.className = "suggestion-item";
+    div.textContent = item.display_name;
+
+    div.addEventListener("click", () => {
+      // fill input with chosen suggestion
+      document.getElementById('locationSearchInput').value = item.display_name;
+
+      // zoom map
+      zoomToSearchLocation(item);
+
+      // hide dropdown
+      box.style.display = "none";
+    });
+
+    box.appendChild(div);
+  });
+
+  box.style.display = "block";
+}
+
+// Zoom to selected autocomplete result
+function zoomToSearchLocation(item) {
+  const lat = parseFloat(item.lat);
+  const lon = parseFloat(item.lon);
+
+  if (currentMode === "2d") {
+    map2D.setView([lat, lon], 8);
+  } else {
+    map3D.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(lon, lat, 2000000),
+      duration: 2
+    });
+  }
+}
+
+// Attach autocomplete to input field
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('locationSearchInput');
+  const box = document.getElementById('locationSuggestions');
+
+  if (!input) return;
+
+  input.addEventListener("input", async () => {
+    const query = input.value.trim();
+    const results = await fetchSuggestions(query);
+    showSuggestions(results);
+  });
+
+  // click outside hides dropdown
+  document.addEventListener("click", (e) => {
+    if (!box.contains(e.target) && e.target !== input) {
+      box.style.display = "none";
+    }
+  });
+});
+
+

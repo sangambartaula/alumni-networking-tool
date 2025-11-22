@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 import mysql.connector
 from database import get_connection
 
+
 logger = logging.getLogger(__name__)
 
 # Nominatim API endpoint (free, no API key needed)
@@ -163,3 +164,40 @@ if __name__ == "__main__":
     logger.info("Starting geocoding process...")
     geocoded = populate_missing_coordinates()
     logger.info(f"Geocoding complete! {geocoded} records updated.")
+
+
+
+def geocode_location(query):
+    """
+    Returns list of {display_name, lat, lon}
+    """
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {
+        "q": query,
+        "format": "json",
+        "limit": 5
+    }
+
+    headers = {
+        "User-Agent": "UNT-Alumni-Heatmap/1.0"
+    }
+
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+
+        results = []
+        for item in data:
+            results.append({
+                "display_name": item.get("display_name"),
+                "lat": item.get("lat"),
+                "lon": item.get("lon"),
+            })
+
+        return results
+
+    except Exception as e:
+        print("Geocoding error:", e)
+        return []
+
