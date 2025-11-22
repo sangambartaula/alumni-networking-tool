@@ -7,12 +7,14 @@ A web-based application designed to help the College of Engineering connect with
 ##  Features
 
 - **LinkedIn Alumni Scraper:** Automated scraping of UNT alumni profiles with anti-bot measures  
+- **Data Timestamping:** Track when profiles were first scraped and last updated  
+- **Automatic Profile Updates:** Intelligently re-scrape outdated profiles based on configurable frequency (e.g., every 6 months)  
 - **Alumni Search:** Find alumni by name, graduation year, degree, or department  
 - **Profile Insights:** View LinkedIn profiles, career paths, and current positions  
 - **Networking:** Connect students with alumni for mentorship, internships, and professional guidance  
 - **Interactive Dashboard:** Visualize alumni distribution by location, industry, and role  
-- **Alumni Location Heatmap:** 🗺️ **NEW!** Interactive map showing alumni distribution worldwide with geocoded coordinates and location clustering  
-- **Secure Data Storage:** All scraped data stored locally in CSV format  
+- **Alumni Location Heatmap:** 🗺️ Interactive map showing alumni distribution worldwide with geocoded coordinates and location clustering  
+- **Secure Data Storage:** All scraped data stored in MySQL database with tracking and MySQL connection details  
 
 ---
 
@@ -64,8 +66,8 @@ alumni-networking-tool/
 │
 ├── backend/                       # Backend code
 │   ├── app.py                     # Main Flask application
-│   ├── database.py                # Database connection and models
-│   ├── geocoding.py               # 🗺️ Location geocoding service (NEW)
+│   ├── database.py                # Database connection and models with timestamp tracking
+│   ├── geocoding.py               # Location geocoding service
 │   └── tests/                     # Unit and integration tests
 │       ├── __init__.py
 │       ├── conftest.py
@@ -91,18 +93,37 @@ alumni-networking-tool/
     └── output/                    # Generated data from scraper
         └── UNT_Alumni_Data.csv    # Scraped alumni data output (ignored in Git)
 
-##  Scraper Quick Check (local)
+##  Scraper Features
 
-Use these helper commands to validate your local scraper setup without changing any scraper code.
+### Data Tracking
+- **Scraped At:** Timestamp of when each profile was first scraped
+- **Last Updated:** Timestamp of the most recent profile update
+- **Update Frequency:** Configurable interval (set `UPDATE_FREQUENCY` in `.env`, e.g., "6 months", "1 year")
+
+### Smart Update Mode
+On startup, the scraper checks for outdated profiles:
+- Shows count of profiles that haven't been updated in the specified frequency
+- Prompts user to re-scrape outdated profiles
+- Only updates existing profiles if user opts in
+- Preserves original scrape time while updating profile data
+
+### Fallback Mode
+- If no names CSV is provided, automatically defaults to general UNT alumni search
+- Continues scraping instead of failing silently
+
+---
+
+##  Scraper Quick Start
 
 ### 1) Requirements
 - `.env` at **repo root** with:
   - `LINKEDIN_EMAIL=...`
   - `LINKEDIN_PASSWORD=...`
-- Google Chrome installed (or run Selenium headless if supported)
-- `chromedriver` installed (Homebrew): `brew install chromedriver`
+  - `UPDATE_FREQUENCY=6 months` (configurable)
+- Google Chrome installed
+- `chromedriver` installed: `brew install chromedriver`
 
-### 2) Run the scraper (short test)
+### 2) Run the scraper
 From the `scraper` folder:
 ```bash
 cd scraper
