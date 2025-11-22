@@ -100,185 +100,9 @@ function initialize3DMap() {
   map3D.scene.requestRenderMode = false;
   map3D.scene.highDynamicRange = true;
   
-  // Add solar system visualization - realistic orbital positions
-  // The globe itself IS Earth at center, other planets orbit around it (simplified model)
-  
-  // Sun - the star at the center providing light
-  map3D.entities.add({
-    name: 'Sun',
-    position: Cesium.Cartesian3.fromDegrees(-90, 0, 600000000), // Far left with depth
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(20000000, 20000000, 20000000), // Much smaller for visibility
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.YELLOW.brighten(0.5, new Cesium.Color()))
-    },
-    label: {
-      text: 'Sun',
-      font: 'bold 20pt sans-serif',
-      fillColor: Cesium.Color.YELLOW,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -40)
-    }
-  });
-  
-  // Moon - Earth's natural satellite with realistic gray color
-  map3D.entities.add({
-    name: 'Moon',
-    position: Cesium.Cartesian3.fromDegrees(-25, 0, 430000000), // Right next to Earth with depth
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(1737400, 1737400, 1737400), // Moon's actual size
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#9E9E9E')) // Darker gray, not white
-    },
-    label: {
-      text: 'Moon',
-      font: 'bold 14pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -20)
-    }
-  });
-  
-  // Mercury - innermost planet, rocky with cratered surface
-  map3D.entities.add({
-    name: 'Mercury',
-    position: Cesium.Cartesian3.fromDegrees(-70, 0, 550000000), // After Sun with depth
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(2439700, 2439700, 2439700),
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#8C7853')) // Grayish-tan
-    },
-    label: {
-      text: 'Mercury',
-      font: 'bold 13pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -18)
-    }
-  });
-  
-  // Venus - second planet, thick atmosphere
-  map3D.entities.add({
-    name: 'Venus',
-    position: Cesium.Cartesian3.fromDegrees(-50, 0, 500000000), // After Mercury with depth
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(6051800, 6051800, 6051800),
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#FFC649')) // Yellowish clouds
-    },
-    label: {
-      text: 'Venus',
-      font: 'bold 14pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -22)
-    }
-  });
-  
-  // Mars - the Red Planet with iron oxide surface
-  map3D.entities.add({
-    name: 'Mars',
-    position: Cesium.Cartesian3.fromDegrees(-10, 0, 400000000), // After Earth with depth
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(3389500, 3389500, 3389500),
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#CD5C5C')) // Rusty red
-    },
-    label: {
-      text: 'Mars',
-      font: 'bold 14pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -20)
-    }
-  });
-  
-  // Jupiter - gas giant with prominent bands
-  map3D.entities.add({
-    name: 'Jupiter',
-    position: Cesium.Cartesian3.fromDegrees(20, 0, 300000000), // After Mars with more distance
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(69911000, 69911000, 66854000), // Slightly oblate
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#C88B3A')) // Orange-tan bands
-    },
-    label: {
-      text: 'Jupiter',
-      font: 'bold 16pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -30)
-    }
-  });
-  
-  // Saturn - ringed gas giant
-  const saturnPosition = Cesium.Cartesian3.fromDegrees(50, 0, 200000000); // After Jupiter with more distance
-  
-  map3D.entities.add({
-    name: 'Saturn',
-    position: saturnPosition,
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(58232000, 58232000, 54364000), // Oblate
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#FAD5A5')) // Pale gold
-    },
-    label: {
-      text: 'Saturn',
-      font: 'bold 15pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -35)
-    }
-  });
-  
-  // Uranus - ice giant with blue-green methane atmosphere
-  map3D.entities.add({
-    name: 'Uranus',
-    position: Cesium.Cartesian3.fromDegrees(75, 0, 100000000), // After Saturn with more distance
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(25362000, 25362000, 24973000),
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#4FD0E7')) // Cyan-blue
-    },
-    label: {
-      text: 'Uranus',
-      font: 'bold 14pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -22)
-    }
-  });
-  
-  // Neptune - outermost ice giant with deep blue color
-  map3D.entities.add({
-    name: 'Neptune',
-    position: Cesium.Cartesian3.fromDegrees(100, 0, 50000000), // After Uranus with more distance
-    ellipsoid: {
-      radii: new Cesium.Cartesian3(24622000, 24622000, 24341000),
-      material: new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#4169E1')) // Deep blue
-    },
-    label: {
-      text: 'Neptune',
-      font: 'bold 14pt sans-serif',
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -22)
-    }
-  });
-  
-  // Set initial camera view to show full Earth globe
+  // Set initial camera view
   map3D.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(0, 20, 465000000), // Just above Earth's position at 450M
+    destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
     orientation: {
       heading: 0.0,
       pitch: Cesium.Math.toRadians(-90),
@@ -286,25 +110,89 @@ function initialize3DMap() {
     }
   });
   
-  // Store default Earth view for easy return
-  window.earthView = {
-    destination: Cesium.Cartesian3.fromDegrees(0, 20, 465000000),
-    orientation: {
-      heading: 0.0,
-      pitch: Cesium.Math.toRadians(-90),
-      roll: 0.0
-    }
-  };
-  
-  // Enable camera controls so users can navigate
+  // Enable camera controls
   map3D.scene.screenSpaceCameraController.enableRotate = true;
   map3D.scene.screenSpaceCameraController.enableZoom = true;
   map3D.scene.screenSpaceCameraController.enableTilt = true;
   map3D.scene.screenSpaceCameraController.enableLook = true;
   
   // Set minimum and maximum zoom distances
-  map3D.scene.screenSpaceCameraController.minimumZoomDistance = 1000; // Can't zoom closer than 1km
-  map3D.scene.screenSpaceCameraController.maximumZoomDistance = 10000000000000; // 10 trillion meters to see full solar system
+  map3D.scene.screenSpaceCameraController.minimumZoomDistance = 1000;
+  map3D.scene.screenSpaceCameraController.maximumZoomDistance = 50000000;
+  
+  // Handle entity selection and make camera icon work
+  map3D.selectedEntityChanged.addEventListener(function() {
+    const entity = map3D.selectedEntity;
+    if (entity && entity.position) {
+      setTimeout(() => {
+        const zoomFunction = function(e) {
+          if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          
+          // Get current entity's position dynamically
+          const currentEntity = map3D.selectedEntity;
+          if (currentEntity && currentEntity.position) {
+            const position = currentEntity.position.getValue(Cesium.JulianDate.now());
+            const cartographic = Cesium.Cartographic.fromCartesian(position);
+            const longitude = Cesium.Math.toDegrees(cartographic.longitude);
+            const latitude = Cesium.Math.toDegrees(cartographic.latitude);
+            
+            console.log('Flying to:', latitude, longitude);
+            
+            map3D.camera.flyTo({
+              destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, 200),
+              orientation: {
+                heading: 0,
+                pitch: Cesium.Math.toRadians(-20),
+                roll: 0
+              },
+              duration: 2
+            });
+          }
+        };
+        
+        // Try multiple selectors for the camera button
+        const cameraBtn = document.querySelector('.cesium-infoBox-camera') || 
+                         document.querySelector('button[title*="camera"]') ||
+                         document.querySelector('button[title*="Camera"]');
+        
+        const titleBar = document.querySelector('.cesium-infoBox-title');
+        const infoBoxContainer = document.querySelector('.cesium-infoBox');
+        
+        console.log('Camera button found:', !!cameraBtn);
+        console.log('Title bar found:', !!titleBar);
+        
+        // Attach to camera button if it exists
+        if (cameraBtn) {
+          cameraBtn.style.pointerEvents = 'auto';
+          cameraBtn.style.cursor = 'pointer';
+          cameraBtn.style.zIndex = '9999';
+          cameraBtn.onclick = zoomFunction;
+          console.log('Camera button handler attached');
+        }
+        
+        // Make the title bar clickable
+        if (titleBar) {
+          titleBar.style.cursor = 'pointer';
+          titleBar.style.pointerEvents = 'auto';
+          titleBar.onclick = zoomFunction;
+          console.log('Title bar handler attached');
+        }
+        
+        // Make entire infobox header clickable as fallback
+        if (infoBoxContainer) {
+          const header = infoBoxContainer.querySelector('.cesium-infoBox-titlebar');
+          if (header) {
+            header.style.cursor = 'pointer';
+            header.onclick = zoomFunction;
+            console.log('Header handler attached');
+          }
+        }
+      }, 500);
+    }
+  });
 }
 
 // Add 2D/3D toggle button
@@ -644,49 +532,21 @@ function getCesiumColorForCount(count) {
   return Cesium.Color.CYAN;
 }
 
-// Show Solar System view
-function showSolarSystem() {
-  // Function to zoom to solar system
-  const zoomToSolarSystem = () => {
-    if (map3D) {
-      // View solar system from directly above to see all planets
-      map3D.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(0, 20, 600000000), // 600 million meters - see all planets together
-        orientation: {
-          heading: Cesium.Math.toRadians(0), 
-          pitch: Cesium.Math.toRadians(-90), // Look straight down like Earth view
-          roll: 0.0
-        },
-        duration: 4
-      });
-    }
-  };
-  
-  if (currentMode === '2d') {
-    // Switch to 3D for solar system view
-    const toggle3DBtn = document.querySelector('[data-mode="3d"]');
-    if (toggle3DBtn) {
-      toggle3DBtn.click();
-      // Wait for 3D mode to initialize before zooming
-      setTimeout(zoomToSolarSystem, 500);
-    }
-  } else {
-    // Already in 3D mode, zoom immediately
-    zoomToSolarSystem();
-  }
-}
-
 // Reset to Earth view
 function resetContinent() {
   if (currentMode === '2d') {
     // Reset 2D map
     map2D.setView([20, 0], 2);
   } else {
-    // Return to Earth view in 3D
-    if (map3D && window.earthView) {
+    // Return to default Earth view in 3D
+    if (map3D) {
       map3D.camera.flyTo({
-        destination: window.earthView.destination,
-        orientation: window.earthView.orientation,
+        destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
+        orientation: {
+          heading: 0.0,
+          pitch: Cesium.Math.toRadians(-90),
+          roll: 0.0
+        },
         duration: 2
       });
     }
