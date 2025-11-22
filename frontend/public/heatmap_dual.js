@@ -717,126 +717,29 @@ function addCustomFullscreenButton() {
   });
 }
 
-const input = document.getElementById("locationSearchInput");
-const suggestionsBox = document.getElementById("locationSuggestions");
-// Prevent suggestions from disappearing before click
-const suggestionWrapper = document.getElementById("locationSuggestions");
-suggestionWrapper.addEventListener("mousedown", (e) => {
-    e.preventDefault();  // keeps the suggestion list open
-});
+/* -----------------------------
+   SEARCH + AUTOCOMPLETE (Option B)
+   Alumni matches + Nominatim
+------------------------------ */
 
-
-input.addEventListener("input", () => {
-    const query = input.value.trim().toLowerCase();
-    if (!query) {
-        suggestionsBox.style.display = "none";
-        return;
-    }
-
-    const matches = locationClusters.filter(loc =>
-        loc.location.toLowerCase().includes(query)
-    );
-
-    if (matches.length === 0) {
-        suggestionsBox.style.display = "none";
-        return;
-    }
-
-    renderSuggestions(matches);
-});
-
-function renderSuggestions(list) {
-    suggestionsBox.innerHTML = "";
-    list.slice(0, 7).forEach(loc => {
-        const div = document.createElement("div");
-        div.classList.add("suggestion-item");
-        div.textContent = `${loc.location} (${loc.count})`;
-        div.onclick = () => selectLocation(loc);
-        suggestionsBox.appendChild(div);
-    });
-
-    suggestionsBox.style.display = "block";
-}
-
-function selectLocation(location) {
-    document.getElementById("locationSearchInput").value = location.location;
-    suggestionsBox.style.display = "none";
-    zoomToLocation(location);
-    showLocationDetails(location);
-}
-
-document.getElementById("locationSearchButton").onclick = () => {
-    const query = input.value.trim().toLowerCase();
-    const match = locationClusters.find(loc =>
-        loc.location.toLowerCase().includes(query)
-    );
-    if (match) {
-        zoomToLocation(match);
-        showLocationDetails(match);
-    }
-};
-
+// Zoom to alumni location (already used elsewhere)
 function zoomToLocation(loc) {
-    if (currentMode === '2d') {
-        map2D.setView([loc.latitude, loc.longitude], 8);
-    } else {
-        map3D.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(loc.longitude, loc.latitude, 2000000),
-            duration: 2
-        });
-    }
-}
-
-// AUTOCOMPLETE — fetch Nominatim suggestions
-async function fetchSuggestions(query) {
-  if (!query || query.length < 2) return [];
-
-  const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
-  const data = await res.json();
-
-  if (!data.success) return [];
-  return data.results.slice(0, 5); // top 5 suggestions
-}
-
-// Render dropdown suggestions
-function showSuggestions(list) {
-  const box = document.getElementById('locationSuggestions');
-  if (!box) return;
-
-  if (list.length === 0) {
-    box.style.display = "none";
-    return;
-  }
-
-  box.innerHTML = "";
-  list.forEach(item => {
-    const div = document.createElement("div");
-    div.className = "suggestion-item";
-    div.textContent = item.display_name;
-
-    div.addEventListener("click", () => {
-      // fill input with chosen suggestion
-      document.getElementById('locationSearchInput').value = item.display_name;
-
-      // zoom map
-      zoomToSearchLocation(item);
-
-      // hide dropdown
-      box.style.display = "none";
+  if (currentMode === '2d') {
+    map2D.setView([loc.latitude, loc.longitude], 8);
+  } else {
+    map3D.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(loc.longitude, loc.latitude, 2000000),
+      duration: 2
     });
-
-    box.appendChild(div);
-  });
-
-  box.style.display = "block";
+  }
 }
 
-// Zoom to selected autocomplete result
+// Zoom to selected autocomplete result from Nominatim
 function zoomToSearchLocation(item) {
   const lat = parseFloat(item.lat);
   const lon = parseFloat(item.lon);
 
-  if (currentMode === "2d") {
+  if (currentMode === '2d') {
     map2D.setView([lat, lon], 8);
   } else {
     map3D.camera.flyTo({
@@ -846,25 +749,155 @@ function zoomToSearchLocation(item) {
   }
 }
 
-// Attach autocomplete to input field
-document.addEventListener('DOMContentLoaded', () => {
-  const input = document.getElementById('locationSearchInput');
-  const box = document.getElementById('locationSuggestions');
+// DOM elements
+const searchInput = document.getElementById('locationSearchInput');
+const suggestionsBox = document.getElementById('locationSuggestions');
+const searchButton = document.getElementById('locationSearchButton');
 
-  if (!input) return;
+// Keep suggestions open while clicking inside
+if (suggestionsBox) {
+  suggestionsBox.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+  });
+}
 
-  input.addEventListener("input", async () => {
-    const query = input.value.trim();
-    const results = await fetchSuggestions(query);
-    showSuggestions(results);
+// Fetch Nominatim suggestions via your backend /api/geocode
+async function fetchGeocodeSuggestions(query) {
+  if (!query || query.length < 2) return [];
+  try {
+    const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    if (!data.success) return [];
+    return data.results.slice(0, 5);
+  } catch (err) {
+    console.error('Geocode error:', err);
+    return [];
+  }
+}
+
+// Render combined alumni + geocode suggestions
+function renderCombinedSuggestions(alumniList, geoList) {
+  if (!suggestionsBox) return;
+
+  suggestionsBox.innerHTML = '';
+
+  const hasAlumni = alumniList && alumniList.length > 0;
+  const hasGeo = geoList && geoList.length > 0;
+
+  if (!hasAlumni && !hasGeo) {
+    suggestionsBox.style.display = 'none';
+    return;
+  }
+
+  // Alumni suggestions first
+  if (hasAlumni) {
+    alumniList.forEach((loc) => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = `${loc.location} (${loc.count})`;
+      div.addEventListener('click', () => {
+        searchInput.value = loc.location;
+        suggestionsBox.style.display = 'none';
+        zoomToLocation(loc);
+        if (typeof showLocationDetails === 'function') {
+          showLocationDetails(loc);
+        }
+      });
+      suggestionsBox.appendChild(div);
+    });
+  }
+
+  // Divider between alumni and global results
+  if (hasAlumni && hasGeo) {
+    const divider = document.createElement('div');
+    divider.className = 'suggestion-divider';
+    divider.textContent = 'Other locations';
+    divider.style.fontSize = '11px';
+    divider.style.padding = '4px 8px';
+    divider.style.color = '#6b7280';
+    divider.style.borderTop = '1px solid #e5e7eb';
+    divider.style.marginTop = '4px';
+    suggestionsBox.appendChild(divider);
+  }
+
+  // Geocode (Nominatim) suggestions
+  if (hasGeo) {
+    geoList.forEach((item) => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = item.display_name;
+      div.addEventListener('click', () => {
+        searchInput.value = item.display_name;
+        suggestionsBox.style.display = 'none';
+        zoomToSearchLocation(item);
+      });
+      suggestionsBox.appendChild(div);
+    });
+  }
+
+  suggestionsBox.style.display = 'block';
+}
+
+// Handle typing in the search box
+if (searchInput) {
+  searchInput.addEventListener('input', async () => {
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) {
+      suggestionsBox.style.display = 'none';
+      return;
+    }
+
+    // Alumni matches from your heatmap data
+    const alumniMatches = (locationClusters || [])
+      .filter((loc) => (loc.location || '').toLowerCase().includes(q))
+      .slice(0, 7);
+
+    // External geocode matches
+    const geoMatches = await fetchGeocodeSuggestions(q);
+
+    renderCombinedSuggestions(alumniMatches, geoMatches);
   });
 
-  // click outside hides dropdown
-  document.addEventListener("click", (e) => {
-    if (!box.contains(e.target) && e.target !== input) {
-      box.style.display = "none";
+  // Hide suggestions on Escape
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && suggestionsBox) {
+      suggestionsBox.style.display = 'none';
     }
   });
+}
+
+// Click outside to close dropdown
+document.addEventListener('click', (e) => {
+  if (!suggestionsBox || !searchInput) return;
+  if (!suggestionsBox.contains(e.target) && e.target !== searchInput) {
+    suggestionsBox.style.display = 'none';
+  }
 });
 
+// Search button: prefer alumni match, fallback to geocode
+if (searchButton && searchInput) {
+  searchButton.addEventListener('click', async () => {
+    const q = searchInput.value.trim();
+    if (!q) return;
+    const lower = q.toLowerCase();
 
+    // 1) Try alumni match
+    const alumniMatch = (locationClusters || []).find((loc) =>
+      (loc.location || '').toLowerCase().includes(lower)
+    );
+
+    if (alumniMatch) {
+      zoomToLocation(alumniMatch);
+      if (typeof showLocationDetails === 'function') {
+        showLocationDetails(alumniMatch);
+      }
+      return;
+    }
+
+    // 2) Fallback to geocode
+    const geoResults = await fetchGeocodeSuggestions(q);
+    if (geoResults.length > 0) {
+      zoomToSearchLocation(geoResults[0]);
+    }
+  });
+}
