@@ -63,6 +63,8 @@ def init_db():
                     headline VARCHAR(500),
                     latitude DOUBLE NULL,
                     longitude DOUBLE NULL,
+                    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     UNIQUE KEY uq_alumni_linkedin_url (linkedin_url),
@@ -109,6 +111,57 @@ def init_db():
             
     except mysql.connector.Error as err:
         logger.error(f"Database error: {err}")
+        raise
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+def update_alumni_timestamps():
+    """Update existing alumni records with default scrape timestamp (11/3/2025 8:25 PM)"""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Add scraped_at column if it doesn't exist
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                """)
+                logger.info("Added scraped_at column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("scraped_at column already exists")
+                else:
+                    raise
+            
+            # Add last_updated column if it doesn't exist
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                """)
+                logger.info("Added last_updated column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("last_updated column already exists")
+                else:
+                    raise
+            
+            # Update all existing records with default scrape timestamp
+            cur.execute("""
+                UPDATE alumni 
+                SET scraped_at = '2025-11-03 20:25:00', 
+                    last_updated = '2025-11-03 20:25:00'
+            """)
+            updated_count = cur.rowcount
+            conn.commit()
+            logger.info(f"Updated {updated_count} alumni records with default scrape timestamp (11/3/2025 8:25 PM)")
+    except mysql.connector.Error as err:
+        logger.error(f"Error updating timestamps: {err}")
         raise
     finally:
         if conn:
@@ -204,6 +257,7 @@ if __name__ == "__main__":
         logger.info(f"Database '{MYSQL_DATABASE}' ensured")
         
         init_db()
+        update_alumni_timestamps()
         seed_alumni_data()
         
         # Test connection
