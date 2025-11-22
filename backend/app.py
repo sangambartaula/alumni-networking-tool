@@ -406,7 +406,16 @@ def api_get_alumni():
                 alumni.append({
                     "id": r.get('id'),
                     "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
+
+                    # WHAT ANALYTICS.JS EXPECTS:
+                    "current_job_title": r.get('current_job_title'),
+                    "company": r.get('company'),
+                    "grad_year": r.get('grad_year'),
+
+                    # OPTIONAL: keep backwards-compatible for alumni UI (if needed)
                     "role": r.get('current_job_title'),
+
+                    # Existing fields
                     "headline": r.get('headline'),
                     "class": r.get('grad_year'),
                     "location": r.get('location'),
