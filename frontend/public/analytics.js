@@ -3,10 +3,31 @@
 
 let alumniData = [];
 let charts = {};
+let currentFilter = null;
 
 // Initialize analytics on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadAnalyticsData();
+  
+  // Setup modal close handlers
+  const modal = document.getElementById('alumniModal');
+  const closeBtn = document.getElementById('closeModalBtn');
+  
+  closeBtn?.addEventListener('click', closeModal);
+  
+  // Close modal when clicking outside
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
+  
+  // Close modal with Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+    }
+  });
 });
 
 // Load all alumni data for analytics
@@ -146,8 +167,18 @@ function renderJobPieChart() {
               const total = context.dataset.data.reduce((a, b) => a + b, 0);
               const percentage = ((context.parsed / total) * 100).toFixed(1);
               return `${context.label}: ${context.parsed} (${percentage}%)`;
+            },
+            afterLabel: function() {
+              return 'Click to view alumni';
             }
           }
+        }
+      },
+      onClick: (event, elements) => {
+        if (elements.length > 0) {
+          const index = elements[0].index;
+          const jobTitle = labels[index];
+          filterAlumni('job', jobTitle);
         }
       }
     }
@@ -195,8 +226,18 @@ function renderCompanyPieChart() {
               const total = context.dataset.data.reduce((a, b) => a + b, 0);
               const percentage = ((context.parsed / total) * 100).toFixed(1);
               return `${context.label}: ${context.parsed} (${percentage}%)`;
+            },
+            afterLabel: function() {
+              return 'Click to view alumni';
             }
           }
+        }
+      },
+      onClick: (event, elements) => {
+        if (elements.length > 0) {
+          const index = elements[0].index;
+          const company = labels[index];
+          filterAlumni('company', company);
         }
       }
     }
@@ -244,8 +285,18 @@ function renderLocationPieChart() {
               const total = context.dataset.data.reduce((a, b) => a + b, 0);
               const percentage = ((context.parsed / total) * 100).toFixed(1);
               return `${context.label}: ${context.parsed} (${percentage}%)`;
+            },
+            afterLabel: function() {
+              return 'Click to view alumni';
             }
           }
+        }
+      },
+      onClick: (event, elements) => {
+        if (elements.length > 0) {
+          const index = elements[0].index;
+          const location = labels[index];
+          filterAlumni('location', location);
         }
       }
     }
@@ -313,8 +364,18 @@ function renderIndustryPieChart() {
               const total = context.dataset.data.reduce((a, b) => a + b, 0);
               const percentage = ((context.parsed / total) * 100).toFixed(1);
               return `${context.label}: ${context.parsed} (${percentage}%)`;
+            },
+            afterLabel: function() {
+              return 'Click to view alumni';
             }
           }
+        }
+      },
+      onClick: (event, elements) => {
+        if (elements.length > 0) {
+          const index = elements[0].index;
+          const industry = labels[index];
+          filterAlumni('industry', industry);
         }
       }
     }
@@ -366,7 +427,12 @@ function renderGraduationLineChart() {
         },
         tooltip: {
           mode: 'index',
-          intersect: false
+          intersect: false,
+          callbacks: {
+            afterLabel: function() {
+              return 'Click to view graduates';
+            }
+          }
         }
       },
       scales: {
@@ -385,6 +451,13 @@ function renderGraduationLineChart() {
             display: true,
             text: 'Graduation Year'
           }
+        }
+      },
+      onClick: (event, elements) => {
+        if (elements.length > 0) {
+          const index = elements[0].index;
+          const year = sortedYears[index];
+          filterAlumni('year', year);
         }
       }
     }
@@ -433,4 +506,84 @@ function renderTopLocationsTable() {
       </tr>
     `;
   }).join('');
+}
+
+// Filter alumni based on chart clicks
+function filterAlumni(filterType, filterValue) {
+  let filtered = [];
+  let filterTitle = '';
+  let filterDesc = '';
+  
+  switch(filterType) {
+    case 'job':
+      filtered = alumniData.filter(a => a.current_job_title === filterValue);
+      filterTitle = `Alumni with Job Title: ${filterValue}`;
+      filterDesc = `Showing ${filtered.length} alumni working as ${filterValue}`;
+      break;
+    case 'company':
+      filtered = alumniData.filter(a => a.company === filterValue);
+      filterTitle = `Alumni at ${filterValue}`;
+      filterDesc = `Showing ${filtered.length} alumni working at ${filterValue}`;
+      break;
+    case 'location':
+      filtered = alumniData.filter(a => a.location === filterValue);
+      filterTitle = `Alumni in ${filterValue}`;
+      filterDesc = `Showing ${filtered.length} alumni located in ${filterValue}`;
+      break;
+    case 'industry':
+      filtered = alumniData.filter(a => extractIndustry(a) === filterValue);
+      filterTitle = `Alumni in ${filterValue}`;
+      filterDesc = `Showing ${filtered.length} alumni working in ${filterValue}`;
+      break;
+    case 'year':
+      filtered = alumniData.filter(a => a.grad_year == filterValue);
+      filterTitle = `Class of ${filterValue}`;
+      filterDesc = `Showing ${filtered.length} alumni who graduated in ${filterValue}`;
+      break;
+  }
+  
+  currentFilter = { type: filterType, value: filterValue, data: filtered };
+  renderFilteredAlumni(filtered, filterTitle, filterDesc);
+}
+
+// Render filtered alumni table
+function renderFilteredAlumni(filtered, title, description) {
+  // Update modal content
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalDescription').textContent = description;
+  
+  // Render table
+  const tbody = document.getElementById('filteredAlumniBody');
+  
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem;">No alumni found</td></tr>';
+  } else {
+    tbody.innerHTML = filtered.map(alumni => `
+      <tr>
+        <td><strong>${alumni.name || 'N/A'}</strong></td>
+        <td>${alumni.current_job_title || 'N/A'}</td>
+        <td>${alumni.company || 'N/A'}</td>
+        <td>${alumni.location || 'N/A'}</td>
+        <td>${alumni.grad_year || 'N/A'}</td>
+      </tr>
+    `).join('');
+  }
+  
+  // Show modal
+  openModal();
+}
+
+// Open modal
+function openModal() {
+  const modal = document.getElementById('alumniModal');
+  modal.classList.add('show');
+  document.body.style.overflow = 'hidden'; // Prevent background scrolling
+}
+
+// Close modal
+function closeModal() {
+  const modal = document.getElementById('alumniModal');
+  modal.classList.remove('show');
+  document.body.style.overflow = ''; // Restore scrolling
+  currentFilter = null;
 }
