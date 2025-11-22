@@ -6,6 +6,7 @@ import requests  # for OAuth token exchange
 import mysql.connector  # for MySQL connection
 import secrets
 from database import get_connection
+from geocoding import geocode_location
 
 load_dotenv()
 
@@ -686,6 +687,20 @@ def get_heatmap_data():
         app.logger.error(f"Error fetching heatmap data: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
+@app.route("/api/geocode")
+def api_geocode():
+    query = request.args.get("q", "").strip()
+
+    if not query:
+        return jsonify({"success": False, "results": []}), 400
+
+    results = geocode_location(query)
+
+    return jsonify({
+        "success": True,
+        "count": len(results),
+        "results": results
+    })
 
 # ---------------------- Error handler ----------------------
 @app.errorhandler(404)
@@ -704,3 +719,7 @@ if __name__ == "__main__":
             app.logger.error(f"Failed to initialize database: {e}")
             exit(1)
     app.run()
+
+
+
+
