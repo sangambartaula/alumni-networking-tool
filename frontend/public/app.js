@@ -19,6 +19,32 @@ const itemsPerPage = 20;
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
+// ===== STATS BANNER UPDATE FUNCTION =====
+function updateStatsBanner(alumniData) {
+  if (!alumniData || alumniData.length === 0) {
+    return;
+  }
+
+  // Calculate total alumni
+  const totalAlumni = alumniData.length;
+  
+  // Calculate unique locations
+  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc));
+  const locationsCount = uniqueLocations.size;
+  
+  // Calculate bookmarked alumni
+  const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.bookmarked).length;
+  
+  // Update DOM elements
+  const totalAlumniEl = document.getElementById('totalAlumni');
+  const locationsCountEl = document.getElementById('locationsCount');
+  const bookmarkedCountEl = document.getElementById('bookmarkedCount');
+  
+  if (totalAlumniEl) totalAlumniEl.textContent = totalAlumni;
+  if (locationsCountEl) locationsCountEl.textContent = locationsCount;
+  if (bookmarkedCountEl) bookmarkedCountEl.textContent = bookmarkedCount;
+}
+
 // ===== NOTES MODAL CLASS =====
 class NotesModal {
   constructor() {
@@ -575,6 +601,9 @@ function setupFiltering(list) {
 
   // Load interactions from backend first
   await loadUserInteractions();
+
+  // Update stats banner with alumni data
+  updateStatsBanner(alumniData);
 
   // Populate UI with the alumni data (from API or fallback)
   populateFilters(alumniData);

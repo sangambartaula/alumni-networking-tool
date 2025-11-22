@@ -4,90 +4,136 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LinkedIn Helper – Alumni</title>
+  <title>UNT Alumni Network – Dean's Office</title>
   <link rel="stylesheet" href="alumni_style.css" />
 </head>
 <body>
+  <!-- Enhanced header with UNT branding and improved visual hierarchy -->
   <header class="appbar" role="banner">
     <div class="appbar-inner">
-      <div class="brand" aria-label="LinkedIn Helper">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
-        LinkedIn Helper <small>Alumni</small>
+      <div class="brand" aria-label="UNT Alumni Network">
+        <img src="/assets/unt-logo.png" alt="UNT Logo" class="unt-logo" />
+        <div class="brand-text">
+          <span class="brand-title">Alumni Network</span>
+          <small>Dean's Office Portal</small>
+        </div>
       </div>
       <div class="app-actions">
-        <a class="btn action-btn" href="/analytics" title="View analytics dashboard">📊 Analytics</a>
-        <a class="btn action-btn" href="/heatmap" title="View alumni location heatmap">🗺️ Heatmap</a>
+        <a class="btn action-btn" href="/analytics" title="View analytics dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          Analytics
+        </a>
+        <a class="btn action-btn" href="/heatmap" title="View alumni location heatmap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+          Heatmap
+        </a>
         <a class="btn secondary" href="/logout">Sign out</a>
       </div>
     </div>
   </header>
 
+  <!-- Added stats banner for quick overview -->
+  <div class="stats-banner">
+    <div class="stats-banner-inner">
+      <div class="stat-card">
+        <div class="stat-value" id="totalAlumni">0</div>
+        <div class="stat-label">Total Alumni</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="locationsCount">0</div>
+        <div class="stat-label">Locations</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="bookmarkedCount">0</div>
+        <div class="stat-label">Bookmarked</div>
+      </div>
+    </div>
+  </div>
+
   <main class="page" role="main">
-    <!-- Filters sidebar -->
+    <!-- Enhanced filters sidebar with better visual design -->
     <aside class="filters" aria-label="Filters">
-      <h3>Filters</h3>
+      <div class="filters-header">
+        <h3>Filter Alumni</h3>
+      </div>
+      
       <div class="search" role="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-3.5-3.5"></path></svg>
         <input id="q" type="search" placeholder="Search by name, role, or company" aria-label="Search" />
       </div>
 
       <div class="group" id="loc-group">
-        <div class="label">Location</div>
+        <div class="label">
+          <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+          Location
+        </div>
         <div class="checklist" id="locChecks"></div>
       </div>
 
       <div class="group" id="role-group">
-        <div class="label">Job Title/Industry</div>
+        <div class="label">
+          <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+          Job Title / Industry
+        </div>
         <div class="checklist" id="roleChecks"></div>
       </div>
 
       <div class="group" id="grad-group">
-        <div class="label">Graduation Year</div>
+        <div class="label">
+          <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>
+          Graduation Year
+        </div>
         <select id="gradSelect" aria-label="Graduation year">
           <option value="">All years</option>
         </select>
       </div>
-        <button id="clear-filters" type="button" style="margin-top: 10px; width: 100%;">Clear Filters</button>
+      
+      <button id="clear-filters" class="btn-clear" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        Clear All Filters
+      </button>
     </aside>
 
-    <!-- Results area -->
+    <!-- Enhanced results section with better toolbar -->
     <section>
       <div class="results-head">
-        <h2>Alumni Profiles <span class="pill" id="count">(0)</span></h2>
-      <div class="sort-area">
-          <label for="sortSelect">Sort by:</label>
-          <select id="sortSelect" aria-label="Sort alumni">
-            <option value="">Default</option>
-            <option value="name">Name (A–Z)</option>
-            <option value="year">Graduation Year (Newest → Oldest)</option>
-            <option value="bookmarked">Bookmarks</option>
-          </select>
+        <div class="results-title">
+          <h2>Alumni Directory</h2>
+          <span class="pill" id="count">(0)</span>
         </div>
-
+        <div class="results-toolbar">
+          <div class="sort-control">
+            <label for="sortSelect">Sort by:</label>
+            <select id="sortSelect" aria-label="Sort alumni">
+              <option value="">Default</option>
+              <option value="name">Name (A–Z)</option>
+              <option value="year">Graduation Year (Newest → Oldest)</option>
+              <option value="bookmarked">Bookmarks</option>
+            </select>
+          </div>
+        </div>
       </div>
+      
       <div id="grid" class="grid" aria-live="polite">
         <!-- Space for alumni profiles dynamically added via backend -->
       </div>
       <div id="list" class="list" aria-live="polite"></div>
-      
-      <!-- Pagination Controls -->
-      <div id="pagination" class="pagination"></div>
     </section>
   </main>
 
+  <!-- Simplified footer for administrative interface -->
   <footer>
     <div class="stamp">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 11.5c3.5-1.5 6-4 8-8 2 4 4.5 6.5 8 8-3.5 1.5-6 4-8 8-2-4-4.5-6.5-8-8Z" fill="currentColor"/></svg>
-      LinkedIn Helper
+      <img src="/assets/unt-logo.png" alt="" class="footer-logo" />
+      UNT Alumni Network
     </div>
     <nav aria-label="Footer links">
-      <a href="#">About LinkedIn Helper</a>
-      <a href="#">Alumni</a>
-      <a href="#">Engineering</a>
+      <a href="#">Dean's Office</a>
+      <a href="#">Support</a>
+      <a href="#">Documentation</a>
     </nav>
   </footer>
 
   <script src="/app.js"></script>
 </body>
 </html>
-
