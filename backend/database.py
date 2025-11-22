@@ -176,6 +176,7 @@ def seed_alumni_data():
         
         conn = get_connection()
         added = 0
+        updated = 0
         processed = 0
         
         try:
@@ -200,13 +201,24 @@ def seed_alumni_data():
                     major = str(row['major']).strip() if pd.notna(row['major']) else None
                     grad_year = int(row['graduation_year']) if pd.notna(row['graduation_year']) else None
                     profile_url = str(row['profile_url']).strip() if pd.notna(row['profile_url']) else None
+                    scraped_at = str(row['scraped_at']).strip() if pd.notna(row['scraped_at']) else None
                     
-                    # Insert into database
+                    # Insert or update into database
                     try:
                         cur.execute("""
                             INSERT INTO alumni 
-                            (first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            (first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline, scraped_at, last_updated)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON DUPLICATE KEY UPDATE
+                            first_name = VALUES(first_name),
+                            last_name = VALUES(last_name),
+                            grad_year = VALUES(grad_year),
+                            degree = VALUES(degree),
+                            current_job_title = VALUES(current_job_title),
+                            company = VALUES(company),
+                            location = VALUES(location),
+                            headline = VALUES(headline),
+                            last_updated = VALUES(last_updated)
                         """, (
                             first_name,
                             last_name,
@@ -216,15 +228,23 @@ def seed_alumni_data():
                             job_title,
                             company,
                             location,
-                            headline
+                            headline,
+                            scraped_at,
+                            scraped_at
                         ))
-                        added += 1
+                        
+                        # Check if it was an insert or update
+                        if cur.rowcount == 1:
+                            added += 1
+                        elif cur.rowcount == 2:
+                            updated += 1
                     except mysql.connector.Error as err:
                         logger.warning(f"Skipping record for {name}: {err}")
                         continue
                 
                 conn.commit()
                 logger.info(f"✅ Added {added} new alumni records")
+                logger.info(f"✅ Updated {updated} existing alumni records")
                 logger.info(f"Successfully processed {processed} total alumni records")
         finally:
             try:
