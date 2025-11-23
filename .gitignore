@@ -4,6 +4,7 @@
 .DS_Store
 Thumbs.db
 *.log
+*.tmp
 
 # Documentation files (kept locally, not versioned)
 HEATMAP_SETUP.md
@@ -12,6 +13,8 @@ HEATMAP_QUICKSTART.md
 IMPLEMENTATION_SUMMARY.md
 FEATURE_OVERVIEW.md
 DELIVERABLES.md
+UPDATES_SUMMARY.md
+HEATMAP_FULLSCREEN_FIX.md
 
 # Python cache and virtual environments
 __pycache__/
@@ -23,12 +26,18 @@ env/
 .venv/
 ENV/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
 # Distribution / packaging
 dist/
 build/
 *.egg-info/
 *.egg
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
 
 # IDE and editor files
 .idea/
@@ -38,10 +47,25 @@ build/
 *.swn
 *.bak
 *~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+desktop.ini
 
 # Jupyter Notebook
 .ipynb_checkpoints
 *.ipynb_checkpoints/
+.jupyter/
 
 # Test coverage
 htmlcov/
@@ -50,6 +74,15 @@ htmlcov/
 coverage.xml
 *.cover
 .pytest_cache/
+.tox/
+pytest.ini
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
 
 # Scraper outputs
 scraper/linkedin_cookies.json
@@ -57,8 +90,26 @@ backend/engineering_graduate.csv
 scraper/output/
 *.csv
 backend/engineering_students.csv
+scraper/*.json
 
-# Local development
+# Database files
 *.sqlite3
 *.db
-node_modules/
+*.sqlite
+local.db
+
+# Local development
+.local/
+.cache/
+temp/
+tmp/
+
+# Frontend builds
+frontend/build/
+frontend/dist/
+.next/
+out/
+
+# Editor temp files
+*.orig
+*~
