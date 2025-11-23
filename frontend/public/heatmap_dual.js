@@ -10,8 +10,36 @@ let currentMode = '2d'; // Start with 2D
 let markers2D = [];
 let entities3D = [];
 
+// Fix viewport layout for full-screen map
+function setupMapViewport() {
+  const resizeMap = () => {
+    const mapWrapper = document.querySelector('.map-wrapper');
+    const mapContainer2D = document.getElementById('map2DContainer');
+    const mapContainer3D = document.getElementById('map3DContainer');
+    
+    if (mapWrapper && mapContainer2D && mapContainer3D) {
+      // Force refresh of Leaflet map size
+      if (map2D && map2D.invalidateSize) {
+        map2D.invalidateSize(false);
+      }
+      
+      // Force refresh of Cesium map size
+      if (map3D && map3D.scene) {
+        map3D.scene.requestRender();
+      }
+    }
+  };
+  
+  // Initial resize after a short delay to allow DOM to settle
+  setTimeout(resizeMap, 100);
+  
+  // Resize on window resize
+  window.addEventListener('resize', resizeMap);
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+  setupMapViewport();
   initialize2DMap();
   initialize3DMap();
   loadHeatmapData();
