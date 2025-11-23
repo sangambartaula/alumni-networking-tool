@@ -32,8 +32,8 @@ function updateStatsBanner(alumniData) {
   const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc));
   const locationsCount = uniqueLocations.size;
   
-  // Calculate bookmarked alumni
-  const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.bookmarked).length;
+  // Calculate bookmarked alumni - check interaction_type === 'bookmarked'
+  const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
   
   // Update DOM elements
   const totalAlumniEl = document.getElementById('totalAlumni');
@@ -42,6 +42,13 @@ function updateStatsBanner(alumniData) {
   
   if (totalAlumniEl) totalAlumniEl.textContent = totalAlumni;
   if (locationsCountEl) locationsCountEl.textContent = locationsCount;
+  if (bookmarkedCountEl) bookmarkedCountEl.textContent = bookmarkedCount;
+}
+
+// Helper function to update just the bookmarked count in the banner
+function updateBookmarkCount() {
+  const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
+  const bookmarkedCountEl = document.getElementById('bookmarkedCount');
   if (bookmarkedCountEl) bookmarkedCountEl.textContent = bookmarkedCount;
 }
 
@@ -295,12 +302,14 @@ function createListItem(p) {
       if (success) {
         item.classList.remove('bookmarked');
         starBtn.textContent = '⭐';
+        updateBookmarkCount(); // Update banner count
       }
     } else {
       const success = await saveInteraction(p.id, 'bookmarked');
       if (success) {
         item.classList.add('bookmarked');
         starBtn.textContent = '★';
+        updateBookmarkCount(); // Update banner count
       }
     }
   });
