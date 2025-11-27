@@ -39,9 +39,10 @@ HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 TESTING = os.getenv("TESTING", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
-SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()  # 'names' or 'search'
+SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()  # 'names', 'search', or 'connections'
 OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
 UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
+CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "connections.csv")
 
 # Set delay based on TESTING mode
 if TESTING:
@@ -67,6 +68,7 @@ logger.info(f"OUTPUT_CSV full path: {OUTPUT_CSV.absolute()}")
 logger.info(f"OUTPUT_DIR: {OUTPUT_DIR.absolute()}")
 logger.info(f"OUTPUT_DIR exists: {OUTPUT_DIR.exists()}")
 
+
 def parse_frequency(frequency_str):
     """Parse frequency string like '6 months', '1 year', '2 years' into a timedelta"""
     try:
@@ -90,6 +92,7 @@ def parse_frequency(frequency_str):
     except Exception as e:
         logger.warning(f"Error parsing frequency: {e}. Using default 6 months.")
         return timedelta(days=180)
+
 
 def get_outdated_profiles():
     """Get alumni profiles that need updating based on UPDATE_FREQUENCY"""
@@ -123,6 +126,7 @@ def get_outdated_profiles():
     except Exception as e:
         logger.error(f"Error fetching outdated profiles: {e}")
         return [], None
+
 
 def load_names_from_csv(csv_path):
     """Read a list of names (column 'name') from a CSV file."""
@@ -398,7 +402,8 @@ class LinkedInSearchScraper:
             "major": "",
             "graduation_year": "",
             "profile_url": profile_url,
-            "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "all_education": []  # Store all education entries for UNT check
         }
 
         try:
@@ -436,10 +441,20 @@ class LinkedInSearchScraper:
                 found_location = False
                 for elem in location_elems:
                     text = elem.get_text(strip=True)
-                    if ',' in text and len(text) < 100:
-                        profile_data["location"] = text
-                        found_location = True
-                        break
+                    # Check for location-like text
+                    if len(text) < 100 and len(text) > 3:
+                        # Skip if it looks like a connection count or other non-location text
+                        if 'connection' in text.lower() or 'follower' in text.lower():
+                            continue
+                        # Accept if it has comma (City, State) OR contains location keywords
+                        if (',' in text or 
+                            'Metroplex' in text or 
+                            'Area' in text or 
+                            'Greater' in text or
+                            any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States'])):
+                            profile_data["location"] = text
+                            found_location = True
+                            break
                 if not found_location:
                     logger.debug(f"  ⚠️  Missing location")
             except Exception as e:
@@ -484,45 +499,53 @@ class LinkedInSearchScraper:
                 import traceback
                 traceback.print_exc()
 
-            # ===== EXTRACT EDUCATION =====
+            # ===== EXTRACT EDUCATION (ALL VISIBLE ENTRIES) =====
             try:
                 h2_tags = soup.find_all('h2', {'class': lambda x: x and 'pvs-header__title' in (x or '') and 'text-heading-large' in (x or '')})
                 
                 found_education = False
+                all_education = []
+                
                 for h2 in h2_tags:
                     h2_text = h2.get_text(strip=True)
                     if 'Education' in h2_text:
                         logger.debug("Found Education section")
-                        # Get the parent section
                         section = h2.find_parent('section')
                         if section:
-                            # Find first profile-component-entity
-                            first_edu = section.find('div', {'data-view-name': 'profile-component-entity'})
-                            if first_edu:
-                                # Get all aria-hidden spans
-                                spans = first_edu.find_all('span', {'aria-hidden': 'true'})
+                            # Find ALL education entries, not just the first
+                            all_edu_entries = section.find_all('div', {'data-view-name': 'profile-component-entity'})
+                            
+                            for edu_idx, edu_entry in enumerate(all_edu_entries):
+                                spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
                                 
                                 if len(spans) > 0:
                                     school = spans[0].get_text(strip=True).replace('<!---->', '').strip()
                                     if school:
-                                        profile_data["education"] = school
-                                        logger.debug(f"  ✓ Found school: {school}")
-                                        found_education = True
-                                
-                                if len(spans) > 1:
-                                    major = spans[1].get_text(strip=True).replace('<!---->', '').strip()
-                                    if major:
-                                        profile_data["major"] = major
-                                        logger.debug(f"  ✓ Found major: {major}")
-                                
-                                # Extract year from dates span
-                                if len(spans) > 2:
-                                    dates_text = spans[2].get_text(strip=True).replace('<!---->', '').strip()
-                                    logger.debug(f"  Found dates: {dates_text}")
-                                    year_match = re.search(r'(\d{4})\s*$', dates_text)
-                                    if year_match:
-                                        profile_data["graduation_year"] = year_match.group(1)
-                                        logger.debug(f"  ✓ Found graduation year: {year_match.group(1)}")
+                                        all_education.append(school)
+                                        logger.debug(f"  ✓ Found school [{edu_idx + 1}]: {school}")
+                                        
+                                        # Use first education as the "primary" one for display
+                                        if not found_education:
+                                            profile_data["education"] = school
+                                            found_education = True
+                                            
+                                            if len(spans) > 1:
+                                                major = spans[1].get_text(strip=True).replace('<!---->', '').strip()
+                                                if major:
+                                                    profile_data["major"] = major
+                                                    logger.debug(f"  ✓ Found major: {major}")
+                                            
+                                            if len(spans) > 2:
+                                                dates_text = spans[2].get_text(strip=True).replace('<!---->', '').strip()
+                                                logger.debug(f"  Found dates: {dates_text}")
+                                                year_match = re.search(r'(\d{4})\s*$', dates_text)
+                                                if year_match:
+                                                    profile_data["graduation_year"] = year_match.group(1)
+                                                    logger.debug(f"  ✓ Found graduation year: {year_match.group(1)}")
+                            
+                            # Store all education for UNT checking
+                            profile_data["all_education"] = all_education
+                            logger.debug(f"  ✓ All education entries: {all_education}")
                         break
                 
                 if not found_education:
@@ -537,6 +560,8 @@ class LinkedInSearchScraper:
             logger.info(f"    ✓ Location: {profile_data['location']}")
             logger.info(f"    ✓ Job: {profile_data['job_title']} @ {profile_data['company']}")
             logger.info(f"    ✓ Education: {profile_data['education']} | Major: {profile_data['major']} | Year: {profile_data['graduation_year']}")
+            if len(profile_data['all_education']) > 1:
+                logger.info(f"    ✓ All Education: {profile_data['all_education']}")
 
         except Exception as e:
             logger.error(f"Error scraping profile {profile_url}: {e}")
@@ -545,6 +570,61 @@ class LinkedInSearchScraper:
 
         return profile_data
 
+    def scrape_all_education(self, profile_url):
+        """
+        For connections mode only: Click 'Show all X educations' link and scrape ALL education entries. 
+        Returns list of all school names.
+        """
+        all_education = []
+        
+        try:
+            # Look for "Show all X educations" link
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            
+            # Find the "Show all" link for education
+            show_all_link = None
+            for a in soup.find_all('a'):
+                text = a.get_text(strip=True).lower()
+                if 'show all' in text and 'education' in text:
+                    show_all_link = a.get('href')
+                    logger.info(f"    📚 Found 'Show all educations' link")
+                    break
+            
+            if show_all_link:
+                # Navigate to the full education page
+                if not show_all_link.startswith('http'):
+                    show_all_link = f"https://www.linkedin.com{show_all_link}"
+                
+                logger.info(f"    📚 Opening full education page...")
+                self.driver.get(show_all_link)
+                time.sleep(3)
+                
+                # Now scrape all education from this page
+                soup = BeautifulSoup(self.driver.page_source, "html.parser")
+                
+                # Find all education entries on this page
+                edu_entries = soup.find_all('div', {'data-view-name': 'profile-component-entity'})
+                
+                for edu_entry in edu_entries:
+                    spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
+                    if len(spans) > 0:
+                        school = spans[0].get_text(strip=True).replace('<!---->', '').strip()
+                        if school and school not in all_education:
+                            all_education.append(school)
+                            logger.debug(f"    ✓ Found school: {school}")
+                
+                logger.info(f"    📚 Scraped {len(all_education)} education entries from full page: {all_education}")
+                
+                # Go back to main profile
+                self.driver.get(profile_url)
+                time.sleep(2)
+            else:
+                logger.debug("    No 'Show all educations' link found")
+                
+        except Exception as e:
+            logger.error(f"    Error scraping all education: {e}")
+        
+        return all_education
     
     def save_profile(self, profile_data):
         """Save a single profile to CSV"""
@@ -587,13 +667,16 @@ class LinkedInSearchScraper:
                 logger.debug(f"   CSV doesn't exist, creating new DataFrame")
                 existing_df = pd.DataFrame(columns=CSV_COLUMNS)
             
+            # Remove all_education from profile_data before saving (it's not in CSV_COLUMNS)
+            save_data = {k: v for k, v in profile_data.items() if k in CSV_COLUMNS}
+            
             # Fill missing keys
             for col in CSV_COLUMNS:
-                if col not in profile_data:
-                    profile_data[col] = ""
+                if col not in save_data:
+                    save_data[col] = ""
             
             logger.debug(f"📝 Creating new row with profile data...")
-            new_row = pd.DataFrame([profile_data])[CSV_COLUMNS]
+            new_row = pd.DataFrame([save_data])[CSV_COLUMNS]
             logger.debug(f"   New row: {new_row.to_dict('records')}")
             
             combined_df = pd.concat([existing_df, new_row], ignore_index=True)
@@ -608,7 +691,7 @@ class LinkedInSearchScraper:
             # Verify the file was written
             if OUTPUT_CSV.exists():
                 file_size = OUTPUT_CSV.stat().st_size
-                logger.info(f"✅ SUCCESS! Saved to {OUTPUT_CSV.absolute()} (size: {file_size} bytes, rows: {len(combined_df)})")
+                logger.info(f"✅ SUCCESS!  Saved to {OUTPUT_CSV.absolute()} (size: {file_size} bytes, rows: {len(combined_df)})")
                 return True
             else:
                 logger.error(f"❌ FAILED! File was not created at {OUTPUT_CSV.absolute()}")
@@ -630,7 +713,7 @@ class LinkedInSearchScraper:
             time.sleep(increment)
             remaining = delay - (increment * (i + 1))
             if remaining > 0:
-                logger.info(f"   ...{remaining:.0f}s remaining")
+                logger.info(f"   ... {remaining:.0f}s remaining")
 
     def run_update_mode(self, outdated_profiles):
         """Update mode: Re-scrape outdated alumni profiles"""
@@ -678,7 +761,7 @@ class LinkedInSearchScraper:
         logger.info(f"{'='*60}\n")
 
     def run(self):
-        """Main scraping loop - routes to names or search mode"""
+        """Main scraping loop - routes to names, search, or connections mode"""
         try:
             self.setup_driver()
             self.load_existing_profiles()
@@ -715,8 +798,10 @@ class LinkedInSearchScraper:
                 self.run_names_mode()
             elif self.scraper_mode == "search":
                 self.run_search_mode()
+            elif self.scraper_mode == "connections":
+                self.run_connections_mode()
             else:
-                logger.error(f"Invalid SCRAPER_MODE: {self.scraper_mode}. Use 'names' or 'search'.")
+                logger.error(f"Invalid SCRAPER_MODE: {self.scraper_mode}. Use 'names', 'search', or 'connections'.")
 
         except Exception as e:
             logger.error(f"Fatal error: {e}")
@@ -749,7 +834,7 @@ class LinkedInSearchScraper:
         for name_idx, name in enumerate(names, start=1):
             logger.info(f"\n{'='*60}\nNAME {name_idx}/{len(names)}: {name}\n{'='*60}")
 
-            # Build LinkedIn people search URL (no school filter for broader results)
+            # Build LinkedIn people search URL
             q = urllib.parse.quote_plus(f'"{name}"')
             school_id = "6464"  # University of North Texas
             search_url = (
@@ -816,7 +901,7 @@ class LinkedInSearchScraper:
 
     def run_search_mode(self):
         """Search mode: use paginated LinkedIn search with filters"""
-        base_search_url = "https://www.linkedin.com/search/results/people/?industry=%5B%226%22%2C%2296%22%2C%224%22%5D&origin=FACETED_SEARCH&schoolFilter=%5B%226464%22%5D"
+        base_search_url = "https://www.linkedin.com/search/results/people/?industry=%5B%22109%22%2C%22118%22%2C%223%22%2C%223248%22%2C%2251%22%2C%223242%22%2C%223107%22%2C%221594%22%2C%226%22%2C%2296%22%2C%224%22%5D&origin=FACETED_SEARCH&schoolFilter=%5B%226464%22%5D&sid=X)p"
         
         page = 1
         profiles_scraped = 0
@@ -844,7 +929,7 @@ class LinkedInSearchScraper:
             profile_urls = self.extract_profile_urls_from_page()
             
             if not profile_urls:
-                logger.info("No more profiles. Done!")
+                logger.info("No more profiles.  Done!")
                 break
             
             logger.info(f"\nProcessing {len(profile_urls)} profiles...\n")
@@ -888,6 +973,142 @@ class LinkedInSearchScraper:
         logger.info(f"\n{'='*60}")
         logger.info(f"Scraping Complete!")
         logger.info(f"Total profiles scraped: {profiles_scraped}")
+        logger.info(f"Results saved to: {OUTPUT_CSV}")
+        logger.info(f"{'='*60}\n")
+
+    def run_connections_mode(self):
+        """Connections mode: read LinkedIn URLs from Connections.csv and scrape each profile. 
+        Only saves profiles where the person attended University of North Texas. 
+        """
+        # Load connections CSV
+        connections_csv_path = Path(__file__).resolve().parent.parent / CONNECTIONS_CSV_PATH
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"CONNECTIONS MODE")
+        logger.info(f"Reading from: {connections_csv_path}")
+        logger.info(f"{'='*60}\n")
+        
+        try:
+            # Skip the first 3 rows (notes/headers from LinkedIn export)
+            df = pd.read_csv(connections_csv_path, skiprows=3)
+        except Exception as e:
+            logger.error(f"Failed to read connections CSV: {e}")
+            return
+        
+        # Filter rows that have a valid URL
+        df = df.dropna(subset=['URL'])
+        df = df[df['URL'].str.contains('linkedin.com/in/', na=False)]
+        
+        total_connections = len(df)
+        logger.info(f"Found {total_connections} connections with valid LinkedIn URLs")
+        
+        profiles_scraped = 0
+        profiles_skipped_not_unt = 0
+        profiles_skipped_already_scraped = 0
+        
+        for idx, row in enumerate(df.iterrows(), start=1):
+            row_data = row[1]  # row is (index, Series)
+            profile_url = str(row_data.get('URL', '')).strip()
+            first_name = str(row_data.get('First Name', '') or '').strip()
+            last_name = str(row_data.get('Last Name', '') or '').strip()
+            full_name = f"{first_name} {last_name}".strip()
+            csv_company = str(row_data.get('Company', '') or '').strip()
+            csv_position = str(row_data.get('Position', '') or '').strip()
+            
+            logger.info(f"\n{'='*60}")
+            logger.info(f"CONNECTION {idx}/{total_connections}: {full_name}")
+            logger.info(f"URL: {profile_url}")
+            logger.info(f"{'='*60}")
+            
+            # Skip if already scraped
+            if profile_url in self.existing_profiles:
+                logger.info(f"⊘ Already scraped, skipping...")
+                profiles_skipped_already_scraped += 1
+                continue
+            
+            try:
+                # Scrape the profile
+                profile_data = self.scrape_profile_page(profile_url)
+                
+                # Check if UNT is already in the visible education entries
+                all_education = profile_data.get('all_education', [])
+                education_text = ' '.join(all_education).lower()
+                primary_education = profile_data.get('education', '').lower()
+                combined_education = f"{education_text} {primary_education}"
+                
+                is_unt_alum = (
+                    'university of north texas' in combined_education or
+                    ' unt ' in f" {combined_education} " or
+                    combined_education.startswith('unt ') or
+                    combined_education.endswith(' unt')
+                )
+                
+                # Only click "Show all educations" if UNT is NOT already found
+                if not is_unt_alum:
+                    additional_education = self.scrape_all_education(profile_url)
+                    if additional_education:
+                        # Merge with existing education list
+                        existing_edu = profile_data.get('all_education', [])
+                        for school in additional_education:
+                            if school not in existing_edu:
+                                existing_edu.append(school)
+                        profile_data['all_education'] = existing_edu
+                        logger.info(f"    ✓ Total education entries after expansion: {profile_data['all_education']}")
+                        
+                        # Re-check for UNT with expanded education list
+                        all_education = profile_data.get('all_education', [])
+                        education_text = ' '.join(all_education).lower()
+                        combined_education = f"{education_text} {primary_education}"
+                        
+                        is_unt_alum = (
+                            'university of north texas' in combined_education or
+                            ' unt ' in f" {combined_education} " or
+                            combined_education.startswith('unt ') or
+                            combined_education.endswith(' unt')
+                        )
+                
+                # Use name from CSV if scraping didn't get it
+                if not profile_data.get('name'):
+                    profile_data['name'] = full_name
+                
+                # Use CSV data as fallback if scraping didn't get it
+                if not profile_data.get('company') and csv_company:
+                    profile_data['company'] = csv_company
+                if not profile_data.get('job_title') and csv_position:
+                    profile_data['job_title'] = csv_position
+                
+                if is_unt_alum:
+                    # Save the profile
+                    if self.save_profile(profile_data):
+                        self.existing_profiles.add(profile_url)
+                        profiles_scraped += 1
+                        logger.info(f"✅ UNT Alum!  Saved: {full_name}")
+                else:
+                    profiles_skipped_not_unt += 1
+                    logger.info(f"❌ Not a UNT alum (Education: {profile_data.get('all_education', []) or profile_data.get('education', 'N/A')}), skipping...")
+                
+                # Wait before next profile
+                if idx < total_connections:
+                    self.wait_between_profiles()
+                
+            except NoSuchWindowException:
+                logger.error("Browser window closed, restarting driver...")
+                self.setup_driver()
+                if not self.login():
+                    logger.error("Failed to login again after browser restart")
+                    return
+            except Exception as e:
+                logger.error(f"Error processing profile: {e}")
+                if idx < total_connections:
+                    self.wait_between_profiles()
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Connections Mode Complete!")
+        logger.info(f"{'='*60}")
+        logger.info(f"Total connections processed: {total_connections}")
+        logger.info(f"UNT alumni saved: {profiles_scraped}")
+        logger.info(f"Skipped (not UNT alumni): {profiles_skipped_not_unt}")
+        logger.info(f"Skipped (already scraped): {profiles_skipped_already_scraped}")
         logger.info(f"Results saved to: {OUTPUT_CSV}")
         logger.info(f"{'='*60}\n")
 
