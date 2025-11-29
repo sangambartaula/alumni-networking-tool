@@ -25,6 +25,7 @@ html,
 body {
   height: 100%;
   margin: 0;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -200,7 +201,10 @@ body {
   padding: 0;
   position: sticky;
   top: 100px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
   box-shadow: var(--shadow-sm);
+  z-index: 100;
 }
 
 .filters-header {
@@ -433,6 +437,8 @@ select:focus {
 
   .filters {
     position: static;
+    max-height: 50vh;
+    overflow-y: auto;
   }
 
   .grid {
