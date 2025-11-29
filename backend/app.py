@@ -713,8 +713,8 @@ if __name__ == "__main__":
     if not DISABLE_DB:
         try:
             init_db()
-            # Only seed if we're setting up fresh - comment out to skip on every startup
-            # seed_alumni_data()
+            # Seed alumni data from CSV file
+            seed_alumni_data()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
             exit(1)

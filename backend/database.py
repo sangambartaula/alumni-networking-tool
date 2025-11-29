@@ -164,7 +164,10 @@ def ensure_alumni_timestamp_columns():
 
 def seed_alumni_data():
     """Import alumni data from CSV file"""
-    csv_path = 'scraper/output/UNT_Alumni_Data.csv'
+    # Get the parent directory of backend (project root)
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(backend_dir)
+    csv_path = os.path.join(project_root, 'scraper', 'output', 'UNT_Alumni_Data.csv')
     
     if not os.path.exists(csv_path):
         logger.warning(f"CSV file not found at {csv_path}, skipping import")
@@ -172,7 +175,8 @@ def seed_alumni_data():
 
     try:
         df = pd.read_csv(csv_path)
-        logger.info(f"Importing alumni data from {csv_path}")
+        logger.info(f"✅ Importing alumni data from {csv_path}")
+        logger.info(f"📊 Found {len(df)} records to import")
         
         conn = get_connection()
         added = 0
