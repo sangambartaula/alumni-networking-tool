@@ -6,7 +6,8 @@ Uses Nominatim (OpenStreetMap) for free geocoding without API keys.
 import requests
 import time
 import logging
-from typing import Optional, Tuple
+import re
+from typing import Optional, Tuple, List, Dict, Any
 import mysql.connector
 from database import get_connection
 
@@ -22,20 +23,28 @@ NOMINATIM_HEADERS = {
 # Rate limiting: Nominatim requires at least 1 second between requests
 REQUEST_INTERVAL = 1.5
 
+# Default Coordinates for Regex Matches
+DFW_COORDS = (32.85, -96.85)
 
+
+# ---------------------------------------------------------
+# PRIMARY FUNCTION: Used by the background updater
+# Returns exactly one (lat, lon) tuple for database storage
+# ---------------------------------------------------------
 def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
     """
     Convert a location string (e.g., 'Denton, Texas, United States') to lat/lon.
-    
-    Args:
-        location_string: Raw location string from LinkedIn
-        
-    Returns:
-        Tuple of (latitude, longitude) if successful, None otherwise
     """
     if not location_string or location_string.strip() == '' or location_string.strip().lower() == 'not found':
         return None
     
+    # --- CHECK FOR DALLAS-FORT WORTH METROPLEX ---
+    dfw_pattern = r"(?i)(dallas.*(fort|ft).*worth|dfw.*metroplex)"
+    if re.search(dfw_pattern, location_string):
+        logger.info(f"✓ Matched DFW Regex for '{location_string}' → Using default {DFW_COORDS}")
+        return DFW_COORDS
+    # ---------------------------------------------
+
     try:
         params = {
             "q": location_string,
@@ -71,15 +80,44 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
         return None
 
 
+# ---------------------------------------------------------
+# SECONDARY FUNCTION: Returns full list of details
+# Useful for frontend search bars or manual selection
+# ---------------------------------------------------------
+def search_location_candidates(query: str) -> List[Dict[str, Any]]:
+    """
+    Returns list of {display_name, lat, lon} for a search query.
+    Used for UI/Frontend search, not for background processing.
+    """
+    params = {
+        "q": query,
+        "format": "json",
+        "limit": 5
+    }
+
+    try:
+        r = requests.get(NOMINATIM_BASE_URL, params=params, headers=NOMINATIM_HEADERS, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+
+        results = []
+        for item in data:
+            results.append({
+                "display_name": item.get("display_name"),
+                "lat": item.get("lat"),
+                "lon": item.get("lon"),
+            })
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Geocoding search error: {e}")
+        return []
+
+
 def populate_missing_coordinates(limit: Optional[int] = None) -> int:
     """
     Find alumni records with missing latitude/longitude and geocode them.
-    
-    Args:
-        limit: Max number of records to geocode (None = all)
-        
-    Returns:
-        Number of records successfully geocoded
     """
     conn = None
     try:
@@ -114,6 +152,7 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
                 
                 logger.info(f"[{idx}/{total}] Geocoding alumni ID {alumni_id}: '{location}'")
                 
+                # Using the primary function (returns tuple)
                 coords = geocode_location(location)
                 
                 if coords:
@@ -126,7 +165,6 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
                     conn.commit()
                     geocoded_count += 1
                 
-                # Rate limiting: wait between requests to respect Nominatim terms
                 if idx < total:
                     time.sleep(REQUEST_INTERVAL)
         
@@ -164,40 +202,3 @@ if __name__ == "__main__":
     logger.info("Starting geocoding process...")
     geocoded = populate_missing_coordinates()
     logger.info(f"Geocoding complete! {geocoded} records updated.")
-
-
-
-def geocode_location(query):
-    """
-    Returns list of {display_name, lat, lon}
-    """
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {
-        "q": query,
-        "format": "json",
-        "limit": 5
-    }
-
-    headers = {
-        "User-Agent": "UNT-Alumni-Heatmap/1.0"
-    }
-
-    try:
-        r = requests.get(url, params=params, headers=headers, timeout=5)
-        r.raise_for_status()
-        data = r.json()
-
-        results = []
-        for item in data:
-            results.append({
-                "display_name": item.get("display_name"),
-                "lat": item.get("lat"),
-                "lon": item.get("lon"),
-            })
-
-        return results
-
-    except Exception as e:
-        print("Geocoding error:", e)
-        return []
-
