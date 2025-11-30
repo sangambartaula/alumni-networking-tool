@@ -458,15 +458,17 @@ function createPageButton(pageNum, fullList) {
   return btn;
 }
 
-// Populate filters (location, role, graduation)
+// Populate filters (location, role, graduation, degree)
 function populateFilters(list) {
   const locations = Array.from(new Set(list.map(x => x.location).filter(Boolean))).sort();
   const roles = Array.from(new Set(list.map(x => x.role).filter(Boolean))).sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a,b)=>b-a);
+  const degrees = Array.from(new Set(list.map(x => x.degree).filter(Boolean))).sort();
 
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
   const gradSelect = document.getElementById('gradSelect');
+  const degreeChecks = document.getElementById('degreeChecks');
 
   if (locChecks) {
     locChecks.innerHTML = '';
@@ -497,6 +499,16 @@ function populateFilters(list) {
       gradSelect.appendChild(opt);
     });
   }
+
+  if (degreeChecks) {
+    degreeChecks.innerHTML = '';
+    degrees.forEach(v => {
+      const label = document.createElement('label');
+      label.className = 'check';
+      label.innerHTML = `<input type="checkbox" name="degree" value="${v}" /> <span>${v}</span>`;
+      degreeChecks.appendChild(label);
+    });
+  }
 }
 
 // Filtering behavior
@@ -508,7 +520,7 @@ function setupFiltering(list) {
   const clearBtn = document.getElementById('clear-filters');
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
-      document.querySelectorAll('input[name="location"], input[name="role"]').forEach(cb => cb.checked = false);
+      document.querySelectorAll('input[name="location"], input[name="role"], input[name="degree"]').forEach(cb => cb.checked = false);
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
       currentPage = 1; // Reset to page 1 when clearing filters
@@ -520,8 +532,9 @@ function setupFiltering(list) {
     const term = q ? q.value.trim().toLowerCase() : '';
     const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
     const role = Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value);
+    const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
     const year = gradSelect ? gradSelect.value : '';
-    return { term, loc, role, year };
+    return { term, loc, role, degree, year };
   }
 
   function getSorted(listToSort) {
@@ -546,8 +559,9 @@ function setupFiltering(list) {
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
       const matchRole = !f.role.length || f.role.includes(a.role);
+      const matchDegree = !f.degree.length || f.degree.includes(a.degree);
       const matchYear = !f.year || String(a.class) === String(f.year);
-      return matchTerm && matchLoc && matchRole && matchYear;
+      return matchTerm && matchLoc && matchRole && matchDegree && matchYear;
     });
     const sortedFiltered = getSorted(filtered);
     const paginated = getPaginated(sortedFiltered);
@@ -569,7 +583,7 @@ function setupFiltering(list) {
     apply();
   });
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], #gradSelect')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="degree"], #gradSelect')) {
       currentPage = 1; // Reset to page 1 on filter change
       apply();
     }
