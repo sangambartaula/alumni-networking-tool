@@ -50,7 +50,7 @@ if TESTING:
     MAX_DELAY = 60  # 60 seconds for testing
 else:
     MIN_DELAY = 120  # 2 minutes for production
-    MAX_DELAY = 600  # 10 minutes for production
+    MAX_DELAY = 120  # 10 minutes for production
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
@@ -437,28 +437,63 @@ class LinkedInSearchScraper:
 
             # ===== EXTRACT LOCATION =====
             try:
-                location_elems = soup.find_all('span', {'class': lambda x: x and 'text-body-small' in (x or '')})
-                found_location = False
-                for elem in location_elems:
-                    text = elem.get_text(strip=True)
-                    # Check for location-like text
-                    if len(text) < 100 and len(text) > 3:
-                        # Skip if it looks like a connection count or other non-location text
-                        if 'connection' in text.lower() or 'follower' in text.lower():
-                            continue
-                        # Accept if it has comma (City, State) OR contains location keywords
-                        if (',' in text or 
-                            'Metroplex' in text or 
-                            'Area' in text or 
-                            'Greater' in text or
-                            any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States'])):
-                            profile_data["location"] = text
-                            found_location = True
-                            break
-                if not found_location:
-                    logger.debug(f"  ⚠️  Missing location")
+                location = ""
+                
+                # Method 1: Look for location in profile header/intro section
+                intro_section = soup.find('div', {'class': lambda x: x and 'top-card-layout' in (x or '')})
+                if intro_section:
+                    small_texts = intro_section.find_all('span', {'class': lambda x: x and 'text-body-small' in (x or '')})
+                    for elem in small_texts:
+                        text = elem.get_text(strip=True)
+                        if text and len(text) > 3 and len(text) < 100:
+                            if (',' in text and 
+                                not any(conn in text.lower() for conn in ['connection', 'follower', '2nd', 'degree'])):
+                                location = text
+                                break
+                
+                # Method 2: Look for location using h2/h3 headers in the profile
+                if not location:
+                    # Find "Contact info" section which typically contains location
+                    all_elements = soup.find_all(['h2', 'h3', 'div'])
+                    for i, elem in enumerate(all_elements):
+                        text = elem.get_text(strip=True)
+                        if 'Contact info' in text or 'contact information' in text.lower():
+                            # Location usually follows Contact info
+                            # Look in nearby elements
+                            parent = elem.find_parent('section') or elem.find_parent('div', {'class': lambda x: x and 'pvs-list' in (x or '')})
+                            if parent:
+                                location_candidates = parent.find_all('span', string=lambda s: s and ',' in s and len(s) < 100)
+                                if location_candidates:
+                                    for candidate in location_candidates:
+                                        loc_text = candidate.get_text(strip=True)
+                                        if not any(skip in loc_text.lower() for skip in ['connection', 'follower', '2nd', 'degree']):
+                                            location = loc_text
+                                            break
+                            if location:
+                                break
+                
+                # Method 3: Search for location pattern across entire profile (fallback)
+                if not location:
+                    # Look for text with comma that looks like a location
+                    all_spans = soup.find_all('span')
+                    for span in all_spans:
+                        text = span.get_text(strip=True)
+                        # Location format: "City, State, Country" or "City, State"
+                        if (text and ',' in text and len(text) < 100 and len(text) > 5 and
+                            not any(skip in text.lower() for skip in ['connection', 'follower', '2nd', 'degree', 'contact', 'message'])):
+                            # Check if it looks like a location (has common state/country words)
+                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 
+                                                               'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 
+                                                               'Massachusetts', 'Pennsylvania', 'Georgia']):
+                                location = text
+                                break
+                
+                profile_data["location"] = location if location else "Not Found"
+                if not location:
+                    logger.debug(f"  ⚠️  Location not found in profile")
             except Exception as e:
                 logger.debug(f"  ⚠️  Error extracting location: {e}")
+                profile_data["location"] = "Not Found"
 
             # ===== EXTRACT JOB TITLE AND COMPANY =====
             try:
