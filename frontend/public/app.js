@@ -340,11 +340,14 @@ function createListItem(p) {
 
 // Render list to grid
 function renderProfiles(list) {
+  // Get paginated subset
+  const paginatedList = getPaginated(list);
+  
   if (listContainer) {
     listContainer.innerHTML = '';
-    list.forEach(p => listContainer.appendChild(createListItem(p)));
+    paginatedList.forEach(p => listContainer.appendChild(createListItem(p)));
   }
-  if (count) count.textContent = `(${list.length})`;
+  if (count) count.textContent = `(${list.length} total, showing ${paginatedList.length})`;
   // Render pagination controls
   renderPagination(list);
 }
