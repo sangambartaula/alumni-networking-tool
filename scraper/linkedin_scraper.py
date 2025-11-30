@@ -91,6 +91,10 @@ OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 OUTPUT_CSV = OUTPUT_DIR / OUTPUT_CSV_ENV
 COOKIES_FILE = OUTPUT_DIR / LINKEDIN_COOKIES_PATH
 
+# --- NEW: VISITED LOG FILE ---
+# This file will store URLs of everyone visited, even if they were discarded.
+VISITED_LOG_FILE = OUTPUT_DIR / "visited_history.txt"
+
 # Column names - same for both modes now
 CSV_COLUMNS = ['name', 'headline', 'location', 'job_title', 'company', 'education', 'major', 'graduation_year', 'profile_url', 'scraped_at']
 
@@ -99,6 +103,7 @@ logger.info(f"TESTING MODE: {TESTING}")
 logger.info(f"DELAY RANGE: {MIN_DELAY}s - {MAX_DELAY}s")
 logger.info(f"OUTPUT_CSV from .env: {OUTPUT_CSV_ENV}")
 logger.info(f"OUTPUT_CSV full path: {OUTPUT_CSV.absolute()}")
+logger.info(f"VISITED_LOG_FILE: {VISITED_LOG_FILE.absolute()}") # Log the new file path
 logger.info(f"OUTPUT_DIR: {OUTPUT_DIR.absolute()}")
 logger.info(f"OUTPUT_DIR exists: {OUTPUT_DIR.exists()}")
 
@@ -196,9 +201,36 @@ class LinkedInSearchScraper:
     def __init__(self):
         self.driver = None
         self.wait = None
-        self.existing_profiles = set()
+        self.existing_profiles = set()  # From CSV (Successful UNT matches)
+        self.visited_history = set()    # From TXT (Everyone we ever visited)
         self.scraper_mode = SCRAPER_MODE
         self.ensure_csv_headers()
+
+    # --- NEW METHOD: Load the visited log ---
+    def load_visited_history(self):
+        """Loads the list of URLs we have previously visited (kept OR discarded)."""
+        if VISITED_LOG_FILE.exists():
+            try:
+                with open(VISITED_LOG_FILE, 'r') as f:
+                    # Read lines and strip whitespace
+                    self.visited_history = set(line.strip() for line in f if line.strip())
+                logger.info(f"📜 Loaded {len(self.visited_history)} URLs from visited history log.")
+            except Exception as e:
+                logger.error(f"Error loading visited history: {e}")
+        else:
+            logger.info("📜 No visited history log found. Starting fresh.")
+
+    # --- NEW METHOD: Save a URL to the visited log ---
+    def mark_as_visited(self, url):
+        """Appends a URL to the visited history file so we don't scrape it again."""
+        if url and url not in self.visited_history:
+            try:
+                with open(VISITED_LOG_FILE, 'a') as f:
+                    f.write(f"{url}\n")
+                self.visited_history.add(url)
+                logger.debug(f"📝 Marked as visited: {url}")
+            except Exception as e:
+                logger.error(f"Error writing to visited log: {e}")
 
     def safe_get_text(self, selector, parent=None):
         try:
@@ -511,7 +543,7 @@ class LinkedInSearchScraper:
                             if first_job:
                                 spans = first_job.find_all('span', {'aria-hidden': 'true'})
                                 if len(spans) > 0:
-                                    job_title = spans[0].get_text(strip=True).replace('<!---->', '').strip()
+                                    job_title = spans[0].get_text(strip=True).replace('', '').strip()
                                     cleaned_title = clean_job_title(job_title)
 
                                     if cleaned_title:
@@ -519,7 +551,7 @@ class LinkedInSearchScraper:
                                     else:
                                         profile_data["job_title"] = ""   # Remove bad titles       
                                 if len(spans) > 1:
-                                    company = spans[1].get_text(strip=True).replace('<!---->', '').strip()
+                                    company = spans[1].get_text(strip=True).replace('', '').strip()
                                     if company:
                                         profile_data["company"] = company
                                         logger.debug(f"  ✓ Found company: {company}")
@@ -546,7 +578,7 @@ class LinkedInSearchScraper:
                             for edu_idx, edu_entry in enumerate(all_edu_entries):
                                 spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
                                 if len(spans) > 0:
-                                    school = spans[0].get_text(strip=True).replace('<!---->', '').strip()
+                                    school = spans[0].get_text(strip=True).replace('', '').strip()
                                     if school:
                                         all_education.append(school)
                                         logger.debug(f"  ✓ Found school [{edu_idx + 1}]: {school}")
@@ -554,12 +586,12 @@ class LinkedInSearchScraper:
                                             profile_data["education"] = school
                                             found_education = True
                                             if len(spans) > 1:
-                                                major = spans[1].get_text(strip=True).replace('<!---->', '').strip()
+                                                major = spans[1].get_text(strip=True).replace('', '').strip()
                                                 if major:
                                                     profile_data["major"] = major
                                                     logger.debug(f"  ✓ Found major: {major}")
                                             if len(spans) > 2:
-                                                dates_text = spans[2].get_text(strip=True).replace('<!---->', '').strip()
+                                                dates_text = spans[2].get_text(strip=True).replace('', '').strip()
                                                 logger.debug(f"  Found dates: {dates_text}")
                                                 year_match = re.search(r'(\d{4})\s*$', dates_text)
                                                 if year_match:
@@ -581,6 +613,7 @@ class LinkedInSearchScraper:
                         found_unt = any(any(k in (school or '').lower() for k in unt_keywords) for school in all_education)
                 if not found_unt:
                     logger.info("    ❌ No UNT education found after expanding. Skipping profile.")
+                    # Note: We return None here, but in the calling function we should mark as visited!
                     return None
             except Exception as e:
                 logger.debug(f"  ⚠️  Error extracting education: {e}")
@@ -640,7 +673,7 @@ class LinkedInSearchScraper:
                 for edu_entry in edu_entries:
                     spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
                     if len(spans) > 0:
-                        school = spans[0].get_text(strip=True).replace('<!---->', '').strip()
+                        school = spans[0].get_text(strip=True).replace('', '').strip()
                         if school and school not in all_education:
                             all_education.append(school)
                             logger.debug(f"    ✓ Found school: {school}")
@@ -802,6 +835,7 @@ class LinkedInSearchScraper:
         try:
             self.setup_driver()
             self.load_existing_profiles()
+            self.load_visited_history() # <--- NEW: Load the visited log
 
             if not self.login():
                 logger.error("Failed to login")
@@ -917,6 +951,8 @@ class LinkedInSearchScraper:
                     if self.save_profile(profile_data):
                         self.existing_profiles.add(profile_url)
                         profiles_scraped += 1
+                    
+                    self.mark_as_visited(profile_url)
 
                     if idx < len(profile_urls):
                         self.wait_between_profiles()
@@ -988,6 +1024,8 @@ class LinkedInSearchScraper:
                         self.existing_profiles.add(profile_url)
                         profiles_scraped += 1
                     
+                    self.mark_as_visited(profile_url)
+
                     # WAIT AFTER SCRAPING
                     if idx < len(profile_urls) - 1:
                         self.wait_between_profiles()
@@ -1057,9 +1095,9 @@ class LinkedInSearchScraper:
             logger.info(f"URL: {profile_url}")
             logger.info(f"{'='*60}")
             
-            # Skip if already scraped
-            if profile_url in self.existing_profiles:
-                logger.info(f"⊘ Already scraped, skipping...")
+            # --- NEW CHECK: Check both existing profiles (successes) AND visited history (failures) ---
+            if profile_url in self.existing_profiles or profile_url in self.visited_history:
+                logger.info(f"⊘ Already scraped (checked previously), skipping...")
                 profiles_skipped_already_scraped += 1
                 continue
             
@@ -1067,6 +1105,13 @@ class LinkedInSearchScraper:
                 # Scrape the profile
                 profile_data = self.scrape_profile_page(profile_url)
                 
+                # If scrape_profile_page returned None (no UNT found initially), we still want to log it!
+                if not profile_data:
+                    logger.info("❌ Profile returned no valid data (likely no UNT). Marking as visited.")
+                    self.mark_as_visited(profile_url)
+                    profiles_skipped_not_unt += 1
+                    continue
+
                 # Check if UNT is already in the visible education entries
                 all_education = profile_data.get('all_education', [])
                 education_text = ' '.join(all_education).lower()
@@ -1123,6 +1168,9 @@ class LinkedInSearchScraper:
                 else:
                     profiles_skipped_not_unt += 1
                     logger.info(f"❌ Not a UNT alum (Education: {profile_data.get('all_education', []) or profile_data.get('education', 'N/A')}), skipping...")
+                
+                # --- NEW: MARK VISITED REGARDLESS OF OUTCOME ---
+                self.mark_as_visited(profile_url)
                 
                 # Wait before next profile
                 if idx < total_connections:
