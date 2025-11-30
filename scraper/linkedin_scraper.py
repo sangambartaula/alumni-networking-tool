@@ -391,7 +391,7 @@ class LinkedInSearchScraper:
             return profile_urls
     
     def scrape_profile_page(self, profile_url):
-        """Open the full profile page and extract ALL data from there"""
+        """Open the full profile page and extract ALL data from there, but only if UNT is in education."""
         profile_data = {
             "name": "",
             "headline": "",
@@ -403,14 +403,13 @@ class LinkedInSearchScraper:
             "graduation_year": "",
             "profile_url": profile_url,
             "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "all_education": []  # Store all education entries for UNT check
+            "all_education": []
         }
 
         try:
             logger.info(f"  Opening profile: {profile_url}")
             self.driver.get(profile_url)
             time.sleep(4)
-
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
 
             # ===== EXTRACT NAME =====
@@ -438,28 +437,20 @@ class LinkedInSearchScraper:
             # ===== EXTRACT LOCATION =====
             try:
                 location = ""
-                
-                # Method 1: Look for location in profile header/intro section
                 intro_section = soup.find('div', {'class': lambda x: x and 'top-card-layout' in (x or '')})
                 if intro_section:
                     small_texts = intro_section.find_all('span', {'class': lambda x: x and 'text-body-small' in (x or '')})
                     for elem in small_texts:
                         text = elem.get_text(strip=True)
                         if text and len(text) > 3 and len(text) < 100:
-                            if (',' in text and 
-                                not any(conn in text.lower() for conn in ['connection', 'follower', '2nd', 'degree'])):
+                            if (',' in text and not any(conn in text.lower() for conn in ['connection', 'follower', '2nd', 'degree'])):
                                 location = text
                                 break
-                
-                # Method 2: Look for location using h2/h3 headers in the profile
                 if not location:
-                    # Find "Contact info" section which typically contains location
                     all_elements = soup.find_all(['h2', 'h3', 'div'])
                     for i, elem in enumerate(all_elements):
                         text = elem.get_text(strip=True)
                         if 'Contact info' in text or 'contact information' in text.lower():
-                            # Location usually follows Contact info
-                            # Look in nearby elements
                             parent = elem.find_parent('section') or elem.find_parent('div', {'class': lambda x: x and 'pvs-list' in (x or '')})
                             if parent:
                                 location_candidates = parent.find_all('span', string=lambda s: s and ',' in s and len(s) < 100)
@@ -471,23 +462,14 @@ class LinkedInSearchScraper:
                                             break
                             if location:
                                 break
-                
-                # Method 3: Search for location pattern across entire profile (fallback)
                 if not location:
-                    # Look for text with comma that looks like a location
                     all_spans = soup.find_all('span')
                     for span in all_spans:
                         text = span.get_text(strip=True)
-                        # Location format: "City, State, Country" or "City, State"
-                        if (text and ',' in text and len(text) < 100 and len(text) > 5 and
-                            not any(skip in text.lower() for skip in ['connection', 'follower', '2nd', 'degree', 'contact', 'message'])):
-                            # Check if it looks like a location (has common state/country words)
-                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 
-                                                               'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 
-                                                               'Massachusetts', 'Pennsylvania', 'Georgia']):
+                        if (text and ',' in text and len(text) < 100 and len(text) > 5 and not any(skip in text.lower() for skip in ['connection', 'follower', '2nd', 'degree', 'contact', 'message'])):
+                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 'Massachusetts', 'Pennsylvania', 'Georgia']):
                                 location = text
                                 break
-                
                 profile_data["location"] = location if location else "Not Found"
                 if not location:
                     logger.debug(f"  ⚠️  Location not found in profile")
@@ -497,21 +479,16 @@ class LinkedInSearchScraper:
 
             # ===== EXTRACT JOB TITLE AND COMPANY =====
             try:
-                # Find Experience section by looking for h2 with "Experience" text
                 h2_tags = soup.find_all('h2', {'class': lambda x: x and 'pvs-header__title' in (x or '') and 'text-heading-large' in (x or '')})
-                
                 found_experience = False
                 for h2 in h2_tags:
                     h2_text = h2.get_text(strip=True)
                     if 'Experience' in h2_text:
                         logger.debug("Found Experience section")
-                        # Get the parent section
                         section = h2.find_parent('section')
                         if section:
-                            # Find first profile-component-entity
                             first_job = section.find('div', {'data-view-name': 'profile-component-entity'})
                             if first_job:
-                                # Get all aria-hidden spans
                                 spans = first_job.find_all('span', {'aria-hidden': 'true'})
                                 if len(spans) > 0:
                                     job_title = spans[0].get_text(strip=True).replace('<!---->', '').strip()
@@ -519,14 +496,12 @@ class LinkedInSearchScraper:
                                         profile_data["job_title"] = job_title
                                         logger.debug(f"  ✓ Found job title: {job_title}")
                                         found_experience = True
-                                
                                 if len(spans) > 1:
                                     company = spans[1].get_text(strip=True).replace('<!---->', '').strip()
                                     if company:
                                         profile_data["company"] = company
                                         logger.debug(f"  ✓ Found company: {company}")
                         break
-                
                 if not found_experience:
                     logger.debug(f"  ⚠️  Missing job_title/company")
             except Exception as e:
@@ -537,39 +512,30 @@ class LinkedInSearchScraper:
             # ===== EXTRACT EDUCATION (ALL VISIBLE ENTRIES) =====
             try:
                 h2_tags = soup.find_all('h2', {'class': lambda x: x and 'pvs-header__title' in (x or '') and 'text-heading-large' in (x or '')})
-                
                 found_education = False
                 all_education = []
-                
                 for h2 in h2_tags:
                     h2_text = h2.get_text(strip=True)
                     if 'Education' in h2_text:
                         logger.debug("Found Education section")
                         section = h2.find_parent('section')
                         if section:
-                            # Find ALL education entries, not just the first
                             all_edu_entries = section.find_all('div', {'data-view-name': 'profile-component-entity'})
-                            
                             for edu_idx, edu_entry in enumerate(all_edu_entries):
                                 spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
-                                
                                 if len(spans) > 0:
                                     school = spans[0].get_text(strip=True).replace('<!---->', '').strip()
                                     if school:
                                         all_education.append(school)
                                         logger.debug(f"  ✓ Found school [{edu_idx + 1}]: {school}")
-                                        
-                                        # Use first education as the "primary" one for display
                                         if not found_education:
                                             profile_data["education"] = school
                                             found_education = True
-                                            
                                             if len(spans) > 1:
                                                 major = spans[1].get_text(strip=True).replace('<!---->', '').strip()
                                                 if major:
                                                     profile_data["major"] = major
                                                     logger.debug(f"  ✓ Found major: {major}")
-                                            
                                             if len(spans) > 2:
                                                 dates_text = spans[2].get_text(strip=True).replace('<!---->', '').strip()
                                                 logger.debug(f"  Found dates: {dates_text}")
@@ -577,14 +543,23 @@ class LinkedInSearchScraper:
                                                 if year_match:
                                                     profile_data["graduation_year"] = year_match.group(1)
                                                     logger.debug(f"  ✓ Found graduation year: {year_match.group(1)}")
-                            
-                            # Store all education for UNT checking
                             profile_data["all_education"] = all_education
                             logger.debug(f"  ✓ All education entries: {all_education}")
                         break
-                
-                if not found_education:
-                    logger.debug(f"  ⚠️  Missing education/major/graduation_year")
+                # --- UNT CHECK (initial education) ---
+                unt_keywords = ["unt", "university of north texas", "north texas"]
+                found_unt = any(any(k in (school or '').lower() for k in unt_keywords) for school in all_education)
+                if not found_unt:
+                    # Try to expand education section if possible
+                    logger.info("    No UNT found in initial education. Checking for 'View More'...")
+                    all_education_expanded = self.scrape_all_education(profile_url)
+                    if all_education_expanded:
+                        all_education = all_education_expanded
+                        profile_data["all_education"] = all_education
+                        found_unt = any(any(k in (school or '').lower() for k in unt_keywords) for school in all_education)
+                if not found_unt:
+                    logger.info("    ❌ No UNT education found after expanding. Skipping profile.")
+                    return None
             except Exception as e:
                 logger.debug(f"  ⚠️  Error extracting education: {e}")
                 import traceback
