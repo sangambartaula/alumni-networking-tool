@@ -20,11 +20,9 @@
       </div>
       <div class="app-actions">
         <a class="btn action-btn" href="/analytics" title="View analytics dashboard">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           Analytics
         </a>
         <a class="btn action-btn" href="/heatmap" title="View alumni location heatmap">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
           Heatmap
         </a>
         <a class="btn secondary" href="/logout">Sign out</a>
@@ -118,21 +116,11 @@
         <!-- Space for alumni profiles dynamically added via backend -->
       </div>
       <div id="list" class="list" aria-live="polite"></div>
+      
+      <!-- Pagination controls -->
+      <div id="pagination" class="pagination"></div>
     </section>
   </main>
-
-  <!-- Simplified footer for administrative interface -->
-  <footer>
-    <div class="stamp">
-      <img src="/assets/unt-logo.png" alt="" class="footer-logo" />
-      UNT Alumni Network
-    </div>
-    <nav aria-label="Footer links">
-      <a href="#">Dean's Office</a>
-      <a href="#">Support</a>
-      <a href="#">Documentation</a>
-    </nav>
-  </footer>
 
   <script src="/app.js"></script>
 </body>
