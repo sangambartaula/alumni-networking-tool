@@ -375,7 +375,7 @@ def get_user_interactions():
 def api_get_alumni():
     """
     Return a list of alumni from the database.
-    Query params: limit (default 100), offset (default 0)
+    Query params: limit (default: all records), offset (default 0)
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
@@ -383,9 +383,9 @@ def api_get_alumni():
 
     try:
         try:
-            limit = int(request.args.get('limit', 100))
+            limit = int(request.args.get('limit', 10000))  # Default to large number to get all records
         except Exception:
-            limit = 100
+            limit = 10000
         try:
             offset = int(request.args.get('offset', 0))
         except Exception:
