@@ -19,6 +19,40 @@ import pandas as pd
 import re
 import urllib
 
+# -------------------------------
+# CLEAN JOB TITLE FUNCTION
+# -------------------------------
+def clean_job_title(raw_title: str) -> str:
+    """
+    Cleans job titles by removing employment-type labels like:
+    Full-time, Part-time, Internship, Volunteer, Contract, etc.
+    """
+    if not raw_title:
+        return ""
+
+    raw = raw_title.strip()
+
+    # These should never be treated as job titles
+    banned_exact = {
+        "Full-time", "Part-time", "Internship", "Contract", "Temporary",
+        "Volunteer", "Apprenticeship", "Self-employed", "Freelance"
+    }
+
+    # If the job title is ONLY one of these — wipe it
+    if raw in banned_exact:
+        return ""
+
+    # Remove suffixes like: “Software Engineer · Full-time”
+    for bad in banned_exact:
+        raw = raw.replace(f"· {bad}", "")
+        raw = raw.replace(bad, "")
+
+    # Extra cleanup — remove double spaces
+    raw = " ".join(raw.split())
+
+    return raw.strip()
+
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -347,48 +381,34 @@ class LinkedInSearchScraper:
         time.sleep(2)
     
     def extract_profile_urls_from_page(self):
-        """Extract all profile URLs from current page"""
-        logger.info("Extracting profile URLs...")
-        
+        """Extract all profile URLs from the LinkedIn search results page."""
+        logger.info("Extracting profile URLs…")
+
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
-        
-        if self.scraper_mode == "names":
-            # Names mode: use simple selectors
-            selectors = [
-                "a.app-aware-link[href*='/in/']",
-                "a[href*='/in/']:not([tabindex='-1'])",
-                "div.entity-result__content a.app-aware-link[href*='/in/']"
-            ]
-            profile_urls = set()
-            for selector in selectors:
-                for a in soup.select(selector):
-                    href = a.get("href", "").split("?")[0]
-                    if href and "/in/" in href:
-                        if not href.startswith("http"):
-                            href = f"https://www.linkedin.com{href}"
-                        profile_urls.add(href)
-            logger.info(f"Extracted {len(profile_urls)} unique profile URLs")
-            return list(profile_urls)
-        else:
-            # Search mode: Extract all profile URLs from page
-            profile_urls = []
-            
-            # Find all profile links with miniProfileUrn (these are the main profile links)
-            all_profile_links = soup.find_all('a', href=re.compile(r'/in/[a-z0-9-]+.*miniProfileUrn'))
-            logger.info(f"Found {len(all_profile_links)} profile links with miniProfileUrn")
-            
-            for link in all_profile_links:
-                href = link.get('href', '').split('?')[0]
-                
-                if href and '/in/' in href:
-                    if not href.startswith('http'):
-                        href = f"https://www.linkedin.com{href}"
-                    
-                    if href not in profile_urls:
-                        profile_urls.append(href)
-            
-            logger.info(f"Extracted {len(profile_urls)} unique profile URLs from page")
-            return profile_urls
+
+        profile_urls = set()
+
+        # New 2025 LinkedIn selectors
+        selectors = [
+            "a.app-aware-link[href*='/in/']",                       # Primary card links
+            "a[href*='/in/'][data-view-name='entity_result']",     # New card wrapper
+            "a[href*='/in/'][aria-label]",                         # Accessibility labeled profile links
+            "a[href*='/in/']:not([tabindex='-1'])"                 # Visible profile links
+        ]
+
+        for selector in selectors:
+            for a in soup.select(selector):
+                url = a.get("href", "")
+                if "/in/" in url:
+                    url = url.split("?")[0]
+                    if not url.startswith("http"):
+                        url = "https://www.linkedin.com" + url
+                    profile_urls.add(url)
+
+        logger.info(f"Extracted {len(profile_urls)} profile URLs using updated selectors")
+
+        return list(profile_urls)
+
     
     def scrape_profile_page(self, profile_url):
         """Open the full profile page and extract ALL data from there, but only if UNT is in education."""
@@ -492,10 +512,12 @@ class LinkedInSearchScraper:
                                 spans = first_job.find_all('span', {'aria-hidden': 'true'})
                                 if len(spans) > 0:
                                     job_title = spans[0].get_text(strip=True).replace('<!---->', '').strip()
-                                    if job_title:
-                                        profile_data["job_title"] = job_title
-                                        logger.debug(f"  ✓ Found job title: {job_title}")
-                                        found_experience = True
+                                    cleaned_title = clean_job_title(job_title)
+
+                                    if cleaned_title:
+                                         profile_data["job_title"] = cleaned_title
+                                    else:
+                                        profile_data["job_title"] = ""   # Remove bad titles       
                                 if len(spans) > 1:
                                     company = spans[1].get_text(strip=True).replace('<!---->', '').strip()
                                     if company:
@@ -679,6 +701,11 @@ class LinkedInSearchScraper:
             
             # Remove all_education from profile_data before saving (it's not in CSV_COLUMNS)
             save_data = {k: v for k, v in profile_data.items() if k in CSV_COLUMNS}
+
+            # FINAL CLEANING BEFORE SAVE
+            if 'job_title' in save_data:
+                 save_data['job_title'] = clean_job_title(save_data['job_title'])
+
             
             # Fill missing keys
             for col in CSV_COLUMNS:
@@ -1085,7 +1112,7 @@ class LinkedInSearchScraper:
                 if not profile_data.get('company') and csv_company:
                     profile_data['company'] = csv_company
                 if not profile_data.get('job_title') and csv_position:
-                    profile_data['job_title'] = csv_position
+                    profile_data['job_title'] = clean_job_title(csv_position)
                 
                 if is_unt_alum:
                     # Save the profile
