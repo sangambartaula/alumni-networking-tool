@@ -337,7 +337,7 @@ def get_user_interactions():
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
-        return jsonify({"success": True, "interactions": []}), 200
+        return jsonify({"success": True, "interactions": []}), 
 
     try:
         user_id = get_current_user_id()
@@ -611,71 +611,91 @@ def get_continent(lat, lon):
 
 
 @app.route('/api/heatmap', methods=['GET'])
+@app.route('/api/heatmap', methods=['GET'])
 def get_heatmap_data():
     """
-    Get alumni location data (latitude, longitude, count) for heatmap visualization.
-    Returns aggregated data grouped by location to reduce payload size.
+    Return aggregated alumni location data for the heatmap.
+
+    - Groups alumni by rounded lat/lon (city-level clusters)
+    - Includes a limited sample of alumni per cluster for popups
+    - Designed to scale for 20k+ alumni rows
     """
     continent_filter = request.args.get("continent")
 
-    # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
-        return jsonify({"success": True, "locations": []}), 200
+        # Dev mode: no DB
+        return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
     try:
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                # Get all alumni with valid coordinates
+                # Pull all geocoded alumni
                 cur.execute("""
-                    SELECT id, first_name, last_name, location, latitude, longitude, 
-                           current_job_title, headline, company, linkedin_url
+                    SELECT id,
+                           first_name,
+                           last_name,
+                           location,
+                           latitude,
+                           longitude,
+                           current_job_title,
+                           headline,
+                           company,
+                           linkedin_url,
+                           created_at
                     FROM alumni
-                    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                    WHERE latitude IS NOT NULL
+                      AND longitude IS NOT NULL
                     ORDER BY location ASC
                 """)
                 rows = cur.fetchall()
 
-            # Aggregate locations (group by lat/lon rounded to 2 decimals for clustering)
+            # ----- city-level clustering -----
             location_clusters = {}
-            location_details = {}  # Store first alumni at each unique location
-            
+            location_details = {}
+            total_alumni = len(rows)
+
             for row in rows:
-                lat = row['latitude']
-                lon = row['longitude']
+                lat = row["latitude"]
+                lon = row["longitude"]
 
                 continent = get_continent(lat, lon)
                 if continent_filter and continent != continent_filter:
                     continue
-                # Use rounded coordinates as cluster key (reduces fragmentation)
+
+                # round to 2 decimals → ~1–2 km cell
                 cluster_key = (round(lat, 2), round(lon, 2))
-                
+
                 if cluster_key not in location_clusters:
                     location_clusters[cluster_key] = 0
                     location_details[cluster_key] = {
-                        "location": row['location'],
+                        "location": row["location"],
                         "latitude": lat,
                         "longitude": lon,
                         "continent": continent,
                         "sample_alumni": []
                     }
-                
+
                 location_clusters[cluster_key] += 1
-                
-                # Store first 3 alumni examples at each location
-                if len(location_details[cluster_key]["sample_alumni"]) < 50:
+
+                # keep at most 10 sample alumni per cluster (important for 20k+)
+                if len(location_details[cluster_key]["sample_alumni"]) < 10:
                     location_details[cluster_key]["sample_alumni"].append({
-                        "id": row['id'],
+                        "id": row["id"],
                         "name": f"{row['first_name']} {row['last_name']}".strip(),
-                        "role": row['current_job_title'] or row['headline'] or 'Alumni',
-                        "company": row['company'],
-                        "linkedin": row['linkedin_url']
+                        "role": row["current_job_title"] or row["headline"] or "Alumni",
+                        "company": row["company"],
+                        "linkedin": row["linkedin_url"],
+                        "created_at": row.get("created_at").isoformat() if row.get("created_at") else None
                     })
-            
-            # Build final response
+
             locations = []
+            max_count = 0
+
             for cluster_key, count in location_clusters.items():
                 details = location_details[cluster_key]
+                max_count = max(max_count, count)
+
                 locations.append({
                     "latitude": details["latitude"],
                     "longitude": details["longitude"],
@@ -684,13 +704,14 @@ def get_heatmap_data():
                     "count": count,
                     "sample_alumni": details["sample_alumni"]
                 })
-            
+
             return jsonify({
                 "success": True,
                 "locations": locations,
-                "total_alumni": len(rows)
+                "total_alumni": total_alumni,
+                "max_count": max_count
             }), 200
-            
+
         finally:
             try:
                 conn.close()
@@ -703,6 +724,7 @@ def get_heatmap_data():
     except Exception as e:
         app.logger.error(f"Error fetching heatmap data: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 @app.route("/api/geocode")
 def api_geocode():
