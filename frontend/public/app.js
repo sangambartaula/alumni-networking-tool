@@ -463,7 +463,13 @@ function populateFilters(list) {
   const locations = Array.from(new Set(list.map(x => x.location).filter(Boolean))).sort();
   const roles = Array.from(new Set(list.map(x => x.role).filter(Boolean))).sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a,b)=>b-a);
-  const degrees = Array.from(new Set(list.map(x => x.degree).filter(Boolean))).sort();
+  // Fixed order for degree levels
+  const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level => 
+    list.some(x => x.degree === level)
+  );
+  
+  console.log('Degree values found:', degrees);
+  console.log('Sample alumni degrees:', list.slice(0, 5).map(x => ({name: x.name, degree: x.degree})));
 
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
@@ -615,7 +621,8 @@ function setupFiltering(list) {
         class: a.class || '',
         location: a.location || '',
         headline: a.headline || '',
-        linkedin: a.linkedin || ''
+        linkedin: a.linkedin || '',
+        degree: a.degree || ''
       }));
       console.log('Loaded alumni from API, count=', alumniData.length);
     } else {

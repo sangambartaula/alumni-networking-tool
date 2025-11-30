@@ -404,6 +404,21 @@ def api_get_alumni():
 
             alumni = []
             for r in rows:
+                # Extract degree level from full degree string
+                full_degree = r.get('degree', '') or ''
+                degree_level = 'Other'
+                
+                # Normalize to lowercase for matching
+                degree_lower = full_degree.lower()
+                
+                if degree_lower:
+                    if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
+                        degree_level = 'Undergraduate'
+                    elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
+                        degree_level = 'Graduate'
+                    elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
+                        degree_level = 'PhD'
+                
                 alumni.append({
                     "id": r.get('id'),
                     "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
@@ -420,7 +435,9 @@ def api_get_alumni():
                     "headline": r.get('headline'),
                     "class": r.get('grad_year'),
                     "location": r.get('location'),
-                    "linkedin": r.get('linkedin_url')
+                    "linkedin": r.get('linkedin_url'),
+                    "degree": degree_level,
+                    "full_degree": full_degree
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200
