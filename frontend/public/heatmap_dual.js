@@ -9,6 +9,7 @@ let locationClusters = [];
 let currentMode = '2d'; // Start with 2D
 let markers2D = [];
 let entities3D = [];
+let heatLayer2D = null; // New 2D heatmap layer
 
 // Fix viewport layout for full-screen map
 function setupMapViewport() {
@@ -410,37 +411,52 @@ function addLayerControls() {
 }
 
 // Load heatmap data
+// Load heatmap data
 async function loadHeatmapData(url = '/api/heatmap') {
   try {
     const response = await fetch(url);
     const data = await response.json();
-    
+
     if (!data.success) {
       showError('Failed to load heatmap data');
       return;
     }
-    
-    locationClusters = data.locations;
-    
+
+    locationClusters = data.locations || [];
+
     if (!locationClusters || locationClusters.length === 0) {
       showError('No alumni with coordinates found.');
       return;
     }
-    
+
+    // Clear old markers/heat if this is a reload
+    markers2D.forEach(m => map2D.removeLayer(m));
+    markers2D = [];
+    if (heatLayer2D) {
+      map2D.removeLayer(heatLayer2D);
+      heatLayer2D = null;
+    }
+    entities3D.forEach(e => map3D.entities.remove(e));
+    entities3D = [];
+
     // Add markers to both maps
     locationClusters.forEach(location => {
       add2DMarker(location);
       add3DMarker(location);
     });
-    
+
+    // NEW: build 2D heatmap layer (weather-style)
+    render2DHeatmap(locationClusters, data.max_count);
+
     // Update statistics
     updateStatistics(data.total_alumni, locationClusters.length);
-    
+
   } catch (error) {
     console.error('Error loading heatmap data:', error);
     showError('Error loading heatmap data: ' + error.message);
   }
 }
+
 
 // Add marker to 2D Leaflet map
 function add2DMarker(location) {
@@ -490,6 +506,45 @@ function add3DMarker(location) {
   
   entities3D.push(entity);
 }
+
+// Build Leaflet heat layer from clustered data
+function render2DHeatmap(locations, backendMaxCount) {
+  if (!map2D || !locations || locations.length === 0) return;
+
+  // Use max from backend if provided, else compute here
+  let maxCount = backendMaxCount || 0;
+  if (!maxCount) {
+    maxCount = Math.max(...locations.map(l => l.count || 1));
+  }
+  if (!maxCount || maxCount <= 0) maxCount = 1;
+
+  // Convert to [lat, lon, intensity] for Leaflet.heat
+  const heatPoints = locations.map(l => {
+    const intensity = (l.count || 1) / maxCount; // 0–1
+    return [l.latitude, l.longitude, intensity];
+  });
+
+  // Remove previous layer if any
+  if (heatLayer2D) {
+    map2D.removeLayer(heatLayer2D);
+  }
+
+  // Create new heat layer
+  heatLayer2D = L.heatLayer(heatPoints, {
+    radius: 45,    // bigger bubble → more "weather radar" look
+    blur: 30,
+    maxZoom: 8,
+    // Gradient: blue → green → yellow → orange → red
+    gradient: {
+      0.2: '#00bfff',
+      0.4: '#00ff7f',
+      0.6: '#ffff00',
+      0.8: '#ff8c00',
+      1.0: '#ff0000'
+    }
+  }).addTo(map2D);
+}
+
 
 // Create popup content for 2D map
 function create2DPopupContent(location) {
