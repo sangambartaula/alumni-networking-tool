@@ -1196,3 +1196,102 @@ footer {
     font-size: 1.1rem;
   }
 }
+
+/* Compact Header Layout */
+.heatmap-header-compact {
+    background: #05a678;
+    color: white;
+    padding: 18px 35px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 0 0 12px 12px;
+}
+
+.header-left h2 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 700;
+}
+
+.header-left p {
+    margin: 4px 0 10px;
+    opacity: 0.9;
+}
+
+/* Stats section styling */
+.heatmap-stats {
+    margin-top: 8px;
+}
+
+/* Search bar inside header */
+.header-search {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    position: relative;
+}
+
+.header-search input {
+    padding: 10px 12px;
+    width: 260px;
+    border: none;
+    border-radius: 6px;
+}
+
+.header-search button {
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    background: #1e88e5;
+    color: white;
+}
+
+/* Suggestions dropdown */
+.suggestions-box {
+    position: absolute;
+    top: 75px;
+    right: 0;
+    width: 260px;
+    background: white;
+    color: black;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    z-index: 2000;
+}
+
+/* Continent row under header */
+.continent-row {
+    display: flex;
+    gap: 10px;
+    padding: 12px 35px;
+    background: white;
+    border-bottom: 1px solid #e6e6e6;
+}
+
+.continent-btn {
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: none;
+    background: #f3f3f3;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.map-wrapper {
+  position: relative;
+  width: 100%;
+  height: 75vh;     /* THIS IS THE IMPORTANT PART */
+  margin-top: 10px;
+  background: #eaeaea;
+}
+
+.map-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
