@@ -33,7 +33,7 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
     Returns:
         Tuple of (latitude, longitude) if successful, None otherwise
     """
-    if not location_string or location_string.strip() == '':
+    if not location_string or location_string.strip() == '' or location_string.strip().lower() == 'not found':
         return None
     
     try:
