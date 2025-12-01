@@ -568,6 +568,8 @@ class LinkedInSearchScraper:
                 h2_tags = soup.find_all('h2', {'class': lambda x: x and 'pvs-header__title' in (x or '') and 'text-heading-large' in (x or '')})
                 found_education = False
                 all_education = []
+                unt_keywords = ["unt", "university of north texas", "north texas"]
+                
                 for h2 in h2_tags:
                     h2_text = h2.get_text(strip=True)
                     if 'Education' in h2_text:
@@ -582,26 +584,34 @@ class LinkedInSearchScraper:
                                     if school:
                                         all_education.append(school)
                                         logger.debug(f"  ✓ Found school [{edu_idx + 1}]: {school}")
-                                        if not found_education:
+                                        
+                                        # Check if this is UNT
+                                        is_unt = any(k in school.lower() for k in unt_keywords)
+                                        
+                                        # Extract details (major, graduation year) ONLY from UNT education
+                                        if is_unt:
                                             profile_data["education"] = school
-                                            found_education = True
                                             if len(spans) > 1:
                                                 major = spans[1].get_text(strip=True).replace('', '').strip()
                                                 if major:
                                                     profile_data["major"] = major
-                                                    logger.debug(f"  ✓ Found major: {major}")
+                                                    logger.debug(f"  ✓ Found UNT major: {major}")
                                             if len(spans) > 2:
                                                 dates_text = spans[2].get_text(strip=True).replace('', '').strip()
-                                                logger.debug(f"  Found dates: {dates_text}")
-                                                year_match = re.search(r'(\d{4})\s*$', dates_text)
+                                                logger.debug(f"  Found UNT dates: {dates_text}")
+                                                # Extract the LAST year from date range (e.g., 2022 - 2026 → 2026, or 2026 → 2026)
+                                                year_match = re.search(r'(\d{4})\s*(?:[-–]\s*(\d{4}))?', dates_text)
                                                 if year_match:
-                                                    profile_data["graduation_year"] = year_match.group(1)
-                                                    logger.debug(f"  ✓ Found graduation year: {year_match.group(1)}")
+                                                    # If there's a range, use the second year; otherwise use the first
+                                                    final_year = year_match.group(2) if year_match.group(2) else year_match.group(1)
+                                                    # Extract graduation_year from UNT ONLY
+                                                    profile_data["graduation_year"] = final_year
+                                                    logger.debug(f"  ✓ Found UNT graduation year: {final_year}")
                             profile_data["all_education"] = all_education
                             logger.debug(f"  ✓ All education entries: {all_education}")
                         break
+                
                 # --- UNT CHECK (initial education) ---
-                unt_keywords = ["unt", "university of north texas", "north texas"]
                 found_unt = any(any(k in (school or '').lower() for k in unt_keywords) for school in all_education)
                 if not found_unt:
                     # Try to expand education section if possible
@@ -973,8 +983,9 @@ class LinkedInSearchScraper:
         logger.info(f"\n{'='*60}\nDone! Total profiles scraped: {profiles_scraped}\nSaved to: {OUTPUT_CSV}\n{'='*60}\n")
 
     def run_search_mode(self):
-        """Search mode: use paginated LinkedIn search with filters"""
-        base_search_url = "https://www.linkedin.com/search/results/people/?industry=%5B%22109%22%2C%22118%22%2C%223%22%2C%223248%22%2C%2251%22%2C%223242%22%2C%223107%22%2C%221594%22%2C%226%22%2C%2296%22%2C%224%22%5D&origin=FACETED_SEARCH&schoolFilter=%5B%226464%22%5D&sid=X)p"
+        """Search mode: use paginated LinkedIn search with filters (Industries + School + Network)"""
+        # URL with filters: Industries, School (UNT), and 3rd+ connections
+        base_search_url = "https://www.linkedin.com/search/results/people/?origin=FACETED_SEARCH&network=%5B%22O%22%5D&industry=%5B%221594%22%2C%226%22%2C%2296%22%2C%224%22%2C%22109%22%2C%22118%22%2C%223%22%2C%223107%22%2C%223242%22%2C%223248%22%2C%2251%22%5D&schoolFilter=%5B%226464%22%5D"
         
         page = 1
         profiles_scraped = 0
