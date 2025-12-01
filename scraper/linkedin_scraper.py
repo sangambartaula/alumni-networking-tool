@@ -808,14 +808,27 @@ class LinkedInSearchScraper:
                                                 if major:
                                                     profile_data["major"] = major
                                                     logger.debug(f"  ✓ Found UNT major: {major}")
-                                            if len(spans) > 2:
-                                                dates_text = spans[2].get_text(strip=True).replace('', '').strip()
-                                                logger.debug(f"  Found UNT dates: {dates_text}")
-                                                # Extract the LAST year from date range (e.g., 2022 - 2026 → 2026, or 2026 → 2026)
-                                                year_match = re.search(r'(\d{4})\s*(?:[-–]\s*(\d{4}))?', dates_text)
-                                                if year_match:
-                                                    # If there's a range, use the second year; otherwise use the first
-                                                    final_year = year_match.group(2) if year_match.group(2) else year_match.group(1)
+                                            
+                                            # Look for dates in spans[2] or beyond
+                                            dates_text = ""
+                                            for span_idx in range(2, len(spans)):
+                                                span_text = spans[span_idx].get_text(strip=True).replace('', '').strip()
+                                                # Check if this span contains year information
+                                                if re.search(r'\d{4}', span_text):
+                                                    dates_text = span_text
+                                                    logger.debug(f"  Found UNT dates in span[{span_idx}]: {dates_text}")
+                                                    break
+                                            
+                                            if dates_text:
+                                                logger.debug(f"  Found UNT dates (raw): {dates_text}")
+                                                # Extract the LAST year from date range (e.g., "Jan 2023 - Dec 2026" → 2026, "2022 - 2026" → 2026, or "2026" → 2026)
+                                                # Find all 4-digit years in the text
+                                                year_matches = re.findall(r'\d{4}', dates_text)
+                                                logger.debug(f"  Found years in dates: {year_matches}")
+                                                if year_matches:
+                                                    # Use the LAST year found (end year for date ranges)
+                                                    final_year = year_matches[-1]
+                                                    logger.debug(f"  Selected final year: {final_year}")
                                                     # Extract graduation_year from UNT ONLY
                                                     profile_data["graduation_year"] = final_year
                                                     logger.debug(f"  ✓ Found UNT graduation year: {final_year}")
