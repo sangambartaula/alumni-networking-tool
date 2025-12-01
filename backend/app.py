@@ -179,20 +179,18 @@ def linkedin_callback():
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO users (linkedin_id, email, first_name, last_name, headline)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO users (linkedin_id, email, first_name, last_name)
+                VALUES (%s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     email = VALUES(email),
                     first_name = VALUES(first_name),
                     last_name = VALUES(last_name),
-                    headline = VALUES(headline),
                     updated_at = CURRENT_TIMESTAMP
             """, (
                 linkedin_profile.get('sub'),
                 linkedin_profile.get('email'),
                 linkedin_profile.get('given_name'),
                 linkedin_profile.get('family_name'),
-                linkedin_profile.get('headline', '')
             ))
             conn.commit()
     except Exception as e:
