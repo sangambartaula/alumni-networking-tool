@@ -701,6 +701,29 @@ class LinkedInSearchScraper:
             # ===== EXTRACT LOCATION =====
             try:
                 location = ""
+                
+                # Define invalid location patterns (work types that got picked up by mistake)
+                invalid_location_patterns = ['on-site', 'remote', 'hybrid', 'on site']
+                
+                def is_valid_location(text):
+                    """Check if text is a real location, not a job work type"""
+                    if not text:
+                        return False
+                    text_lower = text.lower()
+                    # Reject if it contains work type indicators
+                    if any(pattern in text_lower for pattern in invalid_location_patterns):
+                        return False
+                    return True
+                
+                def clean_location(text):
+                    """Remove work type suffixes from location string"""
+                    if not text:
+                        return ""
+                    # Remove " · On-site", " · Remote", " · Hybrid" etc.
+                    cleaned = re.sub(r'\s*·\s*(On-site|Remote|Hybrid|On site).*$', '', text, flags=re.IGNORECASE)
+                    return cleaned. strip()
+                
+                # Method 1: Try intro section first (top card layout)
                 intro_section = soup.find('div', {'class': lambda x: x and 'top-card-layout' in (x or '')})
                 if intro_section:
                     small_texts = intro_section.find_all('span', {'class': lambda x: x and 'text-body-small' in (x or '')})
@@ -708,8 +731,13 @@ class LinkedInSearchScraper:
                         text = elem.get_text(strip=True)
                         if text and len(text) > 3 and len(text) < 100:
                             if (',' in text and not any(conn in text.lower() for conn in ['connection', 'follower', '2nd', 'degree'])):
-                                location = text
-                                break
+                                if is_valid_location(text):
+                                    location = clean_location(text)
+                                    break
+                                else:
+                                    logger. debug(f"  ⚠️  Rejected invalid location (work type detected): {text}")
+                
+                # Method 2: Try Contact info section
                 if not location:
                     all_elements = soup.find_all(['h2', 'h3', 'div'])
                     for i, elem in enumerate(all_elements):
@@ -720,23 +748,33 @@ class LinkedInSearchScraper:
                                 location_candidates = parent.find_all('span', string=lambda s: s and ',' in s and len(s) < 100)
                                 if location_candidates:
                                     for candidate in location_candidates:
-                                        loc_text = candidate.get_text(strip=True)
+                                        loc_text = candidate. get_text(strip=True)
                                         if not any(skip in loc_text.lower() for skip in ['connection', 'follower', '2nd', 'degree']):
-                                            location = loc_text
-                                            break
+                                            if is_valid_location(loc_text):
+                                                location = clean_location(loc_text)
+                                                break
+                                            else:
+                                                logger. debug(f"  ⚠️  Rejected invalid location (work type detected): {loc_text}")
                             if location:
                                 break
+                
+                # Method 3: Search all spans for location with state/country keywords
                 if not location:
                     all_spans = soup.find_all('span')
                     for span in all_spans:
                         text = span.get_text(strip=True)
                         if (text and ',' in text and len(text) < 100 and len(text) > 5 and not any(skip in text.lower() for skip in ['connection', 'follower', '2nd', 'degree', 'contact', 'message'])):
-                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 'Massachusetts']):
-                                location = text
-                                break
+                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 'Massachusetts', 'Georgia', 'Arizona', 'Colorado', 'Ohio', 'Michigan', 'North Carolina', 'Pennsylvania', 'New Jersey', 'Oregon', 'Tennessee', 'Minnesota', 'Maryland', 'Wisconsin', 'Missouri', 'Indiana', 'Connecticut', 'Kentucky', 'Oklahoma', 'Nevada', 'Utah', 'Kansas', 'Arkansas', 'Louisiana', 'Iowa', 'Mississippi', 'Alabama', 'Nebraska', 'New Mexico', 'Idaho', 'Hawaii', 'Maine', 'Montana', 'Delaware', 'South Dakota', 'North Dakota', 'Alaska', 'Vermont', 'Wyoming', 'West Virginia', 'New Hampshire', 'Rhode Island', 'District of Columbia', 'Puerto Rico']):
+                                if is_valid_location(text):
+                                    location = clean_location(text)
+                                    break
+                                else:
+                                    logger.debug(f"  ⚠️  Rejected invalid location (work type detected): {text}")
+                
+                # Set final location value
                 profile_data["location"] = location if location else "Not Found"
                 if not location:
-                    logger.debug(f"  ⚠️  Location not found in profile")
+                    logger. warning(f"  ⚠️  Location not found in profile (may have been rejected due to work type pattern)")
             except Exception as e:
                 logger.debug(f"  ⚠️  Error extracting location: {e}")
                 profile_data["location"] = "Not Found"
