@@ -310,7 +310,7 @@ function extractIndustry(alumni) {
   const text = `${headline} ${jobTitle}`;
   
   // Simple keyword matching for industries
-  if (text.includes('software') || text.includes('developer') || text.includes('engineer')) return 'Software Engineering';
+  if (text.includes('software') || text.includes('developer') || text.includes('engineer')) return 'Engineering';
   if (text.includes('data') || text.includes('analyst')) return 'Data & Analytics';
   if (text.includes('product') || text.includes('manager')) return 'Product Management';
   if (text.includes('design') || text.includes('ux') || text.includes('ui')) return 'Design';
