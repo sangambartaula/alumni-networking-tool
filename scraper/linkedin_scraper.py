@@ -42,7 +42,7 @@ def clean_job_title(raw_title: str) -> str:
     if raw in banned_exact:
         return ""
 
-    # Remove suffixes like: “Software Engineer · Full-time”
+    # Remove suffixes like: "Software Engineer · Full-time"
     for bad in banned_exact:
         raw = raw.replace(f"· {bad}", "")
         raw = raw.replace(bad, "")
@@ -91,9 +91,11 @@ OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 OUTPUT_CSV = OUTPUT_DIR / OUTPUT_CSV_ENV
 COOKIES_FILE = OUTPUT_DIR / LINKEDIN_COOKIES_PATH
 
-# --- NEW: VISITED LOG FILE ---
+# --- VISITED HISTORY CSV FILE ---
 # This file will store URLs of everyone visited, even if they were discarded.
-VISITED_LOG_FILE = OUTPUT_DIR / "visited_history.txt"
+# Columns: profile_url, saved (yes/no), visited_at, update_needed, last_db_update
+VISITED_HISTORY_FILE = OUTPUT_DIR / "visited_history.csv"
+VISITED_HISTORY_COLUMNS = ['profile_url', 'saved', 'visited_at', 'update_needed', 'last_db_update']
 
 # Column names - same for both modes now
 CSV_COLUMNS = ['name', 'headline', 'location', 'job_title', 'company', 'education', 'major', 'graduation_year', 'profile_url', 'scraped_at']
@@ -103,7 +105,7 @@ logger.info(f"TESTING MODE: {TESTING}")
 logger.info(f"DELAY RANGE: {MIN_DELAY}s - {MAX_DELAY}s")
 logger.info(f"OUTPUT_CSV from .env: {OUTPUT_CSV_ENV}")
 logger.info(f"OUTPUT_CSV full path: {OUTPUT_CSV.absolute()}")
-logger.info(f"VISITED_LOG_FILE: {VISITED_LOG_FILE.absolute()}") # Log the new file path
+logger.info(f"VISITED_HISTORY_FILE: {VISITED_HISTORY_FILE.absolute()}")
 logger.info(f"OUTPUT_DIR: {OUTPUT_DIR.absolute()}")
 logger.info(f"OUTPUT_DIR exists: {OUTPUT_DIR.exists()}")
 
@@ -131,6 +133,37 @@ def parse_frequency(frequency_str):
     except Exception as e:
         logger.warning(f"Error parsing frequency: {e}. Using default 6 months.")
         return timedelta(days=180)
+
+
+def get_all_profile_urls_from_db():
+    """Get all profile URLs from the database to initialize visited history"""
+    try:
+        import mysql.connector
+        
+        conn = mysql.connector.connect(
+            host=os.getenv('MYSQLHOST'),
+            user=os.getenv('MYSQLUSER'),
+            password=os.getenv('MYSQLPASSWORD'),
+            database=os.getenv('MYSQL_DATABASE'),
+            port=int(os.getenv('MYSQLPORT', 3306))
+        )
+        
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT linkedin_url, last_updated
+                FROM alumni
+                WHERE linkedin_url IS NOT NULL AND linkedin_url != ''
+            """)
+            
+            profiles = cur.fetchall()
+        
+        conn.close()
+        logger.info(f"✓ Retrieved {len(profiles)} profile URLs from database")
+        return profiles
+    
+    except Exception as e:
+        logger.error(f"Error fetching profile URLs from database: {e}")
+        return []
 
 
 def get_outdated_profiles():
@@ -202,35 +235,214 @@ class LinkedInSearchScraper:
         self.driver = None
         self.wait = None
         self.existing_profiles = set()  # From CSV (Successful UNT matches)
-        self.visited_history = set()    # From TXT (Everyone we ever visited)
+        self.visited_history = {}       # From CSV (Everyone we ever visited: {url: {saved, visited_at, update_needed, last_db_update}})
         self.scraper_mode = SCRAPER_MODE
         self.ensure_csv_headers()
+        self.db_profile_urls = set()    # All URLs from database
+        
+    def initialize_visited_history_from_db(self):
+        """Load all profile URLs from database and initialize visited history CSV if needed"""
+        logger.info("\n📊 Initializing visited history from database...")
+        
+        db_profiles = get_all_profile_urls_from_db()
+        
+        if not db_profiles:
+            logger.warning("⚠️  No profiles found in database")
+            return
+        
+        # Parse UPDATE_FREQUENCY to timedelta
+        frequency_delta = parse_frequency(UPDATE_FREQUENCY)
+        now = datetime.now()
+        
+        # Build set of all DB URLs and their timestamps
+        db_profile_map = {}
+        for url, last_updated in db_profiles:
+            if url:
+                url = url.strip()
+                self.db_profile_urls.add(url)
+                db_profile_map[url] = last_updated
+        
+        logger.info(f"✓ Found {len(self.db_profile_urls)} profile URLs in database")
+        
+        # Check if visited history file exists and has entries
+        if VISITED_HISTORY_FILE.exists():
+            logger.info(f"✓ Visited history CSV already exists")
+            self.load_visited_history()
+            existing_visited = len(self.visited_history)
+            logger.info(f"✓ Loaded {existing_visited} previously visited URLs")
+            
+            # Add any DB URLs not yet in visited history
+            new_urls_to_add = []
+            for db_url in self.db_profile_urls:
+                if db_url not in self.visited_history:
+                    new_urls_to_add.append(db_url)
+            
+            if new_urls_to_add:
+                logger.info(f"📝 Adding {len(new_urls_to_add)} new URLs from database to visited history...")
+                for url in new_urls_to_add:
+                    last_updated = db_profile_map.get(url)
+                    
+                    # Check if profile needs updating based on UPDATE_FREQUENCY
+                    update_needed = 'no'
+                    if last_updated:
+                        # Parse the timestamp if it's a string
+                        if isinstance(last_updated, str):
+                            try:
+                                last_updated_dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+                            except:
+                                last_updated_dt = datetime.now()
+                        else:
+                            last_updated_dt = last_updated
+                        
+                        # Check if older than UPDATE_FREQUENCY
+                        time_since_update = now - last_updated_dt
+                        if time_since_update > frequency_delta:
+                            update_needed = 'yes'
+                            logger.debug(f"  ⏰ {url}: {time_since_update.days} days old (> {frequency_delta.days} days) → needs update")
+                        else:
+                            logger.debug(f"  ✓ {url}: {time_since_update.days} days old (< {frequency_delta.days} days) → up to date")
+                    else:
+                        update_needed = 'yes'
+                    
+                    self.visited_history[url] = {
+                        'saved': 'no',
+                        'visited_at': '',
+                        'update_needed': update_needed,
+                        'last_db_update': last_updated.strftime("%Y-%m-%d %H:%M:%S") if last_updated and hasattr(last_updated, 'strftime') else str(last_updated) if last_updated else ''
+                    }
+                self._save_visited_history()
+        else:
+            logger.info(f"📝 Creating new visited history CSV with {len(self.db_profile_urls)} database URLs...")
+            # Initialize all DB URLs with proper update_needed flag based on UPDATE_FREQUENCY
+            for db_url in self.db_profile_urls:
+                last_updated = db_profile_map.get(db_url)
+                
+                # Check if profile needs updating based on UPDATE_FREQUENCY
+                update_needed = 'no'
+                if last_updated:
+                    # Parse the timestamp if it's a string
+                    if isinstance(last_updated, str):
+                        try:
+                            last_updated_dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+                        except:
+                            last_updated_dt = datetime.now()
+                    else:
+                        last_updated_dt = last_updated
+                    
+                    # Check if older than UPDATE_FREQUENCY
+                    time_since_update = now - last_updated_dt
+                    if time_since_update > frequency_delta:
+                        update_needed = 'yes'
+                        logger.debug(f"  ⏰ {db_url}: {time_since_update.days} days old (> {frequency_delta.days} days) → needs update")
+                    else:
+                        logger.debug(f"  ✓ {db_url}: {time_since_update.days} days old (< {frequency_delta.days} days) → up to date")
+                else:
+                    update_needed = 'yes'
+                
+                self.visited_history[db_url] = {
+                    'saved': 'no',
+                    'visited_at': '',
+                    'update_needed': update_needed,
+                    'last_db_update': last_updated.strftime("%Y-%m-%d %H:%M:%S") if last_updated and hasattr(last_updated, 'strftime') else str(last_updated) if last_updated else ''
+                }
+            self._save_visited_history()
+    
+    def _ensure_visited_history_headers(self):
+        """Ensure visited history CSV has correct headers"""
+        try:
+            if VISITED_HISTORY_FILE.exists():
+                try:
+                    df = pd.read_csv(VISITED_HISTORY_FILE)
+                    if list(df.columns) != VISITED_HISTORY_COLUMNS:
+                        logger.warning("Visited history CSV columns don't match, rebuilding...")
+                        df_new = pd.DataFrame(columns=VISITED_HISTORY_COLUMNS)
+                        df_new.to_csv(VISITED_HISTORY_FILE, index=False)
+                        logger.info("✓ Visited history CSV reset with correct columns")
+                except Exception as e:
+                    logger.warning(f"Visited history CSV is corrupted/empty, rebuilding: {e}")
+                    df_new = pd.DataFrame(columns=VISITED_HISTORY_COLUMNS)
+                    df_new.to_csv(VISITED_HISTORY_FILE, index=False)
+                    logger.info("✓ Visited history CSV rebuilt with correct columns")
+            else:
+                logger.info(f"📝 Creating new visited history CSV...")
+                df = pd.DataFrame(columns=VISITED_HISTORY_COLUMNS)
+                df.to_csv(VISITED_HISTORY_FILE, index=False)
+                logger.info("✓ Visited history CSV created with correct columns")
+        except Exception as e:
+            logger.error(f"Error ensuring visited history CSV headers: {e}")
 
-    # --- NEW METHOD: Load the visited log ---
     def load_visited_history(self):
-        """Loads the list of URLs we have previously visited (kept OR discarded)."""
-        if VISITED_LOG_FILE.exists():
+        """Loads the list of URLs we have previously visited from CSV"""
+        if VISITED_HISTORY_FILE.exists():
             try:
-                with open(VISITED_LOG_FILE, 'r') as f:
-                    # Read lines and strip whitespace
-                    self.visited_history = set(line.strip() for line in f if line.strip())
-                logger.info(f"📜 Loaded {len(self.visited_history)} URLs from visited history log.")
+                df = pd.read_csv(VISITED_HISTORY_FILE)
+                self.visited_history = {}
+                for _, row in df.iterrows():
+                    url = row.get('profile_url', '').strip()
+                    if url:
+                        self.visited_history[url] = {
+                            'saved': str(row.get('saved', 'no')).strip().lower(),
+                            'visited_at': str(row.get('visited_at', '')).strip(),
+                            'update_needed': str(row.get('update_needed', 'yes')).strip().lower(),
+                            'last_db_update': str(row.get('last_db_update', '')).strip()
+                        }
+                logger.info(f"📜 Loaded {len(self.visited_history)} URLs from visited history")
             except Exception as e:
                 logger.error(f"Error loading visited history: {e}")
+                self.visited_history = {}
         else:
-            logger.info("📜 No visited history log found. Starting fresh.")
+            logger.info("📜 No visited history file found.  Will create on first run.")
+            self.visited_history = {}
 
-    # --- NEW METHOD: Save a URL to the visited log ---
-    def mark_as_visited(self, url):
-        """Appends a URL to the visited history file so we don't scrape it again."""
-        if url and url not in self.visited_history:
-            try:
-                with open(VISITED_LOG_FILE, 'a') as f:
-                    f.write(f"{url}\n")
-                self.visited_history.add(url)
-                logger.debug(f"📝 Marked as visited: {url}")
-            except Exception as e:
-                logger.error(f"Error writing to visited log: {e}")
+    def _save_visited_history(self):
+        """Save visited history to CSV"""
+        try:
+            rows = []
+            for url, data in self.visited_history.items():
+                rows.append({
+                    'profile_url': url,
+                    'saved': data.get('saved', 'no'),
+                    'visited_at': data.get('visited_at', ''),
+                    'update_needed': data.get('update_needed', 'yes'),
+                    'last_db_update': data.get('last_db_update', '')
+                })
+            
+            df = pd.DataFrame(rows)
+            df.to_csv(VISITED_HISTORY_FILE, index=False)
+            logger.debug(f"💾 Saved {len(rows)} entries to visited history")
+        except Exception as e:
+            logger.error(f"Error saving visited history: {e}")
+
+    def mark_as_visited(self, url, saved='no', update_needed='no'):
+        """Mark a URL as visited with save status and update flag"""
+        if url:
+            url = url.strip()
+            self.visited_history[url] = {
+                'saved': 'yes' if saved else 'no',
+                'visited_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'update_needed': 'yes' if update_needed else 'no',
+                'last_db_update': self.visited_history.get(url, {}).get('last_db_update', '')
+            }
+            self._save_visited_history()
+            logger.debug(f"📝 Marked as visited: {url} (saved: {saved})")
+
+    def should_skip_profile(self, url):
+        """Check if profile should be skipped based on visited history and update frequency"""
+        if url not in self.visited_history:
+            return False
+        
+        entry = self.visited_history[url]
+        
+        # If marked as update_needed, don't skip
+        if entry.get('update_needed', 'no').lower() == 'yes':
+            return False
+        
+        # If already saved, skip
+        if entry.get('saved', 'no').lower() == 'yes':
+            return True
+        
+        # If not saved and not marked for update, skip (non-UNT alumni we don't need to retry)
+        return True
 
     def safe_get_text(self, selector, parent=None):
         try:
@@ -519,7 +731,7 @@ class LinkedInSearchScraper:
                     for span in all_spans:
                         text = span.get_text(strip=True)
                         if (text and ',' in text and len(text) < 100 and len(text) > 5 and not any(skip in text.lower() for skip in ['connection', 'follower', '2nd', 'degree', 'contact', 'message'])):
-                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 'Massachusetts', 'Pennsylvania', 'Georgia']):
+                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 'Massachusetts']):
                                 location = text
                                 break
                 profile_data["location"] = location if location else "Not Found"
@@ -623,7 +835,7 @@ class LinkedInSearchScraper:
                         found_unt = any(any(k in (school or '').lower() for k in unt_keywords) for school in all_education)
                 if not found_unt:
                     logger.info("    ❌ No UNT education found after expanding. Skipping profile.")
-                    # Note: We return None here, but in the calling function we should mark as visited!
+                    # Note: We return None here, but in the calling function we should mark as visited! 
                     return None
             except Exception as e:
                 logger.debug(f"  ⚠️  Error extracting education: {e}")
@@ -647,7 +859,7 @@ class LinkedInSearchScraper:
 
     def scrape_all_education(self, profile_url):
         """
-        For connections mode only: Click 'Show all X educations' link and scrape ALL education entries. 
+        For connections mode only: Click 'Show all X educations' link and scrape ALL education entries.   
         Returns list of all school names.
         """
         all_education = []
@@ -774,7 +986,7 @@ class LinkedInSearchScraper:
                 logger.info(f"✅ SUCCESS!  Saved to {OUTPUT_CSV.absolute()} (size: {file_size} bytes, rows: {len(combined_df)})")
                 return True
             else:
-                logger.error(f"❌ FAILED! File was not created at {OUTPUT_CSV.absolute()}")
+                logger.error(f"❌ FAILED!  File was not created at {OUTPUT_CSV.absolute()}")
                 return False
         
         except Exception as e:
@@ -810,15 +1022,28 @@ class LinkedInSearchScraper:
             logger.info(f"Last updated: {last_updated}")
             logger.info(f"{'='*60}")
             
+            # Check if should skip based on update frequency
+            if self.should_skip_profile(profile_url):
+                logger.info(f"⊘ Profile not marked for update, skipping...")
+                continue
+            
             try:
                 # Scrape the profile
                 profile_data = self.scrape_profile_page(profile_url)
+                if not profile_data:
+                    logger.info("❌ No profile data returned, marking as visited")
+                    self.mark_as_visited(profile_url, saved=False, update_needed=False)
+                    continue
+                    
                 profile_data['name'] = full_name
                 
                 # Save (this will update the existing record)
                 if self.save_profile(profile_data):
                     profiles_updated += 1
                     logger.info(f"✅ Updated profile for {full_name}")
+                    self.mark_as_visited(profile_url, saved=True, update_needed=False)
+                else:
+                    self.mark_as_visited(profile_url, saved=False, update_needed=False)
                 
                 # Wait before next profile
                 if idx < len(outdated_profiles):
@@ -845,7 +1070,9 @@ class LinkedInSearchScraper:
         try:
             self.setup_driver()
             self.load_existing_profiles()
-            self.load_visited_history() # <--- NEW: Load the visited log
+            self._ensure_visited_history_headers()
+            self.load_visited_history()
+            self.initialize_visited_history_from_db()
 
             if not self.login():
                 logger.error("Failed to login")
@@ -870,7 +1097,7 @@ class LinkedInSearchScraper:
                     self.run_update_mode(outdated_profiles)
                     return
                 else:
-                    logger.info("Skipping update. Running normal scraping mode...\n")
+                    logger.info("Skipping update.  Running normal scraping mode...\n")
             else:
                 logger.info(f"✅ All alumni records are up to date (last updated within {UPDATE_FREQUENCY})")
                 logger.info(f"{'='*60}\n")
@@ -946,8 +1173,9 @@ class LinkedInSearchScraper:
 
             # Process each profile
             for idx, profile_url in enumerate(profile_urls, start=1):
-                if profile_url in self.existing_profiles:
-                    logger.info(f"[{idx}/{len(profile_urls)}] ⊘ Already scraped: {profile_url}")
+                # Check visited history first
+                if self.should_skip_profile(profile_url):
+                    logger.info(f"[{idx}/{len(profile_urls)}] ⊘ Already processed: {profile_url}")
                     continue
 
                 logger.info(f"[{idx}/{len(profile_urls)}] Extracting full profile: {profile_url}")
@@ -955,14 +1183,20 @@ class LinkedInSearchScraper:
                 try:
                     # Scrape from the full profile page (not search page)
                     profile_data = self.scrape_profile_page(profile_url)
+                    if not profile_data:
+                        logger.info("❌ No profile data returned (likely no UNT), marking as visited")
+                        self.mark_as_visited(profile_url, saved=False, update_needed=False)
+                        continue
+                        
                     profile_data['name'] = name  # Set the name from our search query
 
                     # Save
                     if self.save_profile(profile_data):
                         self.existing_profiles.add(profile_url)
                         profiles_scraped += 1
-                    
-                    self.mark_as_visited(profile_url)
+                        self.mark_as_visited(profile_url, saved=True, update_needed=False)
+                    else:
+                        self.mark_as_visited(profile_url, saved=False, update_needed=False)
 
                     if idx < len(profile_urls):
                         self.wait_between_profiles()
@@ -985,7 +1219,7 @@ class LinkedInSearchScraper:
     def run_search_mode(self):
         """Search mode: use paginated LinkedIn search with filters (Industries + School + Network)"""
         # URL with filters: Industries, School (UNT), and 3rd+ connections
-        base_search_url = "https://www.linkedin.com/search/results/people/?origin=FACETED_SEARCH&network=%5B%22O%22%5D&industry=%5B%221594%22%2C%226%22%2C%2296%22%2C%224%22%2C%22109%22%2C%22118%22%2C%223%22%2C%223107%22%2C%223242%22%2C%223248%22%2C%2251%22%5D&schoolFilter=%5B%226464%22%5D"
+        base_search_url = "https://www.linkedin.com/search/results/people/?origin=FACETED_SEARCH&network=%5B%22O%22%5D&industry=%5B%221594%22%2C%226%22%2C%2296%22%2C%224%22%2C%22109%22%2C%22118%22%5D&schoolFilter=%5B%226464%22%5D"
         
         page = 1
         profiles_scraped = 0
@@ -1013,15 +1247,16 @@ class LinkedInSearchScraper:
             profile_urls = self.extract_profile_urls_from_page()
             
             if not profile_urls:
-                logger.info("No more profiles.  Done!")
+                logger.info("No more profiles. Done!")
                 break
             
             logger.info(f"\nProcessing {len(profile_urls)} profiles...\n")
             
             # Process each profile
             for idx, profile_url in enumerate(profile_urls):
-                if profile_url in self.existing_profiles:
-                    logger.info(f"[{idx + 1}/{len(profile_urls)}] ⊘ Already scraped")
+                # Check visited history
+                if self.should_skip_profile(profile_url):
+                    logger.info(f"[{idx + 1}/{len(profile_urls)}] ⊘ Already processed")
                     continue
                 
                 logger.info(f"[{idx + 1}/{len(profile_urls)}] Scraping profile page...")
@@ -1030,12 +1265,20 @@ class LinkedInSearchScraper:
                     # Scrape from the full profile page ONLY
                     profile_data = self.scrape_profile_page(profile_url)
                     
+                    if not profile_data:
+                        logger.info("❌ No profile data returned (likely no UNT), marking as visited")
+                        self.mark_as_visited(profile_url, saved=False, update_needed=False)
+                        if idx < len(profile_urls) - 1:
+                            self.wait_between_profiles()
+                        continue
+                    
                     # Save
                     if self.save_profile(profile_data):
                         self.existing_profiles.add(profile_url)
                         profiles_scraped += 1
-                    
-                    self.mark_as_visited(profile_url)
+                        self.mark_as_visited(profile_url, saved=True, update_needed=False)
+                    else:
+                        self.mark_as_visited(profile_url, saved=False, update_needed=False)
 
                     # WAIT AFTER SCRAPING
                     if idx < len(profile_urls) - 1:
@@ -1063,8 +1306,9 @@ class LinkedInSearchScraper:
         logger.info(f"{'='*60}\n")
 
     def run_connections_mode(self):
-        """Connections mode: read LinkedIn URLs from Connections.csv and scrape each profile. 
-        Only saves profiles where the person attended University of North Texas. 
+        """Connections mode: read LinkedIn URLs from Connections.csv and scrape each profile.
+        Only saves profiles where the person attended University of North Texas.
+        Tracks all visited profiles with save status (yes/no).
         """
         # Load connections CSV
         connections_csv_path = Path(__file__).resolve().parent.parent / CONNECTIONS_CSV_PATH
@@ -1090,7 +1334,7 @@ class LinkedInSearchScraper:
         
         profiles_scraped = 0
         profiles_skipped_not_unt = 0
-        profiles_skipped_already_scraped = 0
+        profiles_skipped_already_processed = 0
         
         for idx, row in enumerate(df.iterrows(), start=1):
             row_data = row[1]  # row is (index, Series)
@@ -1106,10 +1350,10 @@ class LinkedInSearchScraper:
             logger.info(f"URL: {profile_url}")
             logger.info(f"{'='*60}")
             
-            # --- NEW CHECK: Check both existing profiles (successes) AND visited history (failures) ---
-            if profile_url in self.existing_profiles or profile_url in self.visited_history:
-                logger.info(f"⊘ Already scraped (checked previously), skipping...")
-                profiles_skipped_already_scraped += 1
+            # --- CHECK VISITED HISTORY ---
+            if self.should_skip_profile(profile_url):
+                logger.info(f"⊘ Already processed, skipping...")
+                profiles_skipped_already_processed += 1
                 continue
             
             try:
@@ -1119,7 +1363,7 @@ class LinkedInSearchScraper:
                 # If scrape_profile_page returned None (no UNT found initially), we still want to log it!
                 if not profile_data:
                     logger.info("❌ Profile returned no valid data (likely no UNT). Marking as visited.")
-                    self.mark_as_visited(profile_url)
+                    self.mark_as_visited(profile_url, saved=False, update_needed=False)
                     profiles_skipped_not_unt += 1
                     continue
 
@@ -1179,9 +1423,7 @@ class LinkedInSearchScraper:
                 else:
                     profiles_skipped_not_unt += 1
                     logger.info(f"❌ Not a UNT alum (Education: {profile_data.get('all_education', []) or profile_data.get('education', 'N/A')}), skipping...")
-                
-                # --- NEW: MARK VISITED REGARDLESS OF OUTCOME ---
-                self.mark_as_visited(profile_url)
+                    self.mark_as_visited(profile_url, saved=False, update_needed=False)
                 
                 # Wait before next profile
                 if idx < total_connections:
@@ -1204,7 +1446,7 @@ class LinkedInSearchScraper:
         logger.info(f"Total connections processed: {total_connections}")
         logger.info(f"UNT alumni saved: {profiles_scraped}")
         logger.info(f"Skipped (not UNT alumni): {profiles_skipped_not_unt}")
-        logger.info(f"Skipped (already scraped): {profiles_skipped_already_scraped}")
+        logger.info(f"Skipped (already scraped): {profiles_skipped_already_processed}")
         logger.info(f"Results saved to: {OUTPUT_CSV}")
         logger.info(f"{'='*60}\n")
 
