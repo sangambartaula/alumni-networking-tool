@@ -499,6 +499,55 @@ def get_notes(alumni_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/api/notes', methods=['GET'])
+@api_login_required
+def get_all_notes():
+    """Get all notes for the current logged-in user, grouped by alumni_id"""
+    try:
+        user_id = get_current_user_id()
+        
+        if DISABLE_DB:
+            return jsonify({"success": True, "notes": {}}), 200
+        
+        conn = get_connection()
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT id, alumni_id, note_content, created_at, updated_at
+                    FROM notes
+                    WHERE user_id = %s
+                    ORDER BY updated_at DESC
+                """, (user_id,))
+                
+                rows = cur.fetchall()
+                
+                # Group notes by alumni_id for easy frontend lookup
+                notes_by_alumni = {}
+                for note in rows:
+                    alumni_id = note['alumni_id']
+                    notes_by_alumni[alumni_id] = {
+                        "id": note['id'],
+                        "alumni_id": alumni_id,
+                        "note_content": note['note_content'],
+                        "created_at": note['created_at'].isoformat() if note['created_at'] else None,
+                        "updated_at": note['updated_at'].isoformat() if note['updated_at'] else None
+                    }
+                
+                return jsonify({
+                    "success": True,
+                    "notes": notes_by_alumni,
+                    "count": len(notes_by_alumni)
+                }), 200
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        
+    except Exception as e:
+        app.logger.error(f"Error getting all notes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/notes/<int:alumni_id>', methods=['POST'])
 @api_login_required
 def save_notes(alumni_id):
