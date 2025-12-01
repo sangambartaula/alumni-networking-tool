@@ -26,6 +26,10 @@ REQUEST_INTERVAL = 1.5
 # Default Coordinates for Regex Matches
 DFW_COORDS = (32.85, -96.85)
 
+# In-memory cache to store geocoded results during this session
+# Format: { "Location String": (lat, lon) }
+_LOCATION_CACHE: Dict[str, Tuple[float, float]] = {}
+
 
 # ---------------------------------------------------------
 # PRIMARY FUNCTION: Used by the background updater
@@ -34,18 +38,30 @@ DFW_COORDS = (32.85, -96.85)
 def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
     """
     Convert a location string (e.g., 'Denton, Texas, United States') to lat/lon.
+    Checks in-memory cache first to avoid redundant API calls.
     """
     if not location_string or location_string.strip() == '' or location_string.strip().lower() == 'not found':
         return None
     
-    # --- CHECK FOR DALLAS-FORT WORTH METROPLEX ---
+    location_string = location_string.strip()
+
+    # 1. CHECK CACHE
+    if location_string in _LOCATION_CACHE:
+        # logger.debug(f"✓ Cache hit for '{location_string}'") 
+        return _LOCATION_CACHE[location_string]
+    
+    # 2. CHECK FOR DALLAS-FORT WORTH METROPLEX REGEX
     dfw_pattern = r"(?i)(dallas.*(fort|ft).*worth|dfw.*metroplex)"
     if re.search(dfw_pattern, location_string):
         logger.info(f"✓ Matched DFW Regex for '{location_string}' → Using default {DFW_COORDS}")
+        _LOCATION_CACHE[location_string] = DFW_COORDS
         return DFW_COORDS
-    # ---------------------------------------------
 
+    # 3. CALL API (If not in cache)
     try:
+        # Respect rate limiting before making the call
+        time.sleep(REQUEST_INTERVAL)
+
         params = {
             "q": location_string,
             "format": "json",
@@ -66,6 +82,10 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
             result = results[0]
             lat = float(result.get('lat'))
             lon = float(result.get('lon'))
+            
+            # Store in cache
+            _LOCATION_CACHE[location_string] = (lat, lon)
+            
             logger.info(f"✓ Geocoded '{location_string}' → ({lat}, {lon})")
             return (lat, lon)
         else:
@@ -165,8 +185,7 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
                     conn.commit()
                     geocoded_count += 1
                 
-                if idx < total:
-                    time.sleep(REQUEST_INTERVAL)
+                # Note: time.sleep is now handled inside geocode_location if API is called
         
         logger.info(f"✓ Successfully geocoded {geocoded_count}/{total} records")
         return geocoded_count
@@ -187,6 +206,69 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
                 pass
 
 
+def verify_and_update_all_coordinates() -> int:
+    """
+    Iterates through ALL unique locations in the database.
+    Geocodes them (using cache).
+    Updates ANY record where the coordinates do not match the location string.
+    
+    This fixes issues where a user's location string changed (e.g. moved cities)
+    but their coordinates remained set to the old location.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        updated_total = 0
+        
+        with conn.cursor(dictionary=True) as cur:
+            logger.info("Fetching all unique locations from database...")
+            cur.execute("SELECT DISTINCT location FROM alumni WHERE location IS NOT NULL AND location != ''")
+            unique_locations = [row['location'] for row in cur.fetchall()]
+            
+        total_locs = len(unique_locations)
+        logger.info(f"Found {total_locs} unique locations to verify.")
+        
+        for idx, loc_str in enumerate(unique_locations, 1):
+            # Geocode (will use cache if we've seen this string before)
+            coords = geocode_location(loc_str)
+            
+            if coords:
+                lat, lon = coords
+                
+                # Update ALL records with this location string if coords are missing OR different
+                # We use a small epsilon (0.001) for float comparison to avoid unnecessary updates
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE alumni 
+                        SET latitude = %s, longitude = %s 
+                        WHERE location = %s 
+                        AND (
+                            latitude IS NULL 
+                            OR longitude IS NULL 
+                            OR ABS(latitude - %s) > 0.001 
+                            OR ABS(longitude - %s) > 0.001
+                        )
+                    """, (lat, lon, loc_str, lat, lon))
+                    
+                    if cur.rowcount > 0:
+                        updated_total += cur.rowcount
+                        conn.commit()
+                        logger.info(f"[{idx}/{total_locs}] Fixed {cur.rowcount} records for '{loc_str}'")
+            
+            # Progress log every 10 items if using cache (fast)
+            if idx % 10 == 0:
+                logger.info(f"Processed {idx}/{total_locs} locations...")
+
+        logger.info(f"✓ Verification complete. Updated {updated_total} records total.")
+        return updated_total
+
+    except Exception as e:
+        logger.error(f"Error during verification: {e}")
+        return 0
+    finally:
+        if conn: conn.close()
+
+
 if __name__ == "__main__":
     import os
     from dotenv import load_dotenv
@@ -200,5 +282,18 @@ if __name__ == "__main__":
     )
     
     logger.info("Starting geocoding process...")
-    geocoded = populate_missing_coordinates()
-    logger.info(f"Geocoding complete! {geocoded} records updated.")
+    
+    # Ask user what mode to run
+    print("\nSelect Mode:")
+    print("1. Populate missing coordinates only (Fast)")
+    print("2. Verify and update ALL coordinates (Slow - checks for mismatches)")
+    choice = input("Enter 1 or 2: ").strip()
+    
+    if choice == '2':
+        logger.info("Running full verification...")
+        verify_and_update_all_coordinates()
+    else:
+        logger.info("Populating missing coordinates...")
+        populate_missing_coordinates()
+        
+    logger.info("Done.")
