@@ -41,7 +41,6 @@ def init_db():
                     email VARCHAR(255),
                     first_name VARCHAR(100),
                     last_name VARCHAR(100),
-                    headline VARCHAR(255),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 )
