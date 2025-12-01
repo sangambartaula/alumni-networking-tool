@@ -71,7 +71,7 @@ def init_db():
             """)
             logger.info("alumni table created/verified")
 
-            # Create user_interactions table WITH inline foreign keys
+            # Create user_interactions table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_interactions (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -88,7 +88,7 @@ def init_db():
             """)
             logger.info("user_interactions table created/verified")
 
-            # Create notes table WITH inline foreign keys
+            # Create notes table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS notes (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -162,7 +162,6 @@ def ensure_alumni_timestamp_columns():
 
 def seed_alumni_data():
     """Import alumni data from CSV file"""
-    # Get the parent directory of backend (project root)
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(backend_dir)
     csv_path = os.path.join(project_root, 'scraper', 'output', 'UNT_Alumni_Data.csv')
@@ -235,7 +234,6 @@ def seed_alumni_data():
                             scraped_at
                         ))
                         
-                        # Check if it was an insert or update
                         if cur.rowcount == 1:
                             added += 1
                         elif cur.rowcount == 2:
@@ -258,6 +256,35 @@ def seed_alumni_data():
         logger.error(f"Error importing alumni data: {e}")
         raise
 
+def truncate_dot_fields():
+    """Remove anything after '·' in location, company, and current_job_title"""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE alumni
+                SET 
+                    location = SUBSTRING_INDEX(location, '·', 1),
+                    company = SUBSTRING_INDEX(company, '·', 1),
+                    current_job_title = SUBSTRING_INDEX(current_job_title, '·', 1)
+                WHERE 
+                    location LIKE '%·%' 
+                    OR company LIKE '%·%'
+                    OR current_job_title LIKE '%·%';
+            """)
+            conn.commit()
+            logger.info("✅ Truncated '·' fields in alumni table")
+    except mysql.connector.Error as err:
+        logger.error(f"Error truncating dot fields: {err}")
+        raise
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 if __name__ == "__main__":
     try:
         # Validate environment variables
@@ -273,6 +300,7 @@ if __name__ == "__main__":
         init_db()
         ensure_alumni_timestamp_columns()
         seed_alumni_data()
+        truncate_dot_fields()  # <--- run truncation after seeding
         
         # Test connection
         conn = get_connection()
@@ -281,7 +309,6 @@ if __name__ == "__main__":
             db_time = cur.fetchone()[0]
             logger.info(f"Database connection successful. DB time: {db_time}")
             
-            # Show sample alumni
             cur.execute("SELECT COUNT(*) FROM alumni")
             count = cur.fetchone()[0]
             logger.info(f"Alumni in database: {count} records")
