@@ -265,9 +265,9 @@ def truncate_dot_fields():
             cur.execute("""
                 UPDATE alumni
                 SET 
-                    location = SUBSTRING_INDEX(location, '·', 1),
-                    company = SUBSTRING_INDEX(company, '·', 1),
-                    current_job_title = SUBSTRING_INDEX(current_job_title, '·', 1)
+                    location = TRIM(SUBSTRING_INDEX(location, '·', 1)),
+                    company = TRIM(SUBSTRING_INDEX(company, '·', 1)),
+                    current_job_title = TRIM(SUBSTRING_INDEX(current_job_title, '·', 1))
                 WHERE 
                     location LIKE '%·%' 
                     OR company LIKE '%·%'
