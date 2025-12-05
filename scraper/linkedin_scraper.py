@@ -19,6 +19,9 @@ import pandas as pd
 import re
 import urllib
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'backend'))
+from database import save_visited_profile, get_all_visited_profiles
+
 # -------------------------------
 # CLEAN JOB TITLE FUNCTION
 # -------------------------------
@@ -241,111 +244,66 @@ class LinkedInSearchScraper:
         self.db_profile_urls = set()    # All URLs from database
         
     def initialize_visited_history_from_db(self):
-        """Load all profile URLs from database and initialize visited history CSV if needed"""
+        """Load all visited profiles from database and initialize visited history"""
         logger.info("\n📊 Initializing visited history from database...")
         
-        db_profiles = get_all_profile_urls_from_db()
+        # Get ALL visited profiles (UNT and non-UNT) from the new table
+        visited_profiles = get_all_visited_profiles()
         
-        if not db_profiles:
-            logger.warning("⚠️  No profiles found in database")
+        if not visited_profiles:
+            logger. warning("⚠️ No visited profiles found in database")
+            # Fall back to loading from CSV if it exists
+            self.load_visited_history()
             return
         
         # Parse UPDATE_FREQUENCY to timedelta
         frequency_delta = parse_frequency(UPDATE_FREQUENCY)
         now = datetime.now()
         
-        # Build set of all DB URLs and their timestamps
-        db_profile_map = {}
-        for url, last_updated in db_profiles:
-            if url:
-                url = url.strip()
-                self.db_profile_urls.add(url)
-                db_profile_map[url] = last_updated
+        # Build visited history from database
+        self.visited_history = {}
         
-        logger.info(f"✓ Found {len(self.db_profile_urls)} profile URLs in database")
-        
-        # Check if visited history file exists and has entries
-        if VISITED_HISTORY_FILE.exists():
-            logger.info(f"✓ Visited history CSV already exists")
-            self.load_visited_history()
-            existing_visited = len(self.visited_history)
-            logger.info(f"✓ Loaded {existing_visited} previously visited URLs")
+        for profile in visited_profiles:
+            url = profile['linkedin_url']. strip()
+            is_unt = profile['is_unt_alum']
+            last_checked = profile['last_checked']
+            needs_update_db = profile['needs_update']
             
-            # Add any DB URLs not yet in visited history
-            new_urls_to_add = []
-            for db_url in self.db_profile_urls:
-                if db_url not in self.visited_history:
-                    new_urls_to_add.append(db_url)
-            
-            if new_urls_to_add:
-                logger.info(f"📝 Adding {len(new_urls_to_add)} new URLs from database to visited history...")
-                for url in new_urls_to_add:
-                    last_updated = db_profile_map.get(url)
-                    
-                    # Check if profile needs updating based on UPDATE_FREQUENCY
-                    update_needed = 'no'
-                    if last_updated:
-                        # Parse the timestamp if it's a string
-                        if isinstance(last_updated, str):
-                            try:
-                                last_updated_dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
-                            except:
-                                last_updated_dt = datetime.now()
-                        else:
-                            last_updated_dt = last_updated
-                        
-                        # Check if older than UPDATE_FREQUENCY
-                        time_since_update = now - last_updated_dt
-                        if time_since_update > frequency_delta:
-                            update_needed = 'yes'
-                            logger.debug(f"  ⏰ {url}: {time_since_update.days} days old (> {frequency_delta.days} days) → needs update")
-                        else:
-                            logger.debug(f"  ✓ {url}: {time_since_update.days} days old (< {frequency_delta.days} days) → up to date")
-                    else:
-                        update_needed = 'yes'
-                    
-                    self.visited_history[url] = {
-                        'saved': 'no',
-                        'visited_at': '',
-                        'update_needed': update_needed,
-                        'last_db_update': last_updated.strftime("%Y-%m-%d %H:%M:%S") if last_updated and hasattr(last_updated, 'strftime') else str(last_updated) if last_updated else ''
-                    }
-                self._save_visited_history()
-        else:
-            logger.info(f"📝 Creating new visited history CSV with {len(self.db_profile_urls)} database URLs...")
-            # Initialize all DB URLs with proper update_needed flag based on UPDATE_FREQUENCY
-            for db_url in self.db_profile_urls:
-                last_updated = db_profile_map.get(db_url)
-                
-                # Check if profile needs updating based on UPDATE_FREQUENCY
-                update_needed = 'no'
-                if last_updated:
-                    # Parse the timestamp if it's a string
-                    if isinstance(last_updated, str):
-                        try:
-                            last_updated_dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
-                        except:
-                            last_updated_dt = datetime.now()
-                    else:
-                        last_updated_dt = last_updated
-                    
-                    # Check if older than UPDATE_FREQUENCY
-                    time_since_update = now - last_updated_dt
-                    if time_since_update > frequency_delta:
-                        update_needed = 'yes'
-                        logger.debug(f"  ⏰ {db_url}: {time_since_update.days} days old (> {frequency_delta.days} days) → needs update")
-                    else:
-                        logger.debug(f"  ✓ {db_url}: {time_since_update.days} days old (< {frequency_delta.days} days) → up to date")
+            # Determine if update is needed
+            update_needed = 'no'
+            if needs_update_db:
+                update_needed = 'yes'
+            elif is_unt and last_checked:
+                # For UNT alumni, check if it's been longer than UPDATE_FREQUENCY
+                if isinstance(last_checked, str):
+                    try:
+                        last_checked_dt = datetime.fromisoformat(last_checked. replace('Z', '+00:00'))
+                    except:
+                        last_checked_dt = now
                 else:
-                    update_needed = 'yes'
+                    last_checked_dt = last_checked
                 
-                self.visited_history[db_url] = {
-                    'saved': 'no',
-                    'visited_at': '',
-                    'update_needed': update_needed,
-                    'last_db_update': last_updated.strftime("%Y-%m-%d %H:%M:%S") if last_updated and hasattr(last_updated, 'strftime') else str(last_updated) if last_updated else ''
-                }
-            self._save_visited_history()
+                time_since_check = now - last_checked_dt
+                if time_since_check > frequency_delta:
+                    update_needed = 'yes'
+            
+            self.visited_history[url] = {
+                'saved': 'yes' if is_unt else 'no',
+                'visited_at': str(profile['visited_at']) if profile['visited_at'] else '',
+                'update_needed': update_needed,
+                'last_db_update': str(last_checked) if last_checked else ''
+            }
+        
+        logger.info(f"✓ Loaded {len(self.visited_history)} visited profiles from database")
+        
+        # Count stats
+        unt_count = sum(1 for v in self.visited_history.values() if v['saved'] == 'yes')
+        non_unt_count = len(self.visited_history) - unt_count
+        logger.info(f"   - UNT Alumni: {unt_count}")
+        logger.info(f"   - Non-UNT (skipped): {non_unt_count}")
+        
+        # Save to CSV as backup
+        self._save_visited_history()
     
     def _ensure_visited_history_headers(self):
         """Ensure visited history CSV has correct headers"""
@@ -413,35 +371,48 @@ class LinkedInSearchScraper:
         except Exception as e:
             logger.error(f"Error saving visited history: {e}")
 
-    def mark_as_visited(self, url, saved='no', update_needed='no'):
-        """Mark a URL as visited with save status and update flag"""
+    def mark_as_visited(self, url, saved=False, update_needed=False):
+        """Mark a URL as visited with save status - saves to both CSV and DB"""
         if url:
             url = url.strip()
+            is_unt_alum = bool(saved)
+            
+            # Save to database FIRST (source of truth)
+            save_visited_profile(url, is_unt_alum=is_unt_alum)
+            
+            # Then update local cache
             self.visited_history[url] = {
                 'saved': 'yes' if saved else 'no',
                 'visited_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'update_needed': 'yes' if update_needed else 'no',
-                'last_db_update': self.visited_history.get(url, {}).get('last_db_update', '')
+                'last_db_update': self.visited_history. get(url, {}).get('last_db_update', '')
             }
+            
+            # Save to CSV as backup
             self._save_visited_history()
-            logger.debug(f"📝 Marked as visited: {url} (saved: {saved})")
-
+            
+            logger.debug(f"📝 Marked as visited: {url} (saved: {saved}, UNT: {is_unt_alum})")
+    
     def should_skip_profile(self, url):
-        """Check if profile should be skipped based on visited history and update frequency"""
+        """Check if profile should be skipped based on visited history"""
         if url not in self.visited_history:
             return False
         
         entry = self.visited_history[url]
+        saved = entry.get('saved', 'no'). lower()
+        update_needed = entry. get('update_needed', 'no').lower()
         
-        # If marked as update_needed, don't skip
-        if entry.get('update_needed', 'no').lower() == 'yes':
+        # If it's a UNT alum AND marked for update, don't skip
+        if saved == 'yes' and update_needed == 'yes':
+            logger.info(f"    🔄 Re-visiting UNT alum (update needed)")
             return False
         
-        # If already saved, skip
-        if entry.get('saved', 'no').lower() == 'yes':
+        # If already saved (UNT alum) and up to date, skip
+        if saved == 'yes':
             return True
         
-        # If not saved and not marked for update, skip (non-UNT alumni we don't need to retry)
+        # If NOT a UNT alum (saved=no), always skip - they weren't UNT before
+        logger.debug(f"    ⊘ Skipping non-UNT profile (previously visited)")
         return True
 
     def safe_get_text(self, selector, parent=None):
@@ -702,135 +673,572 @@ class LinkedInSearchScraper:
             try:
                 location = ""
                 
-                # Define invalid location patterns (work types that got picked up by mistake)
-                invalid_location_patterns = ['on-site', 'remote', 'hybrid', 'on site']
+                # Patterns that indicate this is NOT a location
+                not_location_patterns = [
+                    'university', 'college', 'institute', 'school', 'academy',
+                    'inc', 'llc', 'ltd', 'corp', 'corporation', 'company',
+                    'technologies', 'solutions', 'services', 'consulting',
+                    'group', 'labs', 'laboratory', 'shade', 'dental', 'engineer',
+                    'software', 'developer', 'manager', 'director', 'specialist',
+                ]
+                
+                # Metro area indicators
+                metro_indicators = ['metroplex', 'metropolitan', 'greater', 'bay area', 'metro']
+                
+                # Common countries (for international)
+                countries = [
+                    'India', 'Canada', 'United Kingdom', 'Germany', 'France',
+                    'Australia', 'Singapore', 'Japan', 'China', 'Brazil', 'Mexico',
+                    'Netherlands', 'Ireland', 'Spain', 'Italy', 'Sweden', 'Switzerland',
+                    'Israel', 'United Arab Emirates', 'Saudi Arabia', 'South Korea',
+                    'Philippines', 'Indonesia', 'Malaysia', 'Thailand', 'Vietnam',
+                    'Pakistan', 'Bangladesh', 'Nigeria', 'South Africa', 'Egypt',
+                    'Poland', 'Belgium', 'Austria', 'Denmark', 'Norway', 'Finland',
+                    'New Zealand', 'Portugal', 'Greece', 'Czech Republic', 'Romania',
+                    'Turkey', 'Argentina', 'Colombia', 'Chile', 'Peru', 'Russia',
+                    'Ukraine', 'Kenya', 'Morocco', 'Taiwan', 'Hong Kong',
+                ]
                 
                 def is_valid_location(text):
-                    """Check if text is a real location, not a job work type"""
+                    """Check if text is a real location"""
                     if not text:
                         return False
                     text_lower = text.lower()
-                    # Reject if it contains work type indicators
-                    if any(pattern in text_lower for pattern in invalid_location_patterns):
+                    
+                    for pattern in not_location_patterns:
+                        if pattern in text_lower:
+                            return False
+                    
+                    if any(x in text_lower for x in ['on-site', 'remote', 'hybrid', 'full-time', 'part-time']):
                         return False
+                    
                     return True
                 
-                def clean_location(text):
-                    """Remove work type suffixes from location string"""
-                    if not text:
-                        return ""
-                    # Remove " · On-site", " · Remote", " · Hybrid" etc.
-                    cleaned = re.sub(r'\s*·\s*(On-site|Remote|Hybrid|On site).*$', '', text, flags=re.IGNORECASE)
-                    return cleaned. strip()
+                def is_social_stats(text):
+                    """Check if text is social stats"""
+                    text_lower = text. lower()
+                    return any(x in text_lower for x in ['follower', 'connection', 'mutual', '2nd', '3rd'])
                 
-                # Method 1: Try intro section first (top card layout)
-                intro_section = soup.find('div', {'class': lambda x: x and 'top-card-layout' in (x or '')})
-                if intro_section:
-                    small_texts = intro_section.find_all('span', {'class': lambda x: x and 'text-body-small' in (x or '')})
-                    for elem in small_texts:
-                        text = elem.get_text(strip=True)
-                        if text and len(text) > 3 and len(text) < 100:
-                            if (',' in text and not any(conn in text.lower() for conn in ['connection', 'follower', '2nd', 'degree'])):
-                                if is_valid_location(text):
-                                    location = clean_location(text)
-                                    break
-                                else:
-                                    logger. debug(f"  ⚠️  Rejected invalid location (work type detected): {text}")
+                def is_number_like(text):
+                    """Check if text looks like a number"""
+                    cleaned = text.replace(',', '').replace(' ', '').replace('+', '')
+                    return cleaned.isdigit()
                 
-                # Method 2: Try Contact info section
+                all_spans = soup.find_all('span')
+                
+                # =====================================================
+                # METHOD 1: Look for "City, State, United States" pattern
+                # (Two commas = most specific US location)
+                # =====================================================
+                logger.debug("  🔍 Location Method 1: Looking for City, State, Country pattern...")
+                
+                for span in all_spans:
+                    text = span. get_text(strip=True)
+                    if not text or len(text) < 10 or len(text) > 100:
+                        continue
+                    
+                    if is_social_stats(text) or is_number_like(text):
+                        continue
+                    
+                    # Must have exactly 2 commas and end with "United States"
+                    if text.count(',') == 2 and text.strip().endswith('United States'):
+                        if is_valid_location(text):
+                            location = text. strip()
+                            logger.info(f"  ✓ Location found (Method 1 - City, State, Country): {location}")
+                            break
+                
+                # =====================================================
+                # METHOD 2: Look for Metro Area pattern
+                # (Contains "Metroplex", "Metropolitan", "Greater", etc.)
+                # =====================================================
                 if not location:
-                    all_elements = soup.find_all(['h2', 'h3', 'div'])
-                    for i, elem in enumerate(all_elements):
-                        text = elem.get_text(strip=True)
-                        if 'Contact info' in text or 'contact information' in text.lower():
-                            parent = elem.find_parent('section') or elem.find_parent('div', {'class': lambda x: x and 'pvs-list' in (x or '')})
-                            if parent:
-                                location_candidates = parent.find_all('span', string=lambda s: s and ',' in s and len(s) < 100)
-                                if location_candidates:
-                                    for candidate in location_candidates:
-                                        loc_text = candidate. get_text(strip=True)
-                                        if not any(skip in loc_text.lower() for skip in ['connection', 'follower', '2nd', 'degree']):
-                                            if is_valid_location(loc_text):
-                                                location = clean_location(loc_text)
-                                                break
-                                            else:
-                                                logger. debug(f"  ⚠️  Rejected invalid location (work type detected): {loc_text}")
-                            if location:
-                                break
-                
-                # Method 3: Search all spans for location with state/country keywords
-                if not location:
-                    all_spans = soup.find_all('span')
+                    logger.debug("  🔍 Location Method 2: Looking for Metro Area pattern...")
+                    
                     for span in all_spans:
                         text = span.get_text(strip=True)
-                        if (text and ',' in text and len(text) < 100 and len(text) > 5 and not any(skip in text.lower() for skip in ['connection', 'follower', '2nd', 'degree', 'contact', 'message'])):
-                            if any(state in text for state in ['Texas', 'California', 'New York', 'Florida', 'United States', 'India', 'Canada', 'UK', 'Illinois', 'Virginia', 'Washington', 'Massachusetts', 'Georgia', 'Arizona', 'Colorado', 'Ohio', 'Michigan', 'North Carolina', 'Pennsylvania', 'New Jersey', 'Oregon', 'Tennessee', 'Minnesota', 'Maryland', 'Wisconsin', 'Missouri', 'Indiana', 'Connecticut', 'Kentucky', 'Oklahoma', 'Nevada', 'Utah', 'Kansas', 'Arkansas', 'Louisiana', 'Iowa', 'Mississippi', 'Alabama', 'Nebraska', 'New Mexico', 'Idaho', 'Hawaii', 'Maine', 'Montana', 'Delaware', 'South Dakota', 'North Dakota', 'Alaska', 'Vermont', 'Wyoming', 'West Virginia', 'New Hampshire', 'Rhode Island', 'District of Columbia', 'Puerto Rico']):
-                                if is_valid_location(text):
-                                    location = clean_location(text)
-                                    break
-                                else:
-                                    logger.debug(f"  ⚠️  Rejected invalid location (work type detected): {text}")
+                        if not text or len(text) < 5 or len(text) > 80:
+                            continue
+                        
+                        if is_social_stats(text) or is_number_like(text):
+                            continue
+                        
+                        text_lower = text. lower()
+                        
+                        # Check if it contains a metro indicator
+                        if any(metro in text_lower for metro in metro_indicators):
+                            if is_valid_location(text):
+                                location = text.strip()
+                                logger.info(f"  ✓ Location found (Method 2 - Metro Area): {location}")
+                                break
                 
-                # Set final location value
-                profile_data["location"] = location if location else "Not Found"
+                # =====================================================
+                # METHOD 3: Look for exact "United States" (country only)
+                # =====================================================
                 if not location:
-                    logger. warning(f"  ⚠️  Location not found in profile (may have been rejected due to work type pattern)")
+                    logger.debug("  🔍 Location Method 3: Looking for exact 'United States'...")
+                    
+                    for span in all_spans:
+                        text = span.get_text(strip=True)
+                        
+                        if text == 'United States':
+                            location = 'United States'
+                            logger.info(f"  ✓ Location found (Method 3 - Country only): {location}")
+                            break
+                
+                # =====================================================
+                # METHOD 4: Fallback - "State, United States" (1 comma)
+                # =====================================================
+                if not location:
+                    logger.debug("  🔍 Location Method 4: Looking for State, Country pattern...")
+                    
+                    for span in all_spans:
+                        text = span.get_text(strip=True)
+                        if not text or len(text) < 5 or len(text) > 80:
+                            continue
+                        
+                        if is_social_stats(text) or is_number_like(text):
+                            continue
+                        
+                        # Must have exactly 1 comma and end with "United States"
+                        if text. count(',') == 1 and text. strip().endswith('United States'):
+                            if is_valid_location(text):
+                                location = text.strip()
+                                logger.info(f"  ✓ Location found (Method 4 - State, Country): {location}")
+                                break
+                
+                # =====================================================
+                # METHOD 5: International - ends with a country name
+                # (e.g., "Karnataka, India" or "London, United Kingdom")
+                # =====================================================
+                if not location:
+                    logger.debug("  🔍 Location Method 5: Looking for international pattern...")
+                    
+                    for span in all_spans:
+                        text = span. get_text(strip=True)
+                        if not text or len(text) < 3 or len(text) > 100:
+                            continue
+                        
+                        if is_social_stats(text) or is_number_like(text):
+                            continue
+                        
+                        # Check if text ends with a known country
+                        for country in countries:
+                            if text.strip().endswith(country):
+                                if is_valid_location(text):
+                                    location = text.strip()
+                                    logger.info(f"  ✓ Location found (Method 5 - International): {location}")
+                                    break
+                        
+                        if location:
+                            break
+                
+                profile_data["location"] = location if location else "Not Found"
+                
+                if not location:
+                    logger.warning(f"  ⚠️ LOCATION NOT FOUND")
+                    
             except Exception as e:
-                logger.debug(f"  ⚠️  Error extracting location: {e}")
+                logger. error(f"  ❌ Error extracting location: {e}")
                 profile_data["location"] = "Not Found"
 
             # ===== EXTRACT JOB TITLE AND COMPANY =====
             try:
+                job_title = ""
+                company = ""
+                
+                # ============================================
+                # COMPANY KEYWORDS - indicates this is a company name
+                # ============================================
+                company_keywords = [
+                    # Legal suffixes
+                    'inc', 'inc.', 'incorporated', 'llc', 'l.l.c. ', 'ltd', 'ltd.', 'limited',
+                    'corp', 'corp.', 'corporation', 'co. ', 'company', 'companies',
+                    'lp', 'l.p.', 'llp', 'l.l.p. ', 'pllc', 'p.l.l.c.', 'pc', 'p. c.',
+                    'plc', 'gmbh', 'ag', 's.a.', 'b.v.', 'n.v.', 'pty',
+                    # Company type words
+                    'group', 'holdings', 'enterprises', 'partners', 'partnership',
+                    'associates', 'association', 'firm', 'agency', 'agencies',
+                    # Industry indicators
+                    'solutions', 'services', 'systems', 'technologies', 'technology',
+                    'tech', 'software', 'consulting', 'consultants', 'consultancy',
+                    'digital', 'media', 'studios', 'studio', 'labs', 'lab', 'laboratory',
+                    'industries', 'industrial', 'manufacturing', 'productions',
+                    'healthcare', 'health', 'medical', 'pharma', 'pharmaceutical',
+                    'financial', 'finance', 'bank', 'banking', 'insurance', 'capital',
+                    'ventures', 'venture', 'investment', 'investments', 'advisors',
+                    'retail', 'store', 'stores', 'shop', 'mart', 'market',
+                    'logistics', 'transport', 'transportation', 'shipping', 'freight',
+                    'construction', 'builders', 'building', 'development', 'developments',
+                    'real estate', 'realty', 'properties', 'property',
+                    'energy', 'power', 'electric', 'utilities', 'oil', 'gas', 'petroleum',
+                    'aerospace', 'aviation', 'airlines', 'airline', 'airways',
+                    'automotive', 'auto', 'motors', 'motor', 'cars',
+                    'telecommunications', 'telecom', 'communications', 'wireless', 'network', 'networks',
+                    'entertainment', 'gaming', 'games', 'sports',
+                    'foods', 'food', 'beverage', 'beverages', 'restaurant', 'restaurants', 'dining',
+                    'hospitality', 'hotel', 'hotels', 'resort', 'resorts', 'travel',
+                    # Education
+                    'university', 'college', 'school', 'institute', 'institution',
+                    'academy', 'education', 'educational', 'learning',
+                    # Government/Non-profit
+                    'government', 'federal', 'state', 'city', 'county', 'municipal',
+                    'foundation', 'nonprofit', 'non-profit', 'ngo', 'charity',
+                    # Other common company words
+                    'global', 'international', 'worldwide', 'national', 'american', 'usa',
+                    'dental', 'clinic', 'hospital', 'center', 'centre',
+                ]
+                
+                # ============================================
+                # JOB TITLE KEYWORDS - indicates this is a job title
+                # ============================================
+                job_title_keywords = [
+                    # Seniority prefixes
+                    'senior', 'sr. ', 'sr', 'junior', 'jr. ', 'jr', 'lead', 'principal',
+                    'staff', 'chief', 'head', 'associate', 'assistant', 'entry',
+                    'executive', 'vp', 'v.p.', 'svp', 'evp', 'avp', 'ceo', 'cto', 'cfo', 'coo', 'cio', 'cmo',
+                    
+                    # Management titles
+                    'manager', 'management', 'director', 'supervisor', 'coordinator',
+                    'administrator', 'president', 'vice president', 'officer',
+                    'team lead', 'team leader', 'group lead', 'group leader',
+                    
+                    # Engineering titles
+                    'engineer', 'engineering', 'developer', 'programmer', 'coder',
+                    'architect', 'devops', 'sre', 'qa', 'qe', 'sdet', 'tester', 'testing',
+                    'frontend', 'front-end', 'front end', 'backend', 'back-end', 'back end',
+                    'fullstack', 'full-stack', 'full stack', 'software', 'hardware',
+                    'embedded', 'firmware', 'mobile', 'web', 'cloud', 'data', 'ml', 'ai',
+                    'machine learning', 'artificial intelligence', 'deep learning',
+                    'ios', 'android', 'react', 'angular', 'node', 'python', 'java',
+                    'database', 'dba', 'sql', 'etl', 'bi', 'business intelligence',
+                    'security', 'cybersecurity', 'infosec', 'information security',
+                    'network', 'systems', 'system', 'infrastructure', 'platform',
+                    'reliability', 'performance', 'automation', 'integration',
+                    
+                    # Data/Analytics titles
+                    'analyst', 'analysis', 'analytics', 'scientist', 'science',
+                    'researcher', 'research', 'statistician', 'quantitative',
+                    
+                    # Design titles
+                    'designer', 'design', 'ux', 'ui', 'user experience', 'user interface',
+                    'graphic', 'visual', 'creative', 'product',
+                    
+                    # IT titles
+                    'technician', 'specialist', 'support', 'helpdesk', 'help desk',
+                    'administrator', 'admin', 'it ', 'information technology',
+                    
+                    # Project/Product titles
+                    'project', 'program', 'product', 'scrum', 'agile', 'owner',
+                    'delivery', 'release', 'launch',
+                    
+                    # Business titles
+                    'consultant', 'advisor', 'strategist', 'planner',
+                    'accountant', 'accounting', 'auditor', 'finance', 'financial',
+                    'marketing', 'sales', 'business', 'operations', 'ops',
+                    'recruiter', 'recruiting', 'hr', 'human resources', 'talent',
+                    'legal', 'counsel', 'attorney', 'lawyer', 'paralegal',
+                    'writer', 'editor', 'content', 'copywriter', 'journalist',
+                    'trainer', 'training', 'instructor', 'teacher', 'professor',
+                    'nurse', 'doctor', 'physician', 'therapist', 'pharmacist',
+                    
+                    # Other common job words
+                    'intern', 'internship', 'apprentice', 'trainee', 'fellow',
+                    'contractor', 'freelance', 'freelancer', 'consultant',
+                    'representative', 'rep', 'agent', 'broker',
+                    'technologist', 'professional', 'expert', 'guru',
+                    'student', 'graduate', 'worker', 'assistant', 'aide',
+                ]
+                
+                # ============================================
+                # SKIP PATTERNS - these are NOT job titles or companies
+                # ============================================
+                skip_patterns = [
+                    # Employment type
+                    'full-time', 'full time', 'fulltime', 'part-time', 'part time', 'parttime',
+                    'contract', 'contractor', 'temporary', 'temp', 'seasonal',
+                    'internship', 'apprenticeship', 'freelance', 'self-employed',
+                    'volunteer', 'volunteering',
+                    
+                    # Duration patterns (will also check with regex)
+                    'yrs', 'yr', 'years', 'year', 'mos', 'mo', 'months', 'month',
+                    'present', 'current',
+                    
+                    # Work arrangement
+                    'remote', 'on-site', 'onsite', 'on site', 'hybrid', 'work from home', 'wfh',
+                    
+                    # Location indicators (these should be in location field)
+                    'united states', 'usa', 'area', 'metropolitan', 'greater',
+                ]
+                
+                def is_skip_text(text):
+                    """Check if this text should be skipped (duration, status, description, etc.)"""
+                    if not text:
+                        return True
+                    
+                    text_lower = text. lower(). strip()
+                    
+                    # Skip if too long (likely a job description)
+                    if len(text) > 80:
+                        return True
+                    
+                    # Skip if it looks like a sentence/description (has ".  " pattern indicating multiple sentences)
+                    if '.  ' in text and len(text) > 50:
+                        return True
+                    
+                    # Skip if it starts with a verb (common in descriptions)
+                    description_starters = ['focus on', 'responsible for', 'worked on', 'working on', 
+                                            'manage', 'managing', 'led', 'leading', 'develop', 'developing',
+                                            'created', 'creating', 'built', 'building', 'designed', 'designing',
+                                            'implemented', 'implementing', 'supported', 'supporting']
+                    for starter in description_starters:
+                        if text_lower.startswith(starter):
+                            return True
+                    
+                    # Skip if matches skip patterns
+                    for pattern in skip_patterns:
+                        if pattern in text_lower:
+                            return True
+                    
+                    # Skip if it's a date pattern (Jan 2024, 2020 - 2024, etc.)
+                    if re.search(r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*\d{4}', text_lower):
+                        return True
+                    if re.search(r'\d{4}\s*[-–—]\s*(present|\d{4})', text_lower):
+                        return True
+                    
+                    # Skip if it's primarily a duration (e.g., "3 yrs 9 mos", "2 years")
+                    if re.search(r'^\d+\s*(yrs?|mos?|years? |months?)', text_lower):
+                        return True
+                    
+                    # Skip if it starts with a bullet or special char
+                    if text. startswith('·') or text.startswith('•'):
+                        return True
+                    
+                    # Skip if it's just a number or very short
+                    if len(text) < 3:
+                        return True
+                    
+                    return False
+                
+                def is_company(text):
+                    """Check if text looks like a company name"""
+                    if not text:
+                        return False
+                    text_lower = text. lower()
+                    
+                    for keyword in company_keywords:
+                        # Check for whole word match or at end of string
+                        if keyword in text_lower:
+                            return True
+                    return False
+                
+                def is_job_title(text):
+                    """Check if text looks like a job title"""
+                    if not text:
+                        return False
+                    text_lower = text.lower()
+                    
+                    for keyword in job_title_keywords:
+                        if keyword in text_lower:
+                            return True
+                    return False
+                
+                def clean_company_name(text):
+                    """Clean company name - remove duration, status suffixes"""
+                    if not text:
+                        return ""
+                    # Remove " · Full-time", " · 3 yrs 9 mos", etc.
+                    cleaned = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Temporary|Remote|Hybrid|On-site).*$', '', text, flags=re. IGNORECASE)
+                    cleaned = re.sub(r'\s*·\s*\d+\s*(yrs? |mos?|years?|months?).*$', '', cleaned, flags=re. IGNORECASE)
+                    return cleaned.strip()
+                
+                # Find Experience section
                 h2_tags = soup.find_all('h2', {'class': lambda x: x and 'pvs-header__title' in (x or '') and 'text-heading-large' in (x or '')})
-                found_experience = False
+                
                 for h2 in h2_tags:
                     h2_text = h2.get_text(strip=True)
                     if 'Experience' in h2_text:
                         logger.debug("Found Experience section")
-                        section = h2.find_parent('section')
+                        section = h2. find_parent('section')
                         if section:
-                            first_job = section.find('div', {'data-view-name': 'profile-component-entity'})
-                            if first_job:
-                                spans = first_job.find_all('span', {'aria-hidden': 'true'})
-                                if len(spans) > 0:
-                                    job_title = spans[0].get_text(strip=True).replace('', '').strip()
-                                    cleaned_title = clean_job_title(job_title)
-
-                                    if cleaned_title:
-                                         profile_data["job_title"] = cleaned_title
-                                    else:
-                                        profile_data["job_title"] = ""   # Remove bad titles       
-                                if len(spans) > 1:
-                                    company = spans[1].get_text(strip=True).replace('', '').strip()
-                                    if company:
-                                        profile_data["company"] = company
-                                        logger.debug(f"  ✓ Found company: {company}")
+                            all_jobs = section.find_all('div', {'data-view-name': 'profile-component-entity'})
+                            
+                            if all_jobs:
+                                first_job = all_jobs[0]
+                                spans = first_job. find_all('span', {'aria-hidden': 'true'})
+                                
+                                # Extract and filter span texts
+                                raw_texts = []
+                                span_texts = []
+                                for s in spans:
+                                    text = s. get_text(strip=True). replace('', '').strip()
+                                    if text:
+                                        raw_texts.append(text)
+                                        
+                                        # Clean the text first - remove "· Full-time", "· Part-time", etc. 
+                                        cleaned = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Temporary|Remote|Hybrid|On-site).*$', '', text, flags=re.  IGNORECASE)
+                                        cleaned = cleaned.strip()
+                                        
+                                        if cleaned and not is_skip_text(cleaned):
+                                            span_texts.append(cleaned)
+                                
+                                logger.info(f"  Raw job spans: {raw_texts[:10]}")
+                                logger.info(f"  Filtered job spans: {span_texts[:6]}")
+                                
+                                # Determine job title and company
+                                # IMPORTANT: Check job title FIRST - it's more specific
+                                found_job_title = None
+                                found_company = None
+                                
+                                for text in span_texts:  # <-- FIXED: was valid_spans
+                                    text_is_job = is_job_title(text)
+                                    text_is_company = is_company(text)
+                                    
+                                    logger. debug(f"    '{text[:40]}' → job: {text_is_job}, company: {text_is_company}")
+                                    
+                                    # If it matches BOTH keywords, prefer job title
+                                    # (e.g., "Manufacturing Engineer" matches both but is a job title)
+                                    if text_is_job and text_is_company:
+                                        if not found_job_title:
+                                            found_job_title = clean_job_title(text)
+                                            logger.debug(f"    → Matched both, using as job title")
+                                        continue
+                                    
+                                    # Job title only
+                                    if text_is_job and not found_job_title:
+                                        found_job_title = clean_job_title(text)
+                                    
+                                    # Company only
+                                    elif text_is_company and not found_company:
+                                        found_company = clean_company_name(text)
+                                    
+                                    if found_job_title and found_company:
+                                        break
+                                
+                                # Fallback: if keywords didn't match, use position
+                                if not found_job_title and not found_company and len(span_texts) >= 2:  # <-- FIXED
+                                    logger. warning(f"  ⚠️ No keyword matches.  Using position fallback.")
+                                    found_job_title = clean_job_title(span_texts[0])  # <-- FIXED
+                                    found_company = clean_company_name(span_texts[1])  # <-- FIXED
+                                elif not found_company and found_job_title and len(span_texts) >= 2:  # <-- FIXED
+                                    # Have job but no company - use next span
+                                    for text in span_texts:  # <-- FIXED
+                                        if text != found_job_title:
+                                            found_company = clean_company_name(text)
+                                            break
+                                elif not found_job_title and found_company and len(span_texts) >= 2:  # <-- FIXED
+                                    # Have company but no job - use next span
+                                    for text in span_texts:  # <-- FIXED
+                                        if text != found_company:
+                                            found_job_title = clean_job_title(text)
+                                            break
+                                
+                                # Prevent duplicates
+                                if found_job_title and found_company:
+                                    if found_job_title.lower().strip() == found_company.lower().strip():
+                                        logger.warning(f"  ⚠️ Job equals company '{found_job_title}', clearing company")
+                                        found_company = ""
+                                
+                                job_title = found_job_title or ""
+                                company = found_company or ""
+                        
                         break
-                if not found_experience:
+                
+                profile_data["job_title"] = job_title
+                profile_data["company"] = company
+                
+                if job_title:
+                    logger.debug(f"  ✓ Found job title: {job_title}")
+                if company:
+                    logger.debug(f"  ✓ Found company: {company}")
+                if not job_title and not company:
                     logger.debug(f"  ⚠️  Missing job_title/company")
+                    
             except Exception as e:
-                logger.debug(f"  ⚠️  Error extracting job: {e}")
+                logger. debug(f"  ⚠️  Error extracting job: {e}")
                 import traceback
                 traceback.print_exc()
 
             # ===== EXTRACT EDUCATION (ALL VISIBLE ENTRIES) =====
             try:
                 h2_tags = soup.find_all('h2', {'class': lambda x: x and 'pvs-header__title' in (x or '') and 'text-heading-large' in (x or '')})
-                found_education = False
                 all_education = []
+                unt_education_entries = []  # Store all UNT entries with details
                 unt_keywords = ["unt", "university of north texas", "north texas"]
                 
+                # Degree level scoring (higher = better)
+                degree_levels = {
+                    'ph.d': 100, 'phd': 100, 'doctor': 100, 'doctorate': 100, 'd.phil': 100,
+                    'master': 80, 'ms': 80, 'm.s': 80, 'mba': 80, 'm.b.a': 80, 'ma': 80, 'm.a': 80,
+                    'bachelor': 60, 'bs': 60, 'b. s': 60, 'ba': 60, 'b.a': 60, 'bba': 60,
+                    'associate': 40,
+                }
+                
+                # Engineering-related keywords (gets bonus points)
+                engineering_keywords = [
+                    'engineering', 'engineer', 'computer science', 'computer engineering',
+                    'mechanical', 'electrical', 'civil', 'chemical', 'aerospace',
+                    'software', 'hardware', 'materials', 'industrial', 'manufacturing',
+                    'biomedical', 'petroleum', 'environmental', 'systems',
+                    'technology', 'physics', 'mathematics', 'math',
+                    'data science', 'cybersecurity', 'information technology',
+                    'electronics', 'robotics', 'mechatronics', 'energy',
+                ]
+                
+                def get_degree_score(text):
+                    """Score a degree by level (PhD=100, Masters=80, Bachelors=60)"""
+                    if not text:
+                        return 0
+                    text_lower = text.lower()
+                    for keyword, score in degree_levels. items():
+                        if keyword in text_lower:
+                            return score
+                    return 30  # Unknown degree type
+                
+                def is_engineering_related(text):
+                    """Check if degree is engineering-related"""
+                    if not text:
+                        return False
+                    text_lower = text.lower()
+                    return any(kw in text_lower for kw in engineering_keywords)
+                
+                def calculate_education_score(edu_entry):
+                    """
+                    Calculate score for an education entry. 
+                    Higher score = better match.
+                    
+                    Scoring:
+                    - Degree level: +100 (PhD), +80 (Masters), +60 (Bachelors)
+                    - Engineering-related: +100 (high priority for College of Engineering)
+                    - Has graduation year: +25
+                    """
+                    score = 0
+                    major_text = edu_entry.get('major', '').lower()
+                    year = edu_entry.get('graduation_year')
+                    
+                    # Degree level score
+                    score += get_degree_score(major_text)
+                    
+                    # Engineering bonus (high priority for College of Engineering)
+                    if is_engineering_related(major_text):
+                        score += 100
+                    
+                    # Has graduation year bonus
+                    if year:
+                        score += 25
+                    
+                    return score
+                
                 for h2 in h2_tags:
-                    h2_text = h2.get_text(strip=True)
+                    h2_text = h2. get_text(strip=True)
                     if 'Education' in h2_text:
                         logger.debug("Found Education section")
-                        section = h2.find_parent('section')
+                        section = h2. find_parent('section')
                         if section:
                             all_edu_entries = section.find_all('div', {'data-view-name': 'profile-component-entity'})
                             for edu_idx, edu_entry in enumerate(all_edu_entries):
-                                spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
+                                spans = edu_entry. find_all('span', {'aria-hidden': 'true'})
                                 if len(spans) > 0:
-                                    school = spans[0].get_text(strip=True).replace('', '').strip()
+                                    school = spans[0].get_text(strip=True). replace('', '').strip()
                                     if school:
                                         all_education.append(school)
                                         logger.debug(f"  ✓ Found school [{edu_idx + 1}]: {school}")
@@ -838,58 +1246,83 @@ class LinkedInSearchScraper:
                                         # Check if this is UNT
                                         is_unt = any(k in school.lower() for k in unt_keywords)
                                         
-                                        # Extract details (major, graduation year) ONLY from UNT education
+                                        # Collect ALL UNT education entries
                                         if is_unt:
-                                            profile_data["education"] = school
+                                            unt_entry = {
+                                                'school': school,
+                                                'major': '',
+                                                'graduation_year': '',
+                                            }
+                                            
+                                            # Extract major
                                             if len(spans) > 1:
                                                 major = spans[1].get_text(strip=True).replace('', '').strip()
-                                                if major:
-                                                    profile_data["major"] = major
-                                                    logger.debug(f"  ✓ Found UNT major: {major}")
+                                                # Skip if it's skills
+                                                if major and 'skills' not in major.lower():
+                                                    unt_entry['major'] = major
                                             
                                             # Look for dates in spans[2] or beyond
-                                            dates_text = ""
                                             for span_idx in range(2, len(spans)):
-                                                span_text = spans[span_idx].get_text(strip=True).replace('', '').strip()
-                                                # Check if this span contains year information
+                                                span_text = spans[span_idx].get_text(strip=True). replace('', ''). strip()
                                                 if re.search(r'\d{4}', span_text):
-                                                    dates_text = span_text
-                                                    logger.debug(f"  Found UNT dates in span[{span_idx}]: {dates_text}")
+                                                    year_matches = re.findall(r'\d{4}', span_text)
+                                                    if year_matches:
+                                                        unt_entry['graduation_year'] = year_matches[-1]
                                                     break
                                             
-                                            if dates_text:
-                                                logger.debug(f"  Found UNT dates (raw): {dates_text}")
-                                                # Extract the LAST year from date range (e.g., "Jan 2023 - Dec 2026" → 2026, "2022 - 2026" → 2026, or "2026" → 2026)
-                                                # Find all 4-digit years in the text
-                                                year_matches = re.findall(r'\d{4}', dates_text)
-                                                logger.debug(f"  Found years in dates: {year_matches}")
-                                                if year_matches:
-                                                    # Use the LAST year found (end year for date ranges)
-                                                    final_year = year_matches[-1]
-                                                    logger.debug(f"  Selected final year: {final_year}")
-                                                    # Extract graduation_year from UNT ONLY
-                                                    profile_data["graduation_year"] = final_year
-                                                    logger.debug(f"  ✓ Found UNT graduation year: {final_year}")
+                                            # Calculate score
+                                            unt_entry['score'] = calculate_education_score(unt_entry)
+                                            unt_education_entries.append(unt_entry)
+                                            logger.debug(f"    UNT Entry: {unt_entry['major']} | Year: {unt_entry['graduation_year']} | Score: {unt_entry['score']}")
+                            
                             profile_data["all_education"] = all_education
                             logger.debug(f"  ✓ All education entries: {all_education}")
                         break
                 
+                # Pick the BEST UNT education entry
+                if unt_education_entries:
+                    # Sort by score (highest first)
+                    unt_education_entries.sort(key=lambda x: x['score'], reverse=True)
+                    best = unt_education_entries[0]
+                    
+                    profile_data["education"] = best['school']
+                    profile_data["major"] = best['major']
+                    profile_data["graduation_year"] = best['graduation_year']
+                    
+                    logger.info(f"  ✓ Best UNT education (score={best['score']}): {best['major']} | Year: {best['graduation_year']}")
+                    
+                    if len(unt_education_entries) > 1:
+                        logger.debug(f"  All UNT entries: {[(e['major'], e['score']) for e in unt_education_entries]}")
+                
                 # --- UNT CHECK (initial education) ---
-                found_unt = any(any(k in (school or '').lower() for k in unt_keywords) for school in all_education)
+                found_unt = len(unt_education_entries) > 0
+                
                 if not found_unt:
                     # Try to expand education section if possible
-                    logger.info("    No UNT found in initial education. Checking for 'View More'...")
-                    all_education_expanded = self.scrape_all_education(profile_url)
+                    logger. info("    No UNT found in initial education.  Checking for 'View More'...")
+                    all_education_expanded, unt_details = self.scrape_all_education(profile_url)
                     if all_education_expanded:
                         all_education = all_education_expanded
                         profile_data["all_education"] = all_education
                         found_unt = any(any(k in (school or '').lower() for k in unt_keywords) for school in all_education)
+                        
+                        # If we found UNT details from the expanded page, use them! 
+                        if unt_details:
+                            logger.info(f"    🎓 Applying UNT details from expanded education page")
+                            if unt_details. get('education'):
+                                profile_data["education"] = unt_details['education']
+                            if unt_details.get('major'):
+                                profile_data["major"] = unt_details['major']
+                            if unt_details.get('graduation_year'):
+                                profile_data["graduation_year"] = unt_details['graduation_year']
+                            found_unt = True
+                            
                 if not found_unt:
-                    logger.info("    ❌ No UNT education found after expanding. Skipping profile.")
-                    # Note: We return None here, but in the calling function we should mark as visited! 
+                    logger.info("    ❌ No UNT education found after expanding.  Skipping profile.")
                     return None
+                    
             except Exception as e:
-                logger.debug(f"  ⚠️  Error extracting education: {e}")
+                logger.debug(f"  ⚠️ Error extracting education: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -899,7 +1332,7 @@ class LinkedInSearchScraper:
             logger.info(f"    ✓ Job: {profile_data['job_title']} @ {profile_data['company']}")
             logger.info(f"    ✓ Education: {profile_data['education']} | Major: {profile_data['major']} | Year: {profile_data['graduation_year']}")
             if len(profile_data['all_education']) > 1:
-                logger.info(f"    ✓ All Education: {profile_data['all_education']}")
+                logger. info(f"    ✓ All Education: {profile_data['all_education']}")
 
         except Exception as e:
             logger.error(f"Error scraping profile {profile_url}: {e}")
@@ -910,10 +1343,23 @@ class LinkedInSearchScraper:
 
     def scrape_all_education(self, profile_url):
         """
-        For connections mode only: Click 'Show all X educations' link and scrape ALL education entries.   
-        Returns list of all school names.
+        For connections mode only: Click 'Show all X educations' link and scrape ALL education entries. 
+        Returns tuple: (list of school names, dict of UNT details if found)
+        
+        UNT details dict: {'education': school_name, 'major': major, 'graduation_year': year}
         """
         all_education = []
+        unt_details = None
+        unt_keywords = ["unt", "university of north texas", "north texas"]
+        
+        # Keywords that indicate this is a real educational institution
+        education_keywords = [
+            'university', 'college', 'institute', 'school', 'academy',
+            'polytechnic', 'conservatory', 'seminary', 'of technology',
+            'of science', 'of arts', 'of engineering', 'of business',
+            'of medicine', 'of law', 'community college', 'state university',
+            'technical college', 'vocational'
+        ]
         
         try:
             # Look for "Show all X educations" link
@@ -922,15 +1368,15 @@ class LinkedInSearchScraper:
             # Find the "Show all" link for education
             show_all_link = None
             for a in soup.find_all('a'):
-                text = a.get_text(strip=True).lower()
+                text = a.get_text(strip=True). lower()
                 if 'show all' in text and 'education' in text:
-                    show_all_link = a.get('href')
+                    show_all_link = a. get('href')
                     logger.info(f"    📚 Found 'Show all educations' link")
                     break
             
             if show_all_link:
                 # Navigate to the full education page
-                if not show_all_link.startswith('http'):
+                if not show_all_link. startswith('http'):
                     show_all_link = f"https://www.linkedin.com{show_all_link}"
                 
                 logger.info(f"    📚 Opening full education page...")
@@ -938,31 +1384,95 @@ class LinkedInSearchScraper:
                 time.sleep(3)
                 
                 # Now scrape all education from this page
-                soup = BeautifulSoup(self.driver.page_source, "html.parser")
+                soup = BeautifulSoup(self.driver. page_source, "html.parser")
                 
-                # Find all education entries on this page
-                edu_entries = soup.find_all('div', {'data-view-name': 'profile-component-entity'})
+                # IMPORTANT: Only look within the MAIN content area, not the sidebar
+                # The main education list is typically in a <main> tag or specific section
+                main_content = soup.find('main') or soup.find('section', {'class': lambda x: x and 'pvs-list' in (x or '')})
+                
+                if not main_content:
+                    # Fallback: try to find the education list container
+                    main_content = soup. find('div', {'class': lambda x: x and 'scaffold-layout__main' in (x or '')})
+                
+                if not main_content:
+                    logger.warning("    ⚠️ Could not find main content area, using full page (may include sidebar)")
+                    main_content = soup
+                
+                # Find all education entries in the MAIN content only
+                edu_entries = main_content. find_all('div', {'data-view-name': 'profile-component-entity'})
+                
+                logger.debug(f"    Found {len(edu_entries)} potential education entries")
                 
                 for edu_entry in edu_entries:
-                    spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
+                    spans = edu_entry. find_all('span', {'aria-hidden': 'true'})
                     if len(spans) > 0:
-                        school = spans[0].get_text(strip=True).replace('', '').strip()
-                        if school and school not in all_education:
+                        school = spans[0].get_text(strip=True). replace('', '').strip()
+                        
+                        if not school:
+                            continue
+                        
+                        # FILTER: Check if this looks like an educational institution
+                        school_lower = school. lower()
+                        is_education = any(keyword in school_lower for keyword in education_keywords)
+                        
+                        # Also check if it has degree-related text nearby (Master's, Bachelor's, PhD, etc.)
+                        has_degree_info = False
+                        if len(spans) > 1:
+                            degree_text = spans[1]. get_text(strip=True).lower()
+                            degree_keywords = ['degree', 'bachelor', 'master', 'phd', 'doctor', 'associate', 'diploma', 'certificate', 'bs', 'ba', 'ms', 'ma', 'mba']
+                            has_degree_info = any(dk in degree_text for dk in degree_keywords)
+                        
+                        if not is_education and not has_degree_info:
+                            logger.debug(f"    ⚠️ Skipping non-education entry: '{school}' (no education keywords or degree info)")
+                            continue
+                        
+                        if school not in all_education:
                             all_education.append(school)
                             logger.debug(f"    ✓ Found school: {school}")
+                            
+                            # Check if this is UNT and extract details
+                            is_unt = any(k in school_lower for k in unt_keywords)
+                            if is_unt and unt_details is None:
+                                logger.info(f"    🎓 Found UNT in expanded education: {school}")
+                                unt_details = {
+                                    'education': school,
+                                    'major': '',
+                                    'graduation_year': ''
+                                }
+                                
+                                # Extract major (usually in spans[1])
+                                if len(spans) > 1:
+                                    major = spans[1].get_text(strip=True).replace('', '').strip()
+                                    if major:
+                                        unt_details['major'] = major
+                                        logger.info(f"    🎓 UNT Major: {major}")
+                                
+                                # Extract graduation year from remaining spans
+                                for span_idx in range(2, len(spans)):
+                                    span_text = spans[span_idx].get_text(strip=True).replace('', '').strip()
+                                    # Check if this span contains year information
+                                    year_matches = re.findall(r'\d{4}', span_text)
+                                    if year_matches:
+                                        # Use the LAST year found (end year for date ranges)
+                                        final_year = year_matches[-1]
+                                        unt_details['graduation_year'] = final_year
+                                        logger.info(f"    🎓 UNT Graduation Year: {final_year}")
+                                        break
                 
-                logger.info(f"    📚 Scraped {len(all_education)} education entries from full page: {all_education}")
+                logger.info(f"    📚 Scraped {len(all_education)} valid education entries: {all_education}")
                 
                 # Go back to main profile
-                self.driver.get(profile_url)
+                self.driver. get(profile_url)
                 time.sleep(2)
             else:
                 logger.debug("    No 'Show all educations' link found")
                 
         except Exception as e:
             logger.error(f"    Error scraping all education: {e}")
+            import traceback
+            traceback.print_exc()
         
-        return all_education
+        return all_education, unt_details
     
     def save_profile(self, profile_data):
         """Save a single profile to CSV"""
@@ -1433,8 +1943,25 @@ class LinkedInSearchScraper:
                 
                 # Only click "Show all educations" if UNT is NOT already found
                 if not is_unt_alum:
-                    additional_education = self.scrape_all_education(profile_url)
+                    additional_education, unt_details = self.scrape_all_education(profile_url)
                     if additional_education:
+                        # Merge with existing education list
+                        existing_edu = profile_data.get('all_education', [])
+                        for school in additional_education:
+                            if school not in existing_edu:
+                                existing_edu.append(school)
+                        profile_data['all_education'] = existing_edu
+                        logger.info(f"    ✓ Total education entries after expansion: {profile_data['all_education']}")
+                        
+                        # Apply UNT details if found
+                        if unt_details:
+                            logger.info(f"    🎓 Applying UNT details from expanded education page")
+                            if unt_details. get('education'):
+                                profile_data["education"] = unt_details['education']
+                            if unt_details. get('major'):
+                                profile_data["major"] = unt_details['major']
+                            if unt_details. get('graduation_year'):
+                                profile_data["graduation_year"] = unt_details['graduation_year']
                         # Merge with existing education list
                         existing_edu = profile_data.get('all_education', [])
                         for school in additional_education:
@@ -1501,6 +2028,41 @@ class LinkedInSearchScraper:
         logger.info(f"Results saved to: {OUTPUT_CSV}")
         logger.info(f"{'='*60}\n")
 
+
+def test_single_profile(url):
+    """Test scraping a single profile"""
+    scraper = LinkedInSearchScraper()
+    scraper.setup_driver()
+    
+    if scraper.login():
+        print(f"\n{'='*60}")
+        print(f"TESTING: {url}")
+        print(f"{'='*60}\n")
+        
+        profile = scraper.scrape_profile_page(url)
+        
+        print(f"\n{'='*60}")
+        print(f"RESULTS:")
+        print(f"{'='*60}")
+        print(f"Name: {profile.get('name')}")
+        print(f"Job Title: {profile.get('job_title')}")
+        print(f"Company: {profile.get('company')}")
+        print(f"Location: {profile.get('location')}")
+        print(f"Education: {profile.get('education')}")
+        print(f"{'='*60}\n")
+    
+    scraper. driver.quit()
+
+
+if __name__ == "__main__":
+    # Uncomment ONE of these:
+    
+    # Test a specific profile:
+    test_single_profile("https://www.linkedin.com/in/awais-mechanical-engineer")
+    
+    # Normal run:
+    # scraper = LinkedInSearchScraper()
+    # scraper.run()
 
 if __name__ == "__main__":
     scraper = LinkedInSearchScraper()
