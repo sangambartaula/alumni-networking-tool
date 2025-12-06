@@ -2029,41 +2029,6 @@ class LinkedInSearchScraper:
         logger.info(f"{'='*60}\n")
 
 
-def test_single_profile(url):
-    """Test scraping a single profile"""
-    scraper = LinkedInSearchScraper()
-    scraper.setup_driver()
-    
-    if scraper.login():
-        print(f"\n{'='*60}")
-        print(f"TESTING: {url}")
-        print(f"{'='*60}\n")
-        
-        profile = scraper.scrape_profile_page(url)
-        
-        print(f"\n{'='*60}")
-        print(f"RESULTS:")
-        print(f"{'='*60}")
-        print(f"Name: {profile.get('name')}")
-        print(f"Job Title: {profile.get('job_title')}")
-        print(f"Company: {profile.get('company')}")
-        print(f"Location: {profile.get('location')}")
-        print(f"Education: {profile.get('education')}")
-        print(f"{'='*60}\n")
-    
-    scraper. driver.quit()
-
-
-if __name__ == "__main__":
-    # Uncomment ONE of these:
-    
-    # Test a specific profile:
-    test_single_profile("https://www.linkedin.com/in/awais-mechanical-engineer")
-    
-    # Normal run:
-    # scraper = LinkedInSearchScraper()
-    # scraper.run()
-
 if __name__ == "__main__":
     scraper = LinkedInSearchScraper()
     scraper.run()
