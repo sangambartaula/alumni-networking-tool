@@ -251,7 +251,7 @@ class LinkedInSearchScraper:
         visited_profiles = get_all_visited_profiles()
         
         if not visited_profiles:
-            logger. warning("⚠️ No visited profiles found in database")
+            logger.warning("⚠️ No visited profiles found in database")
             # Fall back to loading from CSV if it exists
             self.load_visited_history()
             return
@@ -264,7 +264,7 @@ class LinkedInSearchScraper:
         self.visited_history = {}
         
         for profile in visited_profiles:
-            url = profile['linkedin_url']. strip()
+            url = profile['linkedin_url'].strip()
             is_unt = profile['is_unt_alum']
             last_checked = profile['last_checked']
             needs_update_db = profile['needs_update']
@@ -277,7 +277,7 @@ class LinkedInSearchScraper:
                 # For UNT alumni, check if it's been longer than UPDATE_FREQUENCY
                 if isinstance(last_checked, str):
                     try:
-                        last_checked_dt = datetime.fromisoformat(last_checked. replace('Z', '+00:00'))
+                        last_checked_dt = datetime.fromisoformat(last_checked.replace('Z', '+00:00'))
                     except:
                         last_checked_dt = now
                 else:
@@ -385,7 +385,7 @@ class LinkedInSearchScraper:
                 'saved': 'yes' if saved else 'no',
                 'visited_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'update_needed': 'yes' if update_needed else 'no',
-                'last_db_update': self.visited_history. get(url, {}).get('last_db_update', '')
+                'last_db_update': self.visited_history.get(url, {}).get('last_db_update', '')
             }
             
             # Save to CSV as backup
@@ -399,8 +399,8 @@ class LinkedInSearchScraper:
             return False
         
         entry = self.visited_history[url]
-        saved = entry.get('saved', 'no'). lower()
-        update_needed = entry. get('update_needed', 'no').lower()
+        saved = entry.get('saved', 'no').lower()
+        update_needed = entry.get('update_needed', 'no').lower()
         
         # If it's a UNT alum AND marked for update, don't skip
         if saved == 'yes' and update_needed == 'yes':
@@ -716,7 +716,7 @@ class LinkedInSearchScraper:
                 
                 def is_social_stats(text):
                     """Check if text is social stats"""
-                    text_lower = text. lower()
+                    text_lower = text.lower()
                     return any(x in text_lower for x in ['follower', 'connection', 'mutual', '2nd', '3rd'])
                 
                 def is_number_like(text):
@@ -733,7 +733,7 @@ class LinkedInSearchScraper:
                 logger.debug("  🔍 Location Method 1: Looking for City, State, Country pattern...")
                 
                 for span in all_spans:
-                    text = span. get_text(strip=True)
+                    text = span.get_text(strip=True)
                     if not text or len(text) < 10 or len(text) > 100:
                         continue
                     
@@ -743,7 +743,7 @@ class LinkedInSearchScraper:
                     # Must have exactly 2 commas and end with "United States"
                     if text.count(',') == 2 and text.strip().endswith('United States'):
                         if is_valid_location(text):
-                            location = text. strip()
+                            location = text.strip()
                             logger.info(f"  ✓ Location found (Method 1 - City, State, Country): {location}")
                             break
                 
@@ -762,7 +762,7 @@ class LinkedInSearchScraper:
                         if is_social_stats(text) or is_number_like(text):
                             continue
                         
-                        text_lower = text. lower()
+                        text_lower = text.lower()
                         
                         # Check if it contains a metro indicator
                         if any(metro in text_lower for metro in metro_indicators):
@@ -800,7 +800,7 @@ class LinkedInSearchScraper:
                             continue
                         
                         # Must have exactly 1 comma and end with "United States"
-                        if text. count(',') == 1 and text. strip().endswith('United States'):
+                        if text.count(',') == 1 and text.strip().endswith('United States'):
                             if is_valid_location(text):
                                 location = text.strip()
                                 logger.info(f"  ✓ Location found (Method 4 - State, Country): {location}")
@@ -814,7 +814,7 @@ class LinkedInSearchScraper:
                     logger.debug("  🔍 Location Method 5: Looking for international pattern...")
                     
                     for span in all_spans:
-                        text = span. get_text(strip=True)
+                        text = span.get_text(strip=True)
                         if not text or len(text) < 3 or len(text) > 100:
                             continue
                         
@@ -838,7 +838,7 @@ class LinkedInSearchScraper:
                     logger.warning(f"  ⚠️ LOCATION NOT FOUND")
                     
             except Exception as e:
-                logger. error(f"  ❌ Error extracting location: {e}")
+                logger.error(f"  ❌ Error extracting location: {e}")
                 profile_data["location"] = "Not Found"
 
             # ===== EXTRACT JOB TITLE AND COMPANY =====
@@ -851,9 +851,9 @@ class LinkedInSearchScraper:
                 # ============================================
                 company_keywords = [
                     # Legal suffixes
-                    'inc', 'inc.', 'incorporated', 'llc', 'l.l.c. ', 'ltd', 'ltd.', 'limited',
-                    'corp', 'corp.', 'corporation', 'co. ', 'company', 'companies',
-                    'lp', 'l.p.', 'llp', 'l.l.p. ', 'pllc', 'p.l.l.c.', 'pc', 'p. c.',
+                    'inc', 'inc.', 'incorporated', 'llc', 'l.l.c.', 'ltd', 'ltd.', 'limited',
+                    'corp', 'corp.', 'corporation', 'co.', 'company', 'companies',
+                    'lp', 'l.p.', 'llp', 'l.l.p.', 'pllc', 'p.l.l.c.', 'pc', 'p.c.',
                     'plc', 'gmbh', 'ag', 's.a.', 'b.v.', 'n.v.', 'pty',
                     # Company type words
                     'group', 'holdings', 'enterprises', 'partners', 'partnership',
@@ -893,7 +893,7 @@ class LinkedInSearchScraper:
                 # ============================================
                 job_title_keywords = [
                     # Seniority prefixes
-                    'senior', 'sr. ', 'sr', 'junior', 'jr. ', 'jr', 'lead', 'principal',
+                    'senior', 'sr.', 'sr', 'junior', 'jr.', 'jr', 'lead', 'principal',
                     'staff', 'chief', 'head', 'associate', 'assistant', 'entry',
                     'executive', 'vp', 'v.p.', 'svp', 'evp', 'avp', 'ceo', 'cto', 'cfo', 'coo', 'cio', 'cmo',
                     
@@ -975,7 +975,7 @@ class LinkedInSearchScraper:
                     if not text:
                         return True
                     
-                    text_lower = text. lower(). strip()
+                    text_lower = text.lower().strip()
                     
                     # Skip if too long (likely a job description)
                     if len(text) > 80:
@@ -1010,7 +1010,7 @@ class LinkedInSearchScraper:
                         return True
                     
                     # Skip if it starts with a bullet or special char
-                    if text. startswith('·') or text.startswith('•'):
+                    if text.startswith('·') or text.startswith('•'):
                         return True
                     
                     # Skip if it's just a number or very short
@@ -1023,7 +1023,7 @@ class LinkedInSearchScraper:
                     """Check if text looks like a company name"""
                     if not text:
                         return False
-                    text_lower = text. lower()
+                    text_lower = text.lower()
                     
                     for keyword in company_keywords:
                         # Check for whole word match or at end of string
@@ -1047,8 +1047,8 @@ class LinkedInSearchScraper:
                     if not text:
                         return ""
                     # Remove " · Full-time", " · 3 yrs 9 mos", etc.
-                    cleaned = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Temporary|Remote|Hybrid|On-site).*$', '', text, flags=re. IGNORECASE)
-                    cleaned = re.sub(r'\s*·\s*\d+\s*(yrs? |mos?|years?|months?).*$', '', cleaned, flags=re. IGNORECASE)
+                    cleaned = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Temporary|Remote|Hybrid|On-site).*$', '', text, flags=re.IGNORECASE)
+                    cleaned = re.sub(r'\s*·\s*\d+\s*(yrs?|mos?|years?|months?).*$', '', cleaned, flags=re.IGNORECASE)
                     return cleaned.strip()
                 
                 # Find Experience section
@@ -1058,24 +1058,24 @@ class LinkedInSearchScraper:
                     h2_text = h2.get_text(strip=True)
                     if 'Experience' in h2_text:
                         logger.debug("Found Experience section")
-                        section = h2. find_parent('section')
+                        section = h2.find_parent('section')
                         if section:
                             all_jobs = section.find_all('div', {'data-view-name': 'profile-component-entity'})
                             
                             if all_jobs:
                                 first_job = all_jobs[0]
-                                spans = first_job. find_all('span', {'aria-hidden': 'true'})
+                                spans = first_job.find_all('span', {'aria-hidden': 'true'})
                                 
                                 # Extract and filter span texts
                                 raw_texts = []
                                 span_texts = []
                                 for s in spans:
-                                    text = s. get_text(strip=True). replace('', '').strip()
+                                    text = s.get_text(strip=True).replace('', '').strip()
                                     if text:
                                         raw_texts.append(text)
                                         
                                         # Clean the text first - remove "· Full-time", "· Part-time", etc. 
-                                        cleaned = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Temporary|Remote|Hybrid|On-site).*$', '', text, flags=re.  IGNORECASE)
+                                        cleaned = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Temporary|Remote|Hybrid|On-site).*$', '', text, flags=re.IGNORECASE)
                                         cleaned = cleaned.strip()
                                         
                                         if cleaned and not is_skip_text(cleaned):
@@ -1093,7 +1093,7 @@ class LinkedInSearchScraper:
                                     text_is_job = is_job_title(text)
                                     text_is_company = is_company(text)
                                     
-                                    logger. debug(f"    '{text[:40]}' → job: {text_is_job}, company: {text_is_company}")
+                                    logger.debug(f"    '{text[:40]}' → job: {text_is_job}, company: {text_is_company}")
                                     
                                     # If it matches BOTH keywords, prefer job title
                                     # (e.g., "Manufacturing Engineer" matches both but is a job title)
@@ -1116,7 +1116,7 @@ class LinkedInSearchScraper:
                                 
                                 # Fallback: if keywords didn't match, use position
                                 if not found_job_title and not found_company and len(span_texts) >= 2:  # <-- FIXED
-                                    logger. warning(f"  ⚠️ No keyword matches.  Using position fallback.")
+                                    logger.warning(f"  ⚠️ No keyword matches. Using position fallback.")
                                     found_job_title = clean_job_title(span_texts[0])  # <-- FIXED
                                     found_company = clean_company_name(span_texts[1])  # <-- FIXED
                                 elif not found_company and found_job_title and len(span_texts) >= 2:  # <-- FIXED
@@ -1154,7 +1154,7 @@ class LinkedInSearchScraper:
                     logger.debug(f"  ⚠️  Missing job_title/company")
                     
             except Exception as e:
-                logger. debug(f"  ⚠️  Error extracting job: {e}")
+                logger.debug(f"  ⚠️  Error extracting job: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -1169,7 +1169,7 @@ class LinkedInSearchScraper:
                 degree_levels = {
                     'ph.d': 100, 'phd': 100, 'doctor': 100, 'doctorate': 100, 'd.phil': 100,
                     'master': 80, 'ms': 80, 'm.s': 80, 'mba': 80, 'm.b.a': 80, 'ma': 80, 'm.a': 80,
-                    'bachelor': 60, 'bs': 60, 'b. s': 60, 'ba': 60, 'b.a': 60, 'bba': 60,
+                    'bachelor': 60, 'bs': 60, 'b.s': 60, 'ba': 60, 'b.a': 60, 'bba': 60,
                     'associate': 40,
                 }
                 
@@ -1189,7 +1189,7 @@ class LinkedInSearchScraper:
                     if not text:
                         return 0
                     text_lower = text.lower()
-                    for keyword, score in degree_levels. items():
+                    for keyword, score in degree_levels.items():
                         if keyword in text_lower:
                             return score
                     return 30  # Unknown degree type
@@ -1203,7 +1203,7 @@ class LinkedInSearchScraper:
                 
                 def calculate_education_score(edu_entry):
                     """
-                    Calculate score for an education entry. 
+                    Calculate score for an education entry.
                     Higher score = better match.
                     
                     Scoring:
@@ -1229,16 +1229,16 @@ class LinkedInSearchScraper:
                     return score
                 
                 for h2 in h2_tags:
-                    h2_text = h2. get_text(strip=True)
+                    h2_text = h2.get_text(strip=True)
                     if 'Education' in h2_text:
                         logger.debug("Found Education section")
-                        section = h2. find_parent('section')
+                        section = h2.find_parent('section')
                         if section:
                             all_edu_entries = section.find_all('div', {'data-view-name': 'profile-component-entity'})
                             for edu_idx, edu_entry in enumerate(all_edu_entries):
-                                spans = edu_entry. find_all('span', {'aria-hidden': 'true'})
+                                spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
                                 if len(spans) > 0:
-                                    school = spans[0].get_text(strip=True). replace('', '').strip()
+                                    school = spans[0].get_text(strip=True).replace('', '').strip()
                                     if school:
                                         all_education.append(school)
                                         logger.debug(f"  ✓ Found school [{edu_idx + 1}]: {school}")
@@ -1263,7 +1263,7 @@ class LinkedInSearchScraper:
                                             
                                             # Look for dates in spans[2] or beyond
                                             for span_idx in range(2, len(spans)):
-                                                span_text = spans[span_idx].get_text(strip=True). replace('', ''). strip()
+                                                span_text = spans[span_idx].get_text(strip=True).replace('', '').strip()
                                                 if re.search(r'\d{4}', span_text):
                                                     year_matches = re.findall(r'\d{4}', span_text)
                                                     if year_matches:
@@ -1299,7 +1299,7 @@ class LinkedInSearchScraper:
                 
                 if not found_unt:
                     # Try to expand education section if possible
-                    logger. info("    No UNT found in initial education.  Checking for 'View More'...")
+                    logger.info("    No UNT found in initial education. Checking for 'View More'...")
                     all_education_expanded, unt_details = self.scrape_all_education(profile_url)
                     if all_education_expanded:
                         all_education = all_education_expanded
@@ -1309,7 +1309,7 @@ class LinkedInSearchScraper:
                         # If we found UNT details from the expanded page, use them! 
                         if unt_details:
                             logger.info(f"    🎓 Applying UNT details from expanded education page")
-                            if unt_details. get('education'):
+                            if unt_details.get('education'):
                                 profile_data["education"] = unt_details['education']
                             if unt_details.get('major'):
                                 profile_data["major"] = unt_details['major']
@@ -1318,7 +1318,7 @@ class LinkedInSearchScraper:
                             found_unt = True
                             
                 if not found_unt:
-                    logger.info("    ❌ No UNT education found after expanding.  Skipping profile.")
+                    logger.info("    ❌ No UNT education found after expanding. Skipping profile.")
                     return None
                     
             except Exception as e:
@@ -1332,7 +1332,7 @@ class LinkedInSearchScraper:
             logger.info(f"    ✓ Job: {profile_data['job_title']} @ {profile_data['company']}")
             logger.info(f"    ✓ Education: {profile_data['education']} | Major: {profile_data['major']} | Year: {profile_data['graduation_year']}")
             if len(profile_data['all_education']) > 1:
-                logger. info(f"    ✓ All Education: {profile_data['all_education']}")
+                logger.info(f"    ✓ All Education: {profile_data['all_education']}")
 
         except Exception as e:
             logger.error(f"Error scraping profile {profile_url}: {e}")
@@ -1343,7 +1343,7 @@ class LinkedInSearchScraper:
 
     def scrape_all_education(self, profile_url):
         """
-        For connections mode only: Click 'Show all X educations' link and scrape ALL education entries. 
+        For connections mode only: Click 'Show all X educations' link and scrape ALL education entries.
         Returns tuple: (list of school names, dict of UNT details if found)
         
         UNT details dict: {'education': school_name, 'major': major, 'graduation_year': year}
@@ -1368,15 +1368,15 @@ class LinkedInSearchScraper:
             # Find the "Show all" link for education
             show_all_link = None
             for a in soup.find_all('a'):
-                text = a.get_text(strip=True). lower()
+                text = a.get_text(strip=True).lower()
                 if 'show all' in text and 'education' in text:
-                    show_all_link = a. get('href')
+                    show_all_link = a.get('href')
                     logger.info(f"    📚 Found 'Show all educations' link")
                     break
             
             if show_all_link:
                 # Navigate to the full education page
-                if not show_all_link. startswith('http'):
+                if not show_all_link.startswith('http'):
                     show_all_link = f"https://www.linkedin.com{show_all_link}"
                 
                 logger.info(f"    📚 Opening full education page...")
@@ -1384,7 +1384,7 @@ class LinkedInSearchScraper:
                 time.sleep(3)
                 
                 # Now scrape all education from this page
-                soup = BeautifulSoup(self.driver. page_source, "html.parser")
+                soup = BeautifulSoup(self.driver.page_source, "html.parser")
                 
                 # IMPORTANT: Only look within the MAIN content area, not the sidebar
                 # The main education list is typically in a <main> tag or specific section
@@ -1392,33 +1392,33 @@ class LinkedInSearchScraper:
                 
                 if not main_content:
                     # Fallback: try to find the education list container
-                    main_content = soup. find('div', {'class': lambda x: x and 'scaffold-layout__main' in (x or '')})
+                    main_content = soup.find('div', {'class': lambda x: x and 'scaffold-layout__main' in (x or '')})
                 
                 if not main_content:
                     logger.warning("    ⚠️ Could not find main content area, using full page (may include sidebar)")
                     main_content = soup
                 
                 # Find all education entries in the MAIN content only
-                edu_entries = main_content. find_all('div', {'data-view-name': 'profile-component-entity'})
+                edu_entries = main_content.find_all('div', {'data-view-name': 'profile-component-entity'})
                 
                 logger.debug(f"    Found {len(edu_entries)} potential education entries")
                 
                 for edu_entry in edu_entries:
-                    spans = edu_entry. find_all('span', {'aria-hidden': 'true'})
+                    spans = edu_entry.find_all('span', {'aria-hidden': 'true'})
                     if len(spans) > 0:
-                        school = spans[0].get_text(strip=True). replace('', '').strip()
+                        school = spans[0].get_text(strip=True).replace('', '').strip()
                         
                         if not school:
                             continue
                         
                         # FILTER: Check if this looks like an educational institution
-                        school_lower = school. lower()
+                        school_lower = school.lower()
                         is_education = any(keyword in school_lower for keyword in education_keywords)
                         
                         # Also check if it has degree-related text nearby (Master's, Bachelor's, PhD, etc.)
                         has_degree_info = False
                         if len(spans) > 1:
-                            degree_text = spans[1]. get_text(strip=True).lower()
+                            degree_text = spans[1].get_text(strip=True).lower()
                             degree_keywords = ['degree', 'bachelor', 'master', 'phd', 'doctor', 'associate', 'diploma', 'certificate', 'bs', 'ba', 'ms', 'ma', 'mba']
                             has_degree_info = any(dk in degree_text for dk in degree_keywords)
                         
@@ -1462,7 +1462,7 @@ class LinkedInSearchScraper:
                 logger.info(f"    📚 Scraped {len(all_education)} valid education entries: {all_education}")
                 
                 # Go back to main profile
-                self.driver. get(profile_url)
+                self.driver.get(profile_url)
                 time.sleep(2)
             else:
                 logger.debug("    No 'Show all educations' link found")
@@ -1956,11 +1956,11 @@ class LinkedInSearchScraper:
                         # Apply UNT details if found
                         if unt_details:
                             logger.info(f"    🎓 Applying UNT details from expanded education page")
-                            if unt_details. get('education'):
+                            if unt_details.get('education'):
                                 profile_data["education"] = unt_details['education']
-                            if unt_details. get('major'):
+                            if unt_details.get('major'):
                                 profile_data["major"] = unt_details['major']
-                            if unt_details. get('graduation_year'):
+                            if unt_details.get('graduation_year'):
                                 profile_data["graduation_year"] = unt_details['graduation_year']
                         # Merge with existing education list
                         existing_edu = profile_data.get('all_education', [])
