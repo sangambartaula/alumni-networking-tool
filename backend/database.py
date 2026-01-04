@@ -18,6 +18,7 @@ MYSQL_PASSWORD = os.getenv('MYSQLPASSWORD')
 MYSQL_DATABASE = os.getenv('MYSQL_DATABASE')
 MYSQL_PORT = int(os.getenv('MYSQLPORT', 3306))
 
+
 def get_connection():
     """Get a MySQL database connection"""
     return mysql.connector.connect(
@@ -27,6 +28,7 @@ def get_connection():
         database=MYSQL_DATABASE,
         port=MYSQL_PORT
     )
+
 
 def init_db():
     """Initialize database tables if they don't exist"""
@@ -49,6 +51,10 @@ def init_db():
             logger.info("users table created/verified")
 
             # Create alumni table
+            # Added columns:
+            # - school_start_date (TEXT) : store "YYYY" or "Mon YYYY"
+            # - job_start_date, job_end_date (TEXT) : store "YYYY" or "Mon YYYY" or "Present" (end only)
+            # - working_while_studying (BOOLEAN)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS alumni (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -61,6 +67,10 @@ def init_db():
                     company VARCHAR(255),
                     location VARCHAR(255),
                     headline VARCHAR(500),
+                    school_start_date VARCHAR(20) DEFAULT NULL,
+                    job_start_date VARCHAR(20) DEFAULT NULL,
+                    job_end_date VARCHAR(20) DEFAULT NULL,
+                    working_while_studying BOOLEAN DEFAULT NULL,
                     latitude DOUBLE NULL,
                     longitude DOUBLE NULL,
                     scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -124,9 +134,96 @@ def init_db():
 
             conn.commit()
             logger.info("All tables initialized successfully")
-            
+
     except mysql.connector.Error as err:
         logger.error(f"Database error: {err}")
+        raise
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# ============================================================
+# MIGRATIONS / COLUMN ENSURANCE
+# ============================================================
+
+def ensure_alumni_timestamp_columns():
+    """Ensure scraped_at and last_updated columns exist in alumni table"""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Add scraped_at column if it doesn't exist
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                """)
+                logger.info("Added scraped_at column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("scraped_at column already exists")
+                else:
+                    raise
+
+            # Add last_updated column if it doesn't exist
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                """)
+                logger.info("Added last_updated column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("last_updated column already exists")
+                else:
+                    raise
+
+            conn.commit()
+    except mysql.connector.Error as err:
+        logger.error(f"Error ensuring timestamp columns: {err}")
+        raise
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def ensure_alumni_work_school_date_columns():
+    """
+    Ensure new columns exist for:
+      - school_start_date
+      - job_start_date
+      - job_end_date
+      - working_while_studying
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            def add_col(sql, name):
+                try:
+                    cur.execute(sql)
+                    logger.info(f"Added {name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        logger.info(f"{name} column already exists")
+                    else:
+                        raise
+
+            add_col("ALTER TABLE alumni ADD COLUMN school_start_date VARCHAR(20) DEFAULT NULL", "school_start_date")
+            add_col("ALTER TABLE alumni ADD COLUMN job_start_date VARCHAR(20) DEFAULT NULL", "job_start_date")
+            add_col("ALTER TABLE alumni ADD COLUMN job_end_date VARCHAR(20) DEFAULT NULL", "job_end_date")
+            add_col("ALTER TABLE alumni ADD COLUMN working_while_studying BOOLEAN DEFAULT NULL", "working_while_studying")
+
+            conn.commit()
+    except mysql.connector.Error as err:
+        logger.error(f"Error ensuring work/school date columns: {err}")
         raise
     finally:
         if conn:
@@ -142,7 +239,7 @@ def init_db():
 
 def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
     """
-    Save a visited profile to the visited_profiles table. 
+    Save a visited profile to the visited_profiles table.
     This tracks ALL profiles we've ever visited (UNT and non-UNT).
     """
     conn = None
@@ -158,10 +255,10 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
                     notes = COALESCE(VALUES(notes), notes)
             """, (linkedin_url.strip(), is_unt_alum, notes))
             conn.commit()
-        
+
         logger.debug(f"💾 Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
         return True
-        
+
     except mysql.connector.Error as err:
         logger.error(f"Error saving visited profile: {err}")
         return False
@@ -176,7 +273,7 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
 def get_all_visited_profiles():
     """
     Get all visited profiles from the visited_profiles table.
-    Returns a list of dicts with linkedin_url, is_unt_alum, visited_at, last_checked, needs_update. 
+    Returns a list of dicts with linkedin_url, is_unt_alum, visited_at, last_checked, needs_update.
     """
     conn = None
     try:
@@ -187,10 +284,10 @@ def get_all_visited_profiles():
                 FROM visited_profiles
             """)
             profiles = cur.fetchall()
-        
+
         logger.info(f"✓ Retrieved {len(profiles)} visited profiles from database")
         return profiles
-        
+
     except mysql.connector.Error as err:
         logger.error(f"Error fetching visited profiles: {err}")
         return []
@@ -214,9 +311,9 @@ def mark_profile_needs_update(linkedin_url, needs_update=True):
                 WHERE linkedin_url = %s
             """, (needs_update, linkedin_url.strip()))
             conn.commit()
-        
+
         return True
-        
+
     except mysql.connector.Error as err:
         logger.error(f"Error updating profile needs_update flag: {err}")
         return False
@@ -230,7 +327,7 @@ def mark_profile_needs_update(linkedin_url, needs_update=True):
 
 def sync_alumni_to_visited_profiles():
     """
-    Sync all existing alumni records to the visited_profiles table. 
+    Sync all existing alumni records to the visited_profiles table.
     This ensures all UNT alumni are marked as visited.
     """
     conn = None
@@ -249,10 +346,10 @@ def sync_alumni_to_visited_profiles():
             """)
             synced = cur.rowcount
             conn.commit()
-        
+
         logger.info(f"✓ Synced {synced} alumni to visited_profiles table")
         return synced
-        
+
     except mysql.connector.Error as err:
         logger.error(f"Error syncing alumni to visited_profiles: {err}")
         return 0
@@ -266,39 +363,39 @@ def sync_alumni_to_visited_profiles():
 
 def migrate_visited_history_csv_to_db():
     """
-    One-time migration: Import visited_history.csv into the visited_profiles table. 
+    One-time migration: Import visited_history.csv into the visited_profiles table.
     This preserves all the non-UNT profiles we've already visited.
     """
     # Find the CSV file
     backend_dir = Path(os.path.dirname(os.path.abspath(__file__)))
     project_root = backend_dir.parent
     csv_path = project_root / 'scraper' / 'output' / 'visited_history.csv'
-    
+
     if not csv_path.exists():
         logger.info("No visited_history.csv found to migrate")
         return 0
-    
+
     conn = None
     try:
         df = pd.read_csv(csv_path)
         logger.info(f"📂 Migrating {len(df)} entries from visited_history.csv to database...")
-        
+
         conn = get_connection()
         migrated = 0
-        
+
         with conn.cursor() as cur:
             for _, row in df.iterrows():
                 url = str(row.get('profile_url', '')).strip()
                 if not url:
                     continue
-                
+
                 saved = str(row.get('saved', 'no')).strip().lower() == 'yes'
                 visited_at = row.get('visited_at', None)
-                
+
                 # Handle NaN/empty visited_at
                 if pd.isna(visited_at) or visited_at == 'nan' or visited_at == '':
                     visited_at = None
-                
+
                 try:
                     cur.execute("""
                         INSERT INTO visited_profiles (linkedin_url, is_unt_alum, visited_at, last_checked)
@@ -311,12 +408,12 @@ def migrate_visited_history_csv_to_db():
                 except mysql.connector.Error as err:
                     logger.warning(f"Skipping {url}: {err}")
                     continue
-            
+
             conn.commit()
-        
+
         logger.info(f"✅ Migrated {migrated} profiles from CSV to database")
         return migrated
-        
+
     except Exception as e:
         logger.error(f"Error migrating visited history: {e}")
         return 0
@@ -343,9 +440,9 @@ def get_visited_profiles_stats():
                 FROM visited_profiles
             """)
             stats = cur.fetchone()
-        
+
         return stats
-        
+
     except mysql.connector.Error as err:
         logger.error(f"Error getting visited profiles stats: {err}")
         return None
@@ -361,55 +458,12 @@ def get_visited_profiles_stats():
 # EXISTING FUNCTIONS
 # ============================================================
 
-def ensure_alumni_timestamp_columns():
-    """Ensure scraped_at and last_updated columns exist in alumni table"""
-    conn = None
-    try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            # Add scraped_at column if it doesn't exist
-            try:
-                cur.execute("""
-                    ALTER TABLE alumni 
-                    ADD COLUMN scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                """)
-                logger.info("Added scraped_at column to alumni table")
-            except mysql.connector.Error as err:
-                if "Duplicate column name" in str(err):
-                    logger.info("scraped_at column already exists")
-                else:
-                    raise
-            
-            # Add last_updated column if it doesn't exist
-            try:
-                cur.execute("""
-                    ALTER TABLE alumni 
-                    ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                """)
-                logger.info("Added last_updated column to alumni table")
-            except mysql.connector.Error as err:
-                if "Duplicate column name" in str(err):
-                    logger.info("last_updated column already exists")
-                else:
-                    raise
-            
-            conn.commit()
-    except mysql.connector.Error as err:
-        logger.error(f"Error ensuring timestamp columns: {err}")
-        raise
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
 def seed_alumni_data():
     """Import alumni data from CSV file"""
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(backend_dir)
     csv_path = os.path.join(project_root, 'scraper', 'output', 'UNT_Alumni_Data.csv')
-    
+
     if not os.path.exists(csv_path):
         logger.warning(f"CSV file not found at {csv_path}, skipping import")
         return
@@ -418,42 +472,62 @@ def seed_alumni_data():
         df = pd.read_csv(csv_path)
         logger.info(f"✅ Importing alumni data from {csv_path}")
         logger.info(f"📊 Found {len(df)} records to import")
-        
+
         conn = get_connection()
         added = 0
         updated = 0
         processed = 0
-        
+
         try:
             with conn.cursor() as cur:
                 for index, row in df.iterrows():
                     processed += 1
-                    
+
                     # Parse name
                     name = str(row['name']).strip() if pd.notna(row['name']) else ''
                     if not name:
                         continue
-                    
+
                     parts = name.split()
                     first_name = parts[0] if len(parts) > 0 else ''
                     last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
-                    
+
                     # Extract other fields
-                    headline = str(row['headline']).strip() if pd.notna(row['headline']) else None
-                    location = str(row['location']).strip() if pd.notna(row['location']) else None
-                    job_title = str(row['job_title']).strip() if pd.notna(row['job_title']) else None
-                    company = str(row['company']).strip() if pd.notna(row['company']) else None
-                    major = str(row['major']).strip() if pd.notna(row['major']) else None
-                    grad_year = int(row['graduation_year']) if pd.notna(row['graduation_year']) else None
-                    profile_url = str(row['profile_url']).strip() if pd.notna(row['profile_url']) else None
-                    scraped_at = str(row['scraped_at']).strip() if pd.notna(row['scraped_at']) else None
-                    
+                    headline = str(row['headline']).strip() if pd.notna(row.get('headline')) else None
+                    location = str(row['location']).strip() if pd.notna(row.get('location')) else None
+                    job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
+                    company = str(row['company']).strip() if pd.notna(row.get('company')) else None
+                    major = str(row['major']).strip() if pd.notna(row.get('major')) else None
+                    grad_year = int(row['graduation_year']) if pd.notna(row.get('graduation_year')) else None
+                    profile_url = str(row['profile_url']).strip() if pd.notna(row.get('profile_url')) else None
+                    scraped_at = str(row['scraped_at']).strip() if pd.notna(row.get('scraped_at')) else None
+
+                    # New fields (may not exist in older CSVs)
+                    school_start_date = str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date', None)) else None
+                    job_start_date = str(row.get('job_start_date', '')).strip() if pd.notna(row.get('job_start_date', None)) else None
+                    job_end_date = str(row.get('job_end_date', '')).strip() if pd.notna(row.get('job_end_date', None)) else None
+                    wws_raw = row.get('working_while_studying', None)
+                    working_while_studying = None
+                    if pd.notna(wws_raw):
+                        if isinstance(wws_raw, str):
+                            v = wws_raw.strip().lower()
+                            if v in ("yes", "true", "1"):
+                                working_while_studying = True
+                            elif v in ("no", "false", "0"):
+                                working_while_studying = False
+                        elif isinstance(wws_raw, (int, float)):
+                            working_while_studying = bool(int(wws_raw))
+
                     # Insert or update into database
                     try:
                         cur.execute("""
                             INSERT INTO alumni 
-                            (first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline, scraped_at, last_updated)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            (first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline, 
+                             school_start_date, job_start_date, job_end_date, working_while_studying,
+                             scraped_at, last_updated)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s,
+                                    %s, %s)
                             ON DUPLICATE KEY UPDATE
                             first_name = VALUES(first_name),
                             last_name = VALUES(last_name),
@@ -463,6 +537,10 @@ def seed_alumni_data():
                             company = VALUES(company),
                             location = VALUES(location),
                             headline = VALUES(headline),
+                            school_start_date = VALUES(school_start_date),
+                            job_start_date = VALUES(job_start_date),
+                            job_end_date = VALUES(job_end_date),
+                            working_while_studying = VALUES(working_while_studying),
                             last_updated = VALUES(last_updated)
                         """, (
                             first_name,
@@ -474,10 +552,14 @@ def seed_alumni_data():
                             company,
                             location,
                             headline,
+                            school_start_date,
+                            job_start_date,
+                            job_end_date,
+                            working_while_studying,
                             scraped_at,
                             scraped_at
                         ))
-                        
+
                         if cur.rowcount == 1:
                             added += 1
                         elif cur.rowcount == 2:
@@ -485,7 +567,7 @@ def seed_alumni_data():
                     except mysql.connector.Error as err:
                         logger.warning(f"Skipping record for {name}: {err}")
                         continue
-                
+
                 conn.commit()
                 logger.info(f"✅ Added {added} new alumni records")
                 logger.info(f"✅ Updated {updated} existing alumni records")
@@ -495,10 +577,11 @@ def seed_alumni_data():
                 conn.close()
             except Exception:
                 pass
-                
+
     except Exception as e:
         logger.error(f"Error importing alumni data: {e}")
         raise
+
 
 def truncate_dot_fields():
     """Remove anything after '·' in location, company, and current_job_title"""
@@ -537,28 +620,29 @@ if __name__ == "__main__":
         missing = [var for var in required_vars if not os.getenv(var)]
         if missing:
             raise ValueError(f"Missing environment variables: {', '.join(missing)}")
-        
+
         logger.info("All required environment variables validated")
         logger.info("Starting database initialization...")
         logger.info(f"Database '{MYSQL_DATABASE}' ensured")
-        
+
         # Initialize tables
         init_db()
         ensure_alumni_timestamp_columns()
-        
+        ensure_alumni_work_school_date_columns()
+
         # Seed alumni data
         seed_alumni_data()
         truncate_dot_fields()
-        
+
         # Migrate visited_history.csv to database (one-time)
         logger.info("\n" + "="*60)
         logger.info("MIGRATING VISITED HISTORY TO DATABASE")
         logger.info("="*60)
         migrate_visited_history_csv_to_db()
-        
+
         # Sync alumni to visited_profiles
         sync_alumni_to_visited_profiles()
-        
+
         # Show stats
         stats = get_visited_profiles_stats()
         if stats:
@@ -567,35 +651,46 @@ if __name__ == "__main__":
             logger.info(f"   UNT Alumni: {stats['unt_alumni']}")
             logger.info(f"   Non-UNT: {stats['non_unt']}")
             logger.info(f"   Needs update: {stats['needs_update']}")
-        
+
         # Test connection
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute("SELECT NOW()")
             db_time = cur.fetchone()[0]
             logger.info(f"\nDatabase connection successful. DB time: {db_time}")
-            
+
             cur.execute("SELECT COUNT(*) FROM alumni")
             count = cur.fetchone()[0]
             logger.info(f"Alumni in database: {count} records")
-            
+
             cur.execute("SELECT COUNT(*) FROM visited_profiles")
             visited_count = cur.fetchone()[0]
             logger.info(f"Visited profiles in database: {visited_count} records")
-            
+
             if count > 0:
-                cur.execute("SELECT id, first_name, last_name, current_job_title, headline, grad_year FROM alumni LIMIT 10")
+                cur.execute("""
+                    SELECT id, first_name, last_name, current_job_title, headline, grad_year,
+                           school_start_date, job_start_date, job_end_date, working_while_studying
+                    FROM alumni
+                    LIMIT 10
+                """)
                 for row in cur.fetchall():
-                    alumni_id, fname, lname, job, head, grad = row
+                    (
+                        alumni_id, fname, lname, job, head, grad,
+                        school_start, job_start, job_end, wws
+                    ) = row
                     display_job = job or head or 'None'
-                    logger.info(f"  - {fname} {lname} ({display_job}) - Grad: {grad}")
-        
+                    logger.info(
+                        f"  - {fname} {lname} ({display_job}) - Grad: {grad} | "
+                        f"SchoolStart: {school_start} | Job: {job_start}-{job_end} | WorkingWhileStudying: {wws}"
+                    )
+
         conn.close()
-        
+
         logger.info("\n" + "="*60)
         logger.info("✅ DATABASE INITIALIZATION COMPLETE")
         logger.info("="*60)
-        
+
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         exit(1)

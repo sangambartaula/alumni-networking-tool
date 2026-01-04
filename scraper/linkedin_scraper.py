@@ -94,7 +94,17 @@ COOKIES_FILE = OUTPUT_DIR / LINKEDIN_COOKIES_PATH
 VISITED_HISTORY_FILE = OUTPUT_DIR / "visited_history.csv"
 VISITED_HISTORY_COLUMNS = ['profile_url', 'saved', 'visited_at', 'update_needed', 'last_db_update']
 
-CSV_COLUMNS = ['name', 'headline', 'location', 'job_title', 'company', 'education', 'major', 'graduation_year', 'profile_url', 'scraped_at']
+# Added columns:
+# - school_start_date: start of latest UNT education (supports year only or month+year)
+# - job_start_date, job_end_date: for latest experience entry (supports year only or month+year)
+# - working_while_studying: yes/no (based on overlap rules described)
+CSV_COLUMNS = [
+    'name', 'headline', 'location',
+    'job_title', 'company', 'job_start_date', 'job_end_date',
+    'education', 'major', 'school_start_date', 'graduation_year',
+    'working_while_studying',
+    'profile_url', 'scraped_at'
+]
 
 logger.info(f"SCRAPER_MODE: {SCRAPER_MODE}")
 logger.info(f"TESTING MODE: {TESTING}")
@@ -193,11 +203,21 @@ class LinkedInSearchScraper:
     # Regex/constants
     # ============================================================
     _MONTHS_RE = r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+
+    # Existing: month-year range used for Experience
     _EXPERIENCE_RANGE_RE = re.compile(
         rf"^{_MONTHS_RE}\s+\d{{4}}\s*[-–—]\s*(Present|{_MONTHS_RE}\s+\d{{4}})",
         re.IGNORECASE
     )
+
+    # New: "year - year/Present" and "Mon YYYY - Mon YYYY/Present" and mix (Mon YYYY - YYYY)
+    _DATE_RANGE_RE = re.compile(
+        rf"(?P<start>(?:{_MONTHS_RE}\s+\d{{4}})|(?:\d{{4}}))\s*[-–—]\s*(?P<end>(?:Present)|(?:{_MONTHS_RE}\s+\d{{4}})|(?:\d{{4}}))",
+        re.IGNORECASE
+    )
+
     _YEAR_RANGE_RE = re.compile(r"(\d{4})\s*[-–—]\s*(\d{4}|Present)", re.IGNORECASE)
+    _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 
     _UNT_KEYWORDS = ("unt", "university of north texas", "north texas")
 
@@ -226,6 +246,195 @@ class LinkedInSearchScraper:
 
         self.ensure_csv_headers()
         self._ensure_visited_history_headers()
+
+    # ============================================================
+    # Date parsing + overlap logic
+    # ============================================================
+
+    def _month_to_num(self, m: str) -> int:
+        month_map = {
+            "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+            "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
+        }
+        return month_map.get((m or "").strip().title(), 0)
+
+    def _parse_date_token(self, token: str):
+        """
+        Parse a token that may be:
+        - "2024"
+        - "Aug 2022"
+        - "Present"
+        Returns dict:
+          {
+            "raw": str,
+            "is_present": bool,
+            "year": int|None,
+            "month": int|None,
+            "has_month": bool
+          }
+        """
+        raw = (token or "").strip()
+        if not raw:
+            return {"raw": "", "is_present": False, "year": None, "month": None, "has_month": False}
+
+        if raw.lower().startswith("present"):
+            return {"raw": "Present", "is_present": True, "year": None, "month": None, "has_month": False}
+
+        mm = re.match(rf"^(?P<m>{self._MONTHS_RE})\s+(?P<y>\d{{4}})$", raw, re.I)
+        if mm:
+            m = mm.group("m").title()
+            y = int(mm.group("y"))
+            return {"raw": f"{m} {y}", "is_present": False, "year": y, "month": self._month_to_num(m), "has_month": True}
+
+        yy = re.match(r"^(?P<y>\d{4})$", raw)
+        if yy:
+            y = int(yy.group("y"))
+            return {"raw": f"{y}", "is_present": False, "year": y, "month": None, "has_month": False}
+
+        # Unknown format; keep raw but mark unparsable
+        return {"raw": raw, "is_present": False, "year": None, "month": None, "has_month": False}
+
+    def _parse_date_range_line(self, line: str):
+        """
+        Extract a start/end date from a line like:
+        - "2022 – 2024"
+        - "Aug 2022 - May 2024"
+        - "Aug 2022 - 2024"
+        - "2024 - Present"
+        Returns (start_dict, end_dict) or (None, None)
+        """
+        if not line:
+            return None, None
+
+        m = self._DATE_RANGE_RE.search(line)
+        if not m:
+            return None, None
+
+        start = self._parse_date_token(m.group("start"))
+        end = self._parse_date_token(m.group("end"))
+
+        # If we couldn't parse year, treat as invalid
+        if (not start.get("is_present")) and (start.get("year") is None):
+            return None, None
+        if (not end.get("is_present")) and (end.get("year") is None):
+            return None, None
+
+        return start, end
+
+    def _format_date_for_storage(self, d: dict) -> str:
+        """
+        Store exactly as either:
+        - "YYYY"
+        - "Mon YYYY"
+        - "Present"
+        """
+        if not d:
+            return ""
+        if d.get("is_present"):
+            return "Present"
+        y = d.get("year")
+        if not y:
+            return ""
+        if d.get("has_month") and d.get("month"):
+            # use raw's normalized "Mon YYYY"
+            return d.get("raw") or ""
+        return str(y)
+
+    def _latest_end_sort_key(self, end_dict: dict):
+        """
+        For sorting date ranges by end date (latest first).
+        Present should sort as max.
+        For year-only, month=0.
+        """
+        if not end_dict:
+            return (0, 0)
+        if end_dict.get("is_present"):
+            return (9999, 12)
+        y = end_dict.get("year") or 0
+        m = end_dict.get("month") or 0
+        return (y, m)
+
+    def _date_to_comparable(self, d: dict, bound: str):
+        """
+        Convert a parsed date dict to a comparable (year, month, granularity) tuple.
+        granularity: "month" or "year"
+        bound affects how to interpret year-only dates:
+          - for "start": treat year-only as (year, 1)
+          - for "end": treat year-only as (year, 12)
+        Present -> (9999, 12, "month")
+        """
+        if not d:
+            return None
+        if d.get("is_present"):
+            return (9999, 12, "month")
+
+        y = d.get("year")
+        if not y:
+            return None
+
+        if d.get("has_month") and d.get("month"):
+            return (y, int(d.get("month")), "month")
+
+        # year-only
+        if bound == "start":
+            return (y, 1, "year")
+        return (y, 12, "year")
+
+    def _working_while_studying(self, school_start: dict, school_end: dict, job_start: dict, job_end: dict) -> bool:
+        """
+        Rules from prompt:
+        - Assume no overlap if the end of one and start of one are the same year.
+        - Check for month if present in BOTH.
+          Example:
+            School: Aug 2022 - May 2025
+            Job:   April 2025 - Present  => overlap (months provided for both)
+            School: Aug 2022 - May 2025
+            Job:   2025 - Present         => NOT overlap (job is year-only; same year boundary doesn't count)
+        Approach:
+        - If both sides have month granularity for the boundary comparison, do month-level overlap.
+        - Otherwise do year-level overlap, but treat same-year boundary as NOT overlapping.
+        """
+        ss = self._date_to_comparable(school_start, "start")
+        se = self._date_to_comparable(school_end, "end")
+        js = self._date_to_comparable(job_start, "start")
+        je = self._date_to_comparable(job_end, "end")
+
+        if not (ss and se and js and je):
+            return False
+
+        # Determine if we can do month-precise checks: only if both ranges have month granularity on their endpoints.
+        # We'll consider month-precise overlap if BOTH:
+        # - school has months for start+end
+        # - job has months for start and (end is month OR present)
+        school_month_precise = bool(school_start.get("has_month") and school_end.get("has_month"))
+        job_month_precise = bool(job_start.get("has_month") and (job_end.get("has_month") or job_end.get("is_present")))
+
+        if school_month_precise and job_month_precise:
+            # Standard interval overlap with month precision
+            # overlap if js <= se AND ss <= je
+            return (js[0], js[1]) <= (se[0], se[1]) and (ss[0], ss[1]) <= (je[0], je[1])
+
+        # Year-level overlap with "same-year boundary is NOT overlap"
+        ss_y, se_y, js_y, je_y = ss[0], se[0], js[0], je[0]
+
+        # If job starts after school ends -> no overlap
+        if js_y > se_y:
+            return False
+
+        # If school starts after job ends -> no overlap
+        if ss_y > je_y:
+            return False
+
+        # Boundary condition: "Assume no overlap if the end of one and start of one are the same year."
+        # If job starts in same year school ends, do NOT count as overlap (unless we handled month-precise above).
+        if js_y == se_y:
+            return False
+
+        # If school starts in same year job ends, do NOT count as overlap
+        if ss_y == je_y:
+            return False
+
+        return True
 
     # ============================================================
     # Render helpers (focus + readiness waits)
@@ -527,45 +736,35 @@ class LinkedInSearchScraper:
                 uniq.append(l)
         return uniq
 
-    def _parse_experience_end_key(self, date_line: str):
-        if not date_line:
-            return (0, 0)
-
-        parts = re.split(r"[-–—]", date_line)
-        if len(parts) < 2:
-            return (0, 0)
-
-        end = parts[1].strip()
-        if end.lower().startswith("present"):
-            return (9999, 12)
-
-        mm = re.match(rf"^{self._MONTHS_RE}\s+(\d{{4}})", end, re.I)
-        if not mm:
-            return (0, 0)
-
-        month_str = mm.group(1).title()
-        year = int(mm.group(2))
-        month_map = {
-            "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
-            "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
-        }
-        return (year, month_map.get(month_str, 0))
-
     def _extract_best_experience(self, soup: BeautifulSoup):
+        """
+        Returns:
+          (job_title, company, job_start_dict, job_end_dict)
+        based on the latest experience entry by end date (Present wins, then latest end date).
+        Supports date lines with:
+          - "YYYY - YYYY/Present"
+          - "Mon YYYY - Mon YYYY/Present"
+          - "Mon YYYY - YYYY"
+        """
         exp_root = self._find_section_root_by_heading(soup, "Experience")
         if not exp_root:
-            return "", ""
+            return "", "", None, None
 
         candidates = []
         for div in exp_root.find_all("div"):
             lines = self._p_texts_excluding_skills_and_descriptions(div)
-            if any(self._EXPERIENCE_RANGE_RE.search(t) for t in lines):
+            # collect date lines that have ANY supported range format
+            if any(self._DATE_RANGE_RE.search(t) for t in lines):
                 candidates.append(lines)
 
         parsed = []
         for lines in candidates:
-            date_idx = next((i for i, t in enumerate(lines) if self._EXPERIENCE_RANGE_RE.search(t)), None)
+            date_idx = next((i for i, t in enumerate(lines) if self._DATE_RANGE_RE.search(t)), None)
             if date_idx is None:
+                continue
+
+            start_d, end_d = self._parse_date_range_line(lines[date_idx])
+            if not (start_d and end_d):
                 continue
 
             context = [t for t in lines[max(0, date_idx - 3):date_idx] if t]
@@ -594,18 +793,48 @@ class LinkedInSearchScraper:
             jt = clean_job_title(title_candidate)
             co = self._clean_company_line(company_candidate)
 
-            end_key = self._parse_experience_end_key(lines[date_idx])
+            end_key = self._latest_end_sort_key(end_d)
             if jt or co:
-                parsed.append((end_key, jt, co))
+                parsed.append((end_key, jt, co, start_d, end_d))
 
         if not parsed:
-            return "", ""
+            return "", "", None, None
 
         parsed.sort(key=lambda x: x[0], reverse=True)
-        _, job_title, company = parsed[0]
-        return job_title or "", company or ""
+        _, job_title, company, start_d, end_d = parsed[0]
+        return job_title or "", company or "", start_d, end_d
+
+    def _looks_like_invalid_degree_text(self, degree_text: str) -> bool:
+        """
+        If degree has something like "2023 - Jul 2024", filter it out.
+        We treat degree lines that contain a date range (or are mostly dates) as invalid.
+        """
+        t = (degree_text or "").strip()
+        if not t:
+            return True
+
+        # Contains a date range -> invalid as "major/degree"
+        if self._DATE_RANGE_RE.search(t):
+            return True
+
+        # If it's basically only years and punctuation
+        only_datey = re.sub(r"[0-9\s\-–—/().,]", "", t)
+        if only_datey.strip() == "":
+            return True
+
+        return False
 
     def _extract_education_entries(self, soup: BeautifulSoup):
+        """
+        Returns list of entries:
+          {
+            "school": str,
+            "degree": str,
+            "graduation_year": str,  # keep existing behavior (end year if present)
+            "school_start": dict|None,
+            "school_end": dict|None
+          }
+        """
         edu_root = self._find_section_root_by_heading(soup, "Education")
         if not edu_root:
             return []
@@ -622,25 +851,48 @@ class LinkedInSearchScraper:
             if not school or len(school) < 3:
                 continue
 
+            # Find a date range line within remaining lines
+            school_start = None
+            school_end = None
             grad_year = ""
+
             for t in lines[2:]:
-                if self._YEAR_RANGE_RE.search(t) or re.search(r"\b(19|20)\d{2}\b", t):
-                    years = re.findall(r"\d{4}", t)
-                    if years:
-                        grad_year = years[-1]
+                s_d, e_d = self._parse_date_range_line(t)
+                if s_d and e_d:
+                    school_start, school_end = s_d, e_d
+                    # grad_year stays as "end year" if present and not Present
+                    if not e_d.get("is_present") and e_d.get("year"):
+                        grad_year = str(e_d.get("year"))
                     break
+
+                # fallback: if any year appears, keep existing behavior (last year in line)
+                if self._YEAR_RANGE_RE.search(t) or self._YEAR_RE.search(t):
+                    years = re.findall(r"\d{4}", t)
+                    if years and not grad_year:
+                        grad_year = years[-1]
 
             school_hint = bool(re.search(r"(university|college|institute|school|academy)", school, re.I))
             degree_hint = bool(re.search(r"(degree|bachelor|master|phd|mba|\bbs\b|\bms\b|\bba\b|\bma\b)", degree, re.I))
             if not (school_hint or degree_hint):
                 continue
 
-            entries.append({"school": school, "degree": degree, "graduation_year": grad_year})
+            # Filter invalid degree text like "2023 - Jul 2024"
+            if self._looks_like_invalid_degree_text(degree):
+                logger.warning(f"    ⚠️ No Major Detected. Filtered out invalid text: {degree}")
+                degree = ""
+
+            entries.append({
+                "school": school,
+                "degree": degree,
+                "graduation_year": grad_year,
+                "school_start": school_start,
+                "school_end": school_end
+            })
 
         seen = set()
         uniq = []
         for e in entries:
-            key = (e["school"], e["degree"], e["graduation_year"])
+            key = (e["school"], e["degree"], e["graduation_year"], self._format_date_for_storage(e.get("school_start")), self._format_date_for_storage(e.get("school_end")))
             if key not in seen:
                 seen.add(key)
                 uniq.append(e)
@@ -1004,9 +1256,13 @@ class LinkedInSearchScraper:
             "location": "",
             "job_title": "",
             "company": "",
+            "job_start_date": "",
+            "job_end_date": "",
             "education": "",
             "major": "",
-            "graduation_year": "",
+            "school_start_date": "",
+            "graduation_year": "",  # keep grad date var the same
+            "working_while_studying": "",
             "profile_url": profile_url,
             "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "all_education": []
@@ -1065,10 +1321,12 @@ class LinkedInSearchScraper:
             profile_data["headline"] = headline
             profile_data["location"] = location if location else "Not Found"
 
-            # ===== Experience =====
-            jt, co = self._extract_best_experience(soup)
+            # ===== Experience (latest, including date range) =====
+            jt, co, job_start_d, job_end_d = self._extract_best_experience(soup)
             profile_data["job_title"] = jt
             profile_data["company"] = co
+            profile_data["job_start_date"] = self._format_date_for_storage(job_start_d)
+            profile_data["job_end_date"] = self._format_date_for_storage(job_end_d)
 
             # ===== Education =====
             edu_entries = self._extract_education_entries(soup)
@@ -1081,6 +1339,19 @@ class LinkedInSearchScraper:
                 profile_data["education"] = best_unt.get("school", "")
                 profile_data["major"] = best_unt.get("degree", "")
                 profile_data["graduation_year"] = best_unt.get("graduation_year", "")
+
+                school_start_d = best_unt.get("school_start")
+                school_end_d = best_unt.get("school_end")
+                profile_data["school_start_date"] = self._format_date_for_storage(school_start_d)
+
+                # Determine overlap flag (only if we have date ranges for both)
+                is_overlap = self._working_while_studying(
+                    school_start=school_start_d,
+                    school_end=school_end_d,
+                    job_start=job_start_d,
+                    job_end=job_end_d
+                )
+                profile_data["working_while_studying"] = "yes" if is_overlap else "no"
             else:
                 logger.info("    ❌ No UNT education found in main profile. Trying expanded education page...")
                 all_education_expanded, unt_details = self.scrape_all_education(profile_url)
@@ -1092,6 +1363,19 @@ class LinkedInSearchScraper:
                     profile_data["education"] = unt_details.get("education", "") or profile_data["education"]
                     profile_data["major"] = unt_details.get("major", "") or profile_data["major"]
                     profile_data["graduation_year"] = unt_details.get("graduation_year", "") or profile_data["graduation_year"]
+                    profile_data["school_start_date"] = unt_details.get("school_start_date", "") or profile_data["school_start_date"]
+
+                    # Overlap can only be computed if expanded page gave dates (it may not)
+                    if unt_details.get("school_start") and unt_details.get("school_end"):
+                        is_overlap = self._working_while_studying(
+                            school_start=unt_details.get("school_start"),
+                            school_end=unt_details.get("school_end"),
+                            job_start=job_start_d,
+                            job_end=job_end_d
+                        )
+                        profile_data["working_while_studying"] = "yes" if is_overlap else "no"
+                    else:
+                        profile_data["working_while_studying"] = ""
                 else:
                     logger.info("    ❌ No UNT found after expanding. Skipping profile.")
                     return None
@@ -1100,7 +1384,12 @@ class LinkedInSearchScraper:
             logger.info(f"    ✓ Headline: {profile_data['headline']}")
             logger.info(f"    ✓ Location: {profile_data['location']}")
             logger.info(f"    ✓ Job: {profile_data['job_title']} @ {profile_data['company']}")
-            logger.info(f"    ✓ Education: {profile_data['education']} | Major: {profile_data['major']} | Year: {profile_data['graduation_year']}")
+            logger.info(f"    ✓ Job Dates: {profile_data['job_start_date']} - {profile_data['job_end_date']}")
+            logger.info(
+                f"    ✓ Education: {profile_data['education']} | Major: {profile_data['major']} | "
+                f"Start: {profile_data['school_start_date']} | End: {profile_data['graduation_year']} | "
+                f"Working While Studying: {profile_data['working_while_studying']}"
+            )
             if len(profile_data.get('all_education', [])) > 1:
                 logger.info(f"    ✓ All Education: {profile_data['all_education']}")
 
@@ -1169,16 +1458,36 @@ class LinkedInSearchScraper:
                 if not is_education and not has_degree_info:
                     continue
 
+                # Filter invalid degree text like "2023 - Jul 2024"
+                if self._looks_like_invalid_degree_text(degree):
+                    logger.warning(f"    ⚠️ No Major Detected. Filtered out invalid text: {degree}")
+                    degree = ""
+
                 all_education.append(school)
 
                 if unt_details is None and any(k in school_lower for k in self._UNT_KEYWORDS):
-                    unt_details = {'education': school, 'major': degree, 'graduation_year': ''}
+                    unt_details = {
+                        'education': school,
+                        'major': degree,
+                        'graduation_year': '',
+                        'school_start_date': '',
+                        'school_start': None,
+                        'school_end': None
+                    }
 
                     for t in lines[2:]:
-                        year_matches = re.findall(r"\d{4}", t)
-                        if year_matches:
-                            unt_details['graduation_year'] = year_matches[-1]
+                        s_d, e_d = self._parse_date_range_line(t)
+                        if s_d and e_d:
+                            unt_details['school_start'] = s_d
+                            unt_details['school_end'] = e_d
+                            unt_details['school_start_date'] = self._format_date_for_storage(s_d)
+                            if not e_d.get("is_present") and e_d.get("year"):
+                                unt_details['graduation_year'] = str(e_d.get("year"))
                             break
+
+                        year_matches = re.findall(r"\d{4}", t)
+                        if year_matches and not unt_details['graduation_year']:
+                            unt_details['graduation_year'] = year_matches[-1]
 
             all_education = list(dict.fromkeys(all_education))
             logger.info(f"    📚 Scraped {len(all_education)} unique education entries")
@@ -1419,7 +1728,7 @@ class LinkedInSearchScraper:
         logger.info(f"\nDone! Total profiles scraped: {profiles_scraped}\nSaved to: {OUTPUT_CSV}\n")
 
     def run_search_mode(self):
-        base_search_url = "https://www.linkedin.com/search/results/people/?origin=FACETED_SEARCH&network=%5B%22O%22%5D&industry=%5B%221594%22%2C%226%22%2C%2296%22%2C%224%22%2C%22109%22%2C%22118%22%5D&schoolFilter=%5B%226464%22%5D"
+        base_search_url = "https://www.linkedin.com/search/results/people/?origin=FACETED_SEARCH&network=%5B%22O%22%5D&industry=%5B%221594%22%2C%226%22%2C%2296%22%2C%224%22%2C%22109%22%2C%22118%22%2C%22147%22%2C%22256%22%2C%22313%22%2C%2243%22%2C%22485%22%2C%22518%22%2C%2255%22%2C%2263%22%2C%2279%22%5D&schoolFilter=%5B%226464%22%5D"
 
         page = 1
         profiles_scraped = 0
