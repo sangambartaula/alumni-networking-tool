@@ -1,0 +1,369 @@
+import os
+import sys
+import time
+import random
+import urllib.parse
+import threading
+import pandas as pd
+from pathlib import Path
+
+# Local Modules
+import config
+import utils
+import database_handler
+from scraper import LinkedInScraper
+from config import logger
+
+# ============================================================
+# Exit Control (Graceful Shutdown)
+# ============================================================
+exit_requested = False  # "exit" - finish current profile then stop
+force_exit = False      # "force exit" - stop immediately
+_exit_listener_active = False
+
+def _exit_listener():
+    """Background thread that listens for exit commands."""
+    global exit_requested, force_exit, _exit_listener_active
+    
+    logger.info("💡 Type 'exit' to finish current profile and stop, or 'force exit' to stop immediately.")
+    
+    while _exit_listener_active:
+        try:
+            user_input = input().strip().lower()
+            if user_input == "force exit":
+                logger.warning("\n🔴 FORCE EXIT requested. Stopping immediately...")
+                force_exit = True
+                break
+            elif user_input == "exit":
+                logger.warning("\n🟡 EXIT requested. Will stop after current profile...")
+                exit_requested = True
+                break
+        except EOFError:
+            break
+        except Exception:
+            break
+
+def start_exit_listener():
+    """Start the exit command listener thread."""
+    global _exit_listener_active
+    _exit_listener_active = True
+    listener = threading.Thread(target=_exit_listener, daemon=True)
+    listener.start()
+
+def stop_exit_listener():
+    """Stop the exit listener."""
+    global _exit_listener_active
+    _exit_listener_active = False
+
+def should_stop():
+    """Check if scraping should stop (force exit or graceful exit after profile)."""
+    return exit_requested or force_exit
+
+def check_force_exit():
+    """Check if force exit was requested (immediate stop)."""
+    return force_exit
+
+# ============================================================
+# Helpers
+# ============================================================
+def wait_between_profiles():
+    """Random delay to avoid bot detection. Checks for force exit during wait."""
+    global force_exit
+    delay = random.uniform(config.MIN_DELAY, config.MAX_DELAY)
+    
+    logger.info(f"\n⏳ Waiting {delay:.1f}s before next profile...\n")
+    
+    # Break delay into small chunks and check for force exit
+    increment = delay / 10
+    for i in range(10):
+        if force_exit:
+            logger.warning("⚡ Force exit during wait - stopping immediately")
+            return
+        time.sleep(increment)
+
+# ============================================================
+# Mode: NAMES (Search by list of names)
+# ============================================================
+def run_names_mode(scraper, history_mgr):
+    input_csv = os.getenv("INPUT_CSV", "backend/engineering_graduate.csv")
+    csv_path = Path(__file__).resolve().parent.parent / input_csv
+    
+    logger.info(f"--- MODE: Names (Source: {csv_path}) ---")
+    names = utils.load_names_from_csv(csv_path)
+
+    if not names:
+        logger.warning(f"No names found in {csv_path}. Switching to Search Mode.")
+        run_search_mode(scraper, history_mgr)
+        return
+
+    profiles_scraped = 0
+    school_id = "6464" # UNT School ID
+
+    for i, name in enumerate(names, start=1):
+        # Check for exit request at start of each name
+        if should_stop():
+            logger.info("🛑 Exit requested. Stopping names mode.")
+            return
+        
+        logger.info(f"\n{'='*40}\nNAME {i}/{len(names)}: {name}\n{'='*40}")
+        
+        # specific search URL construction
+        q = urllib.parse.quote_plus(f'"{name}"')
+        search_url = (
+            f"https://www.linkedin.com/search/results/people/?"
+            f"keywords={q}&schoolFilter=%5B%22{school_id}%22%5D&origin=FACETED_SEARCH"
+        )
+        
+        scraper.driver.get(search_url)
+        time.sleep(5)
+        scraper.scroll_full_page()
+
+        profile_urls = scraper.extract_profile_urls_from_page()
+        limit = int(os.getenv("RESULTS_PER_SEARCH", "5") or 5)
+        profile_urls = profile_urls[:limit]
+
+        if not profile_urls:
+            logger.info(f"No profiles found for '{name}'.")
+            continue
+
+        for idx, url in enumerate(profile_urls, start=1):
+            # Check for force exit before each profile
+            if check_force_exit():
+                logger.info("🔴 Force exit. Stopping immediately.")
+                return
+            
+            if history_mgr.should_skip(url):
+                logger.info(f"[{idx}] ⊘ Skipping (already visited): {url}")
+                continue
+
+            logger.info(f"[{idx}] Scraping: {url}")
+            data = scraper.scrape_profile_page(url)
+
+            if data:
+                # Use search name as fallback if profile name is empty/hidden
+                data['name'] = data.get('name') or name
+                if database_handler.save_profile_to_csv(data):
+                    profiles_scraped += 1
+                    history_mgr.mark_as_visited(url, saved=True)
+                else:
+                    history_mgr.mark_as_visited(url, saved=False)
+            else:
+                # Failed scrape (blocked or error)
+                history_mgr.mark_as_visited(url, saved=False)
+
+            # Check for graceful exit after profile saved
+            if should_stop():
+                logger.info("🛑 Exit requested. Profile saved, stopping.")
+                return
+
+            if idx < len(profile_urls):
+                wait_between_profiles()
+
+# ============================================================
+# Mode: SEARCH (General Iteration)
+# ============================================================
+def run_search_mode(scraper, history_mgr):
+    logger.info("--- MODE: Search (Iterating through UNT Alumni) ---")
+    
+    # Base URL: UNT Alumni + Engineering/CS Keywords (approximate filter)
+    base_search_url = (
+        "https://www.linkedin.com/search/results/people/?origin=FACETED_SEARCH"
+        "&network=%5B%22O%22%5D" # 3rd+ connections
+        "&schoolFilter=%5B%226464%22%5D" # UNT
+    )
+
+    page = 1
+    profiles_scraped = 0
+
+    while True:
+        # Check for exit at start of each page
+        if should_stop():
+            logger.info("🛑 Exit requested. Stopping search mode.")
+            break
+        
+        logger.info(f"\n{'='*40}\nPAGE {page}\n{'='*40}")
+        search_url = base_search_url if page == 1 else f"{base_search_url}&page={page}"
+        
+        scraper.driver.get(search_url)
+        time.sleep(5)
+        scraper.scroll_full_page()
+        
+        urls = scraper.extract_profile_urls_from_page()
+        if not urls:
+            logger.info("No more profiles found. Exiting search loop.")
+            break
+
+        for idx, url in enumerate(urls, start=1):
+            # Check for force exit before each profile
+            if check_force_exit():
+                logger.info("🔴 Force exit. Stopping immediately.")
+                return
+            
+            if history_mgr.should_skip(url):
+                logger.info(f"[{idx}] ⊘ Skipping: {url}")
+                continue
+
+            logger.info(f"[{idx}] Scraping: {url}")
+            data = scraper.scrape_profile_page(url)
+
+            if data:
+                if database_handler.save_profile_to_csv(data):
+                    profiles_scraped += 1
+                    history_mgr.mark_as_visited(url, saved=True)
+                else:
+                    history_mgr.mark_as_visited(url, saved=False)
+            
+            # Check for graceful exit after profile saved
+            if should_stop():
+                logger.info("🛑 Exit requested. Profile saved, stopping.")
+                return
+            
+            if idx < len(urls):
+                wait_between_profiles()
+
+        page += 1
+
+# ============================================================
+# Mode: CONNECTIONS (From CSV export)
+# ============================================================
+def run_connections_mode(scraper, history_mgr):
+    csv_path = Path(__file__).resolve().parent.parent / config.CONNECTIONS_CSV_PATH
+    logger.info(f"--- MODE: Connections (Source: {csv_path}) ---")
+
+    try:
+        df = pd.read_csv(csv_path, skiprows=3) # LinkedIn exports usually have 3 junk rows
+    except Exception as e:
+        logger.error(f"Failed to read connections CSV: {e}")
+        return
+
+    # Clean DataFrame
+    df = df.dropna(subset=['URL'])
+    df = df[df['URL'].str.contains('linkedin.com/in/', na=False)]
+    
+    total = len(df)
+    logger.info(f"Found {total} valid connection URLs.")
+
+    for i, (_, row) in enumerate(df.iterrows(), start=1):
+        # Check for force exit before each profile
+        if check_force_exit():
+            logger.info("🔴 Force exit. Stopping immediately.")
+            return
+        
+        url = str(row.get('URL', '')).strip()
+        fname = str(row.get('First Name', '')).strip()
+        lname = str(row.get('Last Name', '')).strip()
+        full_name = f"{fname} {lname}"
+
+        logger.info(f"\nCONNECTION {i}/{total}: {full_name}")
+
+        if history_mgr.should_skip(url):
+            logger.info("⊘ Skipping (already visited)")
+            continue
+
+        data = scraper.scrape_profile_page(url)
+        if data:
+            data['name'] = data.get('name') or full_name
+            if database_handler.save_profile_to_csv(data):
+                history_mgr.mark_as_visited(url, saved=True)
+            else:
+                history_mgr.mark_as_visited(url, saved=False)
+        
+        # Check for graceful exit after profile saved
+        if should_stop():
+            logger.info("🛑 Exit requested. Profile saved, stopping.")
+            return
+        
+        if i < total:
+            wait_between_profiles()
+
+# ============================================================
+# Mode: UPDATE (Refresh old profiles)
+# ============================================================
+def run_update_mode(scraper, history_mgr, outdated_profiles):
+    logger.info(f"--- MODE: Update ({len(outdated_profiles)} profiles) ---")
+
+    for i, (url, fname, lname, last_updated) in enumerate(outdated_profiles, start=1):
+        # Check for force exit before each profile
+        if check_force_exit():
+            logger.info("🔴 Force exit. Stopping immediately.")
+            return
+        
+        full_name = f"{fname} {lname}"
+        logger.info(f"\nUPDATE {i}/{len(outdated_profiles)}: {full_name} (Last: {last_updated})")
+
+        # Force scrape even if visited recently (since we are in update mode)
+        data = scraper.scrape_profile_page(url)
+        
+        if data:
+            data['name'] = full_name
+            if database_handler.save_profile_to_csv(data):
+                logger.info(f"✅ Updated: {full_name}")
+                history_mgr.mark_as_visited(url, saved=True)
+            else:
+                history_mgr.mark_as_visited(url, saved=False)
+        else:
+            # If scrape failed (e.g. 404), mark visited so we don't loop it forever
+            history_mgr.mark_as_visited(url, saved=False)
+
+        # Check for graceful exit after profile saved
+        if should_stop():
+            logger.info("🛑 Exit requested. Profile saved, stopping.")
+            return
+
+        if i < len(outdated_profiles):
+            wait_between_profiles()
+
+# ============================================================
+# Main Execution
+# ============================================================
+
+def main():
+    # 1. Initialize History
+    history_mgr = database_handler.HistoryManager()
+    history_mgr.sync_with_db()
+
+    # 2. Setup Scraper
+    scraper = LinkedInScraper()
+    scraper.setup_driver()
+
+    try:
+        # 3. Login
+        if not scraper.login():
+            logger.error("Login failed. Exiting.")
+            return
+
+        # 4. Start exit listener (type 'exit' or 'force exit')
+        start_exit_listener()
+
+        # 5. Check for Updates
+        outdated, cutoff = database_handler.get_outdated_profiles_from_db()
+        if outdated:
+            logger.info(f"\n🔄 Found {len(outdated)} profiles older than {cutoff.date()}.")
+            choice = input("Run UPDATE mode to refresh them? (y/n): ").strip().lower()
+            if choice == 'y':
+                run_update_mode(scraper, history_mgr, outdated)
+                return # Exit after update
+
+        # 6. Run Selected Mode
+        mode = config.SCRAPER_MODE
+        if mode == "names":
+            run_names_mode(scraper, history_mgr)
+        elif mode == "search":
+            run_search_mode(scraper, history_mgr)
+        elif mode == "connections":
+            run_connections_mode(scraper, history_mgr)
+        else:
+            logger.error(f"Unknown SCRAPER_MODE: {mode}")
+
+    except KeyboardInterrupt:
+        logger.warning("\n🛑 Scraper stopped by user.")
+    except Exception as e:
+        logger.error(f"Fatal Error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        stop_exit_listener()
+        scraper.quit()
+
+if __name__ == "__main__":
+    main()
