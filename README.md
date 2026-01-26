@@ -4,28 +4,46 @@ A web-based application designed to help the College of Engineering connect with
 
 ---
 
-##  Features
+## Features
 
-- **LinkedIn Alumni Scraper:** Automated scraping of UNT alumni profiles with anti-bot measures  
-- **Data Timestamping:** Track when profiles were first scraped and last updated  
-- **Automatic Profile Updates:** Intelligently re-scrape outdated profiles based on configurable frequency (e.g., every 6 months)  
-- **Alumni Search:** Find alumni by name, graduation year, degree, or department  
-- **Profile Insights:** View LinkedIn profiles, career paths, and current positions  
-- **Networking:** Connect students with alumni for mentorship, internships, and professional guidance  
-- **Interactive Dashboard:** Visualize alumni distribution by location, industry, and role  
-- **Alumni Location Heatmap:** 🗺️ Interactive map showing alumni distribution worldwide with geocoded coordinates and location clustering  
-- **Secure Data Storage:** All scraped data stored in MySQL database with tracking and MySQL connection details  
+### LinkedIn Alumni Scraper
+- **Automated Profile Scraping** - Selenium-based scraper with anti-bot measures
+- **Multiple Scraping Modes:**
+  - **Search Mode** - Iterates through UNT alumni search results
+  - **Names Mode** - Searches specific names from a CSV file
+  - **Connections Mode** - Scrapes from your LinkedIn connections
+  - **Review Mode** - Re-scrapes flagged profiles to fix data issues
+  - **Update Mode** - Refreshes outdated profiles based on configurable frequency
+
+### Data Extraction
+- **Profile Information:** Name, headline, location
+- **Work Experience:** Up to 3 jobs with company, title, and date ranges
+- **Education:** School, degree/major, graduation year, school start date
+- **Working While Studying Detection:** Automatically determines if alumni worked during school
+
+### Data Management
+- **CSV Output** - All scraped data saved to `scraper/output/UNT_Alumni_Data.csv`
+- **MySQL Database** - Persistent storage with full profile data
+- **Visited Profile Tracking** - Prevents duplicate scraping across sessions
+- **Flagged Profile Review** - Re-scrape specific profiles to fix data issues
+- **Smart Duplicate Handling** - New data overwrites old when re-scraped
+
+### Web Application
+- **Alumni Search** - Find alumni by name, graduation year, degree, or department
+- **Profile Insights** - View LinkedIn profiles, career paths, and current positions
+- **Interactive Dashboard** - Visualize alumni distribution by location, industry, and role
+- **Alumni Location Heatmap** - Interactive map showing alumni distribution worldwide
+- **Secure Data Storage** - MySQL database with geocoded coordinates
 
 ---
 
-## Getting Started
+## Quick Start
 
 ### Prerequisites
-
-- Python 3.10+  
-- LinkedIn account (for cookie authentication)  
-- Chrome/Chromium browser (for Selenium scraper)  
-- Google Chrome WebDriver (chromedriver)  
+- Python 3.10+
+- Google Chrome browser
+- LinkedIn account
+- MySQL database (for web app features)
 
 ### Installation
 
@@ -33,155 +51,205 @@ A web-based application designed to help the College of Engineering connect with
    ```bash
    git clone https://github.com/sangambartaula/alumni-networking-tool
    cd alumni-networking-tool
+   ```
 
-2. **Create a virtual environment**
-python3 -m venv venv
-source venv/bin/activate  # macOS/Linux
-venv\Scripts\activate     # Windows
-
-3. **Install Dependencies**
-pip install -r requirements.txt
-
-4. **Environment Variables**
-Create a .env file in the project root and add LinkedIn credentials, scraper options, and database settings (see .env.example).
-
-5. **Run the application (or scraper):**
-
+2. **Create a virtual environment:**
    ```bash
-   python app.py                # Run the Flask web app
-   # or
-   python scraper/linkedin_scraper.py  # Run the LinkedIn scraper directly
+   python -m venv venv
+   venv\Scripts\activate     # Windows
+   source venv/bin/activate  # macOS/Linux
+   ```
 
-Open your browser at:
-http://localhost:5000
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Configure environment variables:**
+   Create a `.env` file in the project root (see `.env.example`):
+   ```
+   LINKEDIN_EMAIL=your_email@example.com
+   LINKEDIN_PASSWORD=your_password
+   SCRAPER_MODE=search
+   UPDATE_FREQUENCY=6 months
+   ```
+
+5. **Run the scraper:**
+   ```bash
+   cd scraper
+   python main.py
+   ```
+
+For detailed step-by-step instructions, see [GETTING_STARTED.md](GETTING_STARTED.md).
+
+---
+
+## Scraper Modes
+
+### Search Mode (Default)
+Iterates through LinkedIn's UNT alumni search results.
+```
+SCRAPER_MODE=search
+```
+
+### Names Mode
+Searches for specific people from an input CSV file.
+```
+SCRAPER_MODE=names
+INPUT_CSV=backend/engineering_graduate.csv
+```
+
+### Connections Mode
+Scrapes alumni from your LinkedIn connections.
+```
+SCRAPER_MODE=connections
+CONNECTIONS_CSV=connections.csv
+```
+
+### Review Mode
+Re-scrapes profiles listed in `scraper/output/flagged_for_review.txt`.
+```
+SCRAPER_MODE=review
+```
+Or: Add URLs to `flagged_for_review.txt` and the scraper will prompt you on startup.
+
+### Update Mode
+Automatically detects profiles older than `UPDATE_FREQUENCY` and prompts to re-scrape.
+
+---
+
+## Flagging Profiles for Review
+
+To fix bad data in existing profiles:
+
+1. Add LinkedIn URLs to `scraper/output/flagged_for_review.txt` (one per line):
+   ```
+   https://www.linkedin.com/in/john-doe-123
+   https://www.linkedin.com/in/jane-smith-456
+   # This is a comment (ignored)
+   ```
+
+2. Run the scraper - it will detect flagged profiles and prompt you:
+   ```
+   ==================================================
+   Found 2 profiles flagged for review.
+   ==================================================
+   >>> Run REVIEW mode to re-scrape them? (y/n): y
+   ```
+
+3. Successfully scraped profiles are removed from the file; failed ones remain for retry.
+
+---
+
+## Output Data
+
+### CSV Columns
+| Column | Description |
+|--------|-------------|
+| name | Full name |
+| headline | LinkedIn headline |
+| location | City, State, Country |
+| job_title | Current/latest job title |
+| company | Current/latest company |
+| job_start_date | Job start date |
+| job_end_date | Job end date |
+| exp2_title, exp2_company, exp2_dates | Second experience |
+| exp3_title, exp3_company, exp3_dates | Third experience |
+| education | School name (UNT) |
+| major | Degree/field of study |
+| school_start_date | When they started school |
+| graduation_year | Expected or actual graduation |
+| working_while_studying | "yes" or "no" |
+| profile_url | LinkedIn profile URL |
+| scraped_at | Timestamp of scrape |
+
+---
 
 ## Project Structure
 
-```bash
+```
 alumni-networking-tool/
+├── backend/
+│   ├── app.py              # Flask web application
+│   ├── database.py         # Database models and migrations
+│   └── geocoding.py        # Location geocoding service
 │
-├── .gitignore                     # Git ignore rules
-├── README.md                      # Project documentation
-├── requirements.txt               # Python dependencies
+├── frontend/
+│   ├── alumni.html         # Alumni profile page
+│   ├── heatmap.html        # Alumni location heatmap
+│   └── index.html          # Main landing page
 │
-├── backend/                       # Backend code
-│   ├── app.py                     # Main Flask application
-│   ├── database.py                # Database connection and models with timestamp tracking
-│   ├── geocoding.py               # Location geocoding service
-│   └── tests/                     # Unit and integration tests
-│       ├── __init__.py
-│       ├── conftest.py
-│       ├── test_linkedin.py       # Tests for scraper and integration
-│       └── test_smoke.py          # Basic functional and sanity tests
+├── scraper/
+│   ├── main.py             # Main scraper entry point
+│   ├── scraper.py          # LinkedIn scraping logic
+│   ├── config.py           # Configuration and constants
+│   ├── utils.py            # Utility functions
+│   ├── database_handler.py # CSV and history management
+│   └── output/
+│       ├── UNT_Alumni_Data.csv      # Scraped data
+│       └── flagged_for_review.txt   # Profiles to re-scrape
 │
-├── frontend/                      # Frontend interface
-│   ├── assets/                    # Images, icons, and other static files
-│   ├── alumni_style.css           # Stylesheet for alumni pages
-│   ├── alumni.html                # Alumni profile page
-│   ├── heatmap.html               # 🗺️ Alumni location heatmap page (NEW)
-│   ├── heatmap.js                 # 🗺️ Heatmap logic and interactions (NEW)
-│   ├── heatmap_style.css          # 🗺️ Heatmap styling (NEW)
-│   ├── app.js                     # Frontend JavaScript logic
-│   └── index.html                 # Main landing page
-│
-└── scraper/                       # LinkedIn scraper module
-    ├── linkedin_scraper.py        # Selenium-based scraper
-    ├── playwright_scraper.py      # Playwright-based scraper (alternative)
-    ├── parsers.py                 # Parsing logic for extracted data
-   ├── backend/engineering_graduate.csv        # Input CSV of names produced by the PDF reader (ignored in Git)
-    ├── linkedin_cookies.json      # Exported LinkedIn cookies (ignored in Git)
-    └── output/                    # Generated data from scraper
-        └── UNT_Alumni_Data.csv    # Scraped alumni data output (ignored in Git)
-
-##  Scraper Features
-
-### Data Tracking
-- **Scraped At:** Timestamp of when each profile was first scraped
-- **Last Updated:** Timestamp of the most recent profile update
-- **Update Frequency:** Configurable interval (set `UPDATE_FREQUENCY` in `.env`, e.g., "6 months", "1 year")
-
-### Smart Update Mode
-On startup, the scraper checks for outdated profiles:
-- Shows count of profiles that haven't been updated in the specified frequency
-- Prompts user to re-scrape outdated profiles
-- Only updates existing profiles if user opts in
-- Preserves original scrape time while updating profile data
-
-### Fallback Mode
-- If no names CSV is provided, automatically defaults to general UNT alumni search
-- Continues scraping instead of failing silently
+├── .env                    # Environment variables (not in git)
+├── .env.example            # Example environment file
+├── requirements.txt        # Python dependencies
+├── README.md               # This file
+└── GETTING_STARTED.md      # Detailed setup tutorial
+```
 
 ---
 
-##  Scraper Quick Start
+## Testing
 
-### 1) Requirements
-- `.env` at **repo root** with:
-  - `LINKEDIN_EMAIL=...`
-  - `LINKEDIN_PASSWORD=...`
-  - `UPDATE_FREQUENCY=6 months` (configurable)
-- Google Chrome installed
-- `chromedriver` installed: `brew install chromedriver`
-
-### 2) Run the scraper
-From the `scraper` folder:
-```bash
-cd scraper
-python3 linkedin_scraper.py
-
-##  Testing and Quality Assurance
-
-The project includes automated and manual tests to ensure backend reliability, scraper stability, and API correctness.
-
-### Automated Tests
-- **Pytest-based testing suite** (`backend/tests/`) covers:
-  - LinkedIn OAuth login flow (mocked using `responses`)
-  - API route validation for alumni data fetching and notes
-  - Environment variable and app configuration verification
-- **Database Health Check:** `test_db.py` ensures MySQL connectivity, table access, and query performance.
-- **Scraper Validation:** `test_scraper.py` uses mock HTML to verify data extraction logic without hitting LinkedIn servers.
-
-Run all tests:
+Run the test suite:
 ```bash
 cd backend
 pytest -q
+```
 
-##  Testing Environment Setup
-
-1. Copy `.env.example` to `.env` and configure database + LinkedIn test credentials.  
-2. Activate your virtual environment:
-   ```bash
-   source venv/bin/activate
+Tests cover:
+- LinkedIn OAuth login flow (mocked)
+- API route validation
+- Database connectivity
+- Scraper data extraction logic
 
 ---
 
-## 🗺️ Alumni Location Heatmap (NEW)
+## Heatmap Feature
 
-### Quick Start
+### Setup
 ```bash
-# 1. Geocode all alumni locations (one-time setup)
+# 1. Geocode all alumni locations
 cd backend
 python geocoding.py
 
-# 2. Start the app and visit the heatmap
-cd ..
-python backend/app.py
+# 2. Start the app
+python app.py
 # Open: http://localhost:5000/heatmap
 ```
 
 ### Features
-- **Interactive Leaflet Map** - Zoom, pan, and explore
-- **Color-coded Clustering** - Blue (low) to Red (high) alumni density
-- **Clickable Locations** - View alumni count and sample profiles per location
-- **Real-time Statistics** - Total alumni and unique locations
-- **Responsive Design** - Works on desktop, tablet, and mobile
+- Interactive Leaflet map with zoom and pan
+- Color-coded clustering (blue = low, red = high density)
+- Clickable locations showing alumni count and sample profiles
+- Real-time statistics
 
-### How It Works
-1. **Geocoding Service** (`backend/geocoding.py`) converts location strings like "Denton, Texas, United States" into latitude/longitude coordinates using the free **Nominatim** API
-2. **API Endpoint** (`GET /api/heatmap`) returns aggregated location data with alumni counts
-3. **Frontend** renders an interactive Leaflet-based heatmap with clustered markers
+---
 
+## Environment Variables
 
+| Variable | Description | Default |
+|----------|-------------|---------|
+| LINKEDIN_EMAIL | LinkedIn login email | Required |
+| LINKEDIN_PASSWORD | LinkedIn login password | Required |
+| SCRAPER_MODE | search, names, connections, review | search |
+| UPDATE_FREQUENCY | How often to re-scrape profiles | 6 months |
+| HEADLESS | Run Chrome without UI | false |
+| TESTING | Enable shorter delays for testing | false |
+| INPUT_CSV | CSV file with names (names mode) | - |
+| CONNECTIONS_CSV | CSV of connections (connections mode) | connections.csv |
 
+---
 
+## License
 
+This project is for educational purposes. Use responsibly and in accordance with LinkedIn's Terms of Service.
