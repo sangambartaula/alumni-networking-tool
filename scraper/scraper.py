@@ -269,12 +269,34 @@ class LinkedInScraper:
             data["headline"] = headline
             data["location"] = location or "Not Found"
 
-            # 4. Experience
-            jt, co, job_start_d, job_end_d = self._extract_best_experience(soup)
-            data["job_title"] = jt
-            data["company"] = co
-            data["job_start_date"] = utils.format_date_for_storage(job_start_d)
-            data["job_end_date"] = utils.format_date_for_storage(job_end_d)
+            # 4. Experience - Get up to 3 entries
+            all_experiences = self._extract_all_experiences(soup, max_entries=3)
+            
+            # Primary experience (most recent)
+            if all_experiences:
+                best_exp = all_experiences[0]
+                data["job_title"] = best_exp["title"]
+                data["company"] = best_exp["company"]
+                data["job_start_date"] = utils.format_date_for_storage(best_exp["start"])
+                data["job_end_date"] = utils.format_date_for_storage(best_exp["end"])
+            else:
+                data["job_title"] = ""
+                data["company"] = ""
+                data["job_start_date"] = ""
+                data["job_end_date"] = ""
+            
+            # Additional experiences (exp2, exp3)
+            for i, exp in enumerate(all_experiences[1:3], start=2):
+                data[f"exp{i}_title"] = exp["title"]
+                data[f"exp{i}_company"] = exp["company"]
+                data[f"exp{i}_dates"] = f"{utils.format_date_for_storage(exp['start'])} - {utils.format_date_for_storage(exp['end'])}"
+            
+            # Fill empty slots
+            for i in range(2, 4):
+                if f"exp{i}_title" not in data:
+                    data[f"exp{i}_title"] = ""
+                    data[f"exp{i}_company"] = ""
+                    data[f"exp{i}_dates"] = ""
 
             # 5. Education
             edu_entries = self._extract_education_entries(soup)
@@ -296,9 +318,14 @@ class LinkedInScraper:
                 school_end_d = best_unt.get("school_end")
                 data["school_start_date"] = utils.format_date_for_storage(school_start_d)
 
-                is_overlap = utils.check_working_while_studying(
-                    school_start_d, school_end_d, job_start_d, job_end_d
-                )
+                # Check ALL experiences for overlap with school (not just the latest)
+                is_overlap = False
+                for exp in all_experiences:
+                    job_start_d = exp.get("start")
+                    job_end_d = exp.get("end")
+                    if utils.check_working_while_studying(school_start_d, school_end_d, job_start_d, job_end_d):
+                        is_overlap = True
+                        break
                 data["working_while_studying"] = "yes" if is_overlap else "no"
             else:
                 # If we have NO education entries, or just no UNT, try expanding
@@ -316,9 +343,15 @@ class LinkedInScraper:
                         data["school_start_date"] = unt_details.get("school_start_date", "")
                         
                         if unt_details.get("school_start") and unt_details.get("school_end"):
-                            is_overlap = utils.check_working_while_studying(
-                                unt_details["school_start"], unt_details["school_end"], job_start_d, job_end_d
-                            )
+                            # Check ALL experiences for overlap
+                            is_overlap = False
+                            for exp in all_experiences:
+                                if utils.check_working_while_studying(
+                                    unt_details["school_start"], unt_details["school_end"], 
+                                    exp.get("start"), exp.get("end")
+                                ):
+                                    is_overlap = True
+                                    break
                             data["working_while_studying"] = "yes" if is_overlap else "no"
                     else:
                         return None # No UNT found at all
@@ -328,6 +361,8 @@ class LinkedInScraper:
             logger.info(f"      Headline: {data.get('headline', 'N/A')[:60]}{'...' if len(data.get('headline', '')) > 60 else ''}")
             logger.info(f"      Location: {data.get('location', 'N/A')}")
             logger.info(f"      Company: {data.get('company', 'N/A')} | Job: {data.get('job_title', 'N/A')}")
+            if len(all_experiences) > 1:
+                logger.info(f"      ({len(all_experiences)} experiences captured)")
             logger.info(f"      School: {data.get('education', 'N/A')} | Grad: {data.get('graduation_year', 'N/A')}")
             logger.info(f"      Major: {data.get('major', 'N/A')}")
             logger.info(f"      Working While Studying: {data.get('working_while_studying', 'N/A')}")
@@ -376,25 +411,78 @@ class LinkedInScraper:
                     headline = text
                     break
         
-        # Location - Look for 'text-body-small' with location patterns
+        # Location - Must have comma (City, State) OR specific location keywords
+        # Filter out school/company badges based on class patterns:
+        # - Badges have parent div with class "inline-show-more-text"
+        # - Real location has class "text-body-small inline t-black--light"
+        location_blacklist = ["university", "college", "school", "institute", 
+                              "inc", "corp", "llc", "company", "technologies", "solutions",
+                              "enterprises", "consulting", "software", "systems", "group"]
+        
         for span in soup.find_all("span", class_=lambda x: x and "text-body-small" in x):
+            # Check if this is inside a badge container (inline-show-more-text div)
+            parent_div = span.find_parent("div")
+            if parent_div:
+                parent_class = " ".join(parent_div.get("class", []))
+                # Skip if it's in a badge container
+                if "inline-show-more-text" in parent_class:
+                    continue
+            
+            # Get span's own class to prefer "inline t-black--light" pattern
+            span_class = " ".join(span.get("class", []))
+            is_location_styled = "inline" in span_class and "t-black--light" in span_class
+            
             text = span.get_text(" ", strip=True)
             text_lower = text.lower()
-            # Location patterns: city, state | country | "area" | common state abbreviations
-            if any(x in text_lower for x in ["united states", "india", "canada", "texas", "california", "new york", "area"]):
-                if "contact info" not in text_lower and "connection" not in text_lower:
+            
+            # Skip badge-like entries (schools, companies)
+            if any(x in text_lower for x in location_blacklist):
+                continue
+            
+            # Skip connection/follower/contact text
+            if any(x in text_lower for x in ["connection", "follower", "contact info"]):
+                continue
+            
+            # Valid location patterns:
+            # 1. Contains comma (City, State or City, Country format)
+            # 2. Contains specific location keywords like "metroplex", "area"
+            # 3. Contains country names
+            has_comma = "," in text
+            has_location_keyword = any(x in text_lower for x in ["metroplex", "area", "metro"])
+            has_country = any(x in text_lower for x in ["united states", "india", "canada", "uk", "germany", "australia"])
+            
+            if is_location_styled or has_comma or has_location_keyword or has_country:
+                if has_comma or has_location_keyword or has_country:  # Must still match a location pattern
                     location = text
                     break
-            # Also match "City, State" pattern
-            elif "," in text and len(text) < 60 and not any(x in text_lower for x in ["connection", "follower", "contact"]):
-                location = text
-                break
         
         return name, headline, location
 
-    def _extract_best_experience(self, soup):
+    def _extract_all_experiences(self, soup, max_entries=3):
+        """Extract up to max_entries experience entries, sorted by most recent first."""
         exp_root = self._find_section_root(soup, "Experience")
-        if not exp_root: return "", "", None, None
+        if not exp_root: return []
+
+        # Patterns to filter OUT (these are not company/title)
+        junk_patterns = re.compile(
+            r'^(Full-time|Part-time|Contract|Internship|Freelance|Self-employed|Seasonal|Temporary|Remote|Hybrid|On-site)$|'
+            r'^\d+\s*(yr|yrs|year|years|mo|mos|month|months)\b|'  # "3 yrs 1 mo"
+            r'^·\s*\d+\s*(yr|yrs|mo|mos)|'  # "· 3 yrs"
+            r'^\d+\s*(yr|yrs)?\s*\d*\s*(mo|mos)?$',  # Just duration
+            re.I
+        )
+        
+        # Company indicator patterns
+        company_hints = re.compile(
+            r'\b(Inc\.?|Corp\.?|LLC|Ltd\.?|Company|Co\.?|Technologies|Solutions|Enterprises|Group|Partners|Services|Consulting|Software|Systems)\b',
+            re.I
+        )
+        
+        # Job title indicator patterns
+        title_hints = re.compile(
+            r'\b(Engineer|Developer|Manager|Director|Analyst|Designer|Consultant|Specialist|Associate|Intern|Lead|Senior|Junior|Sr\.?|Jr\.?|Chief|Head|VP|Vice President|Coordinator|Administrator|Representative|Officer|Architect|Scientist)\b',
+            re.I
+        )
 
         candidates = []
         for div in exp_root.find_all("div"):
@@ -403,6 +491,8 @@ class LinkedInScraper:
                 candidates.append(lines)
 
         parsed = []
+        seen_entries = set()  # Avoid duplicates
+        
         for lines in candidates:
             date_idx = next((i for i, t in enumerate(lines) if utils.DATE_RANGE_RE.search(t)), None)
             if date_idx is None: continue
@@ -410,38 +500,88 @@ class LinkedInScraper:
             start_d, end_d = utils.parse_date_range_line(lines[date_idx])
             if not (start_d and end_d): continue
 
-            # Context: lines before the date
-            context = [t for t in lines[max(0, date_idx - 3):date_idx] if t]
+            # Context: lines before the date, filtered for junk
+            context = []
+            for t in lines[max(0, date_idx - 4):date_idx]:
+                t = t.strip()
+                if not t: continue
+                # Filter out junk patterns
+                if junk_patterns.match(t): continue
+                # Filter out text that's mostly just employment type/duration
+                if re.match(r'^[·\s]*(Full-time|Part-time|Contract|Internship)', t, re.I): continue
+                # Filter out standalone bullets
+                if t in ['·', '•']: continue
+                context.append(t)
             
-            # Identify Company vs Title
-            company = ""
+            if not context: continue
+            
+            # Identify Company vs Title using heuristics
+            company, title = "", ""
+            
             for t in context:
-                if re.search(r"(Full-time|Part-time|Contract|Internship)", t, re.I):
-                    company = t
-                    break
-            if not company and context: company = context[-1] # Fallback
-
-            title = ""
-            for t in context:
-                if t != company and "·" not in t:
-                    title = t
-                    break
+                # Clean the text
+                clean_t = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$', '', t, flags=re.I).strip()
+                if not clean_t: continue
+                
+                has_company_hint = bool(company_hints.search(clean_t))
+                has_title_hint = bool(title_hints.search(clean_t))
+                
+                if has_company_hint and not company:
+                    company = clean_t
+                elif has_title_hint and not title:
+                    title = clean_t
+                elif not company and not title:
+                    # First unknown item - guess based on length and capitalization
+                    # Titles tend to be longer descriptions, companies tend to be proper nouns
+                    title = clean_t  # Default first item to title
+                elif not company:
+                    company = clean_t
+                elif not title:
+                    title = clean_t
+            
+            # If we only found one thing, try to figure out what it is
+            if title and not company:
+                if company_hints.search(title) and not title_hints.search(title):
+                    company, title = title, ""
+            if company and not title:
+                if title_hints.search(company) and not company_hints.search(company):
+                    title, company = company, ""
+            
+            # Clean up
+            company = self._clean_company(company)
+            title = utils.clean_job_title(title)
+            
+            # Skip if we got nothing useful
+            if not company and not title: continue
+            
+            # Avoid duplicates
+            entry_key = (company.lower(), title.lower())
+            if entry_key in seen_entries: continue
+            seen_entries.add(entry_key)
             
             # Sorting score (latest end date wins)
             end_score = (9999, 12) if end_d.get("is_present") else (end_d.get("year", 0), end_d.get("month", 0))
             
             parsed.append({
                 "score": end_score,
-                "title": utils.clean_job_title(title),
-                "company": self._clean_company(company),
+                "title": title,
+                "company": company,
                 "start": start_d,
                 "end": end_d
             })
 
-        if not parsed: return "", "", None, None
+        if not parsed: return []
         
+        # Sort by most recent first
         parsed.sort(key=lambda x: x["score"], reverse=True)
-        best = parsed[0]
+        return parsed[:max_entries]
+
+    def _extract_best_experience(self, soup):
+        """Backwards-compatible wrapper - returns just the best experience."""
+        experiences = self._extract_all_experiences(soup, max_entries=1)
+        if not experiences:
+            return "", "", None, None
+        best = experiences[0]
         return best["title"], best["company"], best["start"], best["end"]
 
     def _extract_education_entries(self, soup):

@@ -49,12 +49,15 @@ OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 OUTPUT_CSV = OUTPUT_DIR / OUTPUT_CSV_ENV
 COOKIES_FILE = OUTPUT_DIR / LINKEDIN_COOKIES_PATH
 VISITED_HISTORY_FILE = OUTPUT_DIR / "visited_history.csv"
+FLAGGED_PROFILES_FILE = OUTPUT_DIR / "flagged_for_review.txt"
 
 # Columns
 VISITED_HISTORY_COLUMNS = ['profile_url', 'saved', 'visited_at', 'update_needed', 'last_db_update']
 CSV_COLUMNS = [
     'name', 'headline', 'location',
     'job_title', 'company', 'job_start_date', 'job_end_date',
+    'exp2_title', 'exp2_company', 'exp2_dates',
+    'exp3_title', 'exp3_company', 'exp3_dates',
     'education', 'major', 'school_start_date', 'graduation_year',
     'working_while_studying',
     'profile_url', 'scraped_at'

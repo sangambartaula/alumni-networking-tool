@@ -36,14 +36,22 @@ def clean_job_title(raw_title: str) -> str:
     if not raw_title:
         return ""
     raw = " ".join(raw_title.strip().split())
+    
+    # Only filter if the ENTIRE string is just an employment type
     banned_exact = {
         "Full-time", "Part-time", "Internship", "Contract", "Temporary",
-        "Volunteer", "Apprenticeship", "Self-employed", "Freelance"
+        "Volunteer", "Apprenticeship", "Self-employed", "Freelance",
+        "Remote", "Hybrid", "On-site"
     }
     if raw in banned_exact:
         return ""
+    
+    # Remove employment type suffixes (e.g., "· Full-time", "· Internship")
+    # But DON'T remove if it's part of a compound title like "Summer Internship"
     for bad in banned_exact:
-        raw = raw.replace(f"· {bad}", "").replace(bad, "")
+        # Only remove "· BadWord" patterns (LinkedIn suffix style)
+        raw = re.sub(rf'\s*·\s*{bad}\b', '', raw, flags=re.I)
+    
     return " ".join(raw.split()).strip()
 
 def parse_frequency(frequency_str: str) -> timedelta:

@@ -314,6 +314,92 @@ def run_update_mode(scraper, history_mgr, outdated_profiles):
             wait_between_profiles()
 
 # ============================================================
+# Mode: REVIEW (Re-scrape flagged profiles)
+# ============================================================
+def run_review_mode(scraper, history_mgr):
+    """
+    Re-scrape profiles listed in flagged_for_review.txt.
+    Bypasses history check to force overwrite of existing data.
+    Clears the file after processing.
+    """
+    flagged_file = config.FLAGGED_PROFILES_FILE
+    
+    if not flagged_file.exists():
+        logger.info("No flagged_for_review.txt file found.")
+        return False
+    
+    # Read URLs from file
+    with open(flagged_file, 'r') as f:
+        lines = f.readlines()
+    
+    # Parse and validate URLs
+    urls = []
+    for line in lines:
+        url = line.strip()
+        if not url or url.startswith('#'):  # Skip empty lines and comments
+            continue
+        if 'linkedin.com/in/' in url:
+            urls.append(url)
+        else:
+            logger.warning(f"Skipping invalid URL: {url}")
+    
+    if not urls:
+        logger.info("No valid LinkedIn URLs found in flagged_for_review.txt")
+        return False
+    
+    logger.info(f"--- MODE: Review ({len(urls)} flagged profiles) ---")
+    logger.info("⚠️ This will OVERWRITE existing data for these profiles.")
+    
+    reviewed = 0
+    failed = []
+    
+    for i, url in enumerate(urls, start=1):
+        # Check for force exit
+        if check_force_exit():
+            logger.info("🔴 Force exit. Stopping immediately.")
+            break
+        
+        logger.info(f"\nREVIEW {i}/{len(urls)}: {url}")
+        
+        # Force scrape (bypass history check)
+        data = scraper.scrape_profile_page(url)
+        
+        if data:
+            if database_handler.save_profile_to_csv(data):
+                logger.info(f"✅ Re-scraped and saved: {data.get('name', url)}")
+                history_mgr.mark_as_visited(url, saved=True)
+                reviewed += 1
+            else:
+                logger.warning(f"❌ Failed to save: {url}")
+                failed.append(url)
+        else:
+            logger.warning(f"❌ Failed to scrape: {url}")
+            failed.append(url)
+        
+        # Check for graceful exit
+        if should_stop():
+            logger.info("🛑 Exit requested. Stopping review mode.")
+            break
+        
+        if i < len(urls):
+            wait_between_profiles()
+    
+    # Clear the file (only keep failed ones for retry)
+    if failed:
+        logger.info(f"\n⚠️ {len(failed)} profiles failed, keeping them in file for retry.")
+        with open(flagged_file, 'w') as f:
+            for url in failed:
+                f.write(url + '\n')
+    else:
+        # Clear the file completely
+        with open(flagged_file, 'w') as f:
+            f.write('')
+        logger.info(f"\n✅ Cleared flagged_for_review.txt")
+    
+    logger.info(f"\n📊 Review complete: {reviewed}/{len(urls)} profiles re-scraped successfully.")
+    return True
+
+# ============================================================
 # Main Execution
 # ============================================================
 
@@ -335,16 +421,32 @@ def main():
         # 4. Start exit listener (type 'exit' or 'force exit')
         start_exit_listener()
 
-        # 5. Check for Updates
+        # 5. Check for FLAGGED profiles (priority - review mode)
+        if config.FLAGGED_PROFILES_FILE.exists():
+            with open(config.FLAGGED_PROFILES_FILE, 'r') as f:
+                flagged_count = len([l for l in f.readlines() if l.strip() and not l.startswith('#') and 'linkedin.com/in/' in l])
+            
+            if flagged_count > 0:
+                print(f"\n{'='*50}")
+                print(f"🔍 Found {flagged_count} profiles flagged for review.")
+                print(f"{'='*50}")
+                choice = input(">>> Run REVIEW mode to re-scrape them? (y/n): ").strip().lower()
+                if choice == 'y':
+                    run_review_mode(scraper, history_mgr)
+                    return  # Exit after review
+
+        # 6. Check for OUTDATED profiles
         outdated, cutoff = database_handler.get_outdated_profiles_from_db()
         if outdated:
-            logger.info(f"\n🔄 Found {len(outdated)} profiles older than {cutoff.date()}.")
-            choice = input("Run UPDATE mode to refresh them? (y/n): ").strip().lower()
+            print(f"\n{'='*50}")
+            print(f"🔄 Found {len(outdated)} profiles older than {cutoff.date()}.")
+            print(f"{'='*50}")
+            choice = input(">>> Run UPDATE mode to refresh them? (y/n): ").strip().lower()
             if choice == 'y':
                 run_update_mode(scraper, history_mgr, outdated)
                 return # Exit after update
 
-        # 6. Run Selected Mode
+        # 7. Run Selected Mode
         mode = config.SCRAPER_MODE
         if mode == "names":
             run_names_mode(scraper, history_mgr)
@@ -352,6 +454,9 @@ def main():
             run_search_mode(scraper, history_mgr)
         elif mode == "connections":
             run_connections_mode(scraper, history_mgr)
+        elif mode == "review":
+            # Allow explicit SCRAPER_MODE=review
+            run_review_mode(scraper, history_mgr)
         else:
             logger.error(f"Unknown SCRAPER_MODE: {mode}")
 

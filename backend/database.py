@@ -220,6 +220,14 @@ def ensure_alumni_work_school_date_columns():
             add_col("ALTER TABLE alumni ADD COLUMN job_start_date VARCHAR(20) DEFAULT NULL", "job_start_date")
             add_col("ALTER TABLE alumni ADD COLUMN job_end_date VARCHAR(20) DEFAULT NULL", "job_end_date")
             add_col("ALTER TABLE alumni ADD COLUMN working_while_studying BOOLEAN DEFAULT NULL", "working_while_studying")
+            
+            # Experience 2 and 3 columns
+            add_col("ALTER TABLE alumni ADD COLUMN exp2_title VARCHAR(255) DEFAULT NULL", "exp2_title")
+            add_col("ALTER TABLE alumni ADD COLUMN exp2_company VARCHAR(255) DEFAULT NULL", "exp2_company")
+            add_col("ALTER TABLE alumni ADD COLUMN exp2_dates VARCHAR(50) DEFAULT NULL", "exp2_dates")
+            add_col("ALTER TABLE alumni ADD COLUMN exp3_title VARCHAR(255) DEFAULT NULL", "exp3_title")
+            add_col("ALTER TABLE alumni ADD COLUMN exp3_company VARCHAR(255) DEFAULT NULL", "exp3_company")
+            add_col("ALTER TABLE alumni ADD COLUMN exp3_dates VARCHAR(50) DEFAULT NULL", "exp3_dates")
 
             conn.commit()
     except mysql.connector.Error as err:
@@ -518,15 +526,25 @@ def seed_alumni_data():
                         elif isinstance(wws_raw, (int, float)):
                             working_while_studying = bool(int(wws_raw))
 
+                    # Experience 2 and 3 fields
+                    exp2_title = str(row.get('exp2_title', '')).strip() if pd.notna(row.get('exp2_title', None)) else None
+                    exp2_company = str(row.get('exp2_company', '')).strip() if pd.notna(row.get('exp2_company', None)) else None
+                    exp2_dates = str(row.get('exp2_dates', '')).strip() if pd.notna(row.get('exp2_dates', None)) else None
+                    exp3_title = str(row.get('exp3_title', '')).strip() if pd.notna(row.get('exp3_title', None)) else None
+                    exp3_company = str(row.get('exp3_company', '')).strip() if pd.notna(row.get('exp3_company', None)) else None
+                    exp3_dates = str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates', None)) else None
+
                     # Insert or update into database
                     try:
                         cur.execute("""
                             INSERT INTO alumni 
                             (first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying,
+                             exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
                              scraped_at, last_updated)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s,
                                     %s, %s)
                             ON DUPLICATE KEY UPDATE
                             first_name = VALUES(first_name),
@@ -541,6 +559,12 @@ def seed_alumni_data():
                             job_start_date = VALUES(job_start_date),
                             job_end_date = VALUES(job_end_date),
                             working_while_studying = VALUES(working_while_studying),
+                            exp2_title = VALUES(exp2_title),
+                            exp2_company = VALUES(exp2_company),
+                            exp2_dates = VALUES(exp2_dates),
+                            exp3_title = VALUES(exp3_title),
+                            exp3_company = VALUES(exp3_company),
+                            exp3_dates = VALUES(exp3_dates),
                             last_updated = VALUES(last_updated)
                         """, (
                             first_name,
@@ -556,6 +580,12 @@ def seed_alumni_data():
                             job_start_date,
                             job_end_date,
                             working_while_studying,
+                            exp2_title,
+                            exp2_company,
+                            exp2_dates,
+                            exp3_title,
+                            exp3_company,
+                            exp3_dates,
                             scraped_at,
                             scraped_at
                         ))

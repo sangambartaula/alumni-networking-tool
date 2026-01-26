@@ -160,6 +160,25 @@ class HistoryManager:
         if saved == 'yes': return True
         return True
 
+def normalize_text(text):
+    """Normalize fancy Unicode characters to ASCII equivalents."""
+    if not text or not isinstance(text, str):
+        return text
+    # Common Unicode replacements
+    replacements = {
+        '\u2019': "'",  # RIGHT SINGLE QUOTATION MARK -> apostrophe
+        '\u2018': "'",  # LEFT SINGLE QUOTATION MARK -> apostrophe
+        '\u201c': '"',  # LEFT DOUBLE QUOTATION MARK
+        '\u201d': '"',  # RIGHT DOUBLE QUOTATION MARK
+        '\u2013': '-',  # EN DASH
+        '\u2014': '-',  # EM DASH
+        '\u2026': '...', # ELLIPSIS
+        '\xa0': ' ',    # NON-BREAKING SPACE
+    }
+    for unicode_char, ascii_char in replacements.items():
+        text = text.replace(unicode_char, ascii_char)
+    return text
+
 def save_profile_to_csv(profile_data):
     try:
         if not profile_data.get('profile_url') or not profile_data.get('name'): return False
@@ -167,19 +186,26 @@ def save_profile_to_csv(profile_data):
         has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'education']])
         if not has_data: return False
 
-        existing_df = pd.read_csv(OUTPUT_CSV) if OUTPUT_CSV.exists() else pd.DataFrame(columns=CSV_COLUMNS)
+        existing_df = pd.read_csv(OUTPUT_CSV, encoding='utf-8') if OUTPUT_CSV.exists() else pd.DataFrame(columns=CSV_COLUMNS)
         
         save_data = {k: v for k, v in profile_data.items() if k in CSV_COLUMNS}
         save_data['job_title'] = clean_job_title(save_data.get('job_title', ''))
+        
+        # Normalize text fields to fix fancy quotes/apostrophes
+        text_fields = ['name', 'headline', 'location', 'job_title', 'company', 'major', 
+                       'exp2_title', 'exp2_company', 'exp3_title', 'exp3_company']
+        for field in text_fields:
+            if field in save_data and save_data[field]:
+                save_data[field] = normalize_text(str(save_data[field]))
         
         for col in CSV_COLUMNS:
             save_data.setdefault(col, "")
             
         new_row = pd.DataFrame([save_data])[CSV_COLUMNS]
         combined_df = pd.concat([existing_df, new_row], ignore_index=True)
-        combined_df = combined_df.drop_duplicates(subset=['profile_url'], keep='first')
+        combined_df = combined_df.drop_duplicates(subset=['profile_url'], keep='last')
         
-        combined_df.to_csv(OUTPUT_CSV, index=False)
+        combined_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')
         return True
     except Exception as e:
         logger.error(f"❌ Error saving profile: {e}")
