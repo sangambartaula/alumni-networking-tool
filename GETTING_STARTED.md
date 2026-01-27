@@ -286,6 +286,31 @@ LinkedIn may have detected automated activity.
 - Run the scraper and choose Review mode
 - The profiles will be re-scraped with the latest extraction logic
 
+### Database Connection Fails (Demo Mode)
+
+If the cloud MySQL database is unreachable:
+
+1. **SQLite Fallback Activates Automatically**
+   - The app detects the error and switches to local SQLite
+   - You'll see a log: "📴 Switching to offline mode (SQLite fallback)"
+   - All features continue to work using cached data
+
+2. **Testing the Fallback**
+   ```bash
+   cd backend
+   python sqlite_fallback.py
+   ```
+   This shows the fallback status and runs tests.
+
+3. **Checking Fallback Status**
+   - Visit `http://localhost:5000/api/fallback-status` to see current mode
+   - Or check logs for "is_offline: true/false"
+
+4. **When Cloud Returns**
+   - The app automatically syncs local changes to the cloud
+   - Any conflicting changes favor the cloud (source of truth)
+   - Discarded local changes are logged for review
+
 ---
 
 ## Getting Help

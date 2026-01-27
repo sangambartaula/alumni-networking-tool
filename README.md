@@ -141,6 +141,32 @@ To fix bad data in existing profiles:
 
 ---
 
+## Automated Data Pipeline
+
+After any scraping operation completes, the tool automatically:
+
+1. **Syncs CSV to Database** - Imports/updates all profiles from `UNT_Alumni_Data.csv` to MySQL
+2. **Updates Visited Profiles** - Ensures all alumni are tracked in the visited profiles table
+3. **Geocodes New Locations** - Converts location strings to latitude/longitude for the heatmap
+
+This automation runs in the `finally` block of `main.py`, so it happens even if you stop the scraper early.
+
+### Manual Sync
+
+If you need to run the sync manually (e.g., after importing data from another source):
+
+```bash
+cd backend
+
+# Sync CSV to database (also runs migrations and stats)
+python database.py
+
+# Geocode missing locations
+python geocoding.py
+```
+
+---
+
 ## Output Data
 
 ### CSV Columns
@@ -172,7 +198,9 @@ alumni-networking-tool/
 ├── backend/
 │   ├── app.py              # Flask web application
 │   ├── database.py         # Database models and migrations
-│   └── geocoding.py        # Location geocoding service
+│   ├── sqlite_fallback.py  # SQLite offline fallback system
+│   ├── geocoding.py        # Location geocoding service
+│   └── alumni_backup.db    # Local SQLite backup (auto-generated)
 │
 ├── frontend/
 │   ├── alumni.html         # Alumni profile page
@@ -235,6 +263,70 @@ python app.py
 
 ---
 
+## SQLite Fallback (Offline Mode)
+
+The application includes a local SQLite database backup that ensures the app continues to work when the cloud MySQL database is unreachable—perfect for demos or network issues.
+
+### How It Works
+
+1. **On Startup:** Tries to connect to cloud MySQL
+   - If reachable → syncs a copy to local `alumni_backup.db`
+   - If unreachable → uses the existing local SQLite backup
+
+2. **In Offline Mode:** 
+   - All queries use the local SQLite database
+   - Background thread silently retries cloud connection every 30 seconds
+   - Any changes are recorded locally for later sync
+
+3. **On Reconnection:**
+   - Local changes are pushed to cloud (with smart merge)
+   - Cloud updates are pulled to local
+   - Conflicting changes → cloud wins (source of truth)
+
+### Testing SQLite Fallback
+
+```bash
+cd backend
+python sqlite_fallback.py
+```
+
+This runs built-in tests and shows:
+- Connection status (online/offline)
+- Data sync status
+- Table row counts
+- Test results (WAL mode, table existence, etc.)
+
+### Configuration
+
+Add to `.env`:
+```bash
+# Enable SQLite fallback (default: enabled)
+USE_SQLITE_FALLBACK=1
+
+# Disable all DB operations (dev mode only)
+DISABLE_DB=0
+```
+
+### API Endpoint
+
+Check fallback status via API:
+```
+GET /api/fallback-status
+```
+
+Returns:
+```json
+{
+  "success": true,
+  "enabled": true,
+  "is_offline": false,
+  "last_cloud_sync": "2024-01-26T20:00:00+00:00",
+  "pending_changes": 0,
+  "discarded_changes": 0,
+  "table_counts": {"alumni": 70, "users": 5, ...}
+}
+```
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -247,6 +339,8 @@ python app.py
 | TESTING | Enable shorter delays for testing | false |
 | INPUT_CSV | CSV file with names (names mode) | - |
 | CONNECTIONS_CSV | CSV of connections (connections mode) | connections.csv |
+| USE_SQLITE_FALLBACK | Enable local SQLite backup | 1 (enabled) |
+| DISABLE_DB | Disable all database operations | 0 (disabled) |
 
 ---
 

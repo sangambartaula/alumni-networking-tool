@@ -7,6 +7,10 @@ import threading
 import pandas as pd
 from pathlib import Path
 
+# Add parent directory to path for backend imports
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "backend"))
+
 # Local Modules
 import config
 import utils
@@ -20,6 +24,9 @@ from config import logger
 exit_requested = False  # "exit" - finish current profile then stop
 force_exit = False      # "force exit" - stop immediately
 _exit_listener_active = False
+
+# Track how many profiles were scraped this session (for post-scrape sync)
+session_profiles_scraped = 0
 
 def _exit_listener():
     """Background thread that listens for exit commands."""
@@ -399,6 +406,72 @@ def run_review_mode(scraper, history_mgr):
     logger.info(f"\n📊 Review complete: {reviewed}/{len(urls)} profiles re-scraped successfully.")
     return True
 
+
+# ============================================================
+# Post-Scrape Automation
+# ============================================================
+
+def run_post_scrape_sync():
+    """
+    Automatically sync CSV data to database and geocode new locations.
+    Called after any scraping operation completes.
+    Skips if no profiles were scraped during this session.
+    """
+    global session_profiles_scraped
+    
+    # Skip sync if nothing was scraped this session
+    if session_profiles_scraped == 0:
+        logger.info("📊 No new profiles scraped this session - skipping database sync.")
+        return
+    
+    try:
+        print(f"\n{'='*50}")
+        print(f"🔄 POST-SCRAPE SYNC: Syncing {session_profiles_scraped} new profile(s)...")
+        print(f"{'='*50}")
+        
+        # Import backend modules (lazy import to avoid startup overhead)
+        from database import seed_alumni_data, sync_alumni_to_visited_profiles
+        from geocoding import populate_missing_coordinates
+        
+        # Step 1: Sync CSV to database
+        logger.info("📥 Step 1/3: Syncing CSV data to database...")
+        try:
+            seed_alumni_data()
+            logger.info("✓ CSV data synced to database")
+        except Exception as e:
+            logger.error(f"✗ Failed to sync CSV to database: {e}")
+        
+        # Step 2: Sync alumni to visited_profiles table
+        logger.info("📥 Step 2/3: Syncing alumni to visited profiles...")
+        try:
+            sync_alumni_to_visited_profiles()
+            logger.info("✓ Alumni synced to visited profiles")
+        except Exception as e:
+            logger.error(f"✗ Failed to sync visited profiles: {e}")
+        
+        # Step 3: Geocode new locations
+        logger.info("🌍 Step 3/3: Geocoding new locations...")
+        try:
+            geocoded = populate_missing_coordinates()
+            if geocoded > 0:
+                logger.info(f"✓ Geocoded {geocoded} new locations")
+            else:
+                logger.info("✓ No new locations needed geocoding")
+        except Exception as e:
+            logger.error(f"✗ Failed to geocode locations: {e}")
+        
+        print(f"\n{'='*50}")
+        print("✅ POST-SCRAPE SYNC: Complete!")
+        print(f"{'='*50}")
+        
+    except ImportError as e:
+        logger.warning(f"⚠ Post-scrape sync skipped (backend modules not available): {e}")
+    except Exception as e:
+        logger.error(f"✗ Post-scrape sync failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 # ============================================================
 # Main Execution
 # ============================================================
@@ -469,6 +542,9 @@ def main():
     finally:
         stop_exit_listener()
         scraper.quit()
+        
+        # Run post-scrape database sync and geocoding
+        run_post_scrape_sync()
 
 if __name__ == "__main__":
     main()

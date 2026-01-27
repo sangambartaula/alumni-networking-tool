@@ -23,6 +23,10 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
 DISABLE_DB = os.getenv("DISABLE_DB", "0") == "1"
 app.logger.info(f"DISABLE_DB = {DISABLE_DB}")
 
+# SQLite fallback toggle: set USE_SQLITE_FALLBACK=1 to enable local SQLite backup
+USE_SQLITE_FALLBACK = os.getenv('USE_SQLITE_FALLBACK', '1') == '1'
+app.logger.info(f"USE_SQLITE_FALLBACK = {USE_SQLITE_FALLBACK}")
+
 # MySQL credentials (kept for reference; connections use get_connection())
 mysql_host = os.getenv('MYSQLHOST')
 mysql_user = os.getenv('MYSQLUSER')
@@ -788,12 +792,48 @@ def api_geocode():
         "results": results
     })
 
+
+# ---------------------- Fallback Status API ----------------------
+@app.route('/api/fallback-status', methods=['GET'])
+def get_fallback_status_api():
+    """Get the current status of the SQLite fallback system."""
+    if not USE_SQLITE_FALLBACK:
+        return jsonify({
+            "success": True,
+            "enabled": False,
+            "message": "SQLite fallback is disabled"
+        }), 200
+    
+    try:
+        from sqlite_fallback import get_fallback_status
+        status = get_fallback_status()
+        return jsonify({
+            "success": True,
+            "enabled": True,
+            **status
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 # ---------------------- Error handler ----------------------
 @app.errorhandler(404)
 def not_found(e):
     return 'Page not found', 404
 
 if __name__ == "__main__":
+    # Initialize SQLite fallback system first (syncs from cloud if available)
+    if USE_SQLITE_FALLBACK and not DISABLE_DB:
+        try:
+            from sqlite_fallback import init_fallback_system
+            init_fallback_system()
+        except Exception as e:
+            app.logger.warning(f"SQLite fallback initialization failed: {e}")
+            app.logger.info("Continuing with direct database connection...")
+    
     # Initialize database first (but skip re-seeding if data exists)
     from database import init_db, seed_alumni_data
     if not DISABLE_DB:
@@ -803,9 +843,9 @@ if __name__ == "__main__":
             seed_alumni_data()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
-            exit(1)
+            # Don't exit if fallback is enabled - we might be using SQLite
+            if not USE_SQLITE_FALLBACK:
+                exit(1)
+            else:
+                app.logger.info("Continuing with SQLite fallback...")
     app.run()
-
-
-
-

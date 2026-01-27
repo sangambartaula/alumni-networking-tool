@@ -11,16 +11,42 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# MySQL connection parameters
+# MySQL connection parameters (for direct access when needed)
 MYSQL_HOST = os.getenv('MYSQLHOST')
 MYSQL_USER = os.getenv('MYSQLUSER')
 MYSQL_PASSWORD = os.getenv('MYSQLPASSWORD')
 MYSQL_DATABASE = os.getenv('MYSQL_DATABASE')
 MYSQL_PORT = int(os.getenv('MYSQLPORT', 3306))
 
+# Flag to control whether to use fallback system
+USE_SQLITE_FALLBACK = os.getenv('USE_SQLITE_FALLBACK', '1') == '1'
+
 
 def get_connection():
-    """Get a MySQL database connection"""
+    """
+    Get a database connection.
+    If USE_SQLITE_FALLBACK is enabled, routes to MySQL or SQLite based on availability.
+    Otherwise, returns a direct MySQL connection.
+    """
+    if USE_SQLITE_FALLBACK:
+        try:
+            from sqlite_fallback import get_connection_manager
+            return get_connection_manager().get_connection()
+        except ImportError:
+            logger.warning("sqlite_fallback module not found, falling back to direct MySQL")
+    
+    # Direct MySQL connection (original behavior)
+    return mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DATABASE,
+        port=MYSQL_PORT
+    )
+
+
+def get_direct_mysql_connection():
+    """Get a direct MySQL connection (bypasses fallback system)."""
     return mysql.connector.connect(
         host=MYSQL_HOST,
         user=MYSQL_USER,
