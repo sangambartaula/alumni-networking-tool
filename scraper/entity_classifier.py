@@ -219,10 +219,29 @@ class EntityClassifier:
         # Check all entities found
         for ent in doc.ents:
             if ent.label_ == "ORG":
-                # Check if this looks like a job title (ends with common title words)
+                # Check if this looks like a job title
+                # 1. Last word check (e.g. "Software Engineer")
                 last_word = text.split()[-1].lower() if text.split() else ""
-                if last_word in job_title_endings:
+                
+                # Handle slashes/punctuation in last word (e.g. "Co-op/Intern")
+                clean_last = last_word.replace('/', ' ').replace('-', ' ').split()[-1] if last_word else ""
+                
+                if last_word in job_title_endings or clean_last in job_title_endings:
                     return ("job_title", 0.7)  # Override spaCy's ORG classification
+                
+                # 2. Strong keyword check - if IT CONTAINS "Intern", "Co-op", "Student" it is likely a title
+                # even if SpaCy thinks it's an ORG (e.g. "Engineering Intern")
+                text_lower = text.lower()
+                strong_title_indicators = {"intern", "co-op", "student", "fellow", "trainee", "assistant"}
+                if any(ind in text_lower.split() or ind in text_lower.replace('/', ' ').split() for ind in strong_title_indicators):
+                     return ("job_title", 0.75)
+                
+                # 3. Check for strong title prefixes (Director of, Head of, VP of, Chief)
+                # "Director of Software Engineering" -> SpaCy calls it ORG, but it's a title
+                strong_prefixes = {"director", "head", "vp", "vice president", "chief", "senior", "principal", "lead", "sr", "jr", "sr.", "jr."}
+                first_word = text_lower.split()[0] if text_lower.split() else ""
+                if first_word in strong_prefixes:
+                    return ("job_title", 0.75)
                 
                 # Double-check it's not a university (spaCy sometimes tags them as ORG)
                 ent_lower = ent.text.lower()
@@ -319,14 +338,18 @@ class EntityClassifier:
         if text_lower in pure_locations:
             return True
         
-        # spaCy check
-        nlp = _get_nlp()
-        if nlp:
-            doc = nlp(text_clean)
-            # If the entire text is recognized as a single GPE/LOC entity
-            for ent in doc.ents:
-                if ent.label_ in ("GPE", "LOC") and len(ent.text) >= len(text_clean) * 0.8:
-                    return True
+        # spaCy check - DISABLED
+        # "Accela" was being classified as location by spaCy
+        # relying on explicit patterns is safer for scraper
+        # nlp = _get_nlp()
+        # if nlp:
+        #     doc = nlp(text_clean)
+        #     # If the entire text is recognized as a single GPE/LOC entity
+        #     for ent in doc.ents:
+        #         if ent.label_ in ("GPE", "LOC") and len(ent.text) >= len(text_clean) * 0.8:
+        #             return True
+        
+        return False
         
         return False
     

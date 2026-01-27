@@ -485,6 +485,25 @@ class LinkedInScraper:
             re.I
         )
 
+        # Detect grouped experience headers (company names with duration but no date range)
+        grouped_company_headers = []
+        for div in exp_root.find_all("div"):
+            lines = self._p_texts_clean(div)
+            # Grouped header pattern: has duration (e.g., "2 yrs 3 mos") but no date range
+            has_duration = any(re.match(r'^\d+\s*(yr|yrs|mo|mos)', t, re.I) for t in lines)
+            has_date_range = any(utils.DATE_RANGE_RE.search(t) for t in lines)
+            
+            if has_duration and not has_date_range:
+                # This might be a grouped company header
+                for t in lines:
+                    clean_t = t.strip()
+                    if not clean_t: continue
+                    if junk_patterns.match(clean_t): continue
+                    entity_type, confidence = classify_entity(clean_t)
+                    if entity_type == "company" and confidence >= 0.8:
+                        grouped_company_headers.append(clean_t)
+                        break
+
         candidates = []
         for div in exp_root.find_all("div"):
             lines = self._p_texts_clean(div)
@@ -571,6 +590,10 @@ class LinkedInScraper:
             # Clean up
             company = self._clean_company(company)
             title = utils.clean_job_title(title)
+            
+            # Fallback: if no company found but we have grouped headers, use the first one
+            if not company and title and grouped_company_headers:
+                company = grouped_company_headers[0]
             
             # Skip if we got nothing useful
             if not company and not title: continue

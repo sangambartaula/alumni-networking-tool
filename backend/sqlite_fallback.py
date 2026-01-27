@@ -740,6 +740,10 @@ class ConnectionManager:
             upsert_sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
         
         # Insert/update rows
+        error_count = 0
+        unique_error_count = 0
+        last_error = None
+        
         for row in rows:
             values = []
             for col in columns:
@@ -752,9 +756,20 @@ class ConnectionManager:
             try:
                 sqlite_conn.execute(upsert_sql, values)
             except sqlite3.Error as e:
-                logger.warning(f"Failed to sync row in {table_name}: {e}")
+                error_str = str(e)
+                if "UNIQUE constraint" in error_str:
+                    unique_error_count += 1
+                else:
+                    error_count += 1
+                    last_error = error_str
         
-        logger.debug(f"  ✓ Synced {len(rows)} rows to {table_name}")
+        if unique_error_count > 0:
+            logger.warning(f"⚠️  Skipped {unique_error_count} duplicate/conflicting rows in {table_name} during sync (UNIQUE constraints). This is expected if IDs conflict.")
+            
+        if error_count > 0:
+            logger.warning(f"❌ Failed to sync {error_count} rows in {table_name}. First error: {last_error}")
+        
+        logger.debug(f"  ✓ Synced rows to {table_name} (Updated/Ignored)")
         return len(rows)
     
     def record_pending_change(self, table_name: str, primary_key: dict, operation: str, 

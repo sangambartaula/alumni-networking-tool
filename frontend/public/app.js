@@ -1,11 +1,11 @@
 // app.js
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
 const fakeAlumni = [
-  { id:1, name:"Sachin Banjade", role:"Software Engineer", company:"Tech Solutions Inc.", class:2020, location:"Dallas", linkedin:"https://www.linkedin.com/in/sachin-banjade-345339248/"},
-  { id:2, name:"Sangam Bartaula", role:"Data Scientist", company:"Data Insights Co.", class:2021, location:"Austin", linkedin:"https://www.linkedin.com/in/sangambartaula/"},
-  { id:3, name:"Shrish Acharya", role:"Product Manager", company:"Innovate Labs", class:2023, location:"Houston", linkedin:"https://www.linkedin.com/in/shrish-acharya-53b46932b/"},
-  { id:4, name:"Niranjan Paudel", role:"Cybersecurity Analyst", company:"SecureNet Systems", class:2020, location:"Dallas", linkedin:"https://www.linkedin.com/in/niranjan-paudel-14a31a330/"},
-  { id:5, name:"Abishek Lamichhane", role:"Cloud Architect", company:"Global Cloud Services", class:2022, location:"Remote", linkedin:"https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/"},
+  { id: 1, name: "Sachin Banjade", role: "Software Engineer", company: "Tech Solutions Inc.", class: 2020, location: "Dallas", linkedin: "https://www.linkedin.com/in/sachin-banjade-345339248/" },
+  { id: 2, name: "Sangam Bartaula", role: "Data Scientist", company: "Data Insights Co.", class: 2021, location: "Austin", linkedin: "https://www.linkedin.com/in/sangambartaula/" },
+  { id: 3, name: "Shrish Acharya", role: "Product Manager", company: "Innovate Labs", class: 2023, location: "Houston", linkedin: "https://www.linkedin.com/in/shrish-acharya-53b46932b/" },
+  { id: 4, name: "Niranjan Paudel", role: "Cybersecurity Analyst", company: "SecureNet Systems", class: 2020, location: "Dallas", linkedin: "https://www.linkedin.com/in/niranjan-paudel-14a31a330/" },
+  { id: 5, name: "Abishek Lamichhane", role: "Cloud Architect", company: "Global Cloud Services", class: 2022, location: "Remote", linkedin: "https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/" },
 ];
 
 // Store user interactions in memory
@@ -27,19 +27,19 @@ function updateStatsBanner(alumniData) {
 
   // Calculate total alumni
   const totalAlumni = alumniData.length;
-  
+
   // Calculate unique locations
   const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc));
   const locationsCount = uniqueLocations.size;
-  
+
   // Calculate bookmarked alumni - check interaction_type === 'bookmarked'
   const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
-  
+
   // Update DOM elements
   const totalAlumniEl = document.getElementById('totalAlumni');
   const locationsCountEl = document.getElementById('locationsCount');
   const bookmarkedCountEl = document.getElementById('bookmarkedCount');
-  
+
   if (totalAlumniEl) totalAlumniEl.textContent = totalAlumni;
   if (locationsCountEl) locationsCountEl.textContent = locationsCount;
   if (bookmarkedCountEl) bookmarkedCountEl.textContent = bookmarkedCount;
@@ -91,10 +91,10 @@ class NotesModal {
     this.currentAlumniId = alumniId;
     this.currentAlumniName = alumniName;
     document.getElementById('notesTitle').textContent = `Notes for ${alumniName}`;
-    
+
     // Load existing notes
     await this.loadNote();
-    
+
     this.modal.style.display = 'flex';
     document.getElementById('notesTextarea').focus();
   }
@@ -108,7 +108,7 @@ class NotesModal {
     try {
       const response = await fetch(`/api/notes/${this.currentAlumniId}`);
       const data = await response.json();
-      
+
       if (data.success && data.note) {
         document.getElementById('notesTextarea').value = data.note.note_content;
       } else {
@@ -122,24 +122,30 @@ class NotesModal {
 
   async saveNote() {
     const noteContent = document.getElementById('notesTextarea').value;
-    
+
     try {
       const response = await fetch(`/api/notes/${this.currentAlumniId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note_content: noteContent })
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         console.log('Note saved successfully');
         // Update the button styling
         const notesBtn = document.querySelector(`[data-alumni-id="${this.currentAlumniId}"]`);
-        if (notesBtn && noteContent.trim()) {
-          notesBtn.classList.add('has-note');
-        } else if (notesBtn) {
-          notesBtn.classList.remove('has-note');
+        // Update cache
+        const hasNote = !!noteContent.trim();
+        notesStatusCache[this.currentAlumniId] = hasNote;
+
+        if (notesBtn) {
+          if (hasNote) {
+            notesBtn.classList.add('has-note');
+          } else {
+            notesBtn.classList.remove('has-note');
+          }
         }
         this.close();
       } else {
@@ -155,12 +161,49 @@ class NotesModal {
 // Initialize notes modal
 const notesModal = new NotesModal();
 
+// ===== NOTES CACHING & OPTIMIZATION =====
+const notesStatusCache = {}; // { id: boolean }
+
+async function fetchNoteStatus(id, btn) {
+  // Check cache first
+  if (notesStatusCache[id] !== undefined) {
+    if (notesStatusCache[id]) btn.classList.add('has-note');
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/notes/${id}`);
+    const data = await response.json();
+    const hasNote = data.success && data.note && data.note.note_content && data.note.note_content.trim().length > 0;
+
+    // Update cache
+    notesStatusCache[id] = hasNote;
+
+    if (hasNote) {
+      btn.classList.add('has-note');
+    }
+  } catch (error) {
+    console.error('Error loading notes status:', error);
+  }
+}
+
+const notesObserver = new IntersectionObserver((entries, observer) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const btn = entry.target;
+      const id = btn.dataset.alumniId;
+      fetchNoteStatus(id, btn);
+      observer.unobserve(btn);
+    }
+  });
+});
+
 // Load user interactions from backend
 async function loadUserInteractions() {
   try {
     const response = await fetch('/api/user-interactions');
     const data = await response.json();
-    
+
     if (data.success) {
       // Convert interactions array to a map for easy lookup
       // Key: "alumni_id-interaction_type", Value: interaction data
@@ -188,9 +231,9 @@ async function saveInteraction(alumniId, interactionType, notes = '') {
         notes: notes
       })
     });
-    
+
     const data = await response.json();
-    
+
     if (data.success) {
       console.log(`${interactionType} saved for alumni ${alumniId}`);
       // Update local state
@@ -218,9 +261,9 @@ async function removeInteraction(alumniId, interactionType) {
         interaction_type: interactionType
       })
     });
-    
+
     const data = await response.json();
-    
+
     if (data.success) {
       console.log(`${interactionType} removed for alumni ${alumniId}`);
       // Update local state
@@ -248,7 +291,7 @@ function createListItem(p) {
   const item = document.createElement('div');
   item.className = 'list-item';
   item.setAttribute('data-id', p.id);
-    item.innerHTML = `
+  item.innerHTML = `
       <div class="list-main">
         <div class="list-details">
           <h3 class="name">${p.name}</h3>
@@ -322,18 +365,8 @@ function createListItem(p) {
     notesModal.open(alumniId, alumniName);
   });
 
-  // Load notes status on initial render
-  (async () => {
-    try {
-      const response = await fetch(`/api/notes/${p.id}`);
-      const data = await response.json();
-      if (data.success && data.note && data.note.note_content && data.note.note_content.trim()) {
-        notesBtn.classList.add('has-note');
-      }
-    } catch (error) {
-      console.error('Error loading notes status:', error);
-    }
-  })();
+  // Load notes status lazily when visible
+  notesObserver.observe(notesBtn);
 
   return item;
 }
@@ -342,7 +375,7 @@ function createListItem(p) {
 function renderProfiles(list) {
   // Get paginated subset
   const paginatedList = getPaginated(list);
-  
+
   if (listContainer) {
     listContainer.innerHTML = '';
     paginatedList.forEach(p => listContainer.appendChild(createListItem(p)));
@@ -365,14 +398,14 @@ function renderPagination(fullList) {
   if (!paginationContainer) return;
 
   const totalPages = Math.ceil(fullList.length / itemsPerPage);
-  
+
   // If only one page or no results, hide pagination
   if (totalPages <= 1) {
     paginationContainer.innerHTML = '';
     paginationContainer.style.display = 'none';
     return;
   }
-  
+
   paginationContainer.style.display = 'flex';
   paginationContainer.innerHTML = '';
 
@@ -393,7 +426,7 @@ function renderPagination(fullList) {
   const maxVisiblePages = 7;
   let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
   let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-  
+
   // Adjust start if we're near the end
   if (endPage - startPage < maxVisiblePages - 1) {
     startPage = Math.max(1, endPage - maxVisiblePages + 1);
@@ -463,14 +496,14 @@ function populateFilters(list) {
   const locations = Array.from(new Set(list.map(x => x.location).filter(Boolean))).sort();
   const roles = Array.from(new Set(list.map(x => x.role).filter(Boolean))).sort();
   const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean))).sort();
-  const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a,b)=>b-a);
+  const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
   // Fixed order for degree levels
-  const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level => 
+  const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
     list.some(x => x.degree === level)
   );
-  
+
   console.log('Degree values found:', degrees);
-  console.log('Sample alumni degrees:', list.slice(0, 5).map(x => ({name: x.name, degree: x.degree})));
+  console.log('Sample alumni degrees:', list.slice(0, 5).map(x => ({ name: x.name, degree: x.degree })));
 
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
@@ -586,7 +619,7 @@ function setupFiltering(list) {
     const sortedFiltered = getSorted(filtered);
     const paginated = getPaginated(sortedFiltered);
     renderProfiles(sortedFiltered); // Pass full list for count and pagination
-    
+
     // Render only paginated items
     if (listContainer) {
       listContainer.innerHTML = '';
@@ -624,7 +657,7 @@ function setupFiltering(list) {
   try {
     const resp = await fetch('/api/alumni?limit=500');
     const data = await resp.json();
-    
+
     if (data && data.success && Array.isArray(data.alumni) && data.alumni.length > 0) {
       // Map backend response to frontend expected fields
       alumniData = data.alumni.map(a => ({

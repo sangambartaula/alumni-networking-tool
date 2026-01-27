@@ -22,6 +22,15 @@ MYSQL_PORT = int(os.getenv('MYSQLPORT', 3306))
 USE_SQLITE_FALLBACK = os.getenv('USE_SQLITE_FALLBACK', '1') == '1'
 
 
+def normalize_url(url):
+    """Strip trailing slashes from URL."""
+    if pd.isna(url) or url is None: return None
+    s = str(url).strip()
+    if not s or s.lower() == 'nan': return None
+    return s.rstrip('/')
+
+
+
 def get_connection():
     """
     Get a database connection.
@@ -287,7 +296,7 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
                     is_unt_alum = VALUES(is_unt_alum),
                     last_checked = NOW(),
                     notes = COALESCE(VALUES(notes), notes)
-            """, (linkedin_url.strip(), is_unt_alum, notes))
+            """, (normalize_url(linkedin_url), is_unt_alum, notes))
             conn.commit()
 
         logger.debug(f"💾 Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
@@ -419,7 +428,7 @@ def migrate_visited_history_csv_to_db():
 
         with conn.cursor() as cur:
             for _, row in df.iterrows():
-                url = str(row.get('profile_url', '')).strip()
+                url = normalize_url(row.get('profile_url'))
                 if not url:
                     continue
 
@@ -533,7 +542,7 @@ def seed_alumni_data():
                     company = str(row['company']).strip() if pd.notna(row.get('company')) else None
                     major = str(row['major']).strip() if pd.notna(row.get('major')) else None
                     grad_year = int(row['graduation_year']) if pd.notna(row.get('graduation_year')) else None
-                    profile_url = str(row['profile_url']).strip() if pd.notna(row.get('profile_url')) else None
+                    profile_url = normalize_url(row.get('profile_url'))
                     scraped_at = str(row['scraped_at']).strip() if pd.notna(row.get('scraped_at')) else None
 
                     # New fields (may not exist in older CSVs)
@@ -669,6 +678,49 @@ def truncate_dot_fields():
                 pass
 
 
+def cleanup_trailing_slashes():
+    """Remove trailing slashes from existing URLs, handling duplicates."""
+    logger.info("🧹 Cleaning up trailing slashes from URLs...")
+    conn = get_connection()
+    try:
+        tables = ['visited_profiles', 'alumni']
+        with conn.cursor() as cur:
+            for table in tables:
+                # Find URLs with trailing slash
+                cur.execute(f"SELECT id, linkedin_url FROM {table} WHERE linkedin_url LIKE '%/'")
+                rows = cur.fetchall()
+                if not rows:
+                    continue
+                
+                logger.info(f"Found {len(rows)} URLs with trailing slash in {table}")
+                fixed = 0
+                deleted = 0
+                
+                for row_id, url in rows:
+                    clean_url = url.rstrip('/')
+                    try:
+                        # Try to update
+                        cur.execute(f"UPDATE {table} SET linkedin_url = %s WHERE id = %s", (clean_url, row_id))
+                        fixed += 1
+                    except mysql.connector.Error as err:
+                        if err.errno == 1062: # Duplicate entry
+                            # Collision! The clean URL matches another record.
+                            # We delete the current record with the slash, keeping the other one.
+                            logger.info(f"  Collision for {clean_url}. Deleting duplicate record ID {row_id}.")
+                            cur.execute(f"DELETE FROM {table} WHERE id = %s", (row_id,))
+                            deleted += 1
+                        else:
+                            logger.error(f"Failed to fix {url}: {err}")
+                
+                conn.commit()
+                logger.info(f"✨ Fixed {fixed} URLs, Deleted {deleted} duplicates in {table}")
+                
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
+    finally:
+        if conn: conn.close()
+
+
 if __name__ == "__main__":
     try:
         # Validate environment variables
@@ -689,6 +741,7 @@ if __name__ == "__main__":
         # Seed alumni data
         seed_alumni_data()
         truncate_dot_fields()
+        cleanup_trailing_slashes()
 
         # Migrate visited_history.csv to database (one-time)
         logger.info("\n" + "="*60)

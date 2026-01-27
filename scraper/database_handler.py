@@ -201,6 +201,61 @@ def normalize_text(text):
     
     return text.strip()
 
+def flag_profile_for_review(profile_data):
+    """
+    Flag profiles with incomplete data for manual review.
+    Appends to flagged_for_review.txt with descriptive comments.
+    """
+    from config import FLAGGED_PROFILES_FILE
+    
+    url = profile_data.get('profile_url', '')
+    if not url:
+        return
+    
+    issues = []
+    
+    job_title = profile_data.get('job_title', '').strip()
+    company = profile_data.get('company', '').strip()
+    graduation_year = profile_data.get('graduation_year', '')
+    major = profile_data.get('major', '').strip()
+    
+    # Only flag if one of title/company is present but not the other
+    # (If both are missing, assume the person doesn't have work experience listed)
+    if job_title and not company:
+        issues.append("Missing Company but Job Title Present")
+    elif company and not job_title:
+        issues.append("Missing Job Title but Company Present")
+    
+    # Flag missing education data (everyone should have UNT education)
+    if not graduation_year:
+        issues.append("Missing Grad Year")
+    if not major:
+        issues.append("Missing Degree/Major Information")
+    
+    if not issues:
+        return  # Nothing to flag
+    
+    # Format: URL # Issue1; Issue2
+    flag_line = f"{url} # {'; '.join(issues)}\n"
+    
+    try:
+        # Read existing lines to avoid duplicates
+        existing_lines = set()
+        if FLAGGED_PROFILES_FILE.exists():
+            with open(FLAGGED_PROFILES_FILE, 'r', encoding='utf-8') as f:
+                for line in f:
+                    # Extract just the URL part (before the #)
+                    existing_url = line.split('#')[0].strip()
+                    existing_lines.add(existing_url)
+        
+        # Only append if URL not already flagged
+        if url not in existing_lines:
+            with open(FLAGGED_PROFILES_FILE, 'a', encoding='utf-8') as f:
+                f.write(flag_line)
+            logger.info(f"🚩 Flagged for review: {url} ({'; '.join(issues)})")
+    except Exception as e:
+        logger.warning(f"Could not flag profile: {e}")
+
 def save_profile_to_csv(profile_data):
     try:
         if not profile_data.get('profile_url') or not profile_data.get('name'): return False
@@ -228,6 +283,10 @@ def save_profile_to_csv(profile_data):
         combined_df = combined_df.drop_duplicates(subset=['profile_url'], keep='last')
         
         combined_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')
+        
+        # Flag profiles with incomplete data for review
+        flag_profile_for_review(save_data)
+        
         return True
     except Exception as e:
         logger.error(f"❌ Error saving profile: {e}")
