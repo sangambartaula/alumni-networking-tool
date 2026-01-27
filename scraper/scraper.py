@@ -15,6 +15,7 @@ from selenium.common.exceptions import NoSuchWindowException
 import utils
 import config
 from config import logger
+from entity_classifier import classify_entity, is_location, is_university
 
 class LinkedInScraper:
     def __init__(self):
@@ -515,37 +516,57 @@ class LinkedInScraper:
             
             if not context: continue
             
-            # Identify Company vs Title using heuristics
+            # Identify Company vs Title using tiered entity classifier
             company, title = "", ""
+            classified_items = []
             
             for t in context:
                 # Clean the text
                 clean_t = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$', '', t, flags=re.I).strip()
                 if not clean_t: continue
                 
-                has_company_hint = bool(company_hints.search(clean_t))
-                has_title_hint = bool(title_hints.search(clean_t))
+                # Skip obvious locations (e.g., "Orlando, Florida")
+                if is_location(clean_t):
+                    continue
                 
-                if has_company_hint and not company:
-                    company = clean_t
-                elif has_title_hint and not title:
-                    title = clean_t
-                elif not company and not title:
-                    # First unknown item - guess based on length and capitalization
-                    # Titles tend to be longer descriptions, companies tend to be proper nouns
-                    title = clean_t  # Default first item to title
-                elif not company:
-                    company = clean_t
-                elif not title:
-                    title = clean_t
+                # Skip universities in experience section (they're schools, not employers)
+                # Unless they might be the employer (e.g., working AT a university)
+                if is_university(clean_t):
+                    # Universities can be employers, but we need context
+                    # Check if there's a job title nearby
+                    entity_type = "university"
+                    confidence = 0.6
+                else:
+                    entity_type, confidence = classify_entity(clean_t)
+                
+                classified_items.append((clean_t, entity_type, confidence))
             
-            # If we only found one thing, try to figure out what it is
-            if title and not company:
-                if company_hints.search(title) and not title_hints.search(title):
-                    company, title = title, ""
-            if company and not title:
-                if title_hints.search(company) and not company_hints.search(company):
-                    title, company = company, ""
+            # Assign company and title based on classification
+            # Sort by confidence (highest first)
+            classified_items.sort(key=lambda x: -x[2])
+            
+            for item_text, item_type, conf in classified_items:
+                if item_type == "company" and not company:
+                    company = item_text
+                elif item_type == "university" and not company:
+                    # University as employer
+                    company = item_text
+                elif item_type == "job_title" and not title:
+                    title = item_text
+                elif item_type == "unknown":
+                    # Assign unknowns to empty slots
+                    # Use existing regex hints as tiebreaker
+                    has_company_hint = bool(company_hints.search(item_text))
+                    has_title_hint = bool(title_hints.search(item_text))
+                    
+                    if has_title_hint and not title:
+                        title = item_text
+                    elif has_company_hint and not company:
+                        company = item_text
+                    elif not title:
+                        title = item_text
+                    elif not company:
+                        company = item_text
             
             # Clean up
             company = self._clean_company(company)

@@ -20,6 +20,7 @@ A web-based application designed to help the College of Engineering connect with
 - **Work Experience:** Up to 3 jobs with company, title, and date ranges
 - **Education:** School, degree/major, graduation year, school start date
 - **Working While Studying Detection:** Automatically determines if alumni worked during school
+- **Smart Entity Classification:** Tiered system using database lookup, spaCy NER, and regex to accurately distinguish job titles from company names
 
 ### Data Management
 - **CSV Output** - All scraped data saved to `scraper/output/UNT_Alumni_Data.csv`
@@ -27,6 +28,7 @@ A web-based application designed to help the College of Engineering connect with
 - **Visited Profile Tracking** - Prevents duplicate scraping across sessions
 - **Flagged Profile Review** - Re-scrape specific profiles to fix data issues
 - **Smart Duplicate Handling** - New data overwrites old when re-scraped
+- **CSV Data Cleanup** - Utility to fix swapped job titles/companies in existing data
 
 ### Web Application
 - **Alumni Search** - Find alumni by name, graduation year, degree, or department
@@ -165,6 +167,21 @@ python database.py
 python geocoding.py
 ```
 
+### CSV Data Cleanup
+
+If you notice swapped job titles and company names in the CSV:
+
+```bash
+# Fix swapped entries and normalize text
+python scraper/fix_csv_data.py
+```
+
+This script:
+- Normalizes text (removes newlines, special characters)
+- Auto-detects and fixes swapped job_title/company fields
+- Applies known fixes for specific profiles
+- Creates a backup before making changes
+
 ---
 
 ## Output Data
@@ -213,6 +230,10 @@ alumni-networking-tool/
 │   ├── config.py           # Configuration and constants
 │   ├── utils.py            # Utility functions
 │   ├── database_handler.py # CSV and history management
+│   ├── entity_classifier.py # Job title/company classification
+│   ├── fix_csv_data.py     # CSV cleanup utility
+│   ├── data/
+│   │   └── companies.json  # Curated company/university database
 │   └── output/
 │       ├── UNT_Alumni_Data.csv      # Scraped data
 │       └── flagged_for_review.txt   # Profiles to re-scrape
@@ -230,8 +251,11 @@ alumni-networking-tool/
 
 Run the test suite:
 ```bash
-cd backend
-pytest -q
+# Run all tests
+pytest tests/ -v
+
+# Run entity classifier tests specifically
+pytest tests/test_entity_classifier.py -v
 ```
 
 Tests cover:
@@ -239,6 +263,8 @@ Tests cover:
 - API route validation
 - Database connectivity
 - Scraper data extraction logic
+- Entity classification (job titles, companies, locations, universities)
+- Text normalization (newlines, special characters)
 
 ---
 

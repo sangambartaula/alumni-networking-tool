@@ -161,9 +161,21 @@ class HistoryManager:
         return True
 
 def normalize_text(text):
-    """Normalize fancy Unicode characters to ASCII equivalents."""
+    """
+    Normalize text for safe CSV storage.
+    - Replaces fancy Unicode characters with ASCII equivalents
+    - Removes/replaces newlines, tabs, and control characters that break CSV
+    """
     if not text or not isinstance(text, str):
         return text
+    
+    # Remove/replace control characters that break CSV format
+    # Replace newlines with space (or pipe separator for multi-line content)
+    text = text.replace('\r\n', ' | ')
+    text = text.replace('\n', ' | ')
+    text = text.replace('\r', ' | ')
+    text = text.replace('\t', ' ')
+    
     # Common Unicode replacements
     replacements = {
         '\u2019': "'",  # RIGHT SINGLE QUOTATION MARK -> apostrophe
@@ -174,10 +186,20 @@ def normalize_text(text):
         '\u2014': '-',  # EM DASH
         '\u2026': '...', # ELLIPSIS
         '\xa0': ' ',    # NON-BREAKING SPACE
+        '\u00a0': ' ',  # NON-BREAKING SPACE (alt)
+        '\u200b': '',   # ZERO WIDTH SPACE
+        '\u200c': '',   # ZERO WIDTH NON-JOINER
+        '\u200d': '',   # ZERO WIDTH JOINER
+        '\ufeff': '',   # BYTE ORDER MARK
     }
     for unicode_char, ascii_char in replacements.items():
         text = text.replace(unicode_char, ascii_char)
-    return text
+    
+    # Collapse multiple spaces into one
+    import re
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text.strip()
 
 def save_profile_to_csv(profile_data):
     try:
