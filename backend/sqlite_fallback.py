@@ -186,6 +186,7 @@ class ConnectionManager:
                     last_name TEXT,
                     grad_year INTEGER,
                     degree TEXT,
+                    major TEXT,
                     linkedin_url TEXT NOT NULL UNIQUE,
                     current_job_title TEXT,
                     company TEXT,
