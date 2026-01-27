@@ -397,7 +397,7 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT id, first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline
+                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline
                     FROM alumni
                     ORDER BY last_name ASC, first_name ASC
                     LIMIT %s OFFSET %s
@@ -429,6 +429,7 @@ def api_get_alumni():
                     "current_job_title": r.get('current_job_title'),
                     "company": r.get('company'),
                     "grad_year": r.get('grad_year'),
+                    "major": r.get('major'),
 
                     # OPTIONAL: keep backwards-compatible for alumni UI (if needed)
                     "role": r.get('current_job_title'),
@@ -836,16 +837,167 @@ if __name__ == "__main__":
     
     # Initialize database first (but skip re-seeding if data exists)
     from database import init_db, seed_alumni_data
-    if not DISABLE_DB:
+@app.route('/api/alumni/majors', methods=['GET'])
+def api_get_majors():
+    """
+    Return a list of unique majors/engineering disciplines.
+    Useful for populating filter dropdowns.
+    """
+    if DISABLE_DB:
+        return jsonify({"success": True, "majors": []}), 200
+
+    try:
+        conn = get_connection()
         try:
-            init_db()
-            # Seed alumni data from CSV file
-            seed_alumni_data()
-        except Exception as e:
-            app.logger.error(f"Failed to initialize database: {e}")
-            # Don't exit if fallback is enabled - we might be using SQLite
-            if not USE_SQLITE_FALLBACK:
-                exit(1)
-            else:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT DISTINCT major
+                    FROM alumni
+                    WHERE major IS NOT NULL AND major != ''
+                    ORDER BY major ASC
+                """)
+                rows = cur.fetchall()
+                majors = [row['major'] for row in rows if row['major']]
+            
+            return jsonify({"success": True, "majors": majors}), 200
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    except Exception as e:
+        app.logger.error(f"Error fetching majors: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@app.route('/api/alumni/filter', methods=['GET'])
+def api_filter_alumni():
+    """
+    Filter alumni by major and other criteria.
+    Query params:
+      - major: filter by engineering discipline (e.g., 'Computer Engineering')
+      - location: filter by location
+      - company: filter by company
+      - job_title: filter by job title
+      - grad_year: filter by graduation year
+      - degree: filter by degree level
+      - limit: max results (default 10000)
+      - offset: pagination offset (default 0)
+    """
+    if DISABLE_DB:
+        return jsonify({"success": True, "alumni": []}), 200
+
+    try:
+        # Get filter parameters
+        major = request.args.get('major', '').strip()
+        location = request.args.get('location', '').strip()
+        company = request.args.get('company', '').strip()
+        job_title = request.args.get('job_title', '').strip()
+        grad_year = request.args.get('grad_year', '').strip()
+        degree_filter = request.args.get('degree', '').strip()
+        
+        try:
+            limit = int(request.args.get('limit', 10000))
+        except Exception:
+            limit = 10000
+        try:
+            offset = int(request.args.get('offset', 0))
+        except Exception:
+            offset = 0
+
+        conn = get_connection()
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                # Build dynamic WHERE clause
+                where_clauses = []
+                params = []
+                
+                if major:
+                    where_clauses.append("major = %s")
+                    params.append(major)
+                
+                if location:
+                    where_clauses.append("location LIKE %s")
+                    params.append(f"%{location}%")
+                
+                if company:
+                    where_clauses.append("company LIKE %s")
+                    params.append(f"%{company}%")
+                
+                if job_title:
+                    where_clauses.append("current_job_title LIKE %s")
+                    params.append(f"%{job_title}%")
+                
+                if grad_year:
+                    where_clauses.append("grad_year = %s")
+                    params.append(int(grad_year))
+                
+                if degree_filter:
+                    # Map degree filter to SQL pattern
+                    if degree_filter.lower() == 'undergraduate':
+                        where_clauses.append("(degree LIKE '%Bachelor%' OR degree LIKE '%B.S.%' OR degree LIKE '%B.A.%')")
+                    elif degree_filter.lower() == 'graduate':
+                        where_clauses.append("(degree LIKE '%Master%' OR degree LIKE '%M.S.%' OR degree LIKE '%MBA%')")
+                    elif degree_filter.lower() == 'phd':
+                        where_clauses.append("(degree LIKE '%Ph.D%' OR degree LIKE '%PhD%')")
+                
+                where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
+                
+                query = f"""
+                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, 
+                           current_job_title, company, location, headline
+                    FROM alumni
+                    WHERE {where_clause}
+                    ORDER BY last_name ASC, first_name ASC
+                    LIMIT %s OFFSET %s
+                """
+                params.extend([limit, offset])
+                
+                cur.execute(query, params)
+                rows = cur.fetchall()
+
+                alumni = []
+                for r in rows:
+                    full_degree = r.get('degree', '') or ''
+                    degree_level = 'Other'
+                    degree_lower = full_degree.lower()
+                    
+                    if degree_lower:
+                        if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
+                            degree_level = 'Undergraduate'
+                        elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
+                            degree_level = 'Graduate'
+                        elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
+                            degree_level = 'PhD'
+                    
+                    alumni.append({
+                        "id": r.get('id'),
+                        "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
+                        "current_job_title": r.get('current_job_title'),
+                        "company": r.get('company'),
+                        "grad_year": r.get('grad_year'),
+                        "major": r.get('major'),
+                        "role": r.get('current_job_title'),
+                        "headline": r.get('headline'),
+                        "class": r.get('grad_year'),
+                        "location": r.get('location'),
+                        "linkedin": r.get('linkedin_url'),
+                        "degree": degree_level,
+                        "full_degree": full_degree
+                    })
+
+                return jsonify({"success": True, "alumni": alumni, "count": len(alumni)}), 200
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    except Exception as e:
+        app.logger.error(f"Error filtering alumni: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+if __name__ == '__main__':
                 app.logger.info("Continuing with SQLite fallback...")
     app.run()
