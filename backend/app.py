@@ -999,5 +999,15 @@ def api_filter_alumni():
 
 
 if __name__ == '__main__':
+    if not DISABLE_DB:
+        try:
+            init_db()
+            seed_alumni_data()
+        except Exception as e:
+            app.logger.error(f"Failed to initialize database: {e}")
+            if not USE_SQLITE_FALLBACK:
+                exit(1)
+            else:
                 app.logger.info("Continuing with SQLite fallback...")
+    
     app.run()
