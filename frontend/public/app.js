@@ -458,10 +458,11 @@ function createPageButton(pageNum, fullList) {
   return btn;
 }
 
-// Populate filters (location, role, graduation, degree)
+// Populate filters (location, role, major, graduation, degree)
 function populateFilters(list) {
   const locations = Array.from(new Set(list.map(x => x.location).filter(Boolean))).sort();
   const roles = Array.from(new Set(list.map(x => x.role).filter(Boolean))).sort();
+  const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean))).sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a,b)=>b-a);
   // Fixed order for degree levels
   const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level => 
@@ -473,6 +474,7 @@ function populateFilters(list) {
 
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
+  const majorChecks = document.getElementById('majorChecks');
   const gradSelect = document.getElementById('gradSelect');
   const degreeChecks = document.getElementById('degreeChecks');
 
@@ -493,6 +495,16 @@ function populateFilters(list) {
       label.className = 'check';
       label.innerHTML = `<input type="checkbox" name="role" value="${v}" /> <span>${v}</span>`;
       roleChecks.appendChild(label);
+    });
+  }
+
+  if (majorChecks) {
+    majorChecks.innerHTML = '';
+    majors.forEach(v => {
+      const label = document.createElement('label');
+      label.className = 'check';
+      label.innerHTML = `<input type="checkbox" name="major" value="${v}" /> <span>${v}</span>`;
+      majorChecks.appendChild(label);
     });
   }
 
@@ -538,9 +550,10 @@ function setupFiltering(list) {
     const term = q ? q.value.trim().toLowerCase() : '';
     const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
     const role = Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value);
+    const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
     const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
     const year = gradSelect ? gradSelect.value : '';
-    return { term, loc, role, degree, year };
+    return { term, loc, role, major, degree, year };
   }
 
   function getSorted(listToSort) {
@@ -565,9 +578,10 @@ function setupFiltering(list) {
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
       const matchRole = !f.role.length || f.role.includes(a.role);
+      const matchMajor = !f.major.length || f.major.includes(a.major);
       const matchDegree = !f.degree.length || f.degree.includes(a.degree);
       const matchYear = !f.year || String(a.class) === String(f.year);
-      return matchTerm && matchLoc && matchRole && matchDegree && matchYear;
+      return matchTerm && matchLoc && matchRole && matchMajor && matchDegree && matchYear;
     });
     const sortedFiltered = getSorted(filtered);
     const paginated = getPaginated(sortedFiltered);
@@ -589,7 +603,7 @@ function setupFiltering(list) {
     apply();
   });
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="degree"], #gradSelect')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="major"], input[name="degree"], #gradSelect')) {
       currentPage = 1; // Reset to page 1 on filter change
       apply();
     }
@@ -622,7 +636,8 @@ function setupFiltering(list) {
         location: a.location || '',
         headline: a.headline || '',
         linkedin: a.linkedin || '',
-        degree: a.degree || ''
+        degree: a.degree || '',
+        major: a.major || ''
       }));
       console.log('Loaded alumni from API, count=', alumniData.length);
     } else {
