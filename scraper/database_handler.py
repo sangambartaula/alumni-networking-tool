@@ -140,11 +140,13 @@ class HistoryManager:
         url = url.strip()
         save_visited_profile(url, is_unt_alum=bool(saved)) # DB Call
         
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         self.visited_history[url] = {
             'saved': 'yes' if saved else 'no',
-            'visited_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'visited_at': now_str,
             'update_needed': 'yes' if update_needed else 'no',
-            'last_db_update': self.visited_history.get(url, {}).get('last_db_update', '')
+            'last_db_update': now_str  # Update with current time as we just synced to DB
         }
         self.save_history_csv()
 
