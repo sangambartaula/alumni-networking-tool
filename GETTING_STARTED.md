@@ -235,6 +235,22 @@ If some profiles have wrong data and you want to re-scrape them:
 4. Run the scraper: `python main.py`
 5. When prompted about flagged profiles, type `y` and press Enter
 
+### Improving Data Quality (Training the Scraper)
+
+As you scrape more profiles, you'll encounter new companies and job titles. To teach the scraper about them:
+
+1. Run the data validation tool:
+   ```bash
+   python scraper/check_data.py
+   ```
+2. The script checks your `UNT_Alumni_Data.csv` for any values not in its database.
+3. For each unknown item, it asks you to classify it:
+   - **Add to 'companies'**: If it's a company name
+   - **Add to 'universities'**: If it's a school/university
+   - **Add to 'job_titles'**: If it's a valid job title
+   - **Skip**: If it's junk data or you're unsure
+4. Changes are saved to `scraper/data/companies.json`, improving accuracy for all future scrapes.
+
 ### Running in Different Modes
 
 Edit your `.env` file to change the `SCRAPER_MODE`:

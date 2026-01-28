@@ -485,119 +485,150 @@ class LinkedInScraper:
             re.I
         )
 
-        # Detect grouped experience headers (company names with duration but no date range)
-        grouped_company_headers = []
-        for div in exp_root.find_all("div"):
+        # Track context for grouped experiences (Company Name)
+        context_company = ""
+        
+        candidates = []
+        # Iterate specific containers if possible, but find_all("div") is broad.
+        # We rely on specific content patterns to distinguish Headers vs Rows.
+        
+        # We process in document order.
+        divs = exp_root.find_all("div", recursive=True) # Recursive to find nested items
+        
+        parsed = []
+        seen_entries = set() # Avoid duplicates based on unique content signature
+        
+        for div in divs:
             lines = self._p_texts_clean(div)
-            # Grouped header pattern: has duration (e.g., "2 yrs 3 mos") but no date range
-            has_duration = any(re.match(r'^\d+\s*(yr|yrs|mo|mos)', t, re.I) for t in lines)
-            has_date_range = any(utils.DATE_RANGE_RE.search(t) for t in lines)
+            if not lines: continue
             
+            # Check signatures
+            has_date_range = any(utils.DATE_RANGE_RE.search(t) for t in lines)
+            has_duration = any(re.match(r'^\d+\s*(yr|yrs|mo|mos)', t, re.I) for t in lines)
+            
+            # 1. Potential Company Header (No specific date range like "Jan 2020 - Present", but has "2 yrs 5 mos")
             if has_duration and not has_date_range:
-                # This might be a grouped company header
+                # Attempt to extract company name from this header to utilize as context
+                # Usually the company name is the first non-junk line
                 for t in lines:
                     clean_t = t.strip()
                     if not clean_t: continue
                     if junk_patterns.match(clean_t): continue
-                    entity_type, confidence = classify_entity(clean_t)
-                    if entity_type == "company" and confidence >= 0.8:
-                        grouped_company_headers.append(clean_t)
+                    
+                    # Classify
+                    ent_type, conf = classify_entity(clean_t)
+                    if ent_type == "company" and conf >= 0.7:
+                        context_company = clean_t
+                        # print(f"DEBUG: Set context company to {context_company}")
                         break
-
-        candidates = []
-        for div in exp_root.find_all("div"):
-            lines = self._p_texts_clean(div)
-            if any(utils.DATE_RANGE_RE.search(t) for t in lines):
-                candidates.append(lines)
-
-        parsed = []
-        seen_entries = set()  # Avoid duplicates
-        
-        for lines in candidates:
-            date_idx = next((i for i, t in enumerate(lines) if utils.DATE_RANGE_RE.search(t)), None)
-            if date_idx is None: continue
-
-            start_d, end_d = utils.parse_date_range_line(lines[date_idx])
-            if not (start_d and end_d): continue
-
-            # Context: lines before the date, filtered for junk
-            context = []
-            for t in lines[max(0, date_idx - 4):date_idx]:
-                t = t.strip()
-                if not t: continue
-                # Filter out junk patterns
-                if junk_patterns.match(t): continue
-                # Filter out text that's mostly just employment type/duration
-                if re.match(r'^[·\s]*(Full-time|Part-time|Contract|Internship)', t, re.I): continue
-                # Filter out standalone bullets
-                if t in ['·', '•']: continue
-                context.append(t)
+                continue # Don't process this div as an experience entry itself
             
-            if not context: continue
-            
-            # Identify Company vs Title using tiered entity classifier
-            company, title = "", ""
-            classified_items = []
-            
-            for t in context:
-                # 1. Clean the text (remove " · Full-time" etc.)
-                clean_t = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$', '', t, flags=re.I).strip()
-                if not clean_t: continue
+            # 2. Potential Experience Entry (Has Date Range)
+            if has_date_range:
+                # Identify the date line
+                date_idx = next((i for i, t in enumerate(lines) if utils.DATE_RANGE_RE.search(t)), None)
+                if date_idx is None: continue
                 
-                # 2. Split logic for combined lines
-                potential_parts = []
+                start_d, end_d = utils.parse_date_range_line(lines[date_idx])
+                if not (start_d and end_d): continue
                 
-                # Split by " at " or " @ " (e.g. "Software Engineer at Google")
-                # But be careful not to split overlapping patterns
-                if re.search(r'\s+(at|@)\s+', clean_t, re.I):
-                     # Split and keep non-empty parts
-                     parts = re.split(r'\s+(?:at|@)\s+', clean_t, flags=re.I)
-                     potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
+                # Context is lines mostly BEFORE the date
+                # Grouped experiences often have Title BEFORE date.
+                # Sometimes Company is also there.
                 
-                # Split by dot separator if not already split
-                elif '·' in clean_t:
-                     parts = clean_t.split('·')
-                     potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
+                # Use a window of text
+                text_window = lines[max(0, date_idx - 4):date_idx]
+                if not text_window: continue
                 
-                # Default: use the cleaned line as is
-                if not potential_parts:
-                    potential_parts.append(clean_t)
+                # Analyze content
+                company = ""
+                title = ""
                 
-                # 3. Classify each part
-                for part in potential_parts:
-                    # Skip obvious locations
-                    if is_location(part):
-                        continue
-                        
-                    # Skip universities unless we are desperate
-                    if is_university(part):
-                        entity_type = "university"
-                        confidence = 0.6
-                    else:
-                        entity_type, confidence = classify_entity(part)
+                classified_items = []
+                for t in text_window:
+                    clean_t = self._clean_context_line(t)
+                    if not clean_t: continue
                     
-                    classified_items.append((part, entity_type, confidence))
-            
-            # Assign company and title based on classification
-            # Sort by confidence (highest first)
-            classified_items.sort(key=lambda x: -x[2])
-            
-            for item_text, item_type, conf in classified_items:
-                if item_type == "company" and not company:
-                    company = item_text
-                elif item_type == "university" and not company:
-                    # University as employer
-                    company = item_text
-                elif item_type == "job_title" and not title:
-                    title = item_text
-                elif item_type == "unknown":
-                    # Assign unknowns to empty slots
-                    # Use existing regex hints as tiebreaker
-                    has_company_hint = bool(company_hints.search(item_text))
-                    has_title_hint = bool(title_hints.search(item_text))
+                    # Split logic (at/dots)
+                    parts = self._split_context_line(clean_t)
                     
-                    if has_title_hint and not title:
+                    for part in parts:
+                        if is_location(part): continue
+                        if is_university(part):
+                            classified_items.append((part, "university", 0.6))
+                        else:
+                            e_type, conf = classify_entity(part)
+                            classified_items.append((part, e_type, conf))
+
+                classified_items.sort(key=lambda x: -x[2])
+
+                for item_text, item_type, conf in classified_items:
+                    if item_type == "company" and not company:
+                        company = item_text
+                    elif item_type == "university" and not company:
+                        company = item_text
+                    elif item_type == "job_title" and not title:
                         title = item_text
+                    elif item_type == "unknown":
+                        # Tiebreakers
+                        if not title and title_hints.search(item_text):
+                            title = item_text
+                        elif not company and company_hints.search(item_text):
+                            company = item_text
+
+                # Apply Context if Company is missing but Title is present
+                if title and not company and context_company:
+                     # Check if context_company is actually just the title again (safety)
+                     if context_company.lower() != title.lower():
+                         company = context_company
+                
+                # Reset context if we found a NEW valid company explicitly?
+                # Actually, if this entry HAS a company, it might be the start of a new group?
+                # But sometimes it's just a one-off.
+                # Safer: if we found an explicit company, update context_company?
+                if company:
+                    context_company = company
+
+                if title and company:
+                    # Construct unique key to avoid sub-div duplicates
+                    # Often find_all("div") returns parent AND child. 
+                    # Child processing is better (more specific).
+                    # We accept the first valid extraction of a specific (Title/Company/Date) tuple.
+                    
+                    # Normalize simple
+                    u_key = f"{title.lower()}|{company.lower()}|{start_d}|{end_d}"
+                    if u_key not in seen_entries:
+                        parsed.append({
+                            "title": title,
+                            "company": company,
+                            "start_date": start_d,
+                            "end_date": end_d
+                        })
+                        seen_entries.add(u_key)
+
+        return parsed[:max_entries]
+
+    def _clean_context_line(self, t):
+        # Filtering helper
+        t = t.strip()
+        if not t: return None
+        if re.match(r'^(Full-time|Part-time|Contract|Internship)', t, re.I): return None
+        if t in ['·', '•']: return None
+        # Remove suffix like " · Full-time"
+        return re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$', '', t, flags=re.I).strip()
+
+    def _split_context_line(self, text):
+        potential_parts = []
+        if re.search(r'\s+(at|@)\s+', text, re.I):
+             parts = re.split(r'\s+(?:at|@)\s+', text, flags=re.I)
+             potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
+        elif '·' in text:
+             parts = text.split('·')
+             potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
+        
+        if not potential_parts:
+            potential_parts.append(text)
+        return potential_parts
                     elif has_company_hint and not company:
                         company = item_text
                     elif not title:

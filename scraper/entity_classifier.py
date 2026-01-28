@@ -64,7 +64,11 @@ class EntityClassifier:
             r'Officer|Architect|Scientist|Professor|Teacher|Instructor|Tutor|'
             r'Assistant|Student|Trainee|Fellow|Researcher|Technician|Operator|'
             r'Programmer|QA|Quality|Tester|Support|Agent|Staff|Crew|Member|'
-            r'Executive|President|CEO|CTO|CFO|COO|CIO|CMO|Recruiter|Talent Acquisition)\b',
+            r'Executive|President|CEO|CTO|CFO|COO|CIO|CMO|Recruiter|Talent Acquisition|'
+            r'Cashier|Server|Barista|Waiter|Waitress|Host|Hostess|Bartender|Clerk|'
+            r'Ambassador|Volunteer|Attendant|Internship|Apprentice|Founder|Co-Founder|'
+            r'Owner|Partner|Principal|Managing Director|General Manager|Supervisor|'
+            r'Coach|Evaluator|Busser|Assembler|Technician|Banker|Shopper)\b',
             re.I
         )
         
@@ -214,7 +218,11 @@ class EntityClassifier:
                             "officer", "architect", "scientist", "professor", "teacher",
                             "instructor", "tutor", "assistant", "student", "trainee",
                             "fellow", "researcher", "technician", "operator", "programmer",
-                            "tester", "support", "agent", "staff", "executive"}
+                            "tester", "support", "agent", "staff", "executive", "recruiter",
+                            "cashier", "server", "barista", "clerk", "attendant", "member",
+                            "volunteer", "ambassador", "supervisor", "owner", "founder", "partner",
+                            "coach", "evaluator", "busser", "assembler", "tech", "banker", "tutor",
+                            "shopper"}
         
         # Check all entities found
         for ent in doc.ents:
@@ -238,7 +246,7 @@ class EntityClassifier:
                 
                 # 3. Check for strong title prefixes (Director of, Head of, VP of, Chief)
                 # "Director of Software Engineering" -> SpaCy calls it ORG, but it's a title
-                strong_prefixes = {"director", "head", "vp", "vice president", "chief", "senior", "principal", "lead", "sr", "jr", "sr.", "jr."}
+                strong_prefixes = {"director", "head", "vp", "vice president", "chief", "senior", "principal", "lead", "sr", "jr", "sr.", "jr.", "exec", "executive", "managing", "general"}
                 first_word = text_lower.split()[0] if text_lower.split() else ""
                 if first_word in strong_prefixes:
                     return ("job_title", 0.75)
@@ -287,9 +295,9 @@ class EntityClassifier:
         # Job titles often have seniority prefixes or role suffixes
         # If it looks like "Senior X" or "X II" or "X Intern", it's likely a title
         title_structure = re.compile(
-            r'^(Senior|Junior|Lead|Chief|Principal|Staff|Head|VP|Vice President)\s+\w+|'
+            r'^(Senior|Junior|Lead|Chief|Principal|Staff|Head|VP|Vice President|Sr\.?|Jr\.?|Asst\.?|Exec\.?)\s+\w+|'
             r'\w+\s+(I{1,3}|IV|V|1|2|3)\s*$|'
-            r'\w+\s+(Intern|Trainee|Fellow|Assistant)\s*$',
+            r'\w+\s+(Intern|Trainee|Fellow|Assistant|Apprentice)\s*$',
             re.I
         )
         has_title_structure = bool(title_structure.match(text))
@@ -310,7 +318,11 @@ class EntityClassifier:
                                              "coordinator", "administrator", "architect",
                                              "scientist", "professor", "teacher", "assistant",
                                              "student", "trainee", "researcher", "technician",
-                                             "programmer", "tester", "agent", "staff", "officer"]:
+                                             "programmer", "tester", "agent", "staff", "officer",
+                                             "cashier", "server", "barista", "clerk", "attendant",
+                                             "recruiter", "supervisor", "manager", "director", "lead",
+                                             "coach", "evaluator", "busser", "assembler", "banker",
+                                             "shopper"]:
                 return ("job_title", 0.5)
             return ("unknown", 0.3)
         

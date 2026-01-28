@@ -181,6 +181,12 @@ This script:
 - Auto-detects and fixes swapped job_title/company fields
 - Applies known fixes for specific profiles
 - Creates a backup before making changes
+- **Interactive Data Validation**:
+  ```bash
+  # Check data against known companies/universities and train the classifier
+  python scraper/check_data.py
+  ```
+  Scans `UNT_Alumni_Data.csv` and prompts you to verify new companies, universities, or job titles. This updates `scraper/data/companies.json` to improve future classification accuracy.
 
 ---
 
