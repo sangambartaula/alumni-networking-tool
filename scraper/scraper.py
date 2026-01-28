@@ -601,8 +601,8 @@ class LinkedInScraper:
                         parsed.append({
                             "title": title,
                             "company": company,
-                            "start_date": start_d,
-                            "end_date": end_d
+                            "start": start_d,
+                            "end": end_d
                         })
                         seen_entries.add(u_key)
 
@@ -619,55 +619,24 @@ class LinkedInScraper:
 
     def _split_context_line(self, text):
         potential_parts = []
-        if re.search(r'\s+(at|@)\s+', text, re.I):
-             parts = re.split(r'\s+(?:at|@)\s+', text, flags=re.I)
-             potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
-        elif '·' in text:
-             parts = text.split('·')
-             potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
+        
+        # Split by various delimiters: 
+        # - " at " / " @ "
+        # - " | " (pipe)
+        # - " - " / " – " (dash/en-dash with spaces)
+        # - " · " (dot)
+        
+        # Regex for delimiters
+        # We require spaces around dashes to avoid splitting "Co-Founder" or "Tier-1"
+        # We allow flexible spacing for pipes and dots
+        delimiters = r'\s+(?:at|@)\s+|\s*\|\s*|\s+(?:-|–)\s+|\s*·\s*'
+        
+        parts = re.split(delimiters, text, flags=re.I)
+        potential_parts = [p.strip() for p in parts if len(p.strip()) > 1] # Allowed >1 to catch "QA" or "HR"
         
         if not potential_parts:
             potential_parts.append(text)
         return potential_parts
-                    elif has_company_hint and not company:
-                        company = item_text
-                    elif not title:
-                        title = item_text
-                    elif not company:
-                        company = item_text
-            
-            # Clean up
-            company = self._clean_company(company)
-            title = utils.clean_job_title(title)
-            
-            # Fallback: if no company found but we have grouped headers, use the first one
-            if not company and title and grouped_company_headers:
-                company = grouped_company_headers[0]
-            
-            # Skip if we got nothing useful
-            if not company and not title: continue
-            
-            # Avoid duplicates
-            entry_key = (company.lower(), title.lower())
-            if entry_key in seen_entries: continue
-            seen_entries.add(entry_key)
-            
-            # Sorting score (latest end date wins)
-            end_score = (9999, 12) if end_d.get("is_present") else (end_d.get("year", 0), end_d.get("month", 0))
-            
-            parsed.append({
-                "score": end_score,
-                "title": title,
-                "company": company,
-                "start": start_d,
-                "end": end_d
-            })
-
-        if not parsed: return []
-        
-        # Sort by most recent first
-        parsed.sort(key=lambda x: x["score"], reverse=True)
-        return parsed[:max_entries]
 
     def _extract_best_experience(self, soup):
         """Backwards-compatible wrapper - returns just the best experience."""

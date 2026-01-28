@@ -391,11 +391,29 @@ def run_review_mode(scraper, history_mgr):
         if i < len(urls):
             wait_between_profiles()
     
-    # Clear the file (only keep failed ones for retry)
-    if failed:
-        logger.info(f"\n⚠️ {len(failed)} profiles failed, keeping them in file for retry.")
+    # Calculate which URLs were NOT processed
+    # If we broke early (e.g. i=5 out of 10), we processed 1..5. Unprocessed are 6..10.
+    # urls is 0-indexed list.
+    # If `break` happened at i (1-based), then urls[i-1] was the last one attempted.
+    # Remaining are urls[i:] 
+    
+    remaining = []
+    if i < len(urls):
+       remaining = urls[i:]
+
+    # Rewrite file with FAILED + REMAINING
+    # If everything succeeded and finished -> failed=[] and remaining=[] -> clear file.
+    
+    to_keep = failed + remaining
+    
+    if to_keep:
+        if remaining:
+            logger.info(f"\n⚠️ Process stopped early. Keeping {len(remaining)} unprocessed profiles + {len(failed)} failed profiles.")
+        elif failed:
+            logger.info(f"\n⚠️ {len(failed)} profiles failed, keeping them in file for retry.")
+            
         with open(flagged_file, 'w') as f:
-            for url in failed:
+            for url in to_keep:
                 f.write(url + '\n')
     else:
         # Clear the file completely
@@ -403,7 +421,7 @@ def run_review_mode(scraper, history_mgr):
             f.write('')
         logger.info(f"\n✅ Cleared flagged_for_review.txt")
     
-    logger.info(f"\n📊 Review complete: {reviewed}/{len(urls)} profiles re-scraped successfully.")
+    logger.info(f"\n📊 Review complete: {reviewed}/{len(urls) - len(remaining)} attempted profiles scaped successfully.")
     return True
 
 

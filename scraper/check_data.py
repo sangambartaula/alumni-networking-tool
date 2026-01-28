@@ -72,6 +72,25 @@ def main():
         for i, row in enumerate(rows, start=2):
             name = row.get('name', 'Unknown')
             
+            # --- 0. Validate Paired Data (Title <-> Company) ---
+            # Check if job title exists without company, or vice versa
+            pairs = [
+                ('job_title', 'company', 'Current Job'),
+                ('exp2_title', 'exp2_company', 'Exp 2'),
+                ('exp3_title', 'exp3_company', 'Exp 3')
+            ]
+            
+            profile_url = row.get('profile_url', 'N/A')
+            
+            for t_col, c_col, context in pairs:
+                t_val = clean(row.get(t_col))
+                c_val = clean(row.get(c_col))
+                
+                if t_val and not c_val:
+                    print(f"   ❌ Error: {name} works as '{t_val}' ({context}) but has no company. URL: {profile_url}")
+                elif c_val and not t_val:
+                    print(f"   ❌ Error: {name} works at '{c_val}' ({context}) but has no title. URL: {profile_url}")
+
             # --- 1. Validate Job Titles ---
             # Checks job_title, exp2_title, exp3_title
             title_cols = [('job_title', 'Current Job'), ('exp2_title', 'Exp 2'), ('exp3_title', 'Exp 3')]
