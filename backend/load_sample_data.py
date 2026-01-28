@@ -1,9 +1,31 @@
 #!/usr/bin/env python
-"""Load sample alumni data into the database"""
+"""
+Load or Delete sample alumni data for testing purposes.
+Usage:
+    python load_sample_data.py          (Loads data)
+    python load_sample_data.py --delete (Deletes data)
+"""
 
 import sys
-sys.path.insert(0, 'backend')
-from database import get_connection
+import argparse
+import os
+
+# Ensure backend path is added so we can import database
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))) # if running from backend/
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')) # if running from backend/ (to get root?)
+# Actually simpler: assume run as `python backend/load_sample_data.py` from root or `python load_sample_data.py` from backend.
+# Just try importing.
+try:
+    from database import get_connection
+except ImportError:
+    # If we are in backend/, try adding parent
+    sys.path.append('..')
+    try:
+        from database import get_connection
+    except ImportError:
+        # If we are in root, try adding backend
+        sys.path.append('backend')
+        from database import get_connection
 
 # Sample alumni data
 sample_alumni = [
@@ -105,13 +127,19 @@ sample_alumni = [
     }
 ]
 
-conn = get_connection()
-try:
+def load_data(conn):
+    print(f"📥 Loading {len(sample_alumni)} sample records...")
     with conn.cursor() as cur:
         for alumni in sample_alumni:
+            # Use REPLACE INTO or INSERT IGNORE to avoid duplicates
             cur.execute("""
-                INSERT INTO alumni (first_name, last_name, grad_year, degree, major, current_job_title, company, location, headline, linkedin_url)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO alumni (first_name, last_name, grad_year, degree, major, current_job_title, company, location, headline, linkedin_url, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                    first_name=VALUES(first_name),
+                    last_name=VALUES(last_name),
+                    current_job_title=VALUES(current_job_title),
+                    company=VALUES(company)
             """, (
                 alumni['first_name'],
                 alumni['last_name'],
@@ -125,6 +153,28 @@ try:
                 alumni['linkedin_url']
             ))
         conn.commit()
-        print(f"✅ Inserted {len(sample_alumni)} sample alumni records")
-finally:
-    conn.close()
+    print("✅ Sample data loaded.")
+
+def delete_data(conn):
+    print(f"🗑️ Deleting {len(sample_alumni)} sample records...")
+    with conn.cursor() as cur:
+        for alumni in sample_alumni:
+            cur.execute("DELETE FROM alumni WHERE linkedin_url = %s", (alumni['linkedin_url'],))
+        conn.commit()
+    print("✅ Sample data deleted.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Manage sample alumni data")
+    parser.add_argument('--delete', action='store_true', help='Delete sample data instead of loading')
+    args = parser.parse_args()
+
+    try:
+        conn = get_connection()
+        if args.delete:
+            delete_data(conn)
+        else:
+            load_data(conn)
+        conn.close()
+    except Exception as e:
+        print(f"Error: {e}")
+        exit(1)

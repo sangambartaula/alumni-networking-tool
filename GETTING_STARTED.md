@@ -145,6 +145,11 @@ SCRAPER_MODE=search
 HEADLESS=false
 TESTING=false
 UPDATE_FREQUENCY=6 months
+
+# Review Flags (Customize what gets flagged for manual review)
+FLAG_MISSING_GRAD_YEAR=false
+FLAG_MISSING_DEGREE=false
+FLAG_MISSING_EXPERIENCE_DATA=true
 ```
 
 **Important:** 

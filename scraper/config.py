@@ -36,6 +36,11 @@ PAGE_SETTLE_SECONDS = int(os.getenv("PAGE_SETTLE_SECONDS", "0"))
 POST_SECTION_WAIT_SECONDS = float(os.getenv("POST_SECTION_WAIT_SECONDS", "0"))
 EDU_READY_TIMEOUT_SECONDS = int(os.getenv("EDU_READY_TIMEOUT_SECONDS", "30"))
 
+# Flagging Configuration
+FLAG_MISSING_GRAD_YEAR = os.getenv("FLAG_MISSING_GRAD_YEAR", "false").lower() == "true"
+FLAG_MISSING_DEGREE = os.getenv("FLAG_MISSING_DEGREE", "false").lower() == "true"
+FLAG_MISSING_EXPERIENCE_DATA = os.getenv("FLAG_MISSING_EXPERIENCE_DATA", "true").lower() == "true"
+
 if TESTING:
     MIN_DELAY = 15
     MAX_DELAY = 60

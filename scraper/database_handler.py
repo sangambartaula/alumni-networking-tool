@@ -221,15 +221,35 @@ def flag_profile_for_review(profile_data):
     
     # Only flag if one of title/company is present but not the other
     # (If both are missing, assume the person doesn't have work experience listed)
-    if job_title and not company:
-        issues.append("Missing Company but Job Title Present")
-    elif company and not job_title:
-        issues.append("Missing Job Title but Company Present")
+    from config import FLAG_MISSING_EXPERIENCE_DATA, FLAG_MISSING_GRAD_YEAR, FLAG_MISSING_DEGREE
     
-    # Flag missing education data (everyone should have UNT education)
-    if not graduation_year:
+    if FLAG_MISSING_EXPERIENCE_DATA:
+        if job_title and not company:
+            issues.append("Missing Company but Job Title Present")
+        elif company and not job_title:
+            issues.append("Missing Job Title but Company Present")
+
+        # Check Experience 2
+        exp2_title = profile_data.get('exp2_title', '').strip()
+        exp2_company = profile_data.get('exp2_company', '').strip()
+        if exp2_title and not exp2_company:
+            issues.append("Missing Company but Job Title Present for Experience 2")
+        elif exp2_company and not exp2_title:
+            issues.append("Missing Job Title but Company Present for Experience 2")
+
+        # Check Experience 3
+        exp3_title = profile_data.get('exp3_title', '').strip()
+        exp3_company = profile_data.get('exp3_company', '').strip()
+        if exp3_title and not exp3_company:
+            issues.append("Missing Company but Job Title Present for Experience 3")
+        elif exp3_company and not exp3_title:
+            issues.append("Missing Job Title but Company Present for Experience 3")
+    
+    # Conditional flagging for education data
+    if FLAG_MISSING_GRAD_YEAR and not graduation_year:
         issues.append("Missing Grad Year")
-    if not major:
+    
+    if FLAG_MISSING_DEGREE and not major:
         issues.append("Missing Degree/Major Information")
     
     if not issues:

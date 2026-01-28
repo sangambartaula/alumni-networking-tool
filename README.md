@@ -367,6 +367,9 @@ Returns:
 | CONNECTIONS_CSV | CSV of connections (connections mode) | connections.csv |
 | USE_SQLITE_FALLBACK | Enable local SQLite backup | 1 (enabled) |
 | DISABLE_DB | Disable all database operations | 0 (disabled) |
+| FLAG_MISSING_GRAD_YEAR | Flag profile if grad year is missing | false |
+| FLAG_MISSING_DEGREE | Flag profile if degree/major is missing | false |
+| FLAG_MISSING_EXPERIENCE_DATA | Flag if job title/company is inconsistent | true |
 
 ---
 

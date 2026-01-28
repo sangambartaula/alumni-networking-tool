@@ -64,7 +64,7 @@ class EntityClassifier:
             r'Officer|Architect|Scientist|Professor|Teacher|Instructor|Tutor|'
             r'Assistant|Student|Trainee|Fellow|Researcher|Technician|Operator|'
             r'Programmer|QA|Quality|Tester|Support|Agent|Staff|Crew|Member|'
-            r'Executive|President|CEO|CTO|CFO|COO|CIO|CMO)\b',
+            r'Executive|President|CEO|CTO|CFO|COO|CIO|CMO|Recruiter|Talent Acquisition)\b',
             re.I
         )
         
@@ -295,7 +295,7 @@ class EntityClassifier:
         has_title_structure = bool(title_structure.match(text))
         
         if has_strong_company:
-            return ("company", 0.6)
+            return ("company", 0.95)  # Boost confidence for explicit Legal Entities (LLC, Inc)
         elif has_title_structure:
             return ("job_title", 0.6)
         elif has_company_hint and not has_title_hint:

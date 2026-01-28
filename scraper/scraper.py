@@ -540,25 +540,43 @@ class LinkedInScraper:
             classified_items = []
             
             for t in context:
-                # Clean the text
+                # 1. Clean the text (remove " · Full-time" etc.)
                 clean_t = re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$', '', t, flags=re.I).strip()
                 if not clean_t: continue
                 
-                # Skip obvious locations (e.g., "Orlando, Florida")
-                if is_location(clean_t):
-                    continue
+                # 2. Split logic for combined lines
+                potential_parts = []
                 
-                # Skip universities in experience section (they're schools, not employers)
-                # Unless they might be the employer (e.g., working AT a university)
-                if is_university(clean_t):
-                    # Universities can be employers, but we need context
-                    # Check if there's a job title nearby
-                    entity_type = "university"
-                    confidence = 0.6
-                else:
-                    entity_type, confidence = classify_entity(clean_t)
+                # Split by " at " or " @ " (e.g. "Software Engineer at Google")
+                # But be careful not to split overlapping patterns
+                if re.search(r'\s+(at|@)\s+', clean_t, re.I):
+                     # Split and keep non-empty parts
+                     parts = re.split(r'\s+(?:at|@)\s+', clean_t, flags=re.I)
+                     potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
                 
-                classified_items.append((clean_t, entity_type, confidence))
+                # Split by dot separator if not already split
+                elif '·' in clean_t:
+                     parts = clean_t.split('·')
+                     potential_parts.extend([p.strip() for p in parts if len(p.strip()) > 2])
+                
+                # Default: use the cleaned line as is
+                if not potential_parts:
+                    potential_parts.append(clean_t)
+                
+                # 3. Classify each part
+                for part in potential_parts:
+                    # Skip obvious locations
+                    if is_location(part):
+                        continue
+                        
+                    # Skip universities unless we are desperate
+                    if is_university(part):
+                        entity_type = "university"
+                        confidence = 0.6
+                    else:
+                        entity_type, confidence = classify_entity(part)
+                    
+                    classified_items.append((part, entity_type, confidence))
             
             # Assign company and title based on classification
             # Sort by confidence (highest first)
