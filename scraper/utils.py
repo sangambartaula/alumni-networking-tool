@@ -146,6 +146,7 @@ def date_to_comparable(d: dict, bound: str):
     return (y, 12, "year")
 
 def check_working_while_studying(school_start: dict, school_end: dict, job_start: dict, job_end: dict) -> bool:
+    # 1. Get comparable dates (Year, Month)
     ss = date_to_comparable(school_start, "start")
     se = date_to_comparable(school_end, "end")
     js = date_to_comparable(job_start, "start")
@@ -153,15 +154,60 @@ def check_working_while_studying(school_start: dict, school_end: dict, job_start
 
     if not (ss and se and js and je): return False
 
-    school_month_precise = bool(school_start.get("has_month") and school_end.get("has_month"))
-    job_month_precise = bool(job_start.get("has_month") and (job_end.get("has_month") or job_end.get("is_present")))
+    # 2. Get Overlap Interval
+    # Max of starts
+    # Since we have tuples (Year, Month, Precision), we can compare them directly basically.
+    # But precision matters.
+    # Rules:
+    # - If job is PRESENT/Ongoing -> Overlap is TRUE if Job Start <= School End (and School Start <= Present).
+    # - If job is FINITE -> Duration must be >= 2 months.
+    
+    # Normalize to comparable values: (Year * 12 + Month)
+    def to_months(d_tuple):
+        return d_tuple[0] * 12 + d_tuple[1]
 
-    # If both have month precision, use full date comparison
-    if school_month_precise and job_month_precise:
-        # Two ranges [ss, se] and [js, je] overlap if: start1 <= end2 AND start2 <= end1
-        return (ss[0], ss[1]) <= (je[0], je[1]) and (js[0], js[1]) <= (se[0], se[1])
+    ss_m = to_months(ss)
+    se_m = to_months(se)
+    js_m = to_months(js)
+    
+    is_job_present = job_end.get("is_present")
+    je_m = to_months(je) if not is_job_present else 999999 # Far future
 
-    # Year-only comparison: check if year ranges overlap
-    # Ranges overlap if: start1 <= end2 AND start2 <= end1
-    ss_y, se_y, js_y, je_y = ss[0], se[0], js[0], je[0]
-    return ss_y <= je_y and js_y <= se_y
+    # Check for simple overlap first
+    overlap_start = max(ss_m, js_m)
+    overlap_end = min(se_m, je_m)
+
+    if overlap_end < overlap_start:
+        return False
+
+    # 3. Check Duration/Rules
+    
+    # If Job is Present (Ongoing), and there is ANY overlap, it counts.
+    # Rationale: User said: "if their job shows time to present... we can assume they are in tht job... working while studying is true"
+    # Even if overlap is small (e.g. school starts Aug, current time is Aug), Present implies continued intent.
+    if is_job_present:
+        return True
+
+    # If Job is Finite, require >= 2 months overlap.
+    # "Overlap duration" = end - start
+    # e.g. May (5) to May (5) -> 5 - 5 = 0 months. (Requires same month start/end?) 
+    # Actually, inclusive? 
+    # If job is May 2025 - May 2025 (1 mo).
+    # If school is May 2025 - May 2029.
+    # Overlap is May. 1 month.
+    # User said: "graduated May 2025... job start May 2025... false" -> This implies 1 month overlap is FALSE.
+    # User said: "overlap for atleast 2 months".
+    
+    duration = overlap_end - overlap_start
+    # If duration >= 2, we are good.
+    # e.g. Jan to Mar = 3 - 1 = 2 (Jan, Feb, Mar? No, 3-1 is 2. Jan to March is usually 2 months or 3?)
+    # date_to_comparable returns month index (1..12).
+    # If overlap is [2025-05, 2025-05] (May to May) -> 5 - 5 = 0.
+    # If overlap is [2025-05, 2025-06] (May to Jun) -> 6 - 5 = 1.
+    # If overlap is [2025-05, 2025-07] (May to Jul) -> 7 - 5 = 2.
+    
+    # So strictly: duration >= 2 means effectively 3 distinct months? Or just 2 month gap?
+    # User said: "atleast 2 months".
+    # Keep it simple: diff >= 2.
+    
+    return duration >= 2

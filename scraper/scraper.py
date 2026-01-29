@@ -481,7 +481,7 @@ class LinkedInScraper:
         
         # Job title indicator patterns
         title_hints = re.compile(
-            r'\b(Engineer|Developer|Manager|Director|Analyst|Designer|Consultant|Specialist|Associate|Intern|Lead|Senior|Junior|Sr\.?|Jr\.?|Chief|Head|VP|Vice President|Coordinator|Administrator|Representative|Officer|Architect|Scientist|Drafter|Assistant|Fellow)\b',
+            r'\b(Engineer|Developer|Manager|Director|Analyst|Designer|Consultant|Specialist|Associate|Intern|Lead|Senior|Junior|Sr\.?|Jr\.?|Chief|Head|VP|Vice President|Coordinator|Administrator|Representative|Officer|Architect|Scientist|Drafter|Assistant|Fellow|Co-op)\b',
             re.I
         )
 
@@ -593,6 +593,11 @@ class LinkedInScraper:
                             company = item_text
                             
                 # Context propagation logic...
+                if title and not company and context_company:
+                     # Check if context_company is actually just the title again (safety)
+                     if context_company.lower() != title.lower():
+                         company = context_company
+
                 if company:
                     context_company = company
 
