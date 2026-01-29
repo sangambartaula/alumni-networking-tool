@@ -92,7 +92,7 @@ def wait_between_profiles():
 # Mode: NAMES (Search by list of names)
 # ============================================================
 def run_names_mode(scraper, history_mgr):
-    input_csv = os.getenv("INPUT_CSV", "backend/engineering_graduate.csv")
+    input_csv = os.getenv("INPUT_CSV", os.path.join("backend", "engineering_graduate.csv"))
     csv_path = Path(__file__).resolve().parent.parent / input_csv
     
     logger.info(f"--- MODE: Names (Source: {csv_path}) ---")

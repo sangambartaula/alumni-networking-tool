@@ -3,8 +3,8 @@ import json
 import os
 
 # --- Configuration ---
-CSV_PATH = 'scraper/output/UNT_Alumni_Data.csv'
-JSON_PATH = r"C:\Users\Sangam Bartaula\Documents\GitHub\alumni-networking-tool\scraper\data\companies.json"
+CSV_PATH = os.path.join('scraper', 'output', 'UNT_Alumni_Data.csv')
+JSON_PATH = os.path.join('scraper', 'data', 'companies.json')
 
 def load_json(path):
     if not os.path.exists(path):
@@ -60,7 +60,8 @@ def main():
         return (name in collection) or (name in aliases)
 
     # Track if we modified anything
-    modified = False
+    modified_json = False
+    modified_csv = False
 
     try:
         with open(CSV_PATH, mode='r', encoding='utf-8') as f:
@@ -71,57 +72,40 @@ def main():
 
         for i, row in enumerate(rows, start=2):
             name = row.get('name', 'Unknown')
-            
-            # --- 0. Validate consistency (Title <-> Company <-> Dates) ---
-            # Group fields to check together
-            # Structure: (TitleCol, CompanyCol, [DateCols], ContextLabel)
+            profile_url = row.get('profile_url', 'N/A')
+
+            # --- 0. Validate Job Info Completeness ---
             checks = [
                 ('job_title', 'company', ['job_start_date', 'job_end_date'], 'Current Job'),
                 ('exp2_title', 'exp2_company', ['exp2_dates'], 'Exp 2'),
                 ('exp3_title', 'exp3_company', ['exp3_dates'], 'Exp 3')
             ]
 
-            profile_url = row.get('profile_url', 'N/A')
-
             for t_col, c_col, d_cols, context in checks:
                 t_val = clean(row.get(t_col))
                 c_val = clean(row.get(c_col))
-                
-                # Check if any date field has content
                 d_has_val = any(clean(row.get(d)) for d in d_cols)
 
-                # Condition: If ANY of (Title, Company, Date) is present, then (Title AND Company) MUST be present.
-                # Valid states: 
-                # 1. All empty (Skip)
-                # 2. Title and Company present (Dates optional, but if dates present, Title+Company must be there)
-                # Invalid states:
-                # - Title present, Company missing
-                # - Company present, Title missing
-                # - Date present, Title OR Company missing
-                
-                is_partial = False
-                missing_fields = []
-                
-                has_any = t_val or c_val or d_has_val
-                
-                if has_any:
-                    if not t_val: missing_fields.append(t_col)
-                    if not c_val: missing_fields.append(c_col)
-
-                if missing_fields:
-                    print(f"\n❌ Error: {name} ({context}) has partial info.")
-                    print(f"   Present: Title='{t_val}', Company='{c_val}', Dates={d_has_val}")
-                    print(f"   Missing: {', '.join(missing_fields)}")
-                    print(f"   Profile URL: {profile_url}")
+                # If any field present, title AND company must be present
+                if t_val or c_val or d_has_val:
+                    missing = []
+                    if not t_val:
+                        missing.append(t_col)
+                    if not c_val:
+                        missing.append(c_col)
                     
-                    # Interactive Fix
-                    do_fix = input("   Enter missing info? (y/n/1 to skip): ").lower().strip()
-                    if do_fix == 'y':
-                        for field in missing_fields:
-                            new_val = input(f"   Enter value for '{field}': ").strip()
-                            row[field] = new_val
-                            modified_csv = True
-                    # elif do_fix == '1': skip
+                    if missing:
+                        print(f"\n⚠️  Warning: {name} ({context}) has incomplete job info.")
+                        print(f"   Present: Title='{t_val}', Company='{c_val}', Dates Present={d_has_val}")
+                        print(f"   Missing: {', '.join(missing)}")
+                        
+                        # Interactive fix
+                        do_fix = input("   Enter missing info? (y/n/1 to skip): ").lower().strip()
+                        if do_fix == 'y':
+                            for field in missing:
+                                new_val = input(f"   Enter value for '{field}': ").strip()
+                                row[field] = new_val
+                                modified_csv = True
 
             # --- 1. Validate Job Titles ---
             for col, context in [('job_title', 'Current Job'), ('exp2_title', 'Exp 2'), ('exp3_title', 'Exp 3')]:

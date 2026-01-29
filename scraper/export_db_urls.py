@@ -12,7 +12,7 @@ def export_urls_to_flagged():
     """Fetch all unique LinkedIn URLs from MySQL and save to flagged_for_review.txt"""
     load_dotenv()
     
-    output_file = Path("scraper/output/flagged_for_review.txt")
+    output_file = Path("scraper") / "output" / "flagged_for_review.txt"
     
     print("🔌 Connecting to Railway Database...")
     try:

@@ -610,8 +610,9 @@
     "Closet Factory",
     "Ahlada Engineers",
     "Ipharrm process technologies pvt ltd",
-    "Instructional Assistant | University of North Texas",
-    "National Small Industries Corp (Nsic)"
+    "National Small Industries Corp (Nsic)",
+    "Kalwall Corporation",
+    "Worley"
   ],
   "aliases": {
     "TCS": "Tata Consultancy Services",
@@ -676,6 +677,7 @@
   "universities": [
     "University of North Texas",
     "UNT",
+    "Instructional Assistant | University of North Texas",
     "Texas A&M",
     "University of Texas",
     "UT Austin",
@@ -1439,6 +1441,8 @@
     "Project Manager 2",
     "Construction Intern",
     "Junior Engineer",
-    "CNC Programming Intern"
+    "CNC Programming Intern",
+    "Computer Aided Design Drafter",
+    "Additive manufacturing co-op"
   ]
 }
