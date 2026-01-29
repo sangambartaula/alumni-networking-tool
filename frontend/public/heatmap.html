@@ -51,7 +51,7 @@
       </div>
   </div>
 
-  <!-- CONTINENT FILTERS -->
+  <!-- CONTINENT FILTERS & FILTER BUTTON -->
   <div id="continentFilters" class="continent-row">
       <button class="continent-btn" onclick="filterByContinent('North America')">North America</button>
       <button class="continent-btn" onclick="filterByContinent('Europe')">Europe</button>
@@ -61,6 +61,64 @@
       <button class="continent-btn" onclick="filterByContinent('South America')">South America</button>
       <button class="continent-btn" onclick="filterByContinent('Antarctica')">Antarctica</button>
       <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
+      <button id="filterToggleBtn" class="continent-btn filter-btn-icon" title="Open Filters">
+        <span style="font-size: 16px;">⊙</span>
+        <span class="filter-label">Filter</span>
+        <span id="filterBadge" class="filter-badge">0</span>
+      </button>
+  </div>
+
+  <!-- FILTER MODAL BACKDROP -->
+  <div class="filter-backdrop" id="filterBackdrop"></div>
+
+  <!-- LOCATION & COMPANY FILTER PANEL (MODAL) -->
+  <div class="filter-panel" id="filterPanel">
+    <div class="filter-panel-header">
+      <h3>Filters</h3>
+      <button class="filter-close-btn" id="filterCloseBtn">&times;</button>
+    </div>
+
+    <div class="filter-controls">
+      <div class="filter-group">
+        <label for="filterLocationInput">Hide Location</label>
+        <div class="filter-input-container">
+          <input 
+            id="filterLocationInput" 
+            type="text" 
+            placeholder="Location name..."
+            class="filter-input"
+          />
+          <button id="addLocationFilterBtn" class="filter-action-btn">Add</button>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label for="filterCompanyInput">Hide Company</label>
+        <div class="filter-input-container">
+          <input 
+            id="filterCompanyInput" 
+            type="text" 
+            placeholder="Company name..."
+            class="filter-input"
+          />
+          <button id="addCompanyFilterBtn" class="filter-action-btn">Add</button>
+        </div>
+      </div>
+
+      <button id="clearAllFiltersBtn" class="filter-clear-btn">Clear All Filters</button>
+    </div>
+
+    <!-- ACTIVE FILTERS DISPLAY -->
+    <div class="filter-content">
+      <div>
+        <span class="filter-tags-label">Hidden Locations (<span id="locationFilterCount">0</span>)</span>
+        <div class="filter-tags" id="locationFilterTags"></div>
+      </div>
+      <div style="margin-top: 16px;">
+        <span class="filter-tags-label">Hidden Companies (<span id="companyFilterCount">0</span>)</span>
+        <div class="filter-tags" id="companyFilterTags"></div>
+      </div>
+    </div>
   </div>
 
   <!-- MAP WRAPPER (THIS WAS MISSING → your map disappeared) -->
