@@ -1008,12 +1008,57 @@ function initializeFilterUI() {
   const addLocationBtn = document.getElementById('addLocationFilterBtn');
   const addCompanyBtn = document.getElementById('addCompanyFilterBtn');
   const clearAllBtn = document.getElementById('clearAllFiltersBtn');
+  const filterToggleBtn = document.getElementById('filterToggleBtn');
+  const filterPanel = document.getElementById('filterPanel');
+  const filterBackdrop = document.getElementById('filterBackdrop');
+  const filterCloseBtn = document.querySelector('.filter-close-btn');
 
   console.log('Initializing Filter UI...');
   console.log('Location Input:', locationInput);
   console.log('Company Input:', companyInput);
   console.log('Add Location Btn:', addLocationBtn);
   console.log('Add Company Btn:', addCompanyBtn);
+
+  // Toggle filter modal on button click
+  if (filterToggleBtn && filterPanel && filterBackdrop) {
+    filterToggleBtn.addEventListener('click', () => {
+      filterPanel.classList.toggle('active');
+      filterBackdrop.classList.toggle('active');
+      if (filterPanel.classList.contains('active')) {
+        locationInput?.focus();
+        document.body.style.overflow = 'hidden'; // Prevent scrolling behind modal
+      } else {
+        document.body.style.overflow = '';
+      }
+    });
+  }
+
+  // Close filter modal on close button click
+  if (filterCloseBtn && filterPanel && filterBackdrop) {
+    filterCloseBtn.addEventListener('click', () => {
+      filterPanel.classList.remove('active');
+      filterBackdrop.classList.remove('active');
+      document.body.style.overflow = '';
+    });
+  }
+
+  // Close filter modal when clicking on backdrop
+  if (filterBackdrop && filterPanel) {
+    filterBackdrop.addEventListener('click', () => {
+      filterPanel.classList.remove('active');
+      filterBackdrop.classList.remove('active');
+      document.body.style.overflow = '';
+    });
+  }
+
+  // Close filter modal when clicking ESC key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && filterPanel && filterPanel.classList.contains('active')) {
+      filterPanel.classList.remove('active');
+      filterBackdrop.classList.remove('active');
+      document.body.style.overflow = '';
+    }
+  });
 
   if (addLocationBtn) {
     addLocationBtn.addEventListener('click', (e) => {
@@ -1047,6 +1092,7 @@ function initializeFilterUI() {
       hiddenLocations.clear();
       hiddenCompanies.clear();
       updateFilterUI();
+      updateFilterBadge();
       reloadMapData();
     });
   }
@@ -1080,6 +1126,7 @@ function addLocationFilter(location) {
   console.log('Hidden Locations:', hiddenLocations);
   console.log('Location Clusters:', locationClusters);
   updateFilterUI();
+  updateFilterBadge();
   reloadMapData();
 }
 
@@ -1090,6 +1137,7 @@ function addCompanyFilter(company) {
   console.log('Hidden Companies:', hiddenCompanies);
   console.log('Location Clusters:', locationClusters);
   updateFilterUI();
+  updateFilterBadge();
   reloadMapData();
 }
 
@@ -1097,6 +1145,7 @@ function removeLocationFilter(location) {
   const normalizedLocation = location.trim().toLowerCase();
   hiddenLocations.delete(normalizedLocation);
   updateFilterUI();
+  updateFilterBadge();
   reloadMapData();
 }
 
@@ -1104,7 +1153,17 @@ function removeCompanyFilter(company) {
   const normalizedCompany = company.trim().toLowerCase();
   hiddenCompanies.delete(normalizedCompany);
   updateFilterUI();
+  updateFilterBadge();
   reloadMapData();
+}
+
+function updateFilterBadge() {
+  const badge = document.getElementById('filterBadge');
+  if (badge) {
+    const totalFilters = hiddenLocations.size + hiddenCompanies.size;
+    badge.textContent = totalFilters;
+    badge.style.display = totalFilters > 0 ? 'flex' : 'none';
+  }
 }
 
 function updateFilterUI() {
