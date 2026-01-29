@@ -475,13 +475,13 @@ class LinkedInScraper:
         
         # Company indicator patterns
         company_hints = re.compile(
-            r'\b(Inc\.?|Corp\.?|LLC|Ltd\.?|Company|Co\.?|Technologies|Solutions|Enterprises|Group|Partners|Services|Consulting|Software|Systems)\b',
+            r'\b(Inc\.?|Corp\.?|LLC|Ltd\.?|Company|Co\.?|Technologies|Solutions|Enterprises|Group|Partners|Services|Consulting|Software|Systems|S\.?R\.?L\.?)(?=\W|$)',
             re.I
         )
         
         # Job title indicator patterns
         title_hints = re.compile(
-            r'\b(Engineer|Developer|Manager|Director|Analyst|Designer|Consultant|Specialist|Associate|Intern|Lead|Senior|Junior|Sr\.?|Jr\.?|Chief|Head|VP|Vice President|Coordinator|Administrator|Representative|Officer|Architect|Scientist)\b',
+            r'\b(Engineer|Developer|Manager|Director|Analyst|Designer|Consultant|Specialist|Associate|Intern|Lead|Senior|Junior|Sr\.?|Jr\.?|Chief|Head|VP|Vice President|Coordinator|Administrator|Representative|Officer|Architect|Scientist|Drafter|Assistant|Fellow)\b',
             re.I
         )
 
@@ -560,9 +560,25 @@ class LinkedInScraper:
                             e_type, conf = classify_entity(part)
                             classified_items.append((part, e_type, conf))
 
+                # Sort by confidence primarily, but we might override based on hints
                 classified_items.sort(key=lambda x: -x[2])
+                
+                # Re-eval candidates with hints to correct misclassifications
+                final_candidates = []
+                for text, cat, conf in classified_items:
+                    # Override: If it matches a specific title hint, force it to job_title
+                    if title_hints.search(text):
+                        final_candidates.append((text, "job_title", 1.0))
+                    # Override: If it matches a specific company hint, force it to company
+                    elif company_hints.search(text):
+                        final_candidates.append((text, "company", 1.0))
+                    else:
+                        final_candidates.append((text, cat, conf))
+                
+                # Re-sort after overrides (hints get 1.0 confidence)
+                final_candidates.sort(key=lambda x: -x[2])
 
-                for item_text, item_type, conf in classified_items:
+                for item_text, item_type, conf in final_candidates:
                     if item_type == "company" and not company:
                         company = item_text
                     elif item_type == "university" and not company:
@@ -570,22 +586,13 @@ class LinkedInScraper:
                     elif item_type == "job_title" and not title:
                         title = item_text
                     elif item_type == "unknown":
-                        # Tiebreakers
+                        # Tiebreakers (Redundant if we did overrides, but safe to keep)
                         if not title and title_hints.search(item_text):
                             title = item_text
                         elif not company and company_hints.search(item_text):
                             company = item_text
-
-                # Apply Context if Company is missing but Title is present
-                if title and not company and context_company:
-                     # Check if context_company is actually just the title again (safety)
-                     if context_company.lower() != title.lower():
-                         company = context_company
-                
-                # Reset context if we found a NEW valid company explicitly?
-                # Actually, if this entry HAS a company, it might be the start of a new group?
-                # But sometimes it's just a one-off.
-                # Safer: if we found an explicit company, update context_company?
+                            
+                # Context propagation logic...
                 if company:
                     context_company = company
 

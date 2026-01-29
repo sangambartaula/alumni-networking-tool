@@ -72,101 +72,126 @@ def main():
         for i, row in enumerate(rows, start=2):
             name = row.get('name', 'Unknown')
             
-            # --- 0. Validate Paired Data (Title <-> Company) ---
-            # Check if job title exists without company, or vice versa
-            pairs = [
-                ('job_title', 'company', 'Current Job'),
-                ('exp2_title', 'exp2_company', 'Exp 2'),
-                ('exp3_title', 'exp3_company', 'Exp 3')
+            # --- 0. Validate consistency (Title <-> Company <-> Dates) ---
+            # Group fields to check together
+            # Structure: (TitleCol, CompanyCol, [DateCols], ContextLabel)
+            checks = [
+                ('job_title', 'company', ['job_start_date', 'job_end_date'], 'Current Job'),
+                ('exp2_title', 'exp2_company', ['exp2_dates'], 'Exp 2'),
+                ('exp3_title', 'exp3_company', ['exp3_dates'], 'Exp 3')
             ]
-            
+
             profile_url = row.get('profile_url', 'N/A')
-            
-            for t_col, c_col, context in pairs:
+
+            for t_col, c_col, d_cols, context in checks:
                 t_val = clean(row.get(t_col))
                 c_val = clean(row.get(c_col))
                 
-                if t_val and not c_val:
-                    print(f"   ❌ Error: {name} works as '{t_val}' ({context}) but has no company. URL: {profile_url}")
-                elif c_val and not t_val:
-                    print(f"   ❌ Error: {name} works at '{c_val}' ({context}) but has no title. URL: {profile_url}")
+                # Check if any date field has content
+                d_has_val = any(clean(row.get(d)) for d in d_cols)
+
+                # Condition: If ANY of (Title, Company, Date) is present, then (Title AND Company) MUST be present.
+                # Valid states: 
+                # 1. All empty (Skip)
+                # 2. Title and Company present (Dates optional, but if dates present, Title+Company must be there)
+                # Invalid states:
+                # - Title present, Company missing
+                # - Company present, Title missing
+                # - Date present, Title OR Company missing
+                
+                is_partial = False
+                missing_fields = []
+                
+                has_any = t_val or c_val or d_has_val
+                
+                if has_any:
+                    if not t_val: missing_fields.append(t_col)
+                    if not c_val: missing_fields.append(c_col)
+
+                if missing_fields:
+                    print(f"\n❌ Error: {name} ({context}) has partial info.")
+                    print(f"   Present: Title='{t_val}', Company='{c_val}', Dates={d_has_val}")
+                    print(f"   Missing: {', '.join(missing_fields)}")
+                    print(f"   Profile URL: {profile_url}")
+                    
+                    # Interactive Fix
+                    do_fix = input("   Enter missing info? (y/n/1 to skip): ").lower().strip()
+                    if do_fix == 'y':
+                        for field in missing_fields:
+                            new_val = input(f"   Enter value for '{field}': ").strip()
+                            row[field] = new_val
+                            modified_csv = True
+                    # elif do_fix == '1': skip
 
             # --- 1. Validate Job Titles ---
-            # Checks job_title, exp2_title, exp3_title
-            title_cols = [('job_title', 'Current Job'), ('exp2_title', 'Exp 2'), ('exp3_title', 'Exp 3')]
-            
-            for col, context in title_cols:
+            for col, context in [('job_title', 'Current Job'), ('exp2_title', 'Exp 2'), ('exp3_title', 'Exp 3')]:
                 val = clean(row.get(col))
                 if val and val not in job_titles_set:
-                    # Logic: If job title not in job_titles, ask to add or skip
                     action = ask_user(val, f"{name} - {context}", ["Add to 'job_titles'"])
-                    
                     if action == "Add to 'job_titles'":
                         job_titles_set.add(val)
                         data["job_titles"].append(val)
-                        modified = True
+                        modified_json = True
                         print(f"   ✅ Added '{val}' to job_titles.")
 
             # --- 2. Validate Education ---
-            # "if education from csv is not in companies or education, print error and ask..."
             edu_val = clean(row.get('education'))
             if edu_val:
-                # Check if it exists in EITHER universities OR companies
                 if not (is_known(edu_val, universities_set) or is_known(edu_val, companies_set)):
-                    action = ask_user(edu_val, f"{name} - Education", [
-                        "Add to 'universities'", 
-                        "Add to 'companies'"
-                    ])
-                    
+                    action = ask_user(edu_val, f"{name} - Education", ["Add to 'universities'", "Add to 'companies'"])
                     if action == "Add to 'universities'":
                         universities_set.add(edu_val)
                         data["universities"].append(edu_val)
-                        modified = True
+                        modified_json = True
                         print(f"   ✅ Added '{edu_val}' to universities.")
                     elif action == "Add to 'companies'":
                         companies_set.add(edu_val)
                         data["companies"].append(edu_val)
-                        modified = True
+                        modified_json = True
                         print(f"   ✅ Added '{edu_val}' to companies.")
 
             # --- 3. Validate Companies ---
-            # Checks company, exp2_company, exp3_company
-            comp_cols = [('company', 'Current Company'), ('exp2_company', 'Exp 2 Company'), ('exp3_company', 'Exp 3 Company')]
-            
-            for col, context in comp_cols:
+            for col, context in [('company', 'Current Company'), ('exp2_company', 'Exp 2 Company'), ('exp3_company', 'Exp 3 Company')]:
                 val = clean(row.get(col))
                 if val:
-                    # Check against companies AND universities (since people work at universities)
                     if not (is_known(val, companies_set) or is_known(val, universities_set)):
-                        action = ask_user(val, f"{name} - {context}", [
-                            "Add to 'companies'", 
-                            "Add to 'universities'"
-                        ])
-                        
+                        action = ask_user(val, f"{name} - {context}", ["Add to 'companies'", "Add to 'universities'"])
                         if action == "Add to 'companies'":
                             companies_set.add(val)
                             data["companies"].append(val)
-                            modified = True
+                            modified_json = True
                             print(f"   ✅ Added '{val}' to companies.")
                         elif action == "Add to 'universities'":
                             universities_set.add(val)
                             data["universities"].append(val)
-                            modified = True
+                            modified_json = True
                             print(f"   ✅ Added '{val}' to universities.")
 
     except KeyboardInterrupt:
         print("\n\n🛑 Script cancelled by user.")
-        if modified:
+        if modified_json or modified_csv:
             save = input("Save changes made so far? (y/n): ").lower()
             if save == 'y':
-                save_json(data, JSON_PATH)
+                if modified_json: save_json(data, JSON_PATH)
+                if modified_csv:
+                    with open(CSV_PATH, 'w', newline='', encoding='utf-8') as f:
+                        writer = csv.DictWriter(f, fieldnames=reader.fieldnames)
+                        writer.writeheader()
+                        writer.writerows(rows)
+                    print(f"💾 Saved updates to {CSV_PATH}")
         return
 
     print("\n" + "="*50)
-    if modified:
+    if modified_json:
         save_json(data, JSON_PATH)
-        print("🎉 Validation Complete. JSON Updated.")
-    else:
+    if modified_csv:
+        with open(CSV_PATH, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=reader.fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        print(f"💾 Saved updates to {CSV_PATH}")
+        print("🎉 Validation Complete. Files Updated.")
+    elif not modified_json:
         print("🎉 Validation Complete. No changes needed.")
 
 if __name__ == "__main__":
