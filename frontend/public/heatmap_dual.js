@@ -11,6 +11,10 @@ let markers2D = [];
 let entities3D = [];
 let heatLayer2D = null; // New 2D heatmap layer
 
+// Filter state
+let hiddenLocations = new Set();
+let hiddenCompanies = new Set();
+
 // Fix viewport layout for full-screen map
 function setupMapViewport() {
   const resizeMap = () => {
@@ -43,10 +47,10 @@ document.addEventListener('DOMContentLoaded', () => {
   setupMapViewport();
   initialize2DMap();
   initialize3DMap();
-  loadHeatmapData();
   add2D3DToggle();
   addLayerControls();
   addCustomFullscreenButton();
+  loadHeatmapData(); // Load data first, which will initialize filters
 });
 
 // Initialize 2D Leaflet Map
@@ -450,6 +454,9 @@ async function loadHeatmapData(url = '/api/heatmap') {
 
     // Update statistics
     updateStatistics(data.total_alumni, locationClusters.length);
+    
+    // Initialize filter UI after data is loaded
+    initializeFilterUI();
 
   } catch (error) {
     console.error('Error loading heatmap data:', error);
@@ -548,7 +555,10 @@ function render2DHeatmap(locations, backendMaxCount) {
 
 // Create popup content for 2D map
 function create2DPopupContent(location) {
-  const alumniItems = location.sample_alumni
+  // Filter alumni to exclude hidden companies
+  const visibleAlumni = location.sample_alumni.filter(a => !isCompanyHidden(a));
+  
+  const alumniItems = visibleAlumni
     .map(a => `
       <div style="padding: 10px; border-bottom: 1px solid #eee; background: #f9f9f9; margin-bottom: 5px; border-radius: 4px;">
         <div style="font-weight: 600; color: #333; font-size: 14px;">${a.name}</div>
@@ -563,10 +573,10 @@ function create2DPopupContent(location) {
     <div style="max-width: 350px; font-family: Arial, sans-serif;">
       <h3 style="margin: 0 0 12px 0; color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 8px;">${location.location}</h3>
       <div style="margin-bottom: 12px; padding: 8px; background: #e8f0fe; border-radius: 4px;">
-        <strong style="color: #333;">Total Alumni:</strong> <span style="color: #667eea; font-weight: 600;">${location.count}</span>
+        <strong style="color: #333;">Total Alumni:</strong> <span style="color: #667eea; font-weight: 600;">${visibleAlumni.length}</span>
       </div>
       <div style="max-height: 400px; overflow-y: auto;">
-        ${alumniItems}
+        ${alumniItems || '<p style="color: #999; font-style: italic;">All alumni in this location are hidden by filters</p>'}
       </div>
     </div>
   `;
@@ -574,7 +584,10 @@ function create2DPopupContent(location) {
 
 // Create popup content for 3D map
 function create3DPopupContent(location) {
-  const alumniItems = location.sample_alumni
+  // Filter alumni to exclude hidden companies
+  const visibleAlumni = location.sample_alumni.filter(a => !isCompanyHidden(a));
+  
+  const alumniItems = visibleAlumni
     .map(a => `
       <div style="padding: 10px; border-bottom: 1px solid #eee; background: #f9f9f9; margin-bottom: 5px; border-radius: 4px;">
         <div style="font-weight: 600; color: #333; font-size: 14px;">${a.name}</div>
@@ -588,10 +601,10 @@ function create3DPopupContent(location) {
   return `
     <div style="max-width: 350px; font-family: Arial, sans-serif;">
       <div style="margin-bottom: 12px; padding: 8px; background: #e8f0fe; border-radius: 4px;">
-        <strong style="color: #333;">Total Alumni:</strong> <span style="color: #667eea; font-weight: 600;">${location.count}</span>
+        <strong style="color: #333;">Total Alumni:</strong> <span style="color: #667eea; font-weight: 600;">${visibleAlumni.length}</span>
       </div>
       <div style="max-height: 400px; overflow-y: auto;">
-        ${alumniItems}
+        ${alumniItems || '<p style="color: #999; font-style: italic;">All alumni in this location are hidden by filters</p>'}
       </div>
     </div>
   `;
@@ -983,4 +996,299 @@ if (searchButton && searchInput) {
       zoomToSearchLocation(geoResults[0]);
     }
   });
+}
+
+// =====================================================
+// FILTER FUNCTIONALITY
+// =====================================================
+
+function initializeFilterUI() {
+  const locationInput = document.getElementById('filterLocationInput');
+  const companyInput = document.getElementById('filterCompanyInput');
+  const addLocationBtn = document.getElementById('addLocationFilterBtn');
+  const addCompanyBtn = document.getElementById('addCompanyFilterBtn');
+  const clearAllBtn = document.getElementById('clearAllFiltersBtn');
+
+  console.log('Initializing Filter UI...');
+  console.log('Location Input:', locationInput);
+  console.log('Company Input:', companyInput);
+  console.log('Add Location Btn:', addLocationBtn);
+  console.log('Add Company Btn:', addCompanyBtn);
+
+  if (addLocationBtn) {
+    addLocationBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const location = locationInput.value.trim();
+      console.log('Add location filter clicked:', location);
+      if (location) {
+        addLocationFilter(location);
+        locationInput.value = '';
+        locationInput.focus();
+      }
+    });
+  }
+
+  if (addCompanyBtn) {
+    addCompanyBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const company = companyInput.value.trim();
+      console.log('Add company filter clicked:', company);
+      if (company) {
+        addCompanyFilter(company);
+        companyInput.value = '';
+        companyInput.focus();
+      }
+    });
+  }
+
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', () => {
+      console.log('Clear all filters clicked');
+      hiddenLocations.clear();
+      hiddenCompanies.clear();
+      updateFilterUI();
+      reloadMapData();
+    });
+  }
+
+  // Allow Enter key to add filters
+  if (locationInput) {
+    locationInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addLocationBtn.click();
+      }
+    });
+  }
+
+  if (companyInput) {
+    companyInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addCompanyBtn.click();
+      }
+    });
+  }
+
+  updateFilterUI();
+}
+
+function addLocationFilter(location) {
+  const normalizedLocation = location.trim().toLowerCase();
+  hiddenLocations.add(normalizedLocation);
+  console.log('Location filter added:', normalizedLocation);
+  console.log('Hidden Locations:', hiddenLocations);
+  console.log('Location Clusters:', locationClusters);
+  updateFilterUI();
+  reloadMapData();
+}
+
+function addCompanyFilter(company) {
+  const normalizedCompany = company.trim().toLowerCase();
+  hiddenCompanies.add(normalizedCompany);
+  console.log('Company filter added:', normalizedCompany);
+  console.log('Hidden Companies:', hiddenCompanies);
+  console.log('Location Clusters:', locationClusters);
+  updateFilterUI();
+  reloadMapData();
+}
+
+function removeLocationFilter(location) {
+  const normalizedLocation = location.trim().toLowerCase();
+  hiddenLocations.delete(normalizedLocation);
+  updateFilterUI();
+  reloadMapData();
+}
+
+function removeCompanyFilter(company) {
+  const normalizedCompany = company.trim().toLowerCase();
+  hiddenCompanies.delete(normalizedCompany);
+  updateFilterUI();
+  reloadMapData();
+}
+
+function updateFilterUI() {
+  // Update location filter tags
+  const locationTags = document.getElementById('locationFilterTags');
+  const locationCount = document.getElementById('locationFilterCount');
+  
+  if (locationTags) {
+    locationTags.innerHTML = '';
+    if (hiddenLocations.size === 0) {
+      locationTags.innerHTML = '<span class="empty-filters-message">No locations hidden</span>';
+    } else {
+      hiddenLocations.forEach(location => {
+        const tag = document.createElement('div');
+        tag.className = 'filter-tag location-tag';
+        tag.innerHTML = `
+          <span>${location}</span>
+          <span class="filter-tag-remove" onclick="removeLocationFilter('${location.replace(/'/g, "\\'")}')">×</span>
+        `;
+        locationTags.appendChild(tag);
+      });
+    }
+  }
+  if (locationCount) {
+    locationCount.textContent = hiddenLocations.size;
+  }
+
+  // Update company filter tags
+  const companyTags = document.getElementById('companyFilterTags');
+  const companyCount = document.getElementById('companyFilterCount');
+  
+  if (companyTags) {
+    companyTags.innerHTML = '';
+    if (hiddenCompanies.size === 0) {
+      companyTags.innerHTML = '<span class="empty-filters-message">No companies hidden</span>';
+    } else {
+      hiddenCompanies.forEach(company => {
+        const tag = document.createElement('div');
+        tag.className = 'filter-tag company-tag';
+        tag.innerHTML = `
+          <span>${company}</span>
+          <span class="filter-tag-remove" onclick="removeCompanyFilter('${company.replace(/'/g, "\\'")}')">×</span>
+        `;
+        companyTags.appendChild(tag);
+      });
+    }
+  }
+  if (companyCount) {
+    companyCount.textContent = hiddenCompanies.size;
+  }
+}
+
+function isLocationHidden(location) {
+  if (!location) return false;
+  const locationName = location.trim().toLowerCase();
+  
+  // Check if any hidden location filter matches this location (substring match)
+  let isHidden = false;
+  for (let hiddenLocation of hiddenLocations) {
+    if (locationName.includes(hiddenLocation) || hiddenLocation.includes(locationName)) {
+      isHidden = true;
+      break;
+    }
+  }
+  
+  console.log(`Checking location "${location}" (normalized: "${locationName}"): hidden = ${isHidden}`);
+  return isHidden;
+}
+
+function isCompanyHidden(alumni) {
+  if (!alumni || !alumni.company) return false;
+  const companyName = alumni.company.trim().toLowerCase();
+  
+  // Check if any hidden company filter matches this company (substring match)
+  let isHidden = false;
+  for (let hiddenCompany of hiddenCompanies) {
+    if (companyName.includes(hiddenCompany) || hiddenCompany.includes(companyName)) {
+      isHidden = true;
+      break;
+    }
+  }
+  
+  console.log(`Checking company "${alumni.company}" (normalized: "${companyName}"): hidden = ${isHidden}`);
+  return isHidden;
+}
+
+function shouldHideLocation(location) {
+  return isLocationHidden(location.location);
+}
+
+function shouldHideLocationAlumni(location) {
+  // Hide if location is hidden OR if all alumni in the location are from hidden companies
+  if (isLocationHidden(location.location)) {
+    console.log(`Location "${location.location}" is hidden (exact match)`);
+    return true;
+  }
+  
+  // Check if all alumni in this location are from hidden companies
+  console.log(`Checking alumni for location "${location.location}":`, location.sample_alumni);
+  
+  const hasVisibleAlumni = location.sample_alumni.some(a => {
+    const isHidden = isCompanyHidden(a);
+    console.log(`  - Alumni: ${a.name}, Company: "${a.company}" (trimmed: "${(a.company || '').trim().toLowerCase()}"), Hidden: ${isHidden}`);
+    return !isHidden;
+  });
+  
+  const shouldHide = !hasVisibleAlumni;
+  console.log(`Location "${location.location}": has visible alumni = ${hasVisibleAlumni}, shouldHide = ${shouldHide}`);
+  return shouldHide;
+}
+
+function reloadMapData() {
+  console.log('=== Reloading Map Data ===');
+  console.log('Total locations before filter:', locationClusters.length);
+  console.log('Hidden Locations:', Array.from(hiddenLocations));
+  console.log('Hidden Companies:', Array.from(hiddenCompanies));
+  
+  try {
+    // Clear all old markers and entities
+    console.log('Clearing old markers...');
+    markers2D.forEach(m => {
+      try {
+        map2D.removeLayer(m);
+      } catch(e) {
+        console.error('Error removing marker:', e);
+      }
+    });
+    markers2D = [];
+    
+    if (heatLayer2D) {
+      try {
+        map2D.removeLayer(heatLayer2D);
+      } catch(e) {
+        console.error('Error removing heat layer:', e);
+      }
+      heatLayer2D = null;
+    }
+    
+    entities3D.forEach(e => {
+      try {
+        map3D.entities.remove(e);
+      } catch(e) {
+        console.error('Error removing 3D entity:', e);
+      }
+    });
+    entities3D = [];
+
+    // Filter and re-add markers
+    console.log('Filtering locations...');
+    const filteredLocations = locationClusters.filter(loc => {
+      const shouldHide = shouldHideLocationAlumni(loc);
+      console.log(`Location: ${loc.location}, Hide: ${shouldHide}, Alumni count: ${loc.count}`);
+      return !shouldHide;
+    });
+    
+    console.log('Filtered locations count:', filteredLocations.length);
+    
+    if (filteredLocations.length === 0) {
+      console.warn('No locations to display after filtering!');
+    }
+    
+    filteredLocations.forEach(location => {
+      try {
+        add2DMarker(location);
+        add3DMarker(location);
+      } catch(e) {
+        console.error('Error adding marker:', e);
+      }
+    });
+
+    // Rebuild heatmap
+    console.log('Rebuilding heatmap...');
+    const maxCount = filteredLocations.length > 0 
+      ? Math.max(...filteredLocations.map(l => l.count || 1))
+      : 1;
+    render2DHeatmap(filteredLocations, maxCount);
+
+    // Update statistics with filtered data
+    const totalFiltered = filteredLocations.reduce((sum, loc) => sum + (loc.count || 0), 0);
+    updateStatistics(totalFiltered, filteredLocations.length);
+    
+    console.log('Map reload complete!');
+  } catch(error) {
+    console.error('ERROR in reloadMapData:', error);
+    console.error(error.stack);
+  }
 }
