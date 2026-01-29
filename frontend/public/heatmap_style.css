@@ -1295,3 +1295,172 @@ footer {
   width: 100%;
   height: 100%;
 }
+
+/* FILTER PANEL STYLES */
+.filter-panel {
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 16px 35px;
+  border-radius: 0;
+}
+
+.filter-controls {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.filter-group {
+  flex: 1;
+  min-width: 280px;
+}
+
+.filter-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-input-wrapper label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.filter-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: #05a678;
+  box-shadow: 0 0 0 2px rgba(5, 166, 120, 0.1);
+}
+
+.filter-action-btn {
+  padding: 10px 16px;
+  background: #05a678;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.filter-action-btn:hover {
+  background: #049568;
+}
+
+.filter-action-btn:active {
+  transform: scale(0.98);
+}
+
+.filter-clear-btn {
+  padding: 10px 16px;
+  background: #ff5252;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.filter-clear-btn:hover {
+  background: #ff1744;
+}
+
+.filter-clear-btn:active {
+  transform: scale(0.98);
+}
+
+/* ACTIVE FILTERS DISPLAY */
+.active-filters {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.filters-section {
+  flex: 1;
+  min-width: 280px;
+}
+
+.filters-section h4 {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #d0d0d0;
+  border-radius: 20px;
+  font-size: 13px;
+  color: #333;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.filter-tag.location-tag {
+  border-left: 3px solid #05a678;
+  background: #f0faf8;
+}
+
+.filter-tag.company-tag {
+  border-left: 3px solid #ff9800;
+  background: #fff3f0;
+}
+
+.filter-tag-remove {
+  cursor: pointer;
+  font-weight: bold;
+  color: #ff5252;
+  transition: color 0.2s;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.filter-tag-remove:hover {
+  color: #ff1744;
+}
+
+.empty-filters-message {
+  color: #999;
+  font-size: 12px;
+  font-style: italic;
+  padding: 8px 0;
+}

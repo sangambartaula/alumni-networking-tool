@@ -63,6 +63,55 @@
       <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
   </div>
 
+  <!-- LOCATION & COMPANY FILTER PANEL -->
+  <div class="filter-panel">
+    <div class="filter-controls">
+      <div class="filter-group">
+        <div class="filter-input-wrapper">
+          <label for="filterLocationInput">Hide Location:</label>
+          <div class="filter-input-row">
+            <input 
+              id="filterLocationInput" 
+              type="text" 
+              placeholder="Enter location name..."
+              class="filter-input"
+            />
+            <button id="addLocationFilterBtn" class="filter-action-btn">Hide Location</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <div class="filter-input-wrapper">
+          <label for="filterCompanyInput">Hide Company:</label>
+          <div class="filter-input-row">
+            <input 
+              id="filterCompanyInput" 
+              type="text" 
+              placeholder="Enter company name..."
+              class="filter-input"
+            />
+            <button id="addCompanyFilterBtn" class="filter-action-btn">Hide Company</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="clearAllFiltersBtn" class="filter-clear-btn">Clear All Filters</button>
+    </div>
+
+    <!-- ACTIVE FILTERS DISPLAY -->
+    <div class="active-filters" id="activeFilters">
+      <div class="filters-section">
+        <h4>Hidden Locations (<span id="locationFilterCount">0</span>):</h4>
+        <div class="filter-tags" id="locationFilterTags"></div>
+      </div>
+      <div class="filters-section">
+        <h4>Hidden Companies (<span id="companyFilterCount">0</span>):</h4>
+        <div class="filter-tags" id="companyFilterTags"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- MAP WRAPPER (THIS WAS MISSING → your map disappeared) -->
   <div class="map-wrapper">
       <div id="map2DContainer" class="map-container"></div>
