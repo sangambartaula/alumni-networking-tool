@@ -715,8 +715,8 @@ def get_heatmap_data():
                 if continent_filter and continent != continent_filter:
                     continue
 
-                # round to 2 decimals → ~1–2 km cell
-                cluster_key = (round(lat, 2), round(lon, 2))
+                # round to 3 decimals → more precise clustering (~100m cells)
+                cluster_key = (round(lat, 3), round(lon, 3))
 
                 if cluster_key not in location_clusters:
                     location_clusters[cluster_key] = 0
@@ -730,16 +730,15 @@ def get_heatmap_data():
 
                 location_clusters[cluster_key] += 1
 
-                # keep at most 10 sample alumni per cluster (important for 20k+)
-                if len(location_details[cluster_key]["sample_alumni"]) < 10:
-                    location_details[cluster_key]["sample_alumni"].append({
-                        "id": row["id"],
-                        "name": f"{row['first_name']} {row['last_name']}".strip(),
-                        "role": row["current_job_title"] or row["headline"] or "Alumni",
-                        "company": row["company"],
-                        "linkedin": row["linkedin_url"],
-                        "created_at": row.get("created_at").isoformat() if row.get("created_at") else None
-                    })
+                # keep all alumni for this cluster (no limit)
+                location_details[cluster_key]["sample_alumni"].append({
+                    "id": row["id"],
+                    "name": f"{row['first_name']} {row['last_name']}".strip(),
+                    "role": row["current_job_title"] or row["headline"] or "Alumni",
+                    "company": row["company"],
+                    "linkedin": row["linkedin_url"],
+                    "created_at": row.get("created_at").isoformat() if row.get("created_at") else None
+                })
 
             locations = []
             max_count = 0
@@ -762,7 +761,7 @@ def get_heatmap_data():
                 "locations": locations,
                 "total_alumni": total_alumni,
                 "max_count": max_count
-            }), 200
+            }), 200, {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
         finally:
             try:
