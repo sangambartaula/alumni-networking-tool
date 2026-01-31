@@ -90,6 +90,7 @@ def init_db():
             # - school_start_date (TEXT) : store "YYYY" or "Mon YYYY"
             # - job_start_date, job_end_date (TEXT) : store "YYYY" or "Mon YYYY" or "Present" (end only)
             # - working_while_studying (BOOLEAN)
+            # - major (VARCHAR) : engineering discipline
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS alumni (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -97,6 +98,7 @@ def init_db():
                     last_name VARCHAR(100),
                     grad_year INT,
                     degree VARCHAR(255),
+                    major VARCHAR(255) DEFAULT NULL,
                     linkedin_url VARCHAR(500) NOT NULL,
                     current_job_title VARCHAR(255),
                     company VARCHAR(255),
@@ -267,6 +269,38 @@ def ensure_alumni_work_school_date_columns():
             conn.commit()
     except mysql.connector.Error as err:
         logger.error(f"Error ensuring work/school date columns: {err}")
+        raise
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def ensure_alumni_major_column():
+    """
+    Ensure major column exists in alumni table for engineering disciplines.
+    This is required for the Engineering Discipline filter to work.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN major VARCHAR(255) DEFAULT NULL
+                """)
+                logger.info("Added major column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("Major column already exists")
+                else:
+                    raise
+            conn.commit()
+    except mysql.connector.Error as err:
+        logger.error(f"Error ensuring major column: {err}")
         raise
     finally:
         if conn:
@@ -573,11 +607,11 @@ def seed_alumni_data():
                     try:
                         cur.execute("""
                             INSERT INTO alumni 
-                            (first_name, last_name, grad_year, degree, linkedin_url, current_job_title, company, location, headline, 
+                            (first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying,
                              exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
                              scraped_at, last_updated)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
                                     %s, %s)
@@ -586,6 +620,7 @@ def seed_alumni_data():
                             last_name = VALUES(last_name),
                             grad_year = VALUES(grad_year),
                             degree = VALUES(degree),
+                            major = VALUES(major),
                             current_job_title = VALUES(current_job_title),
                             company = VALUES(company),
                             location = VALUES(location),
@@ -605,6 +640,7 @@ def seed_alumni_data():
                             first_name,
                             last_name,
                             grad_year,
+                            None,  # degree is not in CSV yet
                             major,
                             profile_url,
                             job_title,
@@ -737,6 +773,7 @@ if __name__ == "__main__":
         init_db()
         ensure_alumni_timestamp_columns()
         ensure_alumni_work_school_date_columns()
+        ensure_alumni_major_column()
 
         # Seed alumni data
         seed_alumni_data()

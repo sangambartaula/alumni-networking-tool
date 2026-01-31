@@ -42,18 +42,6 @@ sample_alumni = [
         'linkedin_url': 'https://linkedin.com/in/johnsmith'
     },
     {
-        'first_name': 'Sarah',
-        'last_name': 'Johnson',
-        'grad_year': 2019,
-        'degree': 'Master of Business Administration',
-        'major': 'Business Administration',
-        'current_job_title': 'Product Manager',
-        'company': 'Microsoft',
-        'location': 'Seattle, WA',
-        'headline': 'Product Manager at Microsoft',
-        'linkedin_url': 'https://linkedin.com/in/sarahjohnson'
-    },
-    {
         'first_name': 'Michael',
         'last_name': 'Chen',
         'grad_year': 2021,
@@ -100,18 +88,6 @@ sample_alumni = [
         'location': 'Menlo Park, CA',
         'headline': 'UX Designer at Meta',
         'linkedin_url': 'https://linkedin.com/in/emilybrown'
-    },
-    {
-        'first_name': 'Robert',
-        'last_name': 'Taylor',
-        'grad_year': 2021,
-        'degree': 'Master of Business Administration',
-        'major': 'Business Administration',
-        'current_job_title': 'Business Analyst',
-        'company': 'IBM',
-        'location': 'New York, NY',
-        'headline': 'Business Analyst at IBM',
-        'linkedin_url': 'https://linkedin.com/in/roberttaylor'
     },
     {
         'first_name': 'Lisa',

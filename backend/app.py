@@ -40,6 +40,16 @@ CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
 
 # ---------------------- Helper functions ----------------------
+
+# Approved engineering disciplines (only these will appear in the filter)
+APPROVED_ENGINEERING_DISCIPLINES = [
+    'Aerospace Engineering',
+    'Civil Engineering',
+    'Computer Engineering',
+    'Electrical Engineering',
+    'Mechanical Engineering'
+]
+
 def get_current_user_id():
     """Get the current logged-in user's DB id from LinkedIn profile.
        In dev (DISABLE_DB=1), return a stable placeholder id from session.
@@ -839,7 +849,8 @@ if __name__ == "__main__":
 @app.route('/api/alumni/majors', methods=['GET'])
 def api_get_majors():
     """
-    Return a list of unique majors/engineering disciplines.
+    Return a list of approved engineering disciplines.
+    Only disciplines in APPROVED_ENGINEERING_DISCIPLINES are returned.
     Useful for populating filter dropdowns.
     """
     if DISABLE_DB:
@@ -849,12 +860,14 @@ def api_get_majors():
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
+                # Only get approved disciplines that have alumni
+                placeholders = ','.join(['%s'] * len(APPROVED_ENGINEERING_DISCIPLINES))
+                cur.execute(f"""
                     SELECT DISTINCT major
                     FROM alumni
-                    WHERE major IS NOT NULL AND major != ''
+                    WHERE major IN ({placeholders})
                     ORDER BY major ASC
-                """)
+                """, APPROVED_ENGINEERING_DISCIPLINES)
                 rows = cur.fetchall()
                 majors = [row['major'] for row in rows if row['major']]
             
@@ -894,6 +907,10 @@ def api_filter_alumni():
         job_title = request.args.get('job_title', '').strip()
         grad_year = request.args.get('grad_year', '').strip()
         degree_filter = request.args.get('degree', '').strip()
+        
+        # Validate major parameter - only allow approved engineering disciplines
+        if major and major not in APPROVED_ENGINEERING_DISCIPLINES:
+            return jsonify({"error": f"Invalid engineering discipline: {major}"}), 400
         
         try:
             limit = int(request.args.get('limit', 10000))
