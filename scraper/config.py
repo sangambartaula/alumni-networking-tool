@@ -68,14 +68,4 @@ CSV_COLUMNS = [
     'profile_url', 'scraped_at'
 ]
 
-# Sample/Fake data URLs to always ignore
-IGNORED_URLS = {
-    "https://linkedin.com/in/johnsmith",
-    "https://linkedin.com/in/sarahjohnson",
-    "https://linkedin.com/in/michaelchen",
-    "https://linkedin.com/in/jessicawilliams",
-    "https://linkedin.com/in/davidmartinez",
-    "https://linkedin.com/in/emilybrown",
-    "https://linkedin.com/in/roberttaylor",
-    "https://linkedin.com/in/lisaanderson"
-}
+

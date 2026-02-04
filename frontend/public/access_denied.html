@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Access Denied - UNT Alumni Network</title>
+  <link rel="stylesheet" href="alumni_style.css" />
+  <style>
+    .access-denied-container {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    }
+
+    .access-denied-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 3rem;
+      max-width: 500px;
+      backdrop-filter: blur(10px);
+    }
+
+    .access-denied-icon {
+      width: 80px;
+      height: 80px;
+      margin-bottom: 1.5rem;
+      color: #ef4444;
+    }
+
+    .access-denied-title {
+      color: #fff;
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .access-denied-message {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 1rem;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+
+    .access-denied-details {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 2rem;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 0.9rem;
+    }
+
+    .access-denied-contact {
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 0.85rem;
+    }
+
+    .access-denied-contact a {
+      color: #00cf86;
+      text-decoration: none;
+    }
+
+    .access-denied-contact a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="access-denied-container">
+    <div class="access-denied-card">
+      <svg class="access-denied-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+      </svg>
+
+      <h1 class="access-denied-title">Access Denied</h1>
+
+      <p class="access-denied-message">
+        You do not have permission to access this website.
+      </p>
+
+      <div class="access-denied-details">
+        This portal is restricted to authorized UNT College of Engineering faculty and staff only.
+        Student accounts (<code>@my.unt.edu</code>) are not permitted.
+      </div>
+
+      <p class="access-denied-contact">
+        If you believe you should have access, please contact Dr. Seifollah Nasrazadani (Associate Dean) at
+        <a href="mailto:Seifollah.Nasrazadani@unt.edu">Seifollah.Nasrazadani@unt.edu</a>
+      </p>
+
+    </div>
+  </div>
+</body>
+
+</html>

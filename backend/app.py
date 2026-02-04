@@ -39,7 +39,50 @@ CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")
 CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
 
+# ---------------------- Access Control Configuration ----------------------
+
+# Authorized email domains (faculty only - NOT @my.unt.edu students)
+AUTHORIZED_DOMAINS = ['@unt.edu']
+
+def is_authorized_user(email):
+    """
+    Check if user email is authorized to access the system.
+    Returns True if:
+    1. Email is in the database whitelist, OR
+    2. Email ends with an authorized domain (@unt.edu) AND is NOT a student email (@my.unt.edu)
+    """
+    if not email:
+        return False
+    email_lower = email.lower().strip()
+    
+    # Check database whitelist first (allows specific exceptions)
+    try:
+        from database import get_authorized_emails
+        authorized_emails = get_authorized_emails()
+        authorized_email_list = [e['email'].lower() for e in authorized_emails]
+        
+        if email_lower in authorized_email_list:
+            app.logger.info(f"User {email_lower} authorized via database whitelist")
+            return True
+    except Exception as e:
+        app.logger.error(f"Error checking authorized emails from database: {e}")
+    
+    # Explicitly block student emails (@my.unt.edu)
+    if email_lower.endswith('@my.unt.edu'):
+        app.logger.warning(f"Student email blocked: {email_lower}")
+        return False
+    
+    # Check if email ends with authorized domain
+    for domain in AUTHORIZED_DOMAINS:
+        if email_lower.endswith(domain.lower()):
+            app.logger.info(f"User {email_lower} authorized via domain {domain}")
+            return True
+    
+    app.logger.warning(f"Unauthorized email attempted access: {email_lower}")
+    return False
+
 # ---------------------- Helper functions ----------------------
+
 
 # Approved engineering disciplines (only these will appear in the filter)
 APPROVED_ENGINEERING_DISCIPLINES = [
@@ -61,9 +104,11 @@ def get_current_user_id():
     linkedin_id = linkedin_profile.get('sub')  # LinkedIn's unique ID
 
     if DISABLE_DB:
-        # Give APIs a consistent user id during demos with no DB
-        session.setdefault('_dev_user_id', 1)
-        return session['_dev_user_id']
+        # If SQLite fallback is enabled, try to use it even in DISABLE_DB mode
+        if not USE_SQLITE_FALLBACK:
+            # Give APIs a consistent user id during demos with no DB
+            session.setdefault('_dev_user_id', 1)
+            return session['_dev_user_id']
 
     conn = None
     try:
@@ -126,6 +171,12 @@ def logout():
     session.clear()
     return redirect('/')
 
+@app.route('/access-denied')
+def access_denied():
+    """Show access denied page for unauthorized users."""
+    return send_from_directory('../frontend/public', 'access_denied.html'), 403
+
+
 # ---------------------- LinkedIn OAuth routes ----------------------
 @app.route('/login/linkedin')
 def login_linkedin():
@@ -181,10 +232,19 @@ def linkedin_callback():
     linkedin_profile = userinfo_resp.json()
     session['linkedin_profile'] = linkedin_profile
 
+    # ---- ACCESS CONTROL: Check if user is authorized ----
+    user_email = linkedin_profile.get('email')
+    if not is_authorized_user(user_email):
+        app.logger.warning(f"Unauthorized access attempt by: {user_email}")
+        session.clear()  # Clear session to prevent any access
+        return redirect('/access-denied')
+    # ------------------------------------------------------
+
     # ---- DEV BYPASS: skip DB completely if disabled ----
     if DISABLE_DB:
         app.logger.info("DB BYPASS active; redirecting to /alumni")
         return redirect('/alumni')
+
     # ----------------------------------------------------
 
     # Save/update user in database (safe connection handling)
@@ -255,7 +315,8 @@ def add_interaction():
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
-        return jsonify({"success": True, "message": "DB disabled (dev). No-op."}), 200
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"success": True, "message": "DB disabled (dev). No-op."}), 200
 
     try:
         data = request.get_json()
@@ -273,19 +334,37 @@ def add_interaction():
             return jsonify({"error": "User not found"}), 401
 
         conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+        
         try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO user_interactions (user_id, alumni_id, interaction_type, notes)
-                    VALUES (%s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        notes = VALUES(notes),
-                        updated_at = CURRENT_TIMESTAMP
+            if use_sqlite:
+                # SQLite mode - use INSERT OR REPLACE pattern
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO user_interactions (user_id, alumni_id, interaction_type, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+                    ON CONFLICT(user_id, alumni_id, interaction_type) DO UPDATE SET
+                        notes = excluded.notes,
+                        updated_at = datetime('now')
                 """, (user_id, alumni_id, interaction_type, notes))
                 conn.commit()
+            else:
+                # MySQL mode - use ON DUPLICATE KEY UPDATE
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO user_interactions (user_id, alumni_id, interaction_type, notes)
+                        VALUES (%s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            notes = VALUES(notes),
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (user_id, alumni_id, interaction_type, notes))
+                    conn.commit()
             return jsonify({"success": True, "message": f"{interaction_type} added successfully"}), 200
-        except mysql.connector.Error as err:
-            conn.rollback()
+        except Exception as err:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
             try:
@@ -295,6 +374,7 @@ def add_interaction():
 
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 @app.route('/api/interaction', methods=['DELETE'])
 @api_login_required
@@ -306,7 +386,8 @@ def remove_interaction():
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
-        return jsonify({"success": True, "message": "DB disabled (dev). No-op."}), 200
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"success": True, "message": "DB disabled (dev). No-op."}), 200
 
     try:
         data = request.get_json()
@@ -321,16 +402,31 @@ def remove_interaction():
             return jsonify({"error": "User not found"}), 401
 
         conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+        
         try:
-            with conn.cursor() as cur:
-                cur.execute("""
+            if use_sqlite:
+                # SQLite mode - use ? placeholders
+                cursor = conn.cursor()
+                cursor.execute("""
                     DELETE FROM user_interactions
-                    WHERE user_id = %s AND alumni_id = %s AND interaction_type = %s
+                    WHERE user_id = ? AND alumni_id = ? AND interaction_type = ?
                 """, (user_id, alumni_id, interaction_type))
                 conn.commit()
+            else:
+                # MySQL mode - use %s placeholders
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        DELETE FROM user_interactions
+                        WHERE user_id = %s AND alumni_id = %s AND interaction_type = %s
+                    """, (user_id, alumni_id, interaction_type))
+                    conn.commit()
             return jsonify({"success": True, "message": "Interaction removed"}), 200
-        except mysql.connector.Error as err:
-            conn.rollback()
+        except Exception as err:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
             try:
@@ -341,15 +437,17 @@ def remove_interaction():
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
+
 @app.route('/api/user-interactions', methods=['GET'])
 @api_login_required
 def get_user_interactions():
     """
     Get all interactions for current user
     """
-    # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
-        return jsonify({"success": True, "interactions": []}), 
+        # Short-circuit in dev when DB is disabled unless fallback is enabled
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"success": True, "interactions": []}), 200
 
     try:
         user_id = get_current_user_id()
@@ -357,20 +455,41 @@ def get_user_interactions():
             return jsonify({"error": "User not found"}), 401
 
         conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+        
         try:
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
+            if use_sqlite:
+                # SQLite mode - set up row factory for dict-like access
+                conn.row_factory = lambda cursor, row: {
+                    col[0]: row[idx] for idx, col in enumerate(cursor.description)
+                }
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, alumni_id, interaction_type, notes, created_at, updated_at
                     FROM user_interactions
-                    WHERE user_id = %s
+                    WHERE user_id = ?
                     ORDER BY updated_at DESC
                 """, (user_id,))
-                interactions = cur.fetchall()
+                interactions = cursor.fetchall()
+            else:
+                # MySQL mode - use dictionary cursor
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute("""
+                        SELECT id, alumni_id, interaction_type, notes, created_at, updated_at
+                        FROM user_interactions
+                        WHERE user_id = %s
+                        ORDER BY updated_at DESC
+                    """, (user_id,))
+                    interactions = cur.fetchall()
 
             # Convert datetime objects to strings for JSON serialization
             for interaction in interactions:
-                interaction['created_at'] = interaction['created_at'].isoformat() if interaction['created_at'] else None
-                interaction['updated_at'] = interaction['updated_at'].isoformat() if interaction['updated_at'] else None
+                created_at = interaction.get('created_at')
+                updated_at = interaction.get('updated_at')
+                if hasattr(created_at, 'isoformat'):
+                    interaction['created_at'] = created_at.isoformat()
+                if hasattr(updated_at, 'isoformat'):
+                    interaction['updated_at'] = updated_at.isoformat()
 
             return jsonify({"success": True, "interactions": interactions}), 200
         finally:
@@ -383,6 +502,7 @@ def get_user_interactions():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
+
 @app.route('/api/alumni', methods=['GET'])
 def api_get_alumni():
     """
@@ -391,7 +511,8 @@ def api_get_alumni():
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
-        return jsonify({"success": True, "alumni": []}), 200
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"success": True, "alumni": []}), 200
 
     try:
         try:
@@ -477,32 +598,57 @@ def get_notes(alumni_id):
         user_id = get_current_user_id()
         
         if DISABLE_DB:
-            return jsonify({"success": True, "note": None}), 200
+            if not USE_SQLITE_FALLBACK:
+                return jsonify({"success": True, "note": None}), 200
         
         conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+        
         try:
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
+            if use_sqlite:
+                # SQLite mode - returns tuples, use ? placeholders
+                conn.row_factory = lambda cursor, row: {
+                    col[0]: row[idx] for idx, col in enumerate(cursor.description)
+                }
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, note_content, created_at, updated_at
                     FROM notes
-                    WHERE user_id = %s AND alumni_id = %s
+                    WHERE user_id = ? AND alumni_id = ?
                     LIMIT 1
                 """, (user_id, alumni_id))
+                note = cursor.fetchone()
+            else:
+                # MySQL mode - use %s placeholders
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute("""
+                        SELECT id, note_content, created_at, updated_at
+                        FROM notes
+                        WHERE user_id = %s AND alumni_id = %s
+                        LIMIT 1
+                    """, (user_id, alumni_id))
+                    note = cur.fetchone()
+            
+            if note:
+                # Handle timestamp formatting
+                created_at = note.get('created_at')
+                updated_at = note.get('updated_at')
+                if hasattr(created_at, 'isoformat'):
+                    created_at = created_at.isoformat()
+                if hasattr(updated_at, 'isoformat'):
+                    updated_at = updated_at.isoformat()
                 
-                note = cur.fetchone()
-                
-                if note:
-                    return jsonify({
-                        "success": True,
-                        "note": {
-                            "id": note['id'],
-                            "note_content": note['note_content'],
-                            "created_at": note['created_at'].isoformat() if note['created_at'] else None,
-                            "updated_at": note['updated_at'].isoformat() if note['updated_at'] else None
-                        }
-                    }), 200
-                else:
-                    return jsonify({"success": True, "note": None}), 200
+                return jsonify({
+                    "success": True,
+                    "note": {
+                        "id": note['id'],
+                        "note_content": note['note_content'],
+                        "created_at": created_at,
+                        "updated_at": updated_at
+                    }
+                }), 200
+            else:
+                return jsonify({"success": True, "note": None}), 200
         finally:
             try:
                 conn.close()
@@ -514,6 +660,7 @@ def get_notes(alumni_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+
 @app.route('/api/notes', methods=['GET'])
 @api_login_required
 def get_all_notes():
@@ -522,37 +669,62 @@ def get_all_notes():
         user_id = get_current_user_id()
         
         if DISABLE_DB:
-            return jsonify({"success": True, "notes": {}}), 200
+            if not USE_SQLITE_FALLBACK:
+                return jsonify({"success": True, "notes": {}}), 200
         
         conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+        
         try:
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
+            if use_sqlite:
+                # SQLite mode - set up row factory for dict-like access
+                conn.row_factory = lambda cursor, row: {
+                    col[0]: row[idx] for idx, col in enumerate(cursor.description)
+                }
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, alumni_id, note_content, created_at, updated_at
                     FROM notes
-                    WHERE user_id = %s
+                    WHERE user_id = ?
                     ORDER BY updated_at DESC
                 """, (user_id,))
+                rows = cursor.fetchall()
+            else:
+                # MySQL mode - use dictionary cursor
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute("""
+                        SELECT id, alumni_id, note_content, created_at, updated_at
+                        FROM notes
+                        WHERE user_id = %s
+                        ORDER BY updated_at DESC
+                    """, (user_id,))
+                    rows = cur.fetchall()
+            
+            # Group notes by alumni_id for easy frontend lookup
+            notes_by_alumni = {}
+            for note in rows:
+                alumni_id = note['alumni_id']
+                # Handle timestamp formatting
+                created_at = note.get('created_at')
+                updated_at = note.get('updated_at')
+                if hasattr(created_at, 'isoformat'):
+                    created_at = created_at.isoformat()
+                if hasattr(updated_at, 'isoformat'):
+                    updated_at = updated_at.isoformat()
                 
-                rows = cur.fetchall()
-                
-                # Group notes by alumni_id for easy frontend lookup
-                notes_by_alumni = {}
-                for note in rows:
-                    alumni_id = note['alumni_id']
-                    notes_by_alumni[alumni_id] = {
-                        "id": note['id'],
-                        "alumni_id": alumni_id,
-                        "note_content": note['note_content'],
-                        "created_at": note['created_at'].isoformat() if note['created_at'] else None,
-                        "updated_at": note['updated_at'].isoformat() if note['updated_at'] else None
-                    }
-                
-                return jsonify({
-                    "success": True,
-                    "notes": notes_by_alumni,
-                    "count": len(notes_by_alumni)
-                }), 200
+                notes_by_alumni[alumni_id] = {
+                    "id": note['id'],
+                    "alumni_id": alumni_id,
+                    "note_content": note['note_content'],
+                    "created_at": created_at,
+                    "updated_at": updated_at
+                }
+            
+            return jsonify({
+                "success": True,
+                "notes": notes_by_alumni,
+                "count": len(notes_by_alumni)
+            }), 200
         finally:
             try:
                 conn.close()
@@ -562,6 +734,7 @@ def get_all_notes():
     except Exception as e:
         app.logger.error(f"Error getting all notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 @app.route('/api/notes/<int:alumni_id>', methods=['POST'])
 @api_login_required
@@ -573,38 +746,64 @@ def save_notes(alumni_id):
         note_content = data.get('note_content', '')
         
         if DISABLE_DB:
-            return jsonify({"success": True, "message": "Notes saved (DB disabled)"}), 200
+            if not USE_SQLITE_FALLBACK:
+                return jsonify({"success": True, "message": "Notes saved (DB disabled)"}), 200
         
         conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+        
         try:
-            with conn.cursor() as cur:
-                # Check if note exists
-                cur.execute("""
+            if use_sqlite:
+                # SQLite mode - use ? placeholders and datetime('now')
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id FROM notes
-                    WHERE user_id = %s AND alumni_id = %s
+                    WHERE user_id = ? AND alumni_id = ?
                 """, (user_id, alumni_id))
-                
-                existing_note = cur.fetchone()
+                existing_note = cursor.fetchone()
                 
                 if existing_note:
-                    # Update existing note
-                    cur.execute("""
+                    cursor.execute("""
                         UPDATE notes
-                        SET note_content = %s, updated_at = NOW()
-                        WHERE user_id = %s AND alumni_id = %s
+                        SET note_content = ?, updated_at = datetime('now')
+                        WHERE user_id = ? AND alumni_id = ?
                     """, (note_content, user_id, alumni_id))
                 else:
-                    # Create new note
-                    cur.execute("""
+                    cursor.execute("""
                         INSERT INTO notes (user_id, alumni_id, note_content, created_at, updated_at)
-                        VALUES (%s, %s, %s, NOW(), NOW())
+                        VALUES (?, ?, ?, datetime('now'), datetime('now'))
                     """, (user_id, alumni_id, note_content))
                 
                 conn.commit()
-                
-                return jsonify({"success": True, "message": "Note saved successfully"}), 200
-        except mysql.connector.Error as err:
-            conn.rollback()
+            else:
+                # MySQL mode - use %s placeholders and NOW()
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id FROM notes
+                        WHERE user_id = %s AND alumni_id = %s
+                    """, (user_id, alumni_id))
+                    existing_note = cur.fetchone()
+                    
+                    if existing_note:
+                        cur.execute("""
+                            UPDATE notes
+                            SET note_content = %s, updated_at = NOW()
+                            WHERE user_id = %s AND alumni_id = %s
+                        """, (note_content, user_id, alumni_id))
+                    else:
+                        cur.execute("""
+                            INSERT INTO notes (user_id, alumni_id, note_content, created_at, updated_at)
+                            VALUES (%s, %s, %s, NOW(), NOW())
+                        """, (user_id, alumni_id, note_content))
+                    
+                    conn.commit()
+            
+            return jsonify({"success": True, "message": "Note saved successfully"}), 200
+        except Exception as err:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
         finally:
             try:
@@ -617,6 +816,7 @@ def save_notes(alumni_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+
 @app.route('/api/notes/<int:alumni_id>', methods=['DELETE'])
 @api_login_required
 def delete_notes(alumni_id):
@@ -625,21 +825,36 @@ def delete_notes(alumni_id):
         user_id = get_current_user_id()
         
         if DISABLE_DB:
-            return jsonify({"success": True, "message": "Notes deleted (DB disabled)"}), 200
+            if not USE_SQLITE_FALLBACK:
+                return jsonify({"success": True, "message": "Notes deleted (DB disabled)"}), 200
         
         conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+        
         try:
-            with conn.cursor() as cur:
-                cur.execute("""
+            if use_sqlite:
+                # SQLite mode - use ? placeholders
+                cursor = conn.cursor()
+                cursor.execute("""
                     DELETE FROM notes
-                    WHERE user_id = %s AND alumni_id = %s
+                    WHERE user_id = ? AND alumni_id = ?
                 """, (user_id, alumni_id))
-                
                 conn.commit()
-                
-                return jsonify({"success": True, "message": "Note deleted successfully"}), 200
-        except mysql.connector.Error as err:
-            conn.rollback()
+            else:
+                # MySQL mode - use %s placeholders
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        DELETE FROM notes
+                        WHERE user_id = %s AND alumni_id = %s
+                    """, (user_id, alumni_id))
+                    conn.commit()
+            
+            return jsonify({"success": True, "message": "Note deleted successfully"}), 200
+        except Exception as err:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
         finally:
             try:
@@ -650,6 +865,76 @@ def delete_notes(alumni_id):
     except Exception as e:
         app.logger.error(f"Error deleting notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ===== AUTHORIZED EMAILS API ENDPOINTS =====
+
+@app.route('/api/authorized-emails', methods=['GET'])
+@api_login_required
+def get_authorized_emails_api():
+    """Get all authorized emails from the database"""
+    try:
+        from database import get_authorized_emails
+        emails = get_authorized_emails()
+        return jsonify({"success": True, "emails": emails}), 200
+    except Exception as e:
+        app.logger.error(f"Error fetching authorized emails: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/authorized-emails', methods=['POST'])
+@api_login_required
+def add_authorized_email_api():
+    """Add an email to the authorized emails list"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip().lower()
+        notes = data.get('notes', '').strip()
+        
+        if not email:
+            return jsonify({"success": False, "error": "Email is required"}), 400
+        
+        # Basic email validation
+        if '@' not in email or '.' not in email.split('@')[-1]:
+            return jsonify({"success": False, "error": "Invalid email format"}), 400
+        
+        # Get current user ID to track who added the email
+        user_id = get_current_user_id()
+        
+        from database import add_authorized_email
+        success = add_authorized_email(email, added_by_user_id=user_id, notes=notes)
+        
+        if success:
+            return jsonify({"success": True, "message": f"Email {email} added to whitelist"}), 200
+        else:
+            return jsonify({"success": False, "error": "Failed to add email"}), 500
+    except Exception as e:
+        app.logger.error(f"Error adding authorized email: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/authorized-emails', methods=['DELETE'])
+@api_login_required
+def remove_authorized_email_api():
+    """Remove an email from the authorized emails list"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip().lower()
+        
+        if not email:
+            return jsonify({"success": False, "error": "Email is required"}), 400
+        
+        from database import remove_authorized_email
+        success = remove_authorized_email(email)
+        
+        if success:
+            return jsonify({"success": True, "message": f"Email {email} removed from whitelist"}), 200
+        else:
+            return jsonify({"success": False, "error": "Failed to remove email"}), 500
+    except Exception as e:
+        app.logger.error(f"Error removing authorized email: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 # ===== HEATMAP API ENDPOINT =====
 
@@ -673,7 +958,6 @@ def get_continent(lat, lon):
 
 
 @app.route('/api/heatmap', methods=['GET'])
-@app.route('/api/heatmap', methods=['GET'])
 def get_heatmap_data():
     """
     Return aggregated alumni location data for the heatmap.
@@ -685,8 +969,9 @@ def get_heatmap_data():
     continent_filter = request.args.get("continent")
 
     if DISABLE_DB:
-        # Dev mode: no DB
-        return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
+        # Dev mode: try SQLite fallback if enabled, otherwise return empty
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
     try:
         conn = get_connection()
@@ -854,7 +1139,8 @@ def api_get_majors():
     Useful for populating filter dropdowns.
     """
     if DISABLE_DB:
-        return jsonify({"success": True, "majors": []}), 200
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"success": True, "majors": []}), 200
 
     try:
         conn = get_connection()
@@ -897,7 +1183,8 @@ def api_filter_alumni():
       - offset: pagination offset (default 0)
     """
     if DISABLE_DB:
-        return jsonify({"success": True, "alumni": []}), 200
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"success": True, "alumni": []}), 200
 
     try:
         # Get filter parameters

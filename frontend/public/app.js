@@ -1,4 +1,12 @@
 // app.js
+// Approved engineering disciplines (must match backend)
+const APPROVED_ENGINEERING_DISCIPLINES = [
+  'Aerospace Engineering',
+  'Civil Engineering',
+  'Computer Engineering',
+  'Electrical Engineering',
+  'Mechanical Engineering'
+];
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
 const fakeAlumni = [
   { id: 1, name: "Sachin Banjade", role: "Software Engineer", company: "Tech Solutions Inc.", class: 2020, location: "Dallas", linkedin: "https://www.linkedin.com/in/sachin-banjade-345339248/" },
@@ -491,11 +499,15 @@ function createPageButton(pageNum, fullList) {
   return btn;
 }
 
-// Populate filters (location, role, major, graduation, degree)
+// Populate filters (location, role, company, major, graduation, degree)
 function populateFilters(list) {
   const locations = Array.from(new Set(list.map(x => x.location).filter(Boolean))).sort();
   const roles = Array.from(new Set(list.map(x => x.role).filter(Boolean))).sort();
-  const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean))).sort();
+  const companies = Array.from(new Set(list.map(x => x.company).filter(Boolean))).sort();
+  // Filter majors to only show approved engineering disciplines
+  const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean)))
+    .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
+    .sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
   // Fixed order for degree levels
   const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
@@ -507,6 +519,7 @@ function populateFilters(list) {
 
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
+  const companyChecks = document.getElementById('companyChecks');
   const majorChecks = document.getElementById('majorChecks');
   const gradSelect = document.getElementById('gradSelect');
   const degreeChecks = document.getElementById('degreeChecks');
@@ -528,6 +541,16 @@ function populateFilters(list) {
       label.className = 'check';
       label.innerHTML = `<input type="checkbox" name="role" value="${v}" /> <span>${v}</span>`;
       roleChecks.appendChild(label);
+    });
+  }
+
+  if (companyChecks) {
+    companyChecks.innerHTML = '';
+    companies.forEach(v => {
+      const label = document.createElement('label');
+      label.className = 'check';
+      label.innerHTML = `<input type="checkbox" name="company" value="${v}" /> <span>${v}</span>`;
+      companyChecks.appendChild(label);
     });
   }
 
@@ -571,7 +594,7 @@ function setupFiltering(list) {
   const clearBtn = document.getElementById('clear-filters');
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
-      document.querySelectorAll('input[name="location"], input[name="role"], input[name="degree"]').forEach(cb => cb.checked = false);
+      document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"]').forEach(cb => cb.checked = false);
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
       currentPage = 1; // Reset to page 1 when clearing filters
@@ -583,10 +606,11 @@ function setupFiltering(list) {
     const term = q ? q.value.trim().toLowerCase() : '';
     const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
     const role = Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value);
+    const company = Array.from(document.querySelectorAll('input[name="company"]:checked')).map(i => i.value);
     const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
     const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
     const year = gradSelect ? gradSelect.value : '';
-    return { term, loc, role, major, degree, year };
+    return { term, loc, role, company, major, degree, year };
   }
 
   function getSorted(listToSort) {
@@ -611,10 +635,11 @@ function setupFiltering(list) {
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
       const matchRole = !f.role.length || f.role.includes(a.role);
+      const matchCompany = !f.company.length || f.company.includes(a.company);
       const matchMajor = !f.major.length || f.major.includes(a.major);
       const matchDegree = !f.degree.length || f.degree.includes(a.degree);
       const matchYear = !f.year || String(a.class) === String(f.year);
-      return matchTerm && matchLoc && matchRole && matchMajor && matchDegree && matchYear;
+      return matchTerm && matchLoc && matchRole && matchCompany && matchMajor && matchDegree && matchYear;
     });
     const sortedFiltered = getSorted(filtered);
     const paginated = getPaginated(sortedFiltered);
@@ -636,7 +661,7 @@ function setupFiltering(list) {
     apply();
   });
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="major"], input[name="degree"], #gradSelect')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect')) {
       currentPage = 1; // Reset to page 1 on filter change
       apply();
     }

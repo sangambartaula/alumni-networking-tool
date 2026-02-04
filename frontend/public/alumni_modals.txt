@@ -1,0 +1,81 @@
+﻿
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button id="closeSettingsModal" class="modal-close" title="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h3>Email Whitelist</h3>
+          <p class="help-text">Add emails to grant access to this platform. Faculty with @unt.edu email addresses (excluding @my.unt.edu) have access by default.</p>
+          <ul id="emailList" class="email-list">
+            <li class="loading">Loading...</li>
+          </ul>
+          <button id="addEmailBtn" class="btn action-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Email
+          </button>
+       </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Email Modal -->
+  <div id="addEmailModal" class="modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2>Add Email to Whitelist</h2>
+        <button id="closeAddEmailModal" class="modal-close" title="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="newEmail">Email Address *</label>
+          <input type="email" id="newEmail" placeholder="email@example.com" required>
+        </div>
+        <div class="form-group">
+          <label for="emailNotes">Notes (optional)</label>
+          <input type="text" id="emailNotes" placeholder="e.g., External collaborator">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelAddEmail" class="btn secondary">Cancel</button>
+        <button id="confirmAddEmail" class="btn primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirmModal" class="modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2>Confirm Access</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage">Are you sure? This person will have access to this website from now on.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="confirmNo" class="btn secondary">Cancel</button>
+        <button id="confirmYes" class="btn primary">Yes, Add Them</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/settings.js"></script>

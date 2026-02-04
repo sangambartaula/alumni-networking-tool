@@ -37,10 +37,20 @@ def get_connection():
     If USE_SQLITE_FALLBACK is enabled, routes to MySQL or SQLite based on availability.
     Otherwise, returns a direct MySQL connection.
     """
+    # Check if DB is explicitly disabled (dev mode)
+    # in this mode, we force SQLite if fallback is enabled, regardless of cloud availability
+    disable_db = os.getenv("DISABLE_DB", "0") == "1"
+    
     if USE_SQLITE_FALLBACK:
         try:
-            from sqlite_fallback import get_connection_manager
-            return get_connection_manager().get_connection()
+            from sqlite_fallback import get_connection_manager, SQLiteConnectionWrapper
+            manager = get_connection_manager()
+            
+            if disable_db:
+                # Force offline/SQLite mode
+                return SQLiteConnectionWrapper(manager.get_sqlite_connection(), manager)
+            
+            return manager.get_connection()
         except ImportError:
             logger.warning("sqlite_fallback module not found, falling back to direct MySQL")
     
@@ -168,6 +178,21 @@ def init_db():
                 )
             """)
             logger.info("notes table created/verified")
+
+            # Create authorized_emails table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS authorized_emails (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    added_by_user_id INT,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes VARCHAR(500),
+                    CONSTRAINT fk_added_by_user FOREIGN KEY (added_by_user_id) 
+                        REFERENCES users(id) ON DELETE SET NULL,
+                    INDEX idx_email (email)
+                )
+            """)
+            logger.info("authorized_emails table created/verified")
 
             conn.commit()
             logger.info("All tables initialized successfully")
@@ -529,6 +554,168 @@ def get_visited_profiles_stats():
                 conn.close()
             except Exception:
                 pass
+
+
+# ============================================================
+# AUTHORIZED EMAILS FUNCTIONS
+# ============================================================
+
+def get_authorized_emails():
+    """
+    Get all authorized emails from the database.
+    Returns a list of dicts with email, added_at, added_by_user_id, and notes.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+        
+        if use_sqlite:
+            # SQLite mode
+            conn.row_factory = lambda cursor, row: {
+                col[0]: row[idx] for idx, col in enumerate(cursor.description)
+            }
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT email, added_at, added_by_user_id, notes
+                FROM authorized_emails
+                ORDER BY added_at DESC
+            """)
+            emails = cursor.fetchall()
+        else:
+            # MySQL mode
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT email, added_at, added_by_user_id, notes
+                    FROM authorized_emails
+                    ORDER BY added_at DESC
+                """)
+                emails = cur.fetchall()
+        
+        # Convert datetime objects to strings for JSON serialization
+        for email_record in emails:
+            added_at = email_record.get('added_at')
+            if hasattr(added_at, 'isoformat'):
+                email_record['added_at'] = added_at.isoformat()
+        
+        return emails
+    except Exception as err:
+        logger.error(f"Error fetching authorized emails: {err}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def add_authorized_email(email, added_by_user_id=None, notes=None):
+    """
+    Add an email to the authorized emails list.
+    Returns True if successful, False otherwise.
+    """
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+        
+        if use_sqlite:
+            # SQLite mode
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO authorized_emails (email, added_by_user_id, notes, added_at)
+                VALUES (?, ?, ?, datetime('now'))
+                ON CONFLICT(email) DO UPDATE SET
+                    notes = excluded.notes,
+                    added_by_user_id = excluded.added_by_user_id
+            """, (email, added_by_user_id, notes))
+            conn.commit()
+        else:
+            # MySQL mode
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO authorized_emails (email, added_by_user_id, notes)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        notes = VALUES(notes),
+                        added_by_user_id = VALUES(added_by_user_id)
+                """, (email, added_by_user_id, notes))
+                conn.commit()
+        
+        logger.info(f"Added authorized email: {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error adding authorized email {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def remove_authorized_email(email):
+    """
+    Remove an email from the authorized emails list.
+    Returns True if successful, False otherwise.
+    """
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+        
+        if use_sqlite:
+            # SQLite mode
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM authorized_emails WHERE email = ?", (email,))
+            conn.commit()
+        else:
+            # MySQL mode
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM authorized_emails WHERE email = %s", (email,))
+                conn.commit()
+        
+        logger.info(f"Removed authorized email: {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error removing authorized email {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def migrate_env_emails_to_db():
+    """
+    One-time migration: Import authorized emails from .env to database.
+    Reads AUTHORIZED_EMAILS from environment and adds them to the database.
+    """
+    env_emails = os.getenv('AUTHORIZED_EMAILS', '')
+    if not env_emails:
+        logger.info("No authorized emails in .env to migrate")
+        return 0
+    
+    emails = [e.strip().lower() for e in env_emails.split(',') if e.strip()]
+    if not emails:
+        logger.info("No valid authorized emails in .env to migrate")
+        return 0
+    
+    logger.info(f"Migrating {len(emails)} authorized emails from .env to database...")
+    migrated = 0
+    
+    for email in emails:
+        if add_authorized_email(email, added_by_user_id=None, notes="Migrated from .env"):
+            migrated += 1
+    
+    logger.info(f"✅ Migrated {migrated}/{len(emails)} authorized emails to database")
+    return migrated
 
 
 # ============================================================

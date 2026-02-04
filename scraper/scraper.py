@@ -618,6 +618,17 @@ class LinkedInScraper:
                         })
                         seen_entries.add(u_key)
 
+        # Sort by end date descending (most recent first)
+        # "Present" jobs should come first, then by year/month
+        def experience_sort_key(exp):
+            end = exp.get("end", {})
+            if end.get("is_present"):
+                return (9999, 12)  # Present jobs sort first
+            year = end.get("year", 0) or 0
+            month = end.get("month", 1) or 1
+            return (year, month)
+        
+        parsed.sort(key=experience_sort_key, reverse=True)
         return parsed[:max_entries]
 
     def _clean_context_line(self, t):
