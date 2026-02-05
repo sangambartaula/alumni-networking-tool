@@ -1,11 +1,13 @@
 // app.js
-// Approved engineering disciplines (must match backend)
+// Approved engineering disciplines (must match backend backfill_disciplines.py)
 const APPROVED_ENGINEERING_DISCIPLINES = [
-  'Aerospace Engineering',
-  'Civil Engineering',
-  'Computer Engineering',
-  'Electrical Engineering',
-  'Mechanical Engineering'
+  'Computer Science & Engineering',
+  'Electrical & Computer Engineering',
+  'Biomedical Engineering',
+  'Mechanical & Energy Engineering',
+  'Materials Science & Engineering',
+  'Construction & Engineering Management',
+  'Engineering Technology'
 ];
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
 const fakeAlumni = [
@@ -307,6 +309,7 @@ function createListItem(p) {
           <div class="class">Class of ${p.class}${p.location ? ' · ' + p.location : ''}</div>
         </div>
         <div class="list-actions">
+
           <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener" title="View LinkedIn Profile">
             <img src="/assets/linkedin.svg" alt="LinkedIn" class="linkedin-icon" />
           </a>
@@ -316,6 +319,8 @@ function createListItem(p) {
         </div>
       </div>
     `;
+
+
 
   // Connect button action - TOGGLE between Connect and Requested
   const connectBtn = item.querySelector('.btn.connect');
@@ -720,3 +725,4 @@ function setupFiltering(list) {
   // Manually trigger initial rendering
   if (typeof renderProfiles === 'function') renderProfiles(alumniData);
 })();
+

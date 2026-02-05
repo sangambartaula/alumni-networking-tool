@@ -17,6 +17,30 @@ import config
 from config import logger
 from entity_classifier import classify_entity, is_location, is_university
 
+
+def normalize_scraped_data(data):
+    """
+    Normalize all scraped data fields:
+    - Strip leading/trailing whitespace from all string fields
+    - Remove trailing slashes from URLs
+    """
+    if not data:
+        return data
+    
+    for key, value in data.items():
+        if isinstance(value, str):
+            # Strip whitespace
+            value = value.strip()
+            # Remove trailing slashes from URLs
+            if 'url' in key.lower() and value:
+                value = value.rstrip('/')
+            data[key] = value
+        elif isinstance(value, list):
+            # Handle list fields like all_education
+            data[key] = [v.strip() if isinstance(v, str) else v for v in value]
+    
+    return data
+
 class LinkedInScraper:
     def __init__(self):
         self.driver = None
@@ -368,7 +392,8 @@ class LinkedInScraper:
             logger.info(f"      Major: {data.get('major', 'N/A')}")
             logger.info(f"      Working While Studying: {data.get('working_while_studying', 'N/A')}")
 
-            return data
+            # Normalize all fields before returning
+            return normalize_scraped_data(data)
 
         except Exception as e:
             logger.error(f"Error scraping profile {profile_url}: {e}")

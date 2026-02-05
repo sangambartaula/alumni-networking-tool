@@ -588,6 +588,8 @@ def api_get_alumni():
         app.logger.error(f"Error fetching alumni: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
+
+
 # ===== NOTES API ENDPOINTS =====
 
 @app.route('/api/notes/<int:alumni_id>', methods=['GET'])

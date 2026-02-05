@@ -54,6 +54,12 @@ body {
   justify-content: space-between;
 }
 
+.app-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -137,6 +143,12 @@ body {
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
+  font-family: inherit;
+  line-height: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn:hover {
@@ -146,33 +158,54 @@ body {
 }
 
 .btn.secondary {
-  background: #f1f5f9;
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: #dc2626;
+  color: white;
+  border: 1px solid #dc2626;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  line-height: inherit;
+  box-sizing: border-box;
 }
 
 .btn.secondary:hover {
-  background: #e2e8f0;
+  background: #b91c1c;
+  border-color: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .btn.action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: linear-gradient(135deg, var(--brand) 0%, #047857 100%);
+  justify-content: center;
+  gap: 8px;
+  background: var(--brand);
   color: white;
-  border: none;
-  padding: 10px 16px;
+  border: 1px solid var(--brand);
+  height: 42px;
+  /* Force consistent height */
+  box-sizing: border-box;
+  padding: 0 16px;
+  /* Adjust padding since height is fixed */
   border-radius: 10px;
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
   text-decoration: none;
+  font-family: inherit;
+  line-height: inherit;
+  height: 42px;
+  box-sizing: border-box;
 }
 
 .btn.action-btn:hover {
-  background: linear-gradient(135deg, var(--brand-hover) 0%, #065f46 100%);
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
+  color: white;
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
@@ -180,6 +213,9 @@ body {
 .btn.action-btn svg {
   width: 18px;
   height: 18px;
+  color: white;
+  transition: color 0.2s;
+  flex-shrink: 0;
 }
 
 /* ===== PAGE LAYOUT ===== */
@@ -689,6 +725,7 @@ select:focus {
     transform: translateY(20px);
     opacity: 0;
   }
+
   to {
     transform: translateY(0);
     opacity: 1;
