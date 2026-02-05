@@ -86,11 +86,13 @@ def is_authorized_user(email):
 
 # Approved engineering disciplines (only these will appear in the filter)
 APPROVED_ENGINEERING_DISCIPLINES = [
-    'Aerospace Engineering',
-    'Civil Engineering',
-    'Computer Engineering',
-    'Electrical Engineering',
-    'Mechanical Engineering'
+    'Software, Data & AI Engineering',
+    'Embedded, Electrical & Hardware Engineering',
+    'Mechanical & Energy Engineering',
+    'Biomedical Engineering',
+    'Materials Science & Manufacturing',
+    'Construction & Engineering Management',
+    'Construction & Engineering Management'
 ]
 
 def get_current_user_id():

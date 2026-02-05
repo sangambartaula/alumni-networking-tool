@@ -1,13 +1,13 @@
 // app.js
 // Approved engineering disciplines (must match backend backfill_disciplines.py)
 const APPROVED_ENGINEERING_DISCIPLINES = [
-  'Computer Science & Engineering',
-  'Electrical & Computer Engineering',
-  'Biomedical Engineering',
+  'Software, Data & AI Engineering',
+  'Embedded, Electrical & Hardware Engineering',
   'Mechanical & Energy Engineering',
-  'Materials Science & Engineering',
+  'Biomedical Engineering',
+  'Materials Science & Manufacturing',
   'Construction & Engineering Management',
-  'Engineering Technology'
+  'Construction & Engineering Management'
 ];
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
 const fakeAlumni = [
@@ -506,17 +506,20 @@ function createPageButton(pageNum, fullList) {
 
 // Populate filters (location, role, company, major, graduation, degree)
 function populateFilters(list) {
-  const locations = Array.from(new Set(list.map(x => x.location).filter(Boolean))).sort();
-  const roles = Array.from(new Set(list.map(x => x.role).filter(Boolean))).sort();
-  const companies = Array.from(new Set(list.map(x => x.company).filter(Boolean))).sort();
-  // Filter majors to only show approved engineering disciplines
+  // Helper to filter out bad values
+  const isValid = val => val && !['Unknown', 'Not Found', 'N/A'].includes(val);
+
+  const locations = Array.from(new Set(list.map(x => x.location).filter(isValid))).sort();
+  const roles = Array.from(new Set(list.map(x => x.role).filter(isValid))).sort();
+  const companies = Array.from(new Set(list.map(x => x.company).filter(isValid))).sort();
+  // Filter majors to only show approved engineering disciplines (which excludes Unknown now)
   const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean)))
     .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
     .sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
   // Fixed order for degree levels
   const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
-    list.some(x => x.degree === level)
+    list.some(x => x.degree === level && isValid(level))
   );
 
   console.log('Degree values found:', degrees);

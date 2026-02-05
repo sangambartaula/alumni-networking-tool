@@ -21,6 +21,7 @@ A web-based application designed to help the College of Engineering connect with
 - **Education:** School, degree/major, graduation year, school start date
 - **Working While Studying Detection:** Automatically determines if alumni worked during school
 - **Smart Entity Classification:** Tiered system using database lookup, spaCy NER, and regex to accurately distinguish job titles from company names
+- **Engineering Discipline Classification:** Smart categorization of alumni into 7 engineering disciplines based on Job Title, Degree, and Headline priority.
 
 ### Data Management
 - **CSV Output** - All scraped data saved to `scraper/output/UNT_Alumni_Data.csv`
@@ -36,6 +37,34 @@ A web-based application designed to help the College of Engineering connect with
 - **Interactive Dashboard** - Visualize alumni distribution by location, industry, and role
 - **Alumni Location Heatmap** - Interactive map showing alumni distribution worldwide
 - **Secure Data Storage** - MySQL database with geocoded coordinates
+- **Access Control** - Restricted to UNT faculty/staff (unt.edu emails) with whitelist support
+
+---
+
+## Engineering Discipline Classification
+
+The system automatically classifies alumni into one of 7 categories.
+
+**Priority Logic:** Job Title > Degree > Headline
+(e.g., A "Lead Software Engineer" with a "Computer Engineering" degree is classified as "Software" because their current job is the source of truth.)
+
+**Categories:**
+1. Software, Data & AI Engineering
+2. Embedded, Electrical & Hardware Engineering
+3. Mechanical & Energy Engineering
+4. Biomedical Engineering
+5. Materials Science & Manufacturing
+6. Construction & Engineering Management
+7. Unknown
+
+**Auto-Inference:**
+New records imported via CSV are automatically classified. The system uses an ordered keyword matching algorithm to ensure accurate categorization (e.g., "Embedded Systems" takes precedence over generic "Systems").
+
+**Retroactive Updates:**
+To re-classify existing alumni records (e.g., after updating logic):
+```bash
+python backend/backfill_disciplines.py
+```
 
 ---
 
@@ -83,6 +112,12 @@ A web-based application designed to help the College of Engineering connect with
    ```
 
 For detailed step-by-step instructions, see [GETTING_STARTED.md](GETTING_STARTED.md).
+
+---
+
+## LinkedIn Login Setup
+
+For LinkedIn login to work, you must create your own LinkedIn App on the [LinkedIn Developer Portal](https://www.linkedin.com/developers/). This will generate a **Client ID** and **Client Secret**. Update the `.env` file with these credentials to enable authentication.
 
 ---
 
@@ -221,6 +256,7 @@ alumni-networking-tool/
 ├── backend/
 │   ├── app.py              # Flask web application
 │   ├── database.py         # Database models and migrations
+│   ├── backfill_disciplines.py # Logic for inferring engineering disciplines
 │   ├── sqlite_fallback.py  # SQLite offline fallback system
 │   ├── geocoding.py        # Location geocoding service
 │   └── alumni_backup.db    # Local SQLite backup (auto-generated)

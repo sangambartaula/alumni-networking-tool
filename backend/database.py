@@ -7,6 +7,14 @@ from pathlib import Path
 
 load_dotenv()
 
+# Import discipline inference function for auto-classification
+try:
+    from backfill_disciplines import infer_discipline
+except ImportError:
+    # Fallback if module not available
+    def infer_discipline(degree, job_title, headline):
+        return "Unknown"
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -762,6 +770,10 @@ def seed_alumni_data():
                     job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
                     company = str(row['company']).strip() if pd.notna(row.get('company')) else None
                     major = str(row['major']).strip() if pd.notna(row.get('major')) else None
+                    
+                    # Auto-infer discipline if major is not set in CSV
+                    if not major:
+                        major = infer_discipline(None, job_title, headline)
                     grad_year = int(row['graduation_year']) if pd.notna(row.get('graduation_year')) else None
                     profile_url = normalize_url(row.get('profile_url'))
                     scraped_at = str(row['scraped_at']).strip() if pd.notna(row.get('scraped_at')) else None

@@ -267,6 +267,8 @@ Edit your `.env` file to change the `SCRAPER_MODE`:
 3. Run the web app: `python app.py`
 4. Open your browser to: `http://localhost:5000`
 
+> **Note:** To log in, you must configure LinkedIn OAuth. See the **[LinkedIn Login Setup](README.md#linkedin-login-setup)** section in `README.md`.
+
 ---
 
 ## Troubleshooting
