@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
 from pathlib import Path
+import re  # Added re for regex splitting
 
 # Load .env from project root
 env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -57,6 +58,8 @@ def normalize_text_fields():
     finally:
         if conn:
             conn.close()
+
+
 
 def normalize_urls():
     """Ensure all URLs have no trailing slashes."""

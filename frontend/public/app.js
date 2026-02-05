@@ -509,9 +509,20 @@ function populateFilters(list) {
   // Helper to filter out bad values
   const isValid = val => val && !['Unknown', 'Not Found', 'N/A'].includes(val);
 
+  // Helper: Normalize company names for filtering (duplicate definition for scope access if needed, or move helper out)
+  function getNormalizedCompany(name) {
+    if (!name) return "";
+    if (name.includes("Dallas")) return name;
+    if (name.includes("University of North Texas") || name.startsWith("UNT ") || name === "UNT" || name.includes(" UNT ") || name.endsWith(" UNT")) {
+      return "University of North Texas";
+    }
+    return name;
+  }
+
   const locations = Array.from(new Set(list.map(x => x.location).filter(isValid))).sort();
   const roles = Array.from(new Set(list.map(x => x.role).filter(isValid))).sort();
-  const companies = Array.from(new Set(list.map(x => x.company).filter(isValid))).sort();
+  // Normalize companies before creating the Set
+  const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
   // Filter majors to only show approved engineering disciplines (which excludes Unknown now)
   const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean)))
     .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
@@ -636,6 +647,19 @@ function setupFiltering(list) {
     return sorted;
   }
 
+  // Helper: Normalize company names for filtering
+  function getNormalizedCompany(name) {
+    if (!name) return "";
+    // Check for "Dallas" exclusion first
+    if (name.includes("Dallas")) return name;
+
+    // Check for UNT variations
+    if (name.includes("University of North Texas") || name.startsWith("UNT ") || name === "UNT" || name.includes(" UNT ") || name.endsWith(" UNT")) {
+      return "University of North Texas";
+    }
+    return name;
+  }
+
   function apply() {
     const f = getFilters();
     const filtered = list.filter(a => {
@@ -643,7 +667,11 @@ function setupFiltering(list) {
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
       const matchRole = !f.role.length || f.role.includes(a.role);
-      const matchCompany = !f.company.length || f.company.includes(a.company);
+
+      // Normalize company for matching
+      const normCompany = getNormalizedCompany(a.company);
+      const matchCompany = !f.company.length || f.company.includes(normCompany);
+
       const matchMajor = !f.major.length || f.major.includes(a.major);
       const matchDegree = !f.degree.length || f.degree.includes(a.degree);
       const matchYear = !f.year || String(a.class) === String(f.year);

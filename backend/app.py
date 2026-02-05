@@ -506,6 +506,7 @@ def get_user_interactions():
 
 
 @app.route('/api/alumni', methods=['GET'])
+@api_login_required
 def api_get_alumni():
     """
     Return a list of alumni from the database.
@@ -1038,6 +1039,13 @@ def get_heatmap_data():
                     "linkedin": row["linkedin_url"],
                     "created_at": row.get("created_at").isoformat() if row.get("created_at") else None
                 })
+                
+                # Track location string frequencies for majority voting
+                if "location_counts" not in location_details[cluster_key]:
+                    location_details[cluster_key]["location_counts"] = {}
+                
+                loc_str = row["location"]
+                location_details[cluster_key]["location_counts"][loc_str] = location_details[cluster_key]["location_counts"].get(loc_str, 0) + 1
 
             locations = []
             max_count = 0
@@ -1045,11 +1053,20 @@ def get_heatmap_data():
             for cluster_key, count in location_clusters.items():
                 details = location_details[cluster_key]
                 max_count = max(max_count, count)
+                
+                # Determine majority location name
+                location_counts = details.get("location_counts", {})
+                if location_counts:
+                    # Sort by count (desc), then alphabetically (to ensure determinism)
+                    sorted_locs = sorted(location_counts.items(), key=lambda x: (-x[1], x[0]))
+                    majority_location_name = sorted_locs[0][0]
+                else:
+                    majority_location_name = details["location"]
 
                 locations.append({
                     "latitude": details["latitude"],
                     "longitude": details["longitude"],
-                    "location": details["location"],
+                    "location": majority_location_name,
                     "continent": details["continent"],
                     "count": count,
                     "sample_alumni": details["sample_alumni"]
@@ -1077,6 +1094,7 @@ def get_heatmap_data():
 
 
 @app.route("/api/geocode")
+@api_login_required
 def api_geocode():
     query = request.args.get("q", "").strip()
 
@@ -1136,6 +1154,7 @@ if __name__ == "__main__":
     # Initialize database first (but skip re-seeding if data exists)
     from database import init_db, seed_alumni_data
 @app.route('/api/alumni/majors', methods=['GET'])
+@api_login_required
 def api_get_majors():
     """
     Return a list of approved engineering disciplines.
@@ -1173,6 +1192,7 @@ def api_get_majors():
 
 
 @app.route('/api/alumni/filter', methods=['GET'])
+@api_login_required
 def api_filter_alumni():
     """
     Filter alumni by major and other criteria.
