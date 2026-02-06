@@ -31,6 +31,12 @@ OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
 UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
 CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "connections.csv")
 
+# Groq AI Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+USE_GROQ = os.getenv("USE_GROQ", "true").lower() == "true"
+if USE_GROQ and not GROQ_API_KEY:
+    logger.info("ℹ️ Groq disabled (no GROQ_API_KEY). Using CSS extraction only.")
+
 # Timeouts & Delays
 PAGE_SETTLE_SECONDS = int(os.getenv("PAGE_SETTLE_SECONDS", "0"))
 POST_SECTION_WAIT_SECONDS = float(os.getenv("POST_SECTION_WAIT_SECONDS", "0"))
@@ -63,7 +69,7 @@ CSV_COLUMNS = [
     'job_title', 'company', 'job_start_date', 'job_end_date',
     'exp2_title', 'exp2_company', 'exp2_dates',
     'exp3_title', 'exp3_company', 'exp3_dates',
-    'education', 'degree', 'major', 'school_start_date', 'graduation_year',
+    'education', 'major', 'school_start_date', 'graduation_year',
     'working_while_studying',
     'profile_url', 'scraped_at'
 ]

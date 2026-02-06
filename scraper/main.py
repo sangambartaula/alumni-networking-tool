@@ -221,6 +221,51 @@ def run_search_mode(scraper, nav, history_mgr):
         page += 1
 
 
+def run_review_mode(scraper, nav, history_mgr):
+    """
+    Process profiles from flagged_for_review.txt file.
+    These are profiles that need to be re-scraped.
+    """
+    flagged_file = PROJECT_ROOT / "scraper" / "output" / "flagged_for_review.txt"
+    
+    if not flagged_file.exists():
+        logger.error(f"❌ Flagged file not found: {flagged_file}")
+        return
+    
+    # Read URLs from file
+    with open(flagged_file, 'r') as f:
+        urls = [line.strip() for line in f if line.strip() and line.strip().startswith('http')]
+    
+    if not urls:
+        logger.info("📋 No URLs in flagged_for_review.txt")
+        return
+    
+    logger.info(f"📋 Review mode: {len(urls)} profiles to re-scrape")
+    
+    for profile_url in urls:
+        if should_stop():
+            break
+        
+        if check_force_exit():
+            return
+        
+        logger.info(f"  🔄 Re-scraping: {profile_url}")
+        
+        # Scrape the profile (bypassing history check since we're re-reviewing)
+        data = scraper.scrape_profile_page(profile_url)
+        
+        if data and database_handler.save_profile_to_csv(data):
+            history_mgr.mark_as_visited(profile_url, saved=True)
+            logger.info(f"  ✓ Updated: {data.get('full_name', 'Unknown')}")
+        
+        if should_stop():
+            return
+        
+        wait_between_profiles()
+    
+    logger.info("✅ Review mode complete")
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -243,6 +288,8 @@ def main():
 
         if config.SCRAPER_MODE == "names":
             run_names_mode(scraper, nav, history_mgr)
+        elif config.SCRAPER_MODE == "review":
+            run_review_mode(scraper, nav, history_mgr)
         else:
             run_search_mode(scraper, nav, history_mgr)
 

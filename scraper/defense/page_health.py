@@ -17,7 +17,7 @@ class PageHealthChecker:
             "/login", "checkpoint", "session", "authwall"
         ]
         self.block_markers = [
-            "try again", "unusual", "verify", "blocked", "temporarily", "something went wrong"
+            "try again", "unusual", "verify your", "blocked", "temporarily", "something went wrong"
         ]
 
     def check(self, driver) -> HealthResult:
