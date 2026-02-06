@@ -23,6 +23,7 @@ from config import logger
 
 # Backend
 from backend.sqlite_fallback import get_connection_manager
+from defense.navigator import SafeNavigator
 
 
 # ============================================================
@@ -126,7 +127,7 @@ def wait_between_profiles():
 # ============================================================
 # MODES
 # ============================================================
-def run_names_mode(scraper, history_mgr):
+def run_names_mode(scraper, nav, history_mgr):
     input_csv = os.getenv("INPUT_CSV", os.path.join("backend", "engineering_graduate.csv"))
     csv_path = PROJECT_ROOT / input_csv
 
@@ -144,7 +145,11 @@ def run_names_mode(scraper, history_mgr):
             f"keywords={q}&schoolFilter=%5B%22{school_id}%22%5D"
         )
 
-        scraper.driver.get(search_url)
+        ok = nav.get(search_url)
+        if not ok:
+            logger.warning("⚠️ Search page unhealthy. Skipping this name and continuing.")
+            continue
+
         time.sleep(5)
         scraper.scroll_full_page()
 
@@ -156,7 +161,10 @@ def run_names_mode(scraper, history_mgr):
             if history_mgr.should_skip(url):
                 continue
 
+            # NOTE: We are NOT changing core logic.
+            # scrape_profile_page likely handles its own navigation.
             data = scraper.scrape_profile_page(url)
+
             if data and database_handler.save_profile_to_csv(data):
                 history_mgr.mark_as_visited(url, saved=True)
 
@@ -166,7 +174,7 @@ def run_names_mode(scraper, history_mgr):
             wait_between_profiles()
 
 
-def run_search_mode(scraper, history_mgr):
+def run_search_mode(scraper, nav, history_mgr):
     base_url = (
         "https://www.linkedin.com/search/results/people/"
         "?network=%5B%22O%22%5D&schoolFilter=%5B%226464%22%5D"
@@ -178,7 +186,12 @@ def run_search_mode(scraper, history_mgr):
             break
 
         url = base_url if page == 1 else f"{base_url}&page={page}"
-        scraper.driver.get(url)
+
+        ok = nav.get(url)
+        if not ok:
+            logger.warning("⚠️ Search page unhealthy. Stopping search loop to avoid repeated failures.")
+            break
+
         time.sleep(5)
         scraper.scroll_full_page()
 
@@ -193,7 +206,10 @@ def run_search_mode(scraper, history_mgr):
             if history_mgr.should_skip(profile_url):
                 continue
 
+            # NOTE: We are NOT changing core logic.
+            # scrape_profile_page likely handles its own navigation.
             data = scraper.scrape_profile_page(profile_url)
+
             if data and database_handler.save_profile_to_csv(data):
                 history_mgr.mark_as_visited(profile_url, saved=True)
 
@@ -220,12 +236,15 @@ def main():
             logger.error("Login failed")
             return
 
+        # ✅ Defense layer initialized here (minimal + safe)
+        nav = SafeNavigator(scraper.driver)
+
         start_exit_listener()
 
         if config.SCRAPER_MODE == "names":
-            run_names_mode(scraper, history_mgr)
+            run_names_mode(scraper, nav, history_mgr)
         else:
-            run_search_mode(scraper, history_mgr)
+            run_search_mode(scraper, nav, history_mgr)
 
     except KeyboardInterrupt:
         logger.warning("Stopped by user")
