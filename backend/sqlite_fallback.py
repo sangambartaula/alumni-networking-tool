@@ -80,6 +80,11 @@ TABLE_CONFIG = {
         'pk': ['id'],
         'unique_cols': ['user_id', 'alumni_id'],
         'timestamp_col': 'updated_at'
+    },
+    'authorized_emails': {
+        'pk': ['id'],
+        'unique_cols': ['email'],
+        'timestamp_col': 'added_at'
     }
 }
 
@@ -253,6 +258,14 @@ class ConnectionManager:
                     created_at TEXT DEFAULT (datetime('now')),
                     updated_at TEXT DEFAULT (datetime('now')),
                     UNIQUE(user_id, alumni_id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS authorized_emails (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    added_by_user_id INTEGER,
+                    added_at TEXT DEFAULT (datetime('now')),
+                    notes TEXT
                 );
                 
                 -- Pending sync table (tracks local changes to push to cloud)
