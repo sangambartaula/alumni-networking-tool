@@ -92,7 +92,7 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Biomedical Engineering',
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
-    'Construction & Engineering Management'
+    
 ]
 
 def get_current_user_id():

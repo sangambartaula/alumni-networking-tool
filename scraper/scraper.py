@@ -336,8 +336,10 @@ class LinkedInScraper:
             
             if best_unt:
                 data["education"] = best_unt.get("school", "")
-                data["major"] = best_unt.get("degree", "")
+                data["degree"] = best_unt.get("degree", "")
+                data["major"] = ""   # leave empty so backend infers discipline
                 data["graduation_year"] = best_unt.get("graduation_year", "")
+
                 
                 school_start_d = best_unt.get("school_start")
                 school_end_d = best_unt.get("school_end")

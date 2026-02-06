@@ -63,7 +63,7 @@ CSV_COLUMNS = [
     'job_title', 'company', 'job_start_date', 'job_end_date',
     'exp2_title', 'exp2_company', 'exp2_dates',
     'exp3_title', 'exp3_company', 'exp3_dates',
-    'education', 'major', 'school_start_date', 'graduation_year',
+    'education', 'degree', 'major', 'school_start_date', 'graduation_year',
     'working_while_studying',
     'profile_url', 'scraped_at'
 ]

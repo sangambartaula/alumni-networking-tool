@@ -102,6 +102,20 @@ def init_db():
                 )
             """)
             logger.info("users table created/verified")
+                        # Create authorized_emails table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS authorized_emails (
+                    email VARCHAR(255) PRIMARY KEY
+                )
+            """)
+            logger.info("authorized_emails table created/verified")
+
+            # Seed authorized email (ignore if already exists)
+            cur.execute("""
+                INSERT IGNORE INTO authorized_emails (email)
+                VALUES (%s)
+            """, ("lamichhaneabishek451@gmail.com",))
+
 
             # Create alumni table
             # Added columns:
@@ -769,11 +783,12 @@ def seed_alumni_data():
                     location = str(row['location']).strip() if pd.notna(row.get('location')) else None
                     job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
                     company = str(row['company']).strip() if pd.notna(row.get('company')) else None
-                    major = str(row['major']).strip() if pd.notna(row.get('major')) else None
-                    
+                    major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
+                    degree = str(row.get('degree')).strip() if pd.notna(row.get('degree')) else None
+
                     # Auto-infer discipline if major is not set in CSV
                     if not major:
-                        major = infer_discipline(None, job_title, headline)
+                        major = infer_discipline(degree, job_title, headline)
                     grad_year = int(row['graduation_year']) if pd.notna(row.get('graduation_year')) else None
                     profile_url = normalize_url(row.get('profile_url'))
                     scraped_at = str(row['scraped_at']).strip() if pd.notna(row.get('scraped_at')) else None
@@ -839,7 +854,7 @@ def seed_alumni_data():
                             first_name,
                             last_name,
                             grad_year,
-                            None,  # degree is not in CSV yet
+                            degree,  # degree is not in CSV yet
                             major,
                             profile_url,
                             job_title,
