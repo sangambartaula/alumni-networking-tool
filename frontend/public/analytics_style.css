@@ -82,6 +82,14 @@
   font-size: 3rem;
   line-height: 1;
   filter: grayscale(0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
 }
 
 .stat-content h3 {
