@@ -225,18 +225,7 @@ class ConnectionManager:
                     needs_update INTEGER DEFAULT 0,
                     notes TEXT
                 );
-                -- Scraper resume state (singleton)
-                CREATE TABLE IF NOT EXISTS scrape_state (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    mode TEXT,
-                    search_url TEXT,
-                    page INTEGER,
-                    updated_at TEXT DEFAULT (datetime('now'))
-                );
-
-                -- Initialize singleton row
-                INSERT OR IGNORE INTO scrape_state (id, page) VALUES (1, 1);
-
+                
                 -- User interactions table
                 CREATE TABLE IF NOT EXISTS user_interactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,6 +249,7 @@ class ConnectionManager:
                     UNIQUE(user_id, alumni_id)
                 );
                 
+                -- Authorized emails table (whitelist for non-UNT emails)
                 CREATE TABLE IF NOT EXISTS authorized_emails (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT UNIQUE NOT NULL,
