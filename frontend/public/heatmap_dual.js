@@ -15,6 +15,138 @@ let heatLayer2D = null; // New 2D heatmap layer
 let hiddenLocations = new Set();
 let hiddenCompanies = new Set();
 
+// Track all available locations and companies for autocomplete
+let allLocations = new Set();
+let allCompanies = new Set();
+
+// localStorage helper functions
+function saveHiddenFiltersToStorage() {
+  localStorage.setItem('hiddenLocations', JSON.stringify(Array.from(hiddenLocations)));
+  localStorage.setItem('hiddenCompanies', JSON.stringify(Array.from(hiddenCompanies)));
+}
+
+function loadHiddenFiltersFromStorage() {
+  try {
+    const savedLocations = JSON.parse(localStorage.getItem('hiddenLocations') || '[]');
+    const savedCompanies = JSON.parse(localStorage.getItem('hiddenCompanies') || '[]');
+    
+    hiddenLocations = new Set(savedLocations);
+    hiddenCompanies = new Set(savedCompanies);
+  } catch (e) {
+    console.error('Error loading hidden filters from storage:', e);
+    hiddenLocations = new Set();
+    hiddenCompanies = new Set();
+  }
+}
+
+function clearHiddenFiltersFromStorage() {
+  localStorage.removeItem('hiddenLocations');
+  localStorage.removeItem('hiddenCompanies');
+}
+
+// Show autocomplete suggestions for location input
+function showLocationSuggestions() {
+  const input = document.getElementById('filterLocationInput');
+  const suggestionBox = document.getElementById('locationSuggestionsDropdown');
+  
+  if (!suggestionBox) return;
+  
+  const suggestions = Array.from(allLocations)
+    .filter(loc => loc.toLowerCase().includes(input.value.toLowerCase()))
+    .slice(0, 10);
+  
+  suggestionBox.innerHTML = '';
+  
+  if (suggestions.length > 0) {
+    suggestions.forEach(suggestion => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = suggestion;
+      div.onclick = () => {
+        input.value = suggestion;
+        suggestionBox.style.display = 'none';
+      };
+      suggestionBox.appendChild(div);
+    });
+    suggestionBox.style.display = 'block';
+  } else if (input.value.trim() === '') {
+    // Show all if input is empty
+    Array.from(allLocations).slice(0, 10).forEach(suggestion => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = suggestion;
+      div.onclick = () => {
+        input.value = suggestion;
+        suggestionBox.style.display = 'none';
+      };
+      suggestionBox.appendChild(div);
+    });
+    suggestionBox.style.display = 'block';
+  } else {
+    suggestionBox.style.display = 'none';
+  }
+}
+
+// Show autocomplete suggestions for company input
+function showCompanySuggestions() {
+  const input = document.getElementById('filterCompanyInput');
+  const suggestionBox = document.getElementById('companySuggestionsDropdown');
+  
+  if (!suggestionBox) return;
+  
+  const suggestions = Array.from(allCompanies)
+    .filter(comp => comp.toLowerCase().includes(input.value.toLowerCase()))
+    .slice(0, 10);
+  
+  suggestionBox.innerHTML = '';
+  
+  if (suggestions.length > 0) {
+    suggestions.forEach(suggestion => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = suggestion;
+      div.onclick = () => {
+        input.value = suggestion;
+        suggestionBox.style.display = 'none';
+      };
+      suggestionBox.appendChild(div);
+    });
+    suggestionBox.style.display = 'block';
+  } else if (input.value.trim() === '') {
+    // Show all if input is empty
+    Array.from(allCompanies).slice(0, 10).forEach(suggestion => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = suggestion;
+      div.onclick = () => {
+        input.value = suggestion;
+        suggestionBox.style.display = 'none';
+      };
+      suggestionBox.appendChild(div);
+    });
+    suggestionBox.style.display = 'block';
+  } else {
+    suggestionBox.style.display = 'none';
+  }
+}
+
+// Extract all locations and companies from alumni data for autocomplete
+function buildAutocompleteData(alumniData) {
+  allLocations.clear();
+  allCompanies.clear();
+  
+  if (Array.isArray(alumniData)) {
+    alumniData.forEach(alumni => {
+      if (alumni.location) {
+        allLocations.add(alumni.location);
+      }
+      if (alumni.company) {
+        allCompanies.add(alumni.company);
+      }
+    });
+  }
+}
+
 // Fix viewport layout for full-screen map
 function setupMapViewport() {
   const resizeMap = () => {
@@ -454,6 +586,24 @@ async function loadHeatmapData(url = '/api/heatmap') {
 
     // Update statistics
     updateStatistics(data.total_alumni, locationClusters.length);
+    
+    // Build autocomplete data from all locations and sample alumni
+    const allAlumniForAutocomplete = [];
+    locationClusters.forEach(location => {
+      allAlumniForAutocomplete.push({
+        location: location.location,
+        company: location.sample_alumni.length > 0 ? location.sample_alumni[0].company : null
+      });
+      if (location.sample_alumni) {
+        location.sample_alumni.forEach(alumni => {
+          allAlumniForAutocomplete.push({
+            location: location.location,
+            company: alumni.company
+          });
+        });
+      }
+    });
+    buildAutocompleteData(allAlumniForAutocomplete);
     
     // Initialize filter UI after data is loaded
     initializeFilterUI();
@@ -1013,11 +1163,39 @@ function initializeFilterUI() {
   const filterBackdrop = document.getElementById('filterBackdrop');
   const filterCloseBtn = document.querySelector('.filter-close-btn');
 
+  // Load saved filters from localStorage
+  loadHiddenFiltersFromStorage();
+  
+  // Set up autocomplete suggestions on click/focus
+  if (locationInput) {
+    locationInput.addEventListener('click', showLocationSuggestions);
+    locationInput.addEventListener('focus', showLocationSuggestions);
+    locationInput.addEventListener('input', showLocationSuggestions);
+  }
+  if (companyInput) {
+    companyInput.addEventListener('click', showCompanySuggestions);
+    companyInput.addEventListener('focus', showCompanySuggestions);
+    companyInput.addEventListener('input', showCompanySuggestions);
+  }
+
+  // Hide suggestions when clicking outside
+  document.addEventListener('click', (e) => {
+    const locDropdown = document.getElementById('locationSuggestionsDropdown');
+    const comDropdown = document.getElementById('companySuggestionsDropdown');
+    if (locDropdown && !locDropdown.contains(e.target) && e.target !== locationInput) {
+      locDropdown.style.display = 'none';
+    }
+    if (comDropdown && !comDropdown.contains(e.target) && e.target !== companyInput) {
+      comDropdown.style.display = 'none';
+    }
+  });
+
   console.log('Initializing Filter UI...');
   console.log('Location Input:', locationInput);
   console.log('Company Input:', companyInput);
   console.log('Add Location Btn:', addLocationBtn);
   console.log('Add Company Btn:', addCompanyBtn);
+  console.log('Loaded filters - Locations:', hiddenLocations.size, 'Companies:', hiddenCompanies.size);
 
   // Toggle filter modal on button click
   if (filterToggleBtn && filterPanel && filterBackdrop) {
@@ -1091,6 +1269,7 @@ function initializeFilterUI() {
       console.log('Clear all filters clicked');
       hiddenLocations.clear();
       hiddenCompanies.clear();
+      clearHiddenFiltersFromStorage();
       updateFilterUI();
       updateFilterBadge();
       reloadMapData();
@@ -1117,6 +1296,12 @@ function initializeFilterUI() {
   }
 
   updateFilterUI();
+  
+  // Apply saved filters if any were loaded
+  if (hiddenLocations.size > 0 || hiddenCompanies.size > 0) {
+    console.log('Applying saved filters from localStorage');
+    reloadMapData();
+  }
 }
 
 function addLocationFilter(location) {
@@ -1127,6 +1312,7 @@ function addLocationFilter(location) {
   console.log('Location Clusters:', locationClusters);
   updateFilterUI();
   updateFilterBadge();
+  saveHiddenFiltersToStorage();
   reloadMapData();
 }
 
@@ -1138,12 +1324,14 @@ function addCompanyFilter(company) {
   console.log('Location Clusters:', locationClusters);
   updateFilterUI();
   updateFilterBadge();
+  saveHiddenFiltersToStorage();
   reloadMapData();
 }
 
 function removeLocationFilter(location) {
   const normalizedLocation = location.trim().toLowerCase();
   hiddenLocations.delete(normalizedLocation);
+  saveHiddenFiltersToStorage();
   updateFilterUI();
   updateFilterBadge();
   reloadMapData();
@@ -1152,6 +1340,7 @@ function removeLocationFilter(location) {
 function removeCompanyFilter(company) {
   const normalizedCompany = company.trim().toLowerCase();
   hiddenCompanies.delete(normalizedCompany);
+  saveHiddenFiltersToStorage();
   updateFilterUI();
   updateFilterBadge();
   reloadMapData();
