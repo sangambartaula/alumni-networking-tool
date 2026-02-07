@@ -1445,6 +1445,7 @@ footer {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: relative;
 }
 
 .filter-group label {
@@ -1475,6 +1476,36 @@ footer {
   border-color: #05a678;
   box-shadow: 0 0 0 3px rgba(5, 166, 120, 0.08);
   background: #fafbfa;
+}
+
+.suggestions-dropdown {
+  position: absolute;
+  top: 70px;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.suggestion-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.15s;
+}
+
+.suggestion-item:hover {
+  background: #f5f5f5;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
 }
 
 .filter-action-btn,
