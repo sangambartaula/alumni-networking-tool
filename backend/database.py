@@ -745,17 +745,81 @@ def migrate_env_emails_to_db():
 # ============================================================
 
 def seed_alumni_data():
-    """Import alumni data from CSV file"""
+    """Import alumni data from CSV file. Auto-fixes empty or malformed files."""
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(backend_dir)
     csv_path = os.path.join(project_root, 'scraper', 'output', 'UNT_Alumni_Data.csv')
+
+    # Expected columns for alumni CSV
+    EXPECTED_COLUMNS = [
+        'name', 'headline', 'location', 'job_title', 'company', 'major', 'degree',
+        'graduation_year', 'profile_url', 'scraped_at', 'school_start_date',
+        'job_start_date', 'job_end_date', 'working_while_studying',
+        'exp2_title', 'exp2_company', 'exp2_dates',
+        'exp3_title', 'exp3_company', 'exp3_dates'
+    ]
 
     if not os.path.exists(csv_path):
         logger.warning(f"CSV file not found at {csv_path}, skipping import")
         return
 
+    # Check if file is empty or malformed
     try:
+        # Check file size first
+        if os.path.getsize(csv_path) == 0:
+            raise pd.errors.EmptyDataError("File is empty")
+        
         df = pd.read_csv(csv_path)
+        
+        # Validate that required columns exist
+        required_cols = ['name', 'profile_url']
+        missing_required = [col for col in required_cols if col not in df.columns]
+        if missing_required:
+            raise ValueError(f"Missing required columns: {missing_required}")
+            
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError) as e:
+        logger.warning(f"⚠️ CSV file is empty or malformed: {e}")
+        logger.info("🔧 Attempting to fix CSV by exporting from database...")
+        
+        # Try to regenerate CSV from existing database
+        try:
+            conn = get_connection()
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT 
+                        CONCAT(first_name, ' ', last_name) as name,
+                        headline, location, current_job_title as job_title, company,
+                        major, degree, grad_year as graduation_year, linkedin_url as profile_url,
+                        scraped_at, school_start_date, job_start_date, job_end_date,
+                        working_while_studying, exp2_title, exp2_company, exp2_dates,
+                        exp3_title, exp3_company, exp3_dates
+                    FROM alumni
+                """)
+                rows = cur.fetchall()
+            conn.close()
+            
+            if rows:
+                # Export database data to CSV
+                db_df = pd.DataFrame(rows)
+                db_df.to_csv(csv_path, index=False)
+                logger.info(f"✅ Regenerated CSV with {len(rows)} records from database")
+                df = db_df
+            else:
+                # No data in database, create empty CSV with headers
+                empty_df = pd.DataFrame(columns=EXPECTED_COLUMNS)
+                empty_df.to_csv(csv_path, index=False)
+                logger.info("✅ Created empty CSV with proper headers (no data in database)")
+                return  # Nothing to import
+                
+        except Exception as regen_err:
+            logger.error(f"Failed to regenerate CSV: {regen_err}")
+            # As last resort, create empty CSV with headers
+            empty_df = pd.DataFrame(columns=EXPECTED_COLUMNS)
+            empty_df.to_csv(csv_path, index=False)
+            logger.info("✅ Created empty CSV with proper headers")
+            return
+
+    try:
         logger.info(f"✅ Importing alumni data from {csv_path}")
         logger.info(f"📊 Found {len(df)} records to import")
 
