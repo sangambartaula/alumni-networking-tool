@@ -225,8 +225,9 @@ function initializeAnalyticsFilterUI() {
 
   // Location suggestion click
   locationSuggestions?.addEventListener('click', (e) => {
-    if (e.target.classList.contains('analytics-suggestion-item')) {
-      const location = e.target.getAttribute('data-value');
+    const item = e.target.closest('.analytics-suggestion-item');
+    if (item) {
+      const location = item.getAttribute('data-value');
       addLocationFilter(location);
       locationInput.value = '';
       showRecommendations(); // Show recommendations after adding filter
@@ -235,8 +236,9 @@ function initializeAnalyticsFilterUI() {
 
   // Company suggestion click
   companySuggestions?.addEventListener('click', (e) => {
-    if (e.target.classList.contains('analytics-suggestion-item')) {
-      const company = e.target.getAttribute('data-value');
+    const item = e.target.closest('.analytics-suggestion-item');
+    if (item) {
+      const company = item.getAttribute('data-value');
       addCompanyFilter(company);
       companyInput.value = '';
       showRecommendations(); // Show recommendations after adding filter
@@ -533,11 +535,11 @@ function renderAnalytics() {
 }
 
 // Update summary statistics
-function updateStatistics() {
-  const totalAlumni = alumniData.length;
-  const uniqueCompanies = new Set(alumniData.map(a => a.company).filter(c => c)).size;
-  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(l => l && l !== 'Not Found')).size;
-  const uniqueJobs = new Set(alumniData.map(a => a.current_job_title).filter(j => j)).size;
+function updateStatistics(data = alumniData) {
+  const totalAlumni = data.length;
+  const uniqueCompanies = new Set(data.map(a => a.company).filter(c => c)).size;
+  const uniqueLocations = new Set(data.map(a => a.location).filter(l => l && l !== 'Not Found')).size;
+  const uniqueJobs = new Set(data.map(a => a.current_job_title).filter(j => j)).size;
 
   document.getElementById('totalAlumni').textContent = totalAlumni;
   document.getElementById('totalCompanies').textContent = uniqueCompanies;
