@@ -64,7 +64,7 @@ function renderAnalytics() {
 function updateStatistics() {
   const totalAlumni = alumniData.length;
   const uniqueCompanies = new Set(alumniData.map(a => a.company).filter(c => c)).size;
-  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(l => l)).size;
+  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(l => l && l !== 'Not Found')).size;
   const uniqueJobs = new Set(alumniData.map(a => a.current_job_title).filter(j => j)).size;
 
   document.getElementById('totalAlumni').textContent = totalAlumni;
