@@ -1412,7 +1412,7 @@ function isLocationHidden(location) {
   // Check if any hidden location filter matches this location (substring match)
   let isHidden = false;
   for (let hiddenLocation of hiddenLocations) {
-    if (locationName.includes(hiddenLocation) || hiddenLocation.includes(locationName)) {
+    if (locationName.includes(hiddenLocation)) {
       isHidden = true;
       break;
     }
