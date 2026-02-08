@@ -845,6 +845,16 @@ def seed_alumni_data():
                     # Extract other fields
                     headline = str(row['headline']).strip() if pd.notna(row.get('headline')) else None
                     location = str(row['location']).strip() if pd.notna(row.get('location')) else None
+
+                    # BLOCK SAMPLE USERS
+                    FORBIDDEN_LOCATIONS = {
+                        'Seattle, WA', 'San Jose, CA', 'San Francisco, CA', 
+                        'New York, NY', 'Austin, TX', 'Palo Alto, CA', 
+                        'Cupertino, CA', 'Menlo Park, CA'
+                    }
+                    if location and location in FORBIDDEN_LOCATIONS:
+                        logger.info(f"🚫 Skipping sample user: {first_name} {last_name} from {location}")
+                        continue
                     job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
                     company = str(row['company']).strip() if pd.notna(row.get('company')) else None
                     major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
