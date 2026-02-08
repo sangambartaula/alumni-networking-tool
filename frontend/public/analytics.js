@@ -73,6 +73,8 @@ function initializeAnalyticsFilterUI() {
   const companyInput = document.getElementById('analyticsFilterCompanyInput');
   const locationSuggestions = document.getElementById('analyticsLocationSuggestionsDropdown');
   const companySuggestions = document.getElementById('analyticsCompanySuggestionsDropdown');
+  const addLocationBtn = document.getElementById('analyticsAddLocationFilterBtn');
+  const addCompanyBtn = document.getElementById('analyticsAddCompanyFilterBtn');
 
   // Toggle filter panel
   toggleBtn?.addEventListener('click', () => {
@@ -104,29 +106,77 @@ function initializeAnalyticsFilterUI() {
     renderAnalytics();
   });
 
+  // Add Location Button Click
+  addLocationBtn?.addEventListener('click', () => {
+    const value = locationInput.value.trim();
+    if (value) {
+      // Find exact or fuzzy match
+      const matchingLocation = findBestMatch(value, allLocations);
+      if (matchingLocation && !hiddenLocations.has(matchingLocation)) {
+        addLocationFilter(matchingLocation);
+        locationInput.value = '';
+        locationSuggestions.style.display = 'none';
+        showRecommendations();
+      } else {
+        // Show error or suggestion
+        alert(matchingLocation ? 'Location already filtered!' : 'Location not found. Please select from suggestions.');
+      }
+    }
+  });
+
+  // Add Company Button Click
+  addCompanyBtn?.addEventListener('click', () => {
+    const value = companyInput.value.trim();
+    if (value) {
+      // Find exact or fuzzy match
+      const matchingCompany = findBestMatch(value, allCompanies);
+      if (matchingCompany && !hiddenCompanies.has(matchingCompany)) {
+        addCompanyFilter(matchingCompany);
+        companyInput.value = '';
+        companySuggestions.style.display = 'none';
+        showRecommendations();
+      } else {
+        // Show error or suggestion
+        alert(matchingCompany ? 'Company already filtered!' : 'Company not found. Please select from suggestions.');
+      }
+    }
+  });
+
   // Location input autocomplete
   locationInput?.addEventListener('input', (e) => {
-    const value = e.target.value.trim().toLowerCase();
+    const value = e.target.value.trim();
     if (value.length > 0) {
       const suggestions = Array.from(allLocations)
-        .filter(loc => loc.toLowerCase().includes(value) && !hiddenLocations.has(loc))
+        .filter(loc => loc.toLowerCase().includes(value.toLowerCase()) && !hiddenLocations.has(loc))
         .sort((a, b) => {
           // Prioritize exact matches and starts-with
           const aLower = a.toLowerCase();
           const bLower = b.toLowerCase();
-          if (aLower.startsWith(value) && !bLower.startsWith(value)) return -1;
-          if (!aLower.startsWith(value) && bLower.startsWith(value)) return 1;
+          const valueLower = value.toLowerCase();
+          
+          // Exact match first
+          if (aLower === valueLower) return -1;
+          if (bLower === valueLower) return 1;
+          
+          // Starts with match second
+          if (aLower.startsWith(valueLower) && !bLower.startsWith(valueLower)) return -1;
+          if (!aLower.startsWith(valueLower) && bLower.startsWith(valueLower)) return 1;
+          
           return a.localeCompare(b);
         })
         .slice(0, 15);
       
       if (suggestions.length > 0) {
         locationSuggestions.innerHTML = suggestions
-          .map(loc => `<div class="analytics-suggestion-item" data-value="${loc.replace(/"/g, '&quot;')}">${loc}</div>`)
+          .map(loc => {
+            const escapedLoc = loc.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            return `<div class="analytics-suggestion-item" data-value="${escapedLoc}"><span class="analytics-suggestion-text">${highlightMatch(loc, value)}</span></div>`;
+          })
           .join('');
         locationSuggestions.style.display = 'block';
       } else {
-        locationSuggestions.style.display = 'none';
+        locationSuggestions.innerHTML = '<div class="analytics-suggestion-no-results">No matching locations found</div>';
+        locationSuggestions.style.display = 'block';
       }
     } else {
       showRecommendations(); // Show recommendations when input is cleared
@@ -135,26 +185,38 @@ function initializeAnalyticsFilterUI() {
 
   // Company input autocomplete
   companyInput?.addEventListener('input', (e) => {
-    const value = e.target.value.trim().toLowerCase();
+    const value = e.target.value.trim();
     if (value.length > 0) {
       const suggestions = Array.from(allCompanies)
-        .filter(comp => comp.toLowerCase().includes(value) && !hiddenCompanies.has(comp))
+        .filter(comp => comp.toLowerCase().includes(value.toLowerCase()) && !hiddenCompanies.has(comp))
         .sort((a, b) => {
           const aLower = a.toLowerCase();
           const bLower = b.toLowerCase();
-          if (aLower.startsWith(value) && !bLower.startsWith(value)) return -1;
-          if (!aLower.startsWith(value) && bLower.startsWith(value)) return 1;
+          const valueLower = value.toLowerCase();
+          
+          // Exact match first
+          if (aLower === valueLower) return -1;
+          if (bLower === valueLower) return 1;
+          
+          // Starts with match second
+          if (aLower.startsWith(valueLower) && !bLower.startsWith(valueLower)) return -1;
+          if (!aLower.startsWith(valueLower) && bLower.startsWith(valueLower)) return 1;
+          
           return a.localeCompare(b);
         })
         .slice(0, 15);
       
       if (suggestions.length > 0) {
         companySuggestions.innerHTML = suggestions
-          .map(comp => `<div class="analytics-suggestion-item" data-value="${comp.replace(/"/g, '&quot;')}">${comp}</div>`)
+          .map(comp => {
+            const escapedComp = comp.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            return `<div class="analytics-suggestion-item" data-value="${escapedComp}"><span class="analytics-suggestion-text">${highlightMatch(comp, value)}</span></div>`;
+          })
           .join('');
         companySuggestions.style.display = 'block';
       } else {
-        companySuggestions.style.display = 'none';
+        companySuggestions.innerHTML = '<div class="analytics-suggestion-no-results">No matching companies found</div>';
+        companySuggestions.style.display = 'block';
       }
     } else {
       showRecommendations(); // Show recommendations when input is cleared
@@ -232,6 +294,32 @@ function initializeAnalyticsFilterUI() {
   updateAnalyticsFilterUI();
 }
 
+// Helper function to find best matching item (case-insensitive)
+function findBestMatch(input, itemSet) {
+  const inputLower = input.toLowerCase();
+  const items = Array.from(itemSet);
+  
+  // Try exact match first
+  const exactMatch = items.find(item => item.toLowerCase() === inputLower);
+  if (exactMatch) return exactMatch;
+  
+  // Try starts-with match
+  const startsWithMatch = items.find(item => item.toLowerCase().startsWith(inputLower));
+  if (startsWithMatch) return startsWithMatch;
+  
+  // Try contains match (return first match)
+  const containsMatch = items.find(item => item.toLowerCase().includes(inputLower));
+  return containsMatch || null;
+}
+
+// Helper function to highlight matching text in suggestions
+function highlightMatch(text, search) {
+  if (!search) return text;
+  
+  const regex = new RegExp(`(${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return text.replace(regex, '<strong>$1</strong>');
+}
+
 function showRecommendations() {
   const locationInput = document.getElementById('analyticsFilterLocationInput');
   const companyInput = document.getElementById('analyticsFilterCompanyInput');
@@ -256,8 +344,10 @@ function showRecommendations() {
     if (topLocations.length > 0 && locationSuggestions) {
       locationSuggestions.innerHTML = '<div class="analytics-suggestion-header">Popular Locations (click to hide)</div>' +
         topLocations
-          .map(({ name, count }) => 
-            `<div class="analytics-suggestion-item" data-value="${name.replace(/"/g, '&quot;')}">${name} <span class="analytics-suggestion-count">(${count})</span></div>`)
+          .map(({ name, count }) => {
+            const escapedName = name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            return `<div class="analytics-suggestion-item" data-value="${escapedName}"><span class="analytics-suggestion-text">${name}</span> <span class="analytics-suggestion-count">(${count})</span></div>`;
+          })
           .join('');
       locationSuggestions.style.display = 'block';
     }
@@ -281,8 +371,10 @@ function showRecommendations() {
     if (topCompanies.length > 0 && companySuggestions) {
       companySuggestions.innerHTML = '<div class="analytics-suggestion-header">Popular Companies (click to hide)</div>' +
         topCompanies
-          .map(({ name, count }) => 
-            `<div class="analytics-suggestion-item" data-value="${name.replace(/"/g, '&quot;')}">${name} <span class="analytics-suggestion-count">(${count})</span></div>`)
+          .map(({ name, count }) => {
+            const escapedName = name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            return `<div class="analytics-suggestion-item" data-value="${escapedName}"><span class="analytics-suggestion-text">${name}</span> <span class="analytics-suggestion-count">(${count})</span></div>`;
+          })
           .join('');
       companySuggestions.style.display = 'block';
     }
@@ -381,8 +473,9 @@ function buildAnalyticsAutocomplete(data) {
   allCompanies.clear();
 
   data.forEach(alumni => {
-    if (alumni.city && alumni.state) {
-      allLocations.add(`${alumni.city}, ${alumni.state}`);
+    // Use the location field directly as it's already formatted
+    if (alumni.location && alumni.location.trim() !== '') {
+      allLocations.add(alumni.location);
     }
     if (alumni.company && alumni.company.trim() !== '') {
       allCompanies.add(alumni.company);
@@ -392,9 +485,8 @@ function buildAnalyticsAutocomplete(data) {
 
 function filterAlumniData(data) {
   return data.filter(alumni => {
-    // Filter by location
-    const location = alumni.city && alumni.state ? `${alumni.city}, ${alumni.state}` : null;
-    if (location && hiddenLocations.has(location)) {
+    // Filter by location - check against the actual location field
+    if (alumni.location && hiddenLocations.has(alumni.location)) {
       return false;
     }
 

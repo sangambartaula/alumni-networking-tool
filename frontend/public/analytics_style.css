@@ -1176,10 +1176,41 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .analytics-suggestion-item:hover {
   background-color: #f3f4f6;
+}
+
+.analytics-suggestion-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analytics-suggestion-item strong {
+  color: #059669;
+  font-weight: 700;
+}
+
+.analytics-suggestion-count {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.analytics-suggestion-no-results {
+  padding: 12px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+  font-style: italic;
 }
 
 .analytics-suggestion-header {
@@ -1194,12 +1225,6 @@
   position: sticky;
   top: 0;
   z-index: 1;
-}
-
-.analytics-suggestion-count {
-  font-size: 12px;
-  color: #6b7280;
-  font-weight: 600;
 }
 
 .analytics-filter-tags {
