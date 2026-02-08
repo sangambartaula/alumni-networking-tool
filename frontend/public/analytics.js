@@ -68,7 +68,7 @@ function initializeAnalyticsFilterUI() {
   const backdrop = document.getElementById('analyticsFilterBackdrop');
   const panel = document.getElementById('analyticsFilterPanel');
   const clearBtn = document.getElementById('analyticsClearAllFiltersBtn');
-  
+
   const locationInput = document.getElementById('analyticsFilterLocationInput');
   const companyInput = document.getElementById('analyticsFilterCompanyInput');
   const locationSuggestions = document.getElementById('analyticsLocationSuggestionsDropdown');
@@ -153,19 +153,19 @@ function initializeAnalyticsFilterUI() {
           const aLower = a.toLowerCase();
           const bLower = b.toLowerCase();
           const valueLower = value.toLowerCase();
-          
+
           // Exact match first
           if (aLower === valueLower) return -1;
           if (bLower === valueLower) return 1;
-          
+
           // Starts with match second
           if (aLower.startsWith(valueLower) && !bLower.startsWith(valueLower)) return -1;
           if (!aLower.startsWith(valueLower) && bLower.startsWith(valueLower)) return 1;
-          
+
           return a.localeCompare(b);
         })
         .slice(0, 15);
-      
+
       if (suggestions.length > 0) {
         locationSuggestions.innerHTML = suggestions
           .map(loc => {
@@ -193,19 +193,19 @@ function initializeAnalyticsFilterUI() {
           const aLower = a.toLowerCase();
           const bLower = b.toLowerCase();
           const valueLower = value.toLowerCase();
-          
+
           // Exact match first
           if (aLower === valueLower) return -1;
           if (bLower === valueLower) return 1;
-          
+
           // Starts with match second
           if (aLower.startsWith(valueLower) && !bLower.startsWith(valueLower)) return -1;
           if (!aLower.startsWith(valueLower) && bLower.startsWith(valueLower)) return 1;
-          
+
           return a.localeCompare(b);
         })
         .slice(0, 15);
-      
+
       if (suggestions.length > 0) {
         companySuggestions.innerHTML = suggestions
           .map(comp => {
@@ -249,7 +249,7 @@ function initializeAnalyticsFilterUI() {
       const value = e.target.value.trim();
       if (value) {
         // Find matching location (case-insensitive)
-        const matchingLocation = Array.from(allLocations).find(loc => 
+        const matchingLocation = Array.from(allLocations).find(loc =>
           loc.toLowerCase() === value.toLowerCase()
         );
         if (matchingLocation) {
@@ -266,7 +266,7 @@ function initializeAnalyticsFilterUI() {
       const value = e.target.value.trim();
       if (value) {
         // Find matching company (case-insensitive)
-        const matchingCompany = Array.from(allCompanies).find(comp => 
+        const matchingCompany = Array.from(allCompanies).find(comp =>
           comp.toLowerCase() === value.toLowerCase()
         );
         if (matchingCompany) {
@@ -298,15 +298,15 @@ function initializeAnalyticsFilterUI() {
 function findBestMatch(input, itemSet) {
   const inputLower = input.toLowerCase();
   const items = Array.from(itemSet);
-  
+
   // Try exact match first
   const exactMatch = items.find(item => item.toLowerCase() === inputLower);
   if (exactMatch) return exactMatch;
-  
+
   // Try starts-with match
   const startsWithMatch = items.find(item => item.toLowerCase().startsWith(inputLower));
   if (startsWithMatch) return startsWithMatch;
-  
+
   // Try contains match (return first match)
   const containsMatch = items.find(item => item.toLowerCase().includes(inputLower));
   return containsMatch || null;
@@ -315,7 +315,7 @@ function findBestMatch(input, itemSet) {
 // Helper function to highlight matching text in suggestions
 function highlightMatch(text, search) {
   if (!search) return text;
-  
+
   const regex = new RegExp(`(${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
   return text.replace(regex, '<strong>$1</strong>');
 }
@@ -335,7 +335,7 @@ function showRecommendations() {
         locationCounts[alumni.location] = (locationCounts[alumni.location] || 0) + 1;
       }
     });
-    
+
     const topLocations = Object.entries(locationCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
@@ -362,7 +362,7 @@ function showRecommendations() {
         companyCounts[alumni.company] = (companyCounts[alumni.company] || 0) + 1;
       }
     });
-    
+
     const topCompanies = Object.entries(companyCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
@@ -534,7 +534,7 @@ function renderAnalytics() {
 
 // Update summary statistics
 function updateStatistics() {
-  const totalAlumni = alumniData.filter(a => a.location && a.location !== 'Not Found').length;
+  const totalAlumni = alumniData.length;
   const uniqueCompanies = new Set(alumniData.map(a => a.company).filter(c => c)).size;
   const uniqueLocations = new Set(alumniData.map(a => a.location).filter(l => l && l !== 'Not Found')).size;
   const uniqueJobs = new Set(alumniData.map(a => a.current_job_title).filter(j => j)).size;
