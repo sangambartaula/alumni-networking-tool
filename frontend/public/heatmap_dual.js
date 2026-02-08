@@ -29,7 +29,7 @@ function loadHiddenFiltersFromStorage() {
   try {
     const savedLocations = JSON.parse(localStorage.getItem('hiddenLocations') || '[]');
     const savedCompanies = JSON.parse(localStorage.getItem('hiddenCompanies') || '[]');
-    
+
     hiddenLocations = new Set(savedLocations);
     hiddenCompanies = new Set(savedCompanies);
   } catch (e) {
@@ -48,15 +48,15 @@ function clearHiddenFiltersFromStorage() {
 function showLocationSuggestions() {
   const input = document.getElementById('filterLocationInput');
   const suggestionBox = document.getElementById('locationSuggestionsDropdown');
-  
+
   if (!suggestionBox) return;
-  
+
   const suggestions = Array.from(allLocations)
     .filter(loc => loc.toLowerCase().includes(input.value.toLowerCase()))
     .slice(0, 10);
-  
+
   suggestionBox.innerHTML = '';
-  
+
   if (suggestions.length > 0) {
     suggestions.forEach(suggestion => {
       const div = document.createElement('div');
@@ -91,15 +91,15 @@ function showLocationSuggestions() {
 function showCompanySuggestions() {
   const input = document.getElementById('filterCompanyInput');
   const suggestionBox = document.getElementById('companySuggestionsDropdown');
-  
+
   if (!suggestionBox) return;
-  
+
   const suggestions = Array.from(allCompanies)
     .filter(comp => comp.toLowerCase().includes(input.value.toLowerCase()))
     .slice(0, 10);
-  
+
   suggestionBox.innerHTML = '';
-  
+
   if (suggestions.length > 0) {
     suggestions.forEach(suggestion => {
       const div = document.createElement('div');
@@ -134,7 +134,7 @@ function showCompanySuggestions() {
 function buildAutocompleteData(alumniData) {
   allLocations.clear();
   allCompanies.clear();
-  
+
   if (Array.isArray(alumniData)) {
     alumniData.forEach(alumni => {
       if (alumni.location) {
@@ -153,23 +153,23 @@ function setupMapViewport() {
     const mapWrapper = document.querySelector('.map-wrapper');
     const mapContainer2D = document.getElementById('map2DContainer');
     const mapContainer3D = document.getElementById('map3DContainer');
-    
+
     if (mapWrapper && mapContainer2D && mapContainer3D) {
       // Force refresh of Leaflet map size
       if (map2D && map2D.invalidateSize) {
         map2D.invalidateSize(false);
       }
-      
+
       // Force refresh of Cesium map size
       if (map3D && map3D.scene) {
         map3D.scene.requestRender();
       }
     }
   };
-  
+
   // Initial resize after a short delay to allow DOM to settle
   setTimeout(resizeMap, 100);
-  
+
   // Resize on window resize
   window.addEventListener('resize', resizeMap);
 }
@@ -230,7 +230,7 @@ function initialize3DMap() {
 
   // Remove all default layers first
   map3D.imageryLayers.removeAll();
-  
+
   // Add Google satellite imagery
   map3D.imageryLayers.addImageryProvider(
     new Cesium.UrlTemplateImageryProvider({
@@ -264,7 +264,7 @@ function initialize3DMap() {
   map3D.scene.globe.baseColor = Cesium.Color.WHITE;
   map3D.scene.requestRenderMode = false;
   map3D.scene.highDynamicRange = true;
-  
+
   // Set initial camera view
   map3D.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
@@ -274,28 +274,28 @@ function initialize3DMap() {
       roll: 0.0
     }
   });
-  
+
   // Enable camera controls
   map3D.scene.screenSpaceCameraController.enableRotate = true;
   map3D.scene.screenSpaceCameraController.enableZoom = true;
   map3D.scene.screenSpaceCameraController.enableTilt = true;
   map3D.scene.screenSpaceCameraController.enableLook = true;
-  
+
   // Set minimum and maximum zoom distances
   map3D.scene.screenSpaceCameraController.minimumZoomDistance = 1000;
   map3D.scene.screenSpaceCameraController.maximumZoomDistance = 50000000;
-  
+
   // Handle entity selection and make camera icon work
-  map3D.selectedEntityChanged.addEventListener(function() {
+  map3D.selectedEntityChanged.addEventListener(function () {
     const entity = map3D.selectedEntity;
     if (entity && entity.position) {
       setTimeout(() => {
-        const zoomFunction = function(e) {
+        const zoomFunction = function (e) {
           if (e) {
             e.preventDefault();
             e.stopPropagation();
           }
-          
+
           // Get current entity's position dynamically
           const currentEntity = map3D.selectedEntity;
           if (currentEntity && currentEntity.position) {
@@ -303,9 +303,9 @@ function initialize3DMap() {
             const cartographic = Cesium.Cartographic.fromCartesian(position);
             const longitude = Cesium.Math.toDegrees(cartographic.longitude);
             const latitude = Cesium.Math.toDegrees(cartographic.latitude);
-            
+
             console.log('Flying to:', latitude, longitude);
-            
+
             map3D.camera.flyTo({
               destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, 200),
               orientation: {
@@ -317,18 +317,18 @@ function initialize3DMap() {
             });
           }
         };
-        
+
         // Try multiple selectors for the camera button
-        const cameraBtn = document.querySelector('.cesium-infoBox-camera') || 
-                         document.querySelector('button[title*="camera"]') ||
-                         document.querySelector('button[title*="Camera"]');
-        
+        const cameraBtn = document.querySelector('.cesium-infoBox-camera') ||
+          document.querySelector('button[title*="camera"]') ||
+          document.querySelector('button[title*="Camera"]');
+
         const titleBar = document.querySelector('.cesium-infoBox-title');
         const infoBoxContainer = document.querySelector('.cesium-infoBox');
-        
+
         console.log('Camera button found:', !!cameraBtn);
         console.log('Title bar found:', !!titleBar);
-        
+
         // Attach to camera button if it exists
         if (cameraBtn) {
           cameraBtn.style.pointerEvents = 'auto';
@@ -337,7 +337,7 @@ function initialize3DMap() {
           cameraBtn.onclick = zoomFunction;
           console.log('Camera button handler attached');
         }
-        
+
         // Make the title bar clickable
         if (titleBar) {
           titleBar.style.cursor = 'pointer';
@@ -345,7 +345,7 @@ function initialize3DMap() {
           titleBar.onclick = zoomFunction;
           console.log('Title bar handler attached');
         }
-        
+
         // Make entire infobox header clickable as fallback
         if (infoBoxContainer) {
           const header = infoBoxContainer.querySelector('.cesium-infoBox-titlebar');
@@ -380,18 +380,18 @@ function add2D3DToggle() {
       </button>
     </div>
   `;
-  
+
   document.querySelector('.heatmap-section').appendChild(toggleDiv);
-  
+
   const buttons = toggleDiv.querySelectorAll('.toggle-btn');
   buttons.forEach(btn => {
     btn.addEventListener('click', () => {
       const mode = btn.dataset.mode;
-      
+
       // Update active state
       buttons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      
+
       switchMapMode(mode);
     });
   });
@@ -400,20 +400,20 @@ function add2D3DToggle() {
 // Switch between 2D and 3D maps
 function switchMapMode(mode) {
   currentMode = mode;
-  
+
   const map2DContainer = document.getElementById('map2DContainer');
   const map3DContainer = document.getElementById('map3DContainer');
   const cesiumToolbar = document.querySelector('.cesium-viewer-toolbar');
-  
+
   if (mode === '2d') {
     map2DContainer.style.display = 'block';
     map3DContainer.style.display = 'none';
-    
+
     // Show Cesium fullscreen button for 2D mode too
     if (cesiumToolbar) {
       cesiumToolbar.style.display = 'block';
     }
-    
+
     // Refresh Leaflet map
     setTimeout(() => {
       map2D.invalidateSize();
@@ -421,12 +421,12 @@ function switchMapMode(mode) {
   } else {
     map2DContainer.style.display = 'none';
     map3DContainer.style.display = 'block';
-    
+
     // Show Cesium fullscreen button for 3D mode
     if (cesiumToolbar) {
       cesiumToolbar.style.display = 'block';
     }
-    
+
     // Refresh Cesium viewer
     setTimeout(() => {
       if (map3D) {
@@ -439,7 +439,7 @@ function switchMapMode(mode) {
 // Toggle fullscreen for the entire heatmap section
 function toggleFullscreen() {
   const heatmapSection = document.querySelector('.heatmap-section');
-  
+
   if (!document.fullscreenElement) {
     heatmapSection.requestFullscreen().then(() => {
       setTimeout(() => {
@@ -485,16 +485,16 @@ function addLayerControls() {
       </label>
     </div>
   `;
-  
+
   document.querySelector('.heatmap-section').appendChild(controlDiv);
   console.log('Layer controls added:', controlDiv);
-  
+
   // Handle layer switching
   const radios = controlDiv.querySelectorAll('input[type="radio"]');
   radios.forEach(radio => {
     radio.addEventListener('change', (e) => {
       const layerType = e.target.value;
-      
+
       if (currentMode === '2d') {
         // Switch 2D Leaflet tiles
         map2D.eachLayer(layer => {
@@ -502,7 +502,7 @@ function addLayerControls() {
             map2D.removeLayer(layer);
           }
         });
-        
+
         if (layerType === 'satellite') {
           L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
             maxZoom: 20
@@ -512,14 +512,14 @@ function addLayerControls() {
             maxZoom: 20
           }).addTo(map2D);
         }
-        
+
         // Re-add markers
         markers2D.forEach(marker => map2D.addLayer(marker));
-        
+
       } else {
         // Switch 3D Cesium imagery
         map3D.imageryLayers.removeAll();
-        
+
         if (layerType === 'satellite') {
           map3D.imageryLayers.addImageryProvider(
             new Cesium.UrlTemplateImageryProvider({
@@ -586,7 +586,7 @@ async function loadHeatmapData(url = '/api/heatmap') {
 
     // Update statistics
     updateStatistics(data.total_alumni, locationClusters.length);
-    
+
     // Build autocomplete data from all locations and sample alumni
     const allAlumniForAutocomplete = [];
     locationClusters.forEach(location => {
@@ -604,7 +604,7 @@ async function loadHeatmapData(url = '/api/heatmap') {
       }
     });
     buildAutocompleteData(allAlumniForAutocomplete);
-    
+
     // Initialize filter UI after data is loaded
     initializeFilterUI();
 
@@ -625,11 +625,11 @@ function add2DMarker(location) {
     opacity: 1,
     fillOpacity: 0.8
   });
-  
+
   // Create popup content
   const popupContent = create2DPopupContent(location);
   marker.bindPopup(popupContent, { maxWidth: 350 });
-  
+
   marker.addTo(map2D);
   markers2D.push(marker);
 }
@@ -660,7 +660,7 @@ function add3DMarker(location) {
     },
     description: create3DPopupContent(location)
   });
-  
+
   entities3D.push(entity);
 }
 
@@ -707,7 +707,7 @@ function render2DHeatmap(locations, backendMaxCount) {
 function create2DPopupContent(location) {
   // Filter alumni to exclude hidden companies
   const visibleAlumni = location.sample_alumni.filter(a => !isCompanyHidden(a));
-  
+
   const alumniItems = visibleAlumni
     .map(a => `
       <div style="padding: 10px; border-bottom: 1px solid #eee; background: #f9f9f9; margin-bottom: 5px; border-radius: 4px;">
@@ -736,7 +736,7 @@ function create2DPopupContent(location) {
 function create3DPopupContent(location) {
   // Filter alumni to exclude hidden companies
   const visibleAlumni = location.sample_alumni.filter(a => !isCompanyHidden(a));
-  
+
   const alumniItems = visibleAlumni
     .map(a => `
       <div style="padding: 10px; border-bottom: 1px solid #eee; background: #f9f9f9; margin-bottom: 5px; border-radius: 4px;">
@@ -810,14 +810,14 @@ function filterByContinent(continentName) {
     'Oceania': [[-47, 110], [-10, 180]],
     'Antarctica': [[-90, -180], [-60, 180]]
   };
-  
+
   if (currentMode === '2d' && bounds[continentName]) {
     map2D.fitBounds(bounds[continentName]);
   } else if (currentMode === '3d' && bounds[continentName]) {
     const [[minLat, minLng], [maxLat, maxLng]] = bounds[continentName];
     const centerLat = (minLat + maxLat) / 2;
     const centerLng = (minLng + maxLng) / 2;
-    
+
     map3D.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat, 5000000),
       duration: 2
@@ -830,7 +830,7 @@ function updateStatistics(totalAlumni, uniqueLocations) {
   const statsDiv = document.getElementById('heatmapStats');
   statsDiv.innerHTML = `
     <div class="stat-item">
-      <span class="stat-label">Total Alumni:</span>
+      <span class="stat-label">Alumni with Locations:</span>
       <span class="stat-value">${totalAlumni}</span>
     </div>
     <div class="stat-item">
@@ -860,11 +860,11 @@ function aggregateAlumniByContinent(locations) {
     "Oceania": 0,
     "Antarctica": 0
   };
-  
+
   locations.forEach(location => {
     const lat = location.latitude;
     const lon = location.longitude;
-    
+
     if (lat >= 10 && lat <= 83 && lon >= -170 && lon <= -50) {
       continentCounts["North America"] += location.count;
     } else if (lat >= -56 && lat <= 13 && lon >= -81 && lon <= -34) {
@@ -873,7 +873,7 @@ function aggregateAlumniByContinent(locations) {
       continentCounts["North America"] += location.count;
     }
   });
-  
+
   return continentCounts;
 }
 
@@ -882,10 +882,10 @@ function setupHeaderToggle() {
   const header = document.getElementById('heatmapHeader');
   const toggleBtn = document.getElementById('headerToggleBtn');
   let isHeaderVisible = true;
-  
+
   toggleBtn.addEventListener('click', () => {
     isHeaderVisible = !isHeaderVisible;
-    
+
     if (isHeaderVisible) {
       header.classList.remove('hidden');
       toggleBtn.classList.remove('rotated');
@@ -902,10 +902,10 @@ function setupFullscreenToggle() {
   const heatmapSection = document.querySelector('.heatmap-section');
   const fullscreenIcon = fullscreenBtn.querySelector('.fullscreen-icon');
   const exitFullscreenIcon = fullscreenBtn.querySelector('.exit-fullscreen-icon');
-  
+
   fullscreenBtn.addEventListener('click', () => {
     heatmapSection.classList.toggle('fullscreen-mode');
-    
+
     if (heatmapSection.classList.contains('fullscreen-mode')) {
       fullscreenIcon.style.display = 'none';
       exitFullscreenIcon.style.display = 'block';
@@ -915,7 +915,7 @@ function setupFullscreenToggle() {
       exitFullscreenIcon.style.display = 'none';
       document.body.style.overflow = '';
     }
-    
+
     setTimeout(() => {
       if (currentMode === '2d') {
         map2D.invalidateSize();
@@ -937,14 +937,14 @@ function addCustomFullscreenButton() {
       </svg>
     </button>
   `;
-  
+
   document.querySelector('.heatmap-section').appendChild(fullscreenDiv);
-  
+
   const btn = fullscreenDiv.querySelector('.cesium-button');
   btn.addEventListener('click', () => {
     toggleFullscreen();
   });
-  
+
   // Update icon on fullscreen change
   document.addEventListener('fullscreenchange', () => {
     if (document.fullscreenElement) {
@@ -1165,7 +1165,7 @@ function initializeFilterUI() {
 
   // Load saved filters from localStorage
   loadHiddenFiltersFromStorage();
-  
+
   // Set up autocomplete suggestions on click/focus
   if (locationInput) {
     locationInput.addEventListener('click', showLocationSuggestions);
@@ -1296,7 +1296,7 @@ function initializeFilterUI() {
   }
 
   updateFilterUI();
-  
+
   // Apply saved filters if any were loaded
   if (hiddenLocations.size > 0 || hiddenCompanies.size > 0) {
     console.log('Applying saved filters from localStorage');
@@ -1359,7 +1359,7 @@ function updateFilterUI() {
   // Update location filter tags
   const locationTags = document.getElementById('locationFilterTags');
   const locationCount = document.getElementById('locationFilterCount');
-  
+
   if (locationTags) {
     locationTags.innerHTML = '';
     if (hiddenLocations.size === 0) {
@@ -1383,7 +1383,7 @@ function updateFilterUI() {
   // Update company filter tags
   const companyTags = document.getElementById('companyFilterTags');
   const companyCount = document.getElementById('companyFilterCount');
-  
+
   if (companyTags) {
     companyTags.innerHTML = '';
     if (hiddenCompanies.size === 0) {
@@ -1408,7 +1408,7 @@ function updateFilterUI() {
 function isLocationHidden(location) {
   if (!location) return false;
   const locationName = location.trim().toLowerCase();
-  
+
   // Check if any hidden location filter matches this location (substring match)
   let isHidden = false;
   for (let hiddenLocation of hiddenLocations) {
@@ -1417,7 +1417,7 @@ function isLocationHidden(location) {
       break;
     }
   }
-  
+
   console.log(`Checking location "${location}" (normalized: "${locationName}"): hidden = ${isHidden}`);
   return isHidden;
 }
@@ -1425,7 +1425,7 @@ function isLocationHidden(location) {
 function isCompanyHidden(alumni) {
   if (!alumni || !alumni.company) return false;
   const companyName = alumni.company.trim().toLowerCase();
-  
+
   // Check if any hidden company filter matches this company (substring match)
   let isHidden = false;
   for (let hiddenCompany of hiddenCompanies) {
@@ -1434,7 +1434,7 @@ function isCompanyHidden(alumni) {
       break;
     }
   }
-  
+
   console.log(`Checking company "${alumni.company}" (normalized: "${companyName}"): hidden = ${isHidden}`);
   return isHidden;
 }
@@ -1449,16 +1449,16 @@ function shouldHideLocationAlumni(location) {
     console.log(`Location "${location.location}" is hidden (exact match)`);
     return true;
   }
-  
+
   // Check if all alumni in this location are from hidden companies
   console.log(`Checking alumni for location "${location.location}":`, location.sample_alumni);
-  
+
   const hasVisibleAlumni = location.sample_alumni.some(a => {
     const isHidden = isCompanyHidden(a);
     console.log(`  - Alumni: ${a.name}, Company: "${a.company}" (trimmed: "${(a.company || '').trim().toLowerCase()}"), Hidden: ${isHidden}`);
     return !isHidden;
   });
-  
+
   const shouldHide = !hasVisibleAlumni;
   console.log(`Location "${location.location}": has visible alumni = ${hasVisibleAlumni}, shouldHide = ${shouldHide}`);
   return shouldHide;
@@ -1469,32 +1469,32 @@ function reloadMapData() {
   console.log('Total locations before filter:', locationClusters.length);
   console.log('Hidden Locations:', Array.from(hiddenLocations));
   console.log('Hidden Companies:', Array.from(hiddenCompanies));
-  
+
   try {
     // Clear all old markers and entities
     console.log('Clearing old markers...');
     markers2D.forEach(m => {
       try {
         map2D.removeLayer(m);
-      } catch(e) {
+      } catch (e) {
         console.error('Error removing marker:', e);
       }
     });
     markers2D = [];
-    
+
     if (heatLayer2D) {
       try {
         map2D.removeLayer(heatLayer2D);
-      } catch(e) {
+      } catch (e) {
         console.error('Error removing heat layer:', e);
       }
       heatLayer2D = null;
     }
-    
+
     entities3D.forEach(e => {
       try {
         map3D.entities.remove(e);
-      } catch(e) {
+      } catch (e) {
         console.error('Error removing 3D entity:', e);
       }
     });
@@ -1507,25 +1507,25 @@ function reloadMapData() {
       console.log(`Location: ${loc.location}, Hide: ${shouldHide}, Alumni count: ${loc.count}`);
       return !shouldHide;
     });
-    
+
     console.log('Filtered locations count:', filteredLocations.length);
-    
+
     if (filteredLocations.length === 0) {
       console.warn('No locations to display after filtering!');
     }
-    
+
     filteredLocations.forEach(location => {
       try {
         add2DMarker(location);
         add3DMarker(location);
-      } catch(e) {
+      } catch (e) {
         console.error('Error adding marker:', e);
       }
     });
 
     // Rebuild heatmap
     console.log('Rebuilding heatmap...');
-    const maxCount = filteredLocations.length > 0 
+    const maxCount = filteredLocations.length > 0
       ? Math.max(...filteredLocations.map(l => l.count || 1))
       : 1;
     render2DHeatmap(filteredLocations, maxCount);
@@ -1533,9 +1533,9 @@ function reloadMapData() {
     // Update statistics with filtered data
     const totalFiltered = filteredLocations.reduce((sum, loc) => sum + (loc.count || 0), 0);
     updateStatistics(totalFiltered, filteredLocations.length);
-    
+
     console.log('Map reload complete!');
-  } catch(error) {
+  } catch (error) {
     console.error('ERROR in reloadMapData:', error);
     console.error(error.stack);
   }
