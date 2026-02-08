@@ -32,11 +32,89 @@
   </header>
 
   <main class="analytics-page" role="main">
-    <!-- Page Header -->
+    <!-- Page Header with Filter Button -->
     <section class="analytics-header">
       <h1>Alumni Analytics Dashboard</h1>
       <p class="analytics-description">Comprehensive insights into alumni career paths, locations, and trends</p>
+      <button id="analyticsFilterToggleBtn" class="analytics-filter-toggle" title="Open Filters">
+        <i class="fas fa-filter"></i>
+        <span>Filters</span>
+        <span id="analyticsFilterBadge" class="analytics-filter-badge">0</span>
+      </button>
     </section>
+
+    <!-- Filter Modal Backdrop -->
+    <div class="analytics-filter-backdrop" id="analyticsFilterBackdrop"></div>
+
+    <!-- Filter Panel (Modal) -->
+    <div class="analytics-filter-panel" id="analyticsFilterPanel">
+      <div class="analytics-filter-panel-header">
+        <h3>Data Filters</h3>
+        <button class="analytics-filter-close-btn" id="analyticsFilterCloseBtn">&times;</button>
+      </div>
+
+      <div class="analytics-filter-controls">
+        <div class="analytics-filter-group">
+          <label for="analyticsFilterLocationInput">
+            <i class="fas fa-map-marker-alt"></i> Hide Location
+          </label>
+          <div class="analytics-filter-input-container">
+            <input 
+              id="analyticsFilterLocationInput" 
+              type="text" 
+              placeholder="Type location name..."
+              class="analytics-filter-input"
+            />
+            <button id="analyticsAddLocationFilterBtn" class="analytics-filter-action-btn">
+              <i class="fas fa-plus"></i> Add
+            </button>
+          </div>
+          <div id="analyticsLocationSuggestionsDropdown" class="analytics-suggestions-dropdown"></div>
+        </div>
+
+        <div class="analytics-filter-group">
+          <label for="analyticsFilterCompanyInput">
+            <i class="fas fa-building"></i> Hide Company
+          </label>
+          <div class="analytics-filter-input-container">
+            <input 
+              id="analyticsFilterCompanyInput" 
+              type="text" 
+              placeholder="Type company name..."
+              class="analytics-filter-input"
+            />
+            <button id="analyticsAddCompanyFilterBtn" class="analytics-filter-action-btn">
+              <i class="fas fa-plus"></i> Add
+            </button>
+          </div>
+          <div id="analyticsCompanySuggestionsDropdown" class="analytics-suggestions-dropdown"></div>
+        </div>
+
+        <button id="analyticsClearAllFiltersBtn" class="analytics-filter-clear-btn">
+          <i class="fas fa-times-circle"></i> Clear All Filters
+        </button>
+      </div>
+
+      <!-- Active Filters Display -->
+      <div class="analytics-filter-content">
+        <div>
+          <span class="analytics-filter-tags-label">
+            <i class="fas fa-map-marker-alt"></i> Hidden Locations (<span id="analyticsLocationFilterCount">0</span>)
+          </span>
+          <div class="analytics-filter-tags" id="analyticsLocationFilterTags">
+            <span class="empty-analytics-filters-message">No locations hidden</span>
+          </div>
+        </div>
+        <div style="margin-top: 16px;">
+          <span class="analytics-filter-tags-label">
+            <i class="fas fa-building"></i> Hidden Companies (<span id="analyticsCompanyFilterCount">0</span>)
+          </span>
+          <div class="analytics-filter-tags" id="analyticsCompanyFilterTags">
+            <span class="empty-analytics-filters-message">No companies hidden</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Summary Statistics -->
     <section class="stats-overview">

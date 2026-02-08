@@ -5,8 +5,16 @@ let alumniData = [];
 let charts = {};
 let currentFilter = null;
 
+// Filter state
+let hiddenLocations = new Set();
+let hiddenCompanies = new Set();
+let allLocations = new Set();
+let allCompanies = new Set();
+
 // Initialize analytics on page load
 document.addEventListener('DOMContentLoaded', () => {
+  loadHiddenFiltersFromStorage();
+  initializeAnalyticsFilterUI();
   loadAnalyticsData();
 
   // Setup modal close handlers
@@ -30,6 +38,375 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// Filter Management Functions
+function saveHiddenFiltersToStorage() {
+  localStorage.setItem('analyticsHiddenLocations', JSON.stringify(Array.from(hiddenLocations)));
+  localStorage.setItem('analyticsHiddenCompanies', JSON.stringify(Array.from(hiddenCompanies)));
+}
+
+function loadHiddenFiltersFromStorage() {
+  try {
+    const savedLocations = localStorage.getItem('analyticsHiddenLocations');
+    const savedCompanies = localStorage.getItem('analyticsHiddenCompanies');
+
+    if (savedLocations) {
+      hiddenLocations = new Set(JSON.parse(savedLocations));
+    }
+    if (savedCompanies) {
+      hiddenCompanies = new Set(JSON.parse(savedCompanies));
+    }
+  } catch (error) {
+    console.error('Error loading filters from storage:', error);
+    hiddenLocations = new Set();
+    hiddenCompanies = new Set();
+  }
+}
+
+function initializeAnalyticsFilterUI() {
+  const toggleBtn = document.getElementById('analyticsFilterToggleBtn');
+  const closeBtn = document.getElementById('analyticsFilterCloseBtn');
+  const backdrop = document.getElementById('analyticsFilterBackdrop');
+  const panel = document.getElementById('analyticsFilterPanel');
+  const clearBtn = document.getElementById('analyticsClearAllFiltersBtn');
+  
+  const locationInput = document.getElementById('analyticsFilterLocationInput');
+  const companyInput = document.getElementById('analyticsFilterCompanyInput');
+  const locationSuggestions = document.getElementById('analyticsLocationSuggestionsDropdown');
+  const companySuggestions = document.getElementById('analyticsCompanySuggestionsDropdown');
+
+  // Toggle filter panel
+  toggleBtn?.addEventListener('click', () => {
+    panel?.classList.add('active');
+    backdrop?.classList.add('active');
+    showRecommendations(); // Show recommendations when panel opens
+  });
+
+  // Close filter panel
+  const closePanel = () => {
+    panel?.classList.remove('active');
+    backdrop?.classList.remove('active');
+    // Clear input fields and hide suggestions
+    if (locationInput) locationInput.value = '';
+    if (companyInput) companyInput.value = '';
+    if (locationSuggestions) locationSuggestions.style.display = 'none';
+    if (companySuggestions) companySuggestions.style.display = 'none';
+  };
+
+  closeBtn?.addEventListener('click', closePanel);
+  backdrop?.addEventListener('click', closePanel);
+
+  // Clear all filters
+  clearBtn?.addEventListener('click', () => {
+    hiddenLocations.clear();
+    hiddenCompanies.clear();
+    saveHiddenFiltersToStorage();
+    updateAnalyticsFilterUI();
+    renderAnalytics();
+  });
+
+  // Location input autocomplete
+  locationInput?.addEventListener('input', (e) => {
+    const value = e.target.value.trim().toLowerCase();
+    if (value.length > 0) {
+      const suggestions = Array.from(allLocations)
+        .filter(loc => loc.toLowerCase().includes(value) && !hiddenLocations.has(loc))
+        .sort((a, b) => {
+          // Prioritize exact matches and starts-with
+          const aLower = a.toLowerCase();
+          const bLower = b.toLowerCase();
+          if (aLower.startsWith(value) && !bLower.startsWith(value)) return -1;
+          if (!aLower.startsWith(value) && bLower.startsWith(value)) return 1;
+          return a.localeCompare(b);
+        })
+        .slice(0, 15);
+      
+      if (suggestions.length > 0) {
+        locationSuggestions.innerHTML = suggestions
+          .map(loc => `<div class="analytics-suggestion-item" data-value="${loc.replace(/"/g, '&quot;')}">${loc}</div>`)
+          .join('');
+        locationSuggestions.style.display = 'block';
+      } else {
+        locationSuggestions.style.display = 'none';
+      }
+    } else {
+      showRecommendations(); // Show recommendations when input is cleared
+    }
+  });
+
+  // Company input autocomplete
+  companyInput?.addEventListener('input', (e) => {
+    const value = e.target.value.trim().toLowerCase();
+    if (value.length > 0) {
+      const suggestions = Array.from(allCompanies)
+        .filter(comp => comp.toLowerCase().includes(value) && !hiddenCompanies.has(comp))
+        .sort((a, b) => {
+          const aLower = a.toLowerCase();
+          const bLower = b.toLowerCase();
+          if (aLower.startsWith(value) && !bLower.startsWith(value)) return -1;
+          if (!aLower.startsWith(value) && bLower.startsWith(value)) return 1;
+          return a.localeCompare(b);
+        })
+        .slice(0, 15);
+      
+      if (suggestions.length > 0) {
+        companySuggestions.innerHTML = suggestions
+          .map(comp => `<div class="analytics-suggestion-item" data-value="${comp.replace(/"/g, '&quot;')}">${comp}</div>`)
+          .join('');
+        companySuggestions.style.display = 'block';
+      } else {
+        companySuggestions.style.display = 'none';
+      }
+    } else {
+      showRecommendations(); // Show recommendations when input is cleared
+    }
+  });
+
+  // Location suggestion click
+  locationSuggestions?.addEventListener('click', (e) => {
+    if (e.target.classList.contains('analytics-suggestion-item')) {
+      const location = e.target.getAttribute('data-value');
+      addLocationFilter(location);
+      locationInput.value = '';
+      showRecommendations(); // Show recommendations after adding filter
+    }
+  });
+
+  // Company suggestion click
+  companySuggestions?.addEventListener('click', (e) => {
+    if (e.target.classList.contains('analytics-suggestion-item')) {
+      const company = e.target.getAttribute('data-value');
+      addCompanyFilter(company);
+      companyInput.value = '';
+      showRecommendations(); // Show recommendations after adding filter
+    }
+  });
+
+  // Enter key to add filter
+  locationInput?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      const value = e.target.value.trim();
+      if (value) {
+        // Find matching location (case-insensitive)
+        const matchingLocation = Array.from(allLocations).find(loc => 
+          loc.toLowerCase() === value.toLowerCase()
+        );
+        if (matchingLocation) {
+          addLocationFilter(matchingLocation);
+          locationInput.value = '';
+          showRecommendations();
+        }
+      }
+    }
+  });
+
+  companyInput?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      const value = e.target.value.trim();
+      if (value) {
+        // Find matching company (case-insensitive)
+        const matchingCompany = Array.from(allCompanies).find(comp => 
+          comp.toLowerCase() === value.toLowerCase()
+        );
+        if (matchingCompany) {
+          addCompanyFilter(matchingCompany);
+          companyInput.value = '';
+          showRecommendations();
+        }
+      }
+    }
+  });
+
+  // Focus handlers to show recommendations
+  locationInput?.addEventListener('focus', () => {
+    if (!locationInput.value.trim()) {
+      showRecommendations();
+    }
+  });
+
+  companyInput?.addEventListener('focus', () => {
+    if (!companyInput.value.trim()) {
+      showRecommendations();
+    }
+  });
+
+  updateAnalyticsFilterUI();
+}
+
+function showRecommendations() {
+  const locationInput = document.getElementById('analyticsFilterLocationInput');
+  const companyInput = document.getElementById('analyticsFilterCompanyInput');
+  const locationSuggestions = document.getElementById('analyticsLocationSuggestionsDropdown');
+  const companySuggestions = document.getElementById('analyticsCompanySuggestionsDropdown');
+
+  // Show top locations if location input is focused and empty
+  if (locationInput && document.activeElement === locationInput && !locationInput.value.trim()) {
+    // Get top 10 locations by alumni count
+    const locationCounts = {};
+    alumniData.forEach(alumni => {
+      if (alumni.location && !hiddenLocations.has(alumni.location)) {
+        locationCounts[alumni.location] = (locationCounts[alumni.location] || 0) + 1;
+      }
+    });
+    
+    const topLocations = Object.entries(locationCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([loc, count]) => ({ name: loc, count }));
+
+    if (topLocations.length > 0 && locationSuggestions) {
+      locationSuggestions.innerHTML = '<div class="analytics-suggestion-header">Popular Locations (click to hide)</div>' +
+        topLocations
+          .map(({ name, count }) => 
+            `<div class="analytics-suggestion-item" data-value="${name.replace(/"/g, '&quot;')}">${name} <span class="analytics-suggestion-count">(${count})</span></div>`)
+          .join('');
+      locationSuggestions.style.display = 'block';
+    }
+  }
+
+  // Show top companies if company input is focused and empty
+  if (companyInput && document.activeElement === companyInput && !companyInput.value.trim()) {
+    // Get top 10 companies by alumni count
+    const companyCounts = {};
+    alumniData.forEach(alumni => {
+      if (alumni.company && !hiddenCompanies.has(alumni.company)) {
+        companyCounts[alumni.company] = (companyCounts[alumni.company] || 0) + 1;
+      }
+    });
+    
+    const topCompanies = Object.entries(companyCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([comp, count]) => ({ name: comp, count }));
+
+    if (topCompanies.length > 0 && companySuggestions) {
+      companySuggestions.innerHTML = '<div class="analytics-suggestion-header">Popular Companies (click to hide)</div>' +
+        topCompanies
+          .map(({ name, count }) => 
+            `<div class="analytics-suggestion-item" data-value="${name.replace(/"/g, '&quot;')}">${name} <span class="analytics-suggestion-count">(${count})</span></div>`)
+          .join('');
+      companySuggestions.style.display = 'block';
+    }
+  }
+}
+
+function addLocationFilter(location) {
+  hiddenLocations.add(location);
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
+}
+
+function addCompanyFilter(company) {
+  hiddenCompanies.add(company);
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
+}
+
+function removeLocationFilter(location) {
+  hiddenLocations.delete(location);
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
+}
+
+function removeCompanyFilter(company) {
+  hiddenCompanies.delete(company);
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
+}
+
+function updateAnalyticsFilterUI() {
+  const locationTagsContainer = document.getElementById('analyticsLocationFilterTags');
+  const companyTagsContainer = document.getElementById('analyticsCompanyFilterTags');
+  const locationCountSpan = document.getElementById('analyticsLocationFilterCount');
+  const companyCountSpan = document.getElementById('analyticsCompanyFilterCount');
+  const badge = document.getElementById('analyticsFilterBadge');
+  const clearBtn = document.getElementById('analyticsClearAllFiltersBtn');
+
+  // Update badge count
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size;
+  if (badge) {
+    badge.textContent = totalFilters;
+    badge.style.display = totalFilters > 0 ? 'inline-block' : 'none';
+  }
+
+  // Update count spans
+  if (locationCountSpan) {
+    locationCountSpan.textContent = hiddenLocations.size;
+  }
+  if (companyCountSpan) {
+    companyCountSpan.textContent = hiddenCompanies.size;
+  }
+
+  // Update clear button state
+  if (clearBtn) {
+    clearBtn.disabled = totalFilters === 0;
+  }
+
+  // Render location tags
+  if (locationTagsContainer) {
+    if (hiddenLocations.size === 0) {
+      locationTagsContainer.innerHTML = '<span class="empty-analytics-filters-message">No locations hidden</span>';
+    } else {
+      locationTagsContainer.innerHTML = Array.from(hiddenLocations)
+        .map(loc => `
+          <span class="analytics-filter-tag">
+            <span>${loc}</span>
+            <button class="analytics-filter-tag-remove" onclick="removeLocationFilter('${loc.replace(/'/g, "\\'")}')">×</button>
+          </span>
+        `).join('');
+    }
+  }
+
+  // Render company tags
+  if (companyTagsContainer) {
+    if (hiddenCompanies.size === 0) {
+      companyTagsContainer.innerHTML = '<span class="empty-analytics-filters-message">No companies hidden</span>';
+    } else {
+      companyTagsContainer.innerHTML = Array.from(hiddenCompanies)
+        .map(comp => `
+          <span class="analytics-filter-tag">
+            <span>${comp}</span>
+            <button class="analytics-filter-tag-remove" onclick="removeCompanyFilter('${comp.replace(/'/g, "\\'")}')">×</button>
+          </span>
+        `).join('');
+    }
+  }
+}
+
+function buildAnalyticsAutocomplete(data) {
+  allLocations.clear();
+  allCompanies.clear();
+
+  data.forEach(alumni => {
+    if (alumni.city && alumni.state) {
+      allLocations.add(`${alumni.city}, ${alumni.state}`);
+    }
+    if (alumni.company && alumni.company.trim() !== '') {
+      allCompanies.add(alumni.company);
+    }
+  });
+}
+
+function filterAlumniData(data) {
+  return data.filter(alumni => {
+    // Filter by location
+    const location = alumni.city && alumni.state ? `${alumni.city}, ${alumni.state}` : null;
+    if (location && hiddenLocations.has(location)) {
+      return false;
+    }
+
+    // Filter by company
+    if (alumni.company && hiddenCompanies.has(alumni.company)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 // Load all alumni data for analytics
 async function loadAnalyticsData() {
   try {
@@ -38,6 +415,8 @@ async function loadAnalyticsData() {
 
     if (data.success) {
       alumniData = data.alumni;
+      buildAnalyticsAutocomplete(alumniData);
+      updateAnalyticsFilterUI();
       renderAnalytics();
     } else {
       console.error('Failed to load alumni data:', data.error);
@@ -49,23 +428,24 @@ async function loadAnalyticsData() {
 
 // Render all analytics components
 function renderAnalytics() {
-  updateStatistics();
-  renderTopJobs();
-  renderJobPieChart();
-  renderCompanyPieChart();
-  renderLocationPieChart();
-  renderIndustryPieChart();
-  renderGraduationLineChart();
-  renderTopCompaniesTable();
-  renderTopLocationsTable();
+  const filteredData = filterAlumniData(alumniData);
+  updateStatistics(filteredData);
+  renderTopJobs(filteredData);
+  renderJobPieChart(filteredData);
+  renderCompanyPieChart(filteredData);
+  renderLocationPieChart(filteredData);
+  renderIndustryPieChart(filteredData);
+  renderGraduationLineChart(filteredData);
+  renderTopCompaniesTable(filteredData);
+  renderTopLocationsTable(filteredData);
 }
 
 // Update summary statistics
-function updateStatistics() {
-  const totalAlumni = alumniData.length;
-  const uniqueCompanies = new Set(alumniData.map(a => a.company).filter(c => c)).size;
-  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(l => l)).size;
-  const uniqueJobs = new Set(alumniData.map(a => a.current_job_title).filter(j => j)).size;
+function updateStatistics(data = alumniData) {
+  const totalAlumni = data.length;
+  const uniqueCompanies = new Set(data.map(a => a.company).filter(c => c)).size;
+  const uniqueLocations = new Set(data.map(a => a.location).filter(l => l)).size;
+  const uniqueJobs = new Set(data.map(a => a.current_job_title).filter(j => j)).size;
 
   document.getElementById('totalAlumni').textContent = totalAlumni;
   document.getElementById('totalCompanies').textContent = uniqueCompanies;
@@ -88,8 +468,8 @@ function getTopItems(items, topN = 5) {
 }
 
 // Render top 5 jobs list
-function renderTopJobs() {
-  const jobs = alumniData.map(a => a.current_job_title).filter(j => j);
+function renderTopJobs(data = alumniData) {
+  const jobs = data.map(a => a.current_job_title).filter(j => j);
   const topJobs = getTopItems(jobs, 5);
   const maxCount = topJobs[0]?.[1] || 1;
 
@@ -135,12 +515,12 @@ function generateColors(count) {
 }
 
 // Render job title pie chart
-function renderJobPieChart() {
-  const jobs = alumniData.map(a => a.current_job_title).filter(j => j);
+function renderJobPieChart(data = alumniData) {
+  const jobs = data.map(a => a.current_job_title).filter(j => j);
   const topJobs = getTopItems(jobs, 10);
 
   const labels = topJobs.map(([job]) => job);
-  const data = topJobs.map(([, count]) => count);
+  const jobChartData = topJobs.map(([, count]) => count);
   const colors = generateColors(labels.length);
 
   const ctx = document.getElementById('jobPieChart').getContext('2d');
@@ -152,7 +532,7 @@ function renderJobPieChart() {
     data: {
       labels: labels,
       datasets: [{
-        data: data,
+        data: jobChartData,
         backgroundColor: colors,
         borderColor: '#fff',
         borderWidth: 2
@@ -194,12 +574,12 @@ function renderJobPieChart() {
 }
 
 // Render company pie chart
-function renderCompanyPieChart() {
-  const companies = alumniData.map(a => a.company).filter(c => c);
+function renderCompanyPieChart(data = alumniData) {
+  const companies = data.map(a => a.company).filter(c => c);
   const topCompanies = getTopItems(companies, 10);
 
   const labels = topCompanies.map(([company]) => company);
-  const data = topCompanies.map(([, count]) => count);
+  const companyChartData = topCompanies.map(([, count]) => count);
   const colors = generateColors(labels.length);
 
   const ctx = document.getElementById('companyPieChart').getContext('2d');
@@ -211,7 +591,7 @@ function renderCompanyPieChart() {
     data: {
       labels: labels,
       datasets: [{
-        data: data,
+        data: companyChartData,
         backgroundColor: colors,
         borderColor: '#fff',
         borderWidth: 2
@@ -253,12 +633,12 @@ function renderCompanyPieChart() {
 }
 
 // Render location pie chart
-function renderLocationPieChart() {
-  const locations = alumniData.map(a => a.location).filter(l => l);
+function renderLocationPieChart(data = alumniData) {
+  const locations = data.map(a => a.location).filter(l => l);
   const topLocations = getTopItems(locations, 10);
 
   const labels = topLocations.map(([location]) => location);
-  const data = topLocations.map(([, count]) => count);
+  const locationChartData = topLocations.map(([, count]) => count);
   const colors = generateColors(labels.length);
 
   const ctx = document.getElementById('locationPieChart').getContext('2d');
@@ -270,7 +650,7 @@ function renderLocationPieChart() {
     data: {
       labels: labels,
       datasets: [{
-        data: data,
+        data: locationChartData,
         backgroundColor: colors,
         borderColor: '#fff',
         borderWidth: 2
@@ -332,12 +712,12 @@ function extractIndustry(alumni) {
 }
 
 // Render industry pie chart
-function renderIndustryPieChart() {
-  const industries = alumniData.map(a => extractIndustry(a));
+function renderIndustryPieChart(data = alumniData) {
+  const industries = data.map(a => extractIndustry(a));
   const topIndustries = getTopItems(industries, 10);
 
   const labels = topIndustries.map(([industry]) => industry);
-  const data = topIndustries.map(([, count]) => count);
+  const chartData = topIndustries.map(([, count]) => count);
   const colors = generateColors(labels.length);
 
   const ctx = document.getElementById('industryPieChart').getContext('2d');
@@ -349,7 +729,7 @@ function renderIndustryPieChart() {
     data: {
       labels: labels,
       datasets: [{
-        data: data,
+        data: chartData,
         backgroundColor: colors,
         borderColor: '#fff',
         borderWidth: 2
@@ -391,8 +771,8 @@ function renderIndustryPieChart() {
 }
 
 // Render graduation year line chart
-function renderGraduationLineChart() {
-  const years = alumniData.map(a => a.grad_year).filter(y => y);
+function renderGraduationLineChart(data = alumniData) {
+  const years = data.map(a => a.grad_year).filter(y => y);
   const yearFrequency = {};
 
   years.forEach(year => {
@@ -473,8 +853,8 @@ function renderGraduationLineChart() {
 }
 
 // Render top companies table
-function renderTopCompaniesTable() {
-  const companies = alumniData.map(a => a.company).filter(c => c);
+function renderTopCompaniesTable(data = alumniData) {
+  const companies = data.map(a => a.company).filter(c => c);
   const topCompanies = getTopItems(companies, 10);
 
   const tbody = document.getElementById('topCompaniesBody');
@@ -495,8 +875,8 @@ function renderTopCompaniesTable() {
 }
 
 // Render top locations table
-function renderTopLocationsTable() {
-  const locations = alumniData.map(a => a.location).filter(l => l);
+function renderTopLocationsTable(data = alumniData) {
+  const locations = data.map(a => a.location).filter(l => l);
   const topLocations = getTopItems(locations, 10);
 
   const tbody = document.getElementById('topLocationsBody');
