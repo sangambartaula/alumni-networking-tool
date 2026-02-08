@@ -531,7 +531,7 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline
+                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, education
                     FROM alumni
                     ORDER BY last_name ASC, first_name ASC
                     LIMIT %s OFFSET %s
@@ -540,21 +540,6 @@ def api_get_alumni():
 
             alumni = []
             for r in rows:
-                # Extract degree level from full degree string
-                full_degree = r.get('degree', '') or ''
-                degree_level = 'Other'
-                
-                # Normalize to lowercase for matching
-                degree_lower = full_degree.lower()
-                
-                if degree_lower:
-                    if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
-                        degree_level = 'Undergraduate'
-                    elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
-                        degree_level = 'Graduate'
-                    elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
-                        degree_level = 'PhD'
-                
                 alumni.append({
                     "id": r.get('id'),
                     "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
@@ -564,6 +549,7 @@ def api_get_alumni():
                     "company": r.get('company'),
                     "grad_year": r.get('grad_year'),
                     "major": r.get('major'),
+                    "education": r.get('education'),
 
                     # OPTIONAL: keep backwards-compatible for alumni UI (if needed)
                     "role": r.get('current_job_title'),
@@ -573,8 +559,8 @@ def api_get_alumni():
                     "class": r.get('grad_year'),
                     "location": r.get('location'),
                     "linkedin": r.get('linkedin_url'),
-                    "degree": degree_level,
-                    "full_degree": full_degree
+                    "degree": None, # Deprecated
+                    "full_degree": None # Deprecated
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200

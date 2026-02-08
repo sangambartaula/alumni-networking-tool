@@ -1157,7 +1157,7 @@ function showProfileModal(alumni) {
       
       <div class="profile-section">
         <h3>🎓 Education</h3>
-        <div class="profile-field"><span class="label">Degree:</span> <span class="value">${alumni.full_degree || alumni.degree || 'N/A'}</span></div>
+        <div class="profile-field"><span class="label">Education:</span> <span class="value">${alumni.education || 'University of North Texas'}</span></div>
         <div class="profile-field"><span class="label">Major:</span> <span class="value">${alumni.major || 'N/A'}</span></div>
         <div class="profile-field"><span class="label">Grad Year:</span> <span class="value">${alumni.grad_year || 'N/A'}</span></div>
       </div>

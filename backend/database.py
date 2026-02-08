@@ -192,6 +192,11 @@ def init_db():
                     user_id INT NOT NULL,
                     alumni_id INT NOT NULL,
                     note_content LONGTEXT,
+                    exp3_title TEXT,
+                    exp3_company TEXT,
+                    exp3_dates TEXT,
+                    education TEXT,
+                    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_user_alumni (user_id, alumni_id),
@@ -744,6 +749,33 @@ def migrate_env_emails_to_db():
 # EXISTING FUNCTIONS
 # ============================================================
 
+def ensure_alumni_education_column():
+    """Ensure education column exists in alumni table"""
+    conn = get_connection()
+    try:
+        # Check if column exists
+        if USE_SQLITE_FALLBACK:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(alumni)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'education' not in columns:
+                logger.info("🔧 Adding 'education' column to alumni table (SQLite)...")
+                cursor.execute("ALTER TABLE alumni ADD COLUMN education TEXT")
+                conn.commit()
+        else:
+            with conn.cursor() as cur:
+                cur.execute("SHOW COLUMNS FROM alumni LIKE 'education'")
+                if not cur.fetchone():
+                    logger.info("🔧 Adding 'education' column to alumni table (MySQL)...")
+                    cur.execute("ALTER TABLE alumni ADD COLUMN education TEXT")
+                    conn.commit()
+    except Exception as e:
+        logger.error(f"Error ensuring education column: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
 def seed_alumni_data():
     """Import alumni data from CSV file. Auto-fixes empty or malformed files."""
     backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -858,7 +890,8 @@ def seed_alumni_data():
                     job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
                     company = str(row['company']).strip() if pd.notna(row.get('company')) else None
                     major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
-                    degree = str(row.get('degree')).strip() if pd.notna(row.get('degree')) else None
+                    major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
+                    degree = None # User requested to remove degree variable usage
 
                     # Auto-infer discipline if major is not set in CSV
                     if not major:
@@ -891,62 +924,45 @@ def seed_alumni_data():
                     exp3_company = str(row.get('exp3_company', '')).strip() if pd.notna(row.get('exp3_company', None)) else None
                     exp3_dates = str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates', None)) else None
 
+                    education = str(row.get('education', '')).strip() if pd.notna(row.get('education')) else None
+
                     # Insert or update into database
                     try:
                         cur.execute("""
                             INSERT INTO alumni 
                             (first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying,
-                             exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
-                             scraped_at, last_updated)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s,
-                                    %s, %s, %s, %s, %s, %s,
-                                    %s, %s)
-                            ON DUPLICATE KEY UPDATE
-                            first_name = VALUES(first_name),
-                            last_name = VALUES(last_name),
-                            grad_year = VALUES(grad_year),
-                            degree = VALUES(degree),
-                            major = VALUES(major),
-                            current_job_title = VALUES(current_job_title),
-                            company = VALUES(company),
-                            location = VALUES(location),
-                            headline = VALUES(headline),
-                            school_start_date = VALUES(school_start_date),
-                            job_start_date = VALUES(job_start_date),
-                            job_end_date = VALUES(job_end_date),
-                            working_while_studying = VALUES(working_while_studying),
-                            exp2_title = VALUES(exp2_title),
-                            exp2_company = VALUES(exp2_company),
-                            exp2_dates = VALUES(exp2_dates),
-                            exp3_title = VALUES(exp3_title),
-                            exp3_company = VALUES(exp3_company),
-                            exp3_dates = VALUES(exp3_dates),
-                            last_updated = VALUES(last_updated)
+                             exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates, education,
+                             scraped_at, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(linkedin_url) DO UPDATE SET
+                                first_name=excluded.first_name,
+                                last_name=excluded.last_name,
+                                grad_year=excluded.grad_year,
+                                degree=excluded.degree,
+                                major=excluded.major,
+                                current_job_title=excluded.current_job_title,
+                                company=excluded.company,
+                                location=excluded.location,
+                                headline=excluded.headline,
+                                school_start_date=excluded.school_start_date,
+                                job_start_date=excluded.job_start_date,
+                                job_end_date=excluded.job_end_date,
+                                working_while_studying=excluded.working_while_studying,
+                                exp2_title=excluded.exp2_title,
+                                exp2_company=excluded.exp2_company,
+                                exp2_dates=excluded.exp2_dates,
+                                exp3_title=excluded.exp3_title,
+                                exp3_company=excluded.exp3_company,
+                                exp3_dates=excluded.exp3_dates,
+                                education=excluded.education,
+                                scraped_at=excluded.scraped_at,
+                                updated_at=excluded.updated_at
                         """, (
-                            first_name,
-                            last_name,
-                            grad_year,
-                            degree,  # degree is not in CSV yet
-                            major,
-                            profile_url,
-                            job_title,
-                            company,
-                            location,
-                            headline,
-                            school_start_date,
-                            job_start_date,
-                            job_end_date,
-                            working_while_studying,
-                            exp2_title,
-                            exp2_company,
-                            exp2_dates,
-                            exp3_title,
-                            exp3_company,
-                            exp3_dates,
-                            scraped_at,
-                            scraped_at
+                            first_name, last_name, grad_year, degree, major, profile_url, job_title, company, location, headline,
+                            school_start_date, job_start_date, job_end_date, working_while_studying,
+                            exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates, education,
+                            scraped_at, scraped_at, scraped_at # created_at and updated_at
                         ))
 
                         if cur.rowcount == 1:
@@ -1064,6 +1080,7 @@ if __name__ == "__main__":
         ensure_alumni_timestamp_columns()
         ensure_alumni_work_school_date_columns()
         ensure_alumni_major_column()
+        ensure_alumni_education_column()
 
         # Seed alumni data
         seed_alumni_data()

@@ -39,7 +39,7 @@ function updateStatsBanner(alumniData) {
   const totalAlumni = alumniData.length;
 
   // Calculate unique locations
-  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc));
+  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc && loc !== 'Not Found'));
   const locationsCount = uniqueLocations.size;
 
   // Calculate bookmarked alumni - check interaction_type === 'bookmarked'
