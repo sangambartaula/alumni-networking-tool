@@ -584,12 +584,9 @@ def api_get_alumni():
             except Exception:
                 pass
 
-    except mysql.connector.Error as err:
-        app.logger.error(f"MySQL error fetching alumni: {err}")
-        return jsonify({"error": f"Database error: {str(err)}"}), 500
     except Exception as e:
         app.logger.error(f"Error fetching alumni: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
 
 
@@ -1031,13 +1028,17 @@ def get_heatmap_data():
                 location_clusters[cluster_key] += 1
 
                 # keep all alumni for this cluster (no limit)
+                created_at_val = row.get("created_at")
+                if hasattr(created_at_val, 'isoformat'):
+                    created_at_val = created_at_val.isoformat()
+                
                 location_details[cluster_key]["sample_alumni"].append({
                     "id": row["id"],
                     "name": f"{row['first_name']} {row['last_name']}".strip(),
                     "role": row["current_job_title"] or row["headline"] or "Alumni",
                     "company": row["company"],
                     "linkedin": row["linkedin_url"],
-                    "created_at": row.get("created_at").isoformat() if row.get("created_at") else None
+                    "created_at": created_at_val
                 })
                 
                 # Track location string frequencies for majority voting
@@ -1085,12 +1086,9 @@ def get_heatmap_data():
             except Exception:
                 pass
 
-    except mysql.connector.Error as err:
-        app.logger.error(f"MySQL error fetching heatmap data: {err}")
-        return jsonify({"error": f"Database error: {str(err)}"}), 500
     except Exception as e:
         app.logger.error(f"Error fetching heatmap data: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
 
 @app.route("/api/geocode")

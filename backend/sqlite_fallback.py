@@ -868,6 +868,8 @@ class SQLiteCursorWrapper:
     
     def execute(self, query, params=None):
         """Execute a query, translating MySQL syntax to SQLite."""
+        import re
+        
         # Translate MySQL placeholder %s to SQLite placeholder ?
         translated_query = query.replace('%s', '?')
         
@@ -875,15 +877,142 @@ class SQLiteCursorWrapper:
         if 'ON DUPLICATE KEY UPDATE' in translated_query.upper():
             translated_query = self._convert_upsert(translated_query)
         
-        # Handle MySQL NOW() -> SQLite datetime('now')
-        translated_query = translated_query.replace('NOW()', "datetime('now', 'utc')")
+        # Handle MySQL NOW() -> SQLite (datetime('now')) - parentheses needed for DEFAULT
+        translated_query = translated_query.replace('NOW()', "(datetime('now'))")
         
-        # Handle CURRENT_TIMESTAMP
-        import re
+        # Remove MySQL-specific ON UPDATE CURRENT_TIMESTAMP (not supported in SQLite DDL)
+        translated_query = re.sub(
+            r'\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP\b',
+            '',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # Handle CURRENT_TIMESTAMP -> SQLite (datetime('now')) 
+        # Note: SQLite DEFAULT requires expressions wrapped in parentheses
         translated_query = re.sub(
             r'\bCURRENT_TIMESTAMP\b', 
-            "datetime('now', 'utc')", 
+            "(datetime('now'))", 
             translated_query, 
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL INT AUTO_INCREMENT PRIMARY KEY -> SQLite INTEGER PRIMARY KEY AUTOINCREMENT
+        translated_query = re.sub(
+            r'\bINT\s+AUTO_INCREMENT\s+PRIMARY\s+KEY\b',
+            'INTEGER PRIMARY KEY AUTOINCREMENT',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL ENUM('a', 'b', ...) -> SQLite TEXT (with CHECK constraint removed for simplicity)
+        translated_query = re.sub(
+            r"\bENUM\s*\([^)]+\)",
+            'TEXT',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL LONGTEXT -> SQLite TEXT
+        translated_query = re.sub(
+            r'\bLONGTEXT\b',
+            'TEXT',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL VARCHAR(n) -> SQLite TEXT (SQLite doesn't enforce length)
+        translated_query = re.sub(
+            r'\bVARCHAR\s*\(\s*\d+\s*\)',
+            'TEXT',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL DATETIME -> SQLite TEXT
+        translated_query = re.sub(
+            r'\bDATETIME\b(?!\s*\()',
+            'TEXT',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL TIMESTAMP -> SQLite TEXT
+        translated_query = re.sub(
+            r'\bTIMESTAMP\b(?!\s*\()',
+            'TEXT',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL DOUBLE -> SQLite REAL
+        translated_query = re.sub(
+            r'\bDOUBLE\b',
+            'REAL',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL UNIQUE KEY name (col) -> SQLite: just rely on UNIQUE constraint
+        translated_query = re.sub(
+            r',?\s*UNIQUE\s+KEY\s+\w+\s*\([^)]+\)',
+            '',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL INDEX idx_name (col) in CREATE TABLE -> remove (create separately if needed)
+        translated_query = re.sub(
+            r',?\s*INDEX\s+\w+\s*\([^)]+\)',
+            '',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL CONSTRAINT fk_name FOREIGN KEY ... -> remove (SQLite FKs work differently)
+        translated_query = re.sub(
+            r',?\s*CONSTRAINT\s+\w+\s+FOREIGN\s+KEY\s*\([^)]+\)\s*REFERENCES\s+\w+\s*\([^)]+\)(\s+ON\s+(DELETE|UPDATE)\s+\w+)*',
+            '',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # INSERT IGNORE -> INSERT OR IGNORE
+        translated_query = re.sub(
+            r'\bINSERT\s+IGNORE\b',
+            'INSERT OR IGNORE',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL SUBSTRING_INDEX(str, delim, 1) -> SQLite equivalent
+        # Handles: SUBSTRING_INDEX(column, 'delimiter', 1) -> get text BEFORE first delimiter
+        def replace_substring_index(match):
+            col = match.group(1)
+            delim = match.group(2)
+            # If count is 1 (get everything before first delimiter)
+            return f"CASE WHEN INSTR({col}, {delim}) > 0 THEN SUBSTR({col}, 1, INSTR({col}, {delim}) - 1) ELSE {col} END"
+        
+        translated_query = re.sub(
+            r'\bSUBSTRING_INDEX\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*1\s*\)',
+            replace_substring_index,
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL GREATEST(a, b) -> SQLite MAX(a, b)
+        translated_query = re.sub(
+            r'\bGREATEST\s*\(',
+            'MAX(',
+            translated_query,
+            flags=re.IGNORECASE
+        )
+        
+        # MySQL LEAST(a, b) -> SQLite MIN(a, b) 
+        translated_query = re.sub(
+            r'\bLEAST\s*\(',
+            'MIN(',
+            translated_query,
             flags=re.IGNORECASE
         )
         

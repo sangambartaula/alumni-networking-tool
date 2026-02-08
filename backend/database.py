@@ -219,7 +219,7 @@ def init_db():
             conn.commit()
             logger.info("All tables initialized successfully")
 
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Database error: {err}")
         raise
     finally:
@@ -247,8 +247,8 @@ def ensure_alumni_timestamp_columns():
                     ADD COLUMN scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 """)
                 logger.info("Added scraped_at column to alumni table")
-            except mysql.connector.Error as err:
-                if "Duplicate column name" in str(err):
+            except Exception as err:
+                if "duplicate column" in str(err).lower():
                     logger.info("scraped_at column already exists")
                 else:
                     raise
@@ -260,14 +260,14 @@ def ensure_alumni_timestamp_columns():
                     ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 """)
                 logger.info("Added last_updated column to alumni table")
-            except mysql.connector.Error as err:
-                if "Duplicate column name" in str(err):
+            except Exception as err:
+                if "duplicate column" in str(err).lower():
                     logger.info("last_updated column already exists")
                 else:
                     raise
 
             conn.commit()
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error ensuring timestamp columns: {err}")
         raise
     finally:
@@ -294,8 +294,8 @@ def ensure_alumni_work_school_date_columns():
                 try:
                     cur.execute(sql)
                     logger.info(f"Added {name} column to alumni table")
-                except mysql.connector.Error as err:
-                    if "Duplicate column name" in str(err):
+                except Exception as err:
+                    if "duplicate column" in str(err).lower():
                         logger.info(f"{name} column already exists")
                     else:
                         raise
@@ -314,7 +314,7 @@ def ensure_alumni_work_school_date_columns():
             add_col("ALTER TABLE alumni ADD COLUMN exp3_dates VARCHAR(50) DEFAULT NULL", "exp3_dates")
 
             conn.commit()
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error ensuring work/school date columns: {err}")
         raise
     finally:
@@ -340,13 +340,13 @@ def ensure_alumni_major_column():
                     ADD COLUMN major VARCHAR(255) DEFAULT NULL
                 """)
                 logger.info("Added major column to alumni table")
-            except mysql.connector.Error as err:
-                if "Duplicate column name" in str(err):
+            except Exception as err:
+                if "duplicate column" in str(err).lower():
                     logger.info("Major column already exists")
                 else:
                     raise
             conn.commit()
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error ensuring major column: {err}")
         raise
     finally:
@@ -383,7 +383,7 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
         logger.debug(f"💾 Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
         return True
 
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error saving visited profile: {err}")
         return False
     finally:
@@ -412,7 +412,7 @@ def get_all_visited_profiles():
         logger.info(f"✓ Retrieved {len(profiles)} visited profiles from database")
         return profiles
 
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error fetching visited profiles: {err}")
         return []
     finally:
@@ -438,7 +438,7 @@ def mark_profile_needs_update(linkedin_url, needs_update=True):
 
         return True
 
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error updating profile needs_update flag: {err}")
         return False
     finally:
@@ -474,7 +474,7 @@ def sync_alumni_to_visited_profiles():
         logger.info(f"✓ Synced {synced} alumni to visited_profiles table")
         return synced
 
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error syncing alumni to visited_profiles: {err}")
         return 0
     finally:
@@ -529,7 +529,7 @@ def migrate_visited_history_csv_to_db():
                             last_checked = NOW()
                     """, (url, saved, visited_at))
                     migrated += 1
-                except mysql.connector.Error as err:
+                except Exception as err:
                     logger.warning(f"Skipping {url}: {err}")
                     continue
 
@@ -567,7 +567,7 @@ def get_visited_profiles_stats():
 
         return stats
 
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error getting visited profiles stats: {err}")
         return None
     finally:
@@ -845,6 +845,16 @@ def seed_alumni_data():
                     # Extract other fields
                     headline = str(row['headline']).strip() if pd.notna(row.get('headline')) else None
                     location = str(row['location']).strip() if pd.notna(row.get('location')) else None
+
+                    # BLOCK SAMPLE USERS
+                    FORBIDDEN_LOCATIONS = {
+                        'Seattle, WA', 'San Jose, CA', 'San Francisco, CA', 
+                        'New York, NY', 'Austin, TX', 'Palo Alto, CA', 
+                        'Cupertino, CA', 'Menlo Park, CA'
+                    }
+                    if location and location in FORBIDDEN_LOCATIONS:
+                        logger.info(f"🚫 Skipping sample user: {first_name} {last_name} from {location}")
+                        continue
                     job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
                     company = str(row['company']).strip() if pd.notna(row.get('company')) else None
                     major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
@@ -943,7 +953,7 @@ def seed_alumni_data():
                             added += 1
                         elif cur.rowcount == 2:
                             updated += 1
-                    except mysql.connector.Error as err:
+                    except Exception as err:
                         logger.warning(f"Skipping record for {name}: {err}")
                         continue
 
@@ -981,7 +991,7 @@ def truncate_dot_fields():
             """)
             conn.commit()
             logger.info("✅ Truncated '·' fields in alumni table")
-    except mysql.connector.Error as err:
+    except Exception as err:
         logger.error(f"Error truncating dot fields: {err}")
         raise
     finally:
@@ -1016,8 +1026,10 @@ def cleanup_trailing_slashes():
                         # Try to update
                         cur.execute(f"UPDATE {table} SET linkedin_url = %s WHERE id = %s", (clean_url, row_id))
                         fixed += 1
-                    except mysql.connector.Error as err:
-                        if err.errno == 1062: # Duplicate entry
+                    except Exception as err:
+                        # Check if it's a duplicate entry error (MySQL 1062 or SQLite constraint)
+                        err_str = str(err).lower()
+                        if 'duplicate' in err_str or 'unique constraint' in err_str:
                             # Collision! The clean URL matches another record.
                             # We delete the current record with the slash, keeping the other one.
                             logger.info(f"  Collision for {clean_url}. Deleting duplicate record ID {row_id}.")

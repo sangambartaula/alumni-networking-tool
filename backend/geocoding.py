@@ -56,6 +56,14 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
         logger.info(f"✓ Matched DFW Regex for '{location_string}' → Using default {DFW_COORDS}")
         _LOCATION_CACHE[location_string] = DFW_COORDS
         return DFW_COORDS
+    
+    # 2b. CHECK FOR ATLANTA METROPOLITAN AREA
+    ATLANTA_COORDS = (33.7544657, -84.3898151)  # Atlanta, Georgia
+    atlanta_pattern = r"(?i)(atlanta.*metro|atlanta.*area)"
+    if re.search(atlanta_pattern, location_string):
+        logger.info(f"✓ Matched Atlanta Regex for '{location_string}' → Using default {ATLANTA_COORDS}")
+        _LOCATION_CACHE[location_string] = ATLANTA_COORDS
+        return ATLANTA_COORDS
 
     # 3. CALL API (If not in cache)
     try:
@@ -65,8 +73,17 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
         params = {
             "q": location_string,
             "format": "json",
-            "limit": 1
+            "limit": 1,
+            "countrycodes": "us"  # Bias towards US results for alumni
         }
+        
+        # If location explicitly mentions another country, remove US bias
+        non_us_countries = ['india', 'saudi arabia', 'egypt', 'canada', 'uk', 'china', 'germany', 'australia', 'mexico']
+        location_lower = location_string.lower()
+        for country in non_us_countries:
+            if country in location_lower:
+                del params["countrycodes"]
+                break
         
         response = requests.get(
             NOMINATIM_BASE_URL,
@@ -190,7 +207,7 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
         logger.info(f"✓ Successfully geocoded {geocoded_count}/{total} records")
         return geocoded_count
         
-    except mysql.connector.Error as e:
+    except Exception as e:
         logger.error(f"Database error during geocoding: {e}")
         if conn:
             try:

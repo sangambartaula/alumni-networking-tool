@@ -97,6 +97,7 @@ scraper/*.json
 *.db
 *.sqlite
 local.db
+*.sql
 
 # Local development
 .local/
