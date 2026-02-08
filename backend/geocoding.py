@@ -190,7 +190,7 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
         logger.info(f"✓ Successfully geocoded {geocoded_count}/{total} records")
         return geocoded_count
         
-    except mysql.connector.Error as e:
+    except Exception as e:
         logger.error(f"Database error during geocoding: {e}")
         if conn:
             try:
