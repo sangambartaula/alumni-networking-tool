@@ -769,34 +769,63 @@ def seed_alumni_data():
                 for index, row in df.iterrows():
                     processed += 1
 
-                    # Parse name
-                    name = str(row['name']).strip() if pd.notna(row['name']) else ''
-                    if not name:
+                    # Parse name (Handle New 'first', 'last' OR Old 'name')
+                    first_name = str(row.get('first', '')).strip() if pd.notna(row.get('first')) else ''
+                    last_name = str(row.get('last', '')).strip() if pd.notna(row.get('last')) else ''
+                    
+                    if not first_name and not last_name:
+                        # Fallback to old 'name' column
+                        name = str(row.get('name', '')).strip() if pd.notna(row.get('name')) else ''
+                        if name:
+                            parts = name.split()
+                            first_name = parts[0]
+                            last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                    if not first_name and not last_name:
                         continue
 
-                    parts = name.split()
-                    first_name = parts[0] if len(parts) > 0 else ''
-                    last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+                    # Extract fields with New/Old keys
+                    headline = str(row.get('headline', '')).strip() if pd.notna(row.get('headline')) else None
+                    location = str(row.get('location', '')).strip() if pd.notna(row.get('location')) else None
+                    
+                    # title (new) vs job_title (old)
+                    job_title = str(row.get('title', '')).strip() if pd.notna(row.get('title')) else \
+                                str(row.get('job_title', '')).strip() if pd.notna(row.get('job_title')) else None
 
-                    # Extract other fields
-                    headline = str(row['headline']).strip() if pd.notna(row.get('headline')) else None
-                    location = str(row['location']).strip() if pd.notna(row.get('location')) else None
-                    job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
-                    company = str(row['company']).strip() if pd.notna(row.get('company')) else None
-                    major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
-                    degree = str(row.get('degree')).strip() if pd.notna(row.get('degree')) else None
+                    company = str(row.get('company', '')).strip() if pd.notna(row.get('company')) else None
+                    major = str(row.get('major', '')).strip() if pd.notna(row.get('major')) else None
+                    degree = str(row.get('degree', '')).strip() if pd.notna(row.get('degree')) else None
 
                     # Auto-infer discipline if major is not set in CSV
                     if not major:
                         major = infer_discipline(degree, job_title, headline)
-                    grad_year = int(row['graduation_year']) if pd.notna(row.get('graduation_year')) else None
-                    profile_url = normalize_url(row.get('profile_url'))
-                    scraped_at = str(row['scraped_at']).strip() if pd.notna(row.get('scraped_at')) else None
+                    
+                    # grad_year (new) vs graduation_year (old)
+                    grad_year = None
+                    if pd.notna(row.get('grad_year')):
+                        grad_year = int(row['grad_year'])
+                    elif pd.notna(row.get('graduation_year')):
+                        grad_year = int(row['graduation_year'])
+
+                    # linkedin_url (new) vs profile_url (old)
+                    raw_url = row.get('linkedin_url') if pd.notna(row.get('linkedin_url')) else row.get('profile_url')
+                    profile_url = normalize_url(raw_url)
+                    
+                    scraped_at = str(row.get('scraped_at', '')).strip() if pd.notna(row.get('scraped_at')) else None
 
                     # New fields (may not exist in older CSVs)
-                    school_start_date = str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date', None)) else None
-                    job_start_date = str(row.get('job_start_date', '')).strip() if pd.notna(row.get('job_start_date', None)) else None
-                    job_end_date = str(row.get('job_end_date', '')).strip() if pd.notna(row.get('job_end_date', None)) else None
+                    # school_start (new) vs school_start_date (old)
+                    school_start_date = str(row.get('school_start', '')).strip() if pd.notna(row.get('school_start')) else \
+                                        str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date')) else None
+
+                    # job_start (new) vs job_start_date (old)
+                    job_start_date = str(row.get('job_start', '')).strip() if pd.notna(row.get('job_start')) else \
+                                     str(row.get('job_start_date', '')).strip() if pd.notna(row.get('job_start_date')) else None
+
+                    # job_end (new) vs job_end_date (old)
+                    job_end_date = str(row.get('job_end', '')).strip() if pd.notna(row.get('job_end')) else \
+                                   str(row.get('job_end_date', '')).strip() if pd.notna(row.get('job_end_date')) else None
+
                     wws_raw = row.get('working_while_studying', None)
                     working_while_studying = None
                     if pd.notna(wws_raw):
@@ -806,16 +835,28 @@ def seed_alumni_data():
                                 working_while_studying = True
                             elif v in ("no", "false", "0"):
                                 working_while_studying = False
-                        elif isinstance(wws_raw, (int, float)):
-                            working_while_studying = bool(int(wws_raw))
+                        elif isinstance(wws_raw, (int, float, bool)):
+                            # pandas might load bool as bool or float
+                            working_while_studying = bool(wws_raw)
 
-                    # Experience 2 and 3 fields
-                    exp2_title = str(row.get('exp2_title', '')).strip() if pd.notna(row.get('exp2_title', None)) else None
-                    exp2_company = str(row.get('exp2_company', '')).strip() if pd.notna(row.get('exp2_company', None)) else None
-                    exp2_dates = str(row.get('exp2_dates', '')).strip() if pd.notna(row.get('exp2_dates', None)) else None
-                    exp3_title = str(row.get('exp3_title', '')).strip() if pd.notna(row.get('exp3_title', None)) else None
-                    exp3_company = str(row.get('exp3_company', '')).strip() if pd.notna(row.get('exp3_company', None)) else None
-                    exp3_dates = str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates', None)) else None
+                    # Experience 2 and 3 fields (New: exp_2_title vs Old: exp2_title)
+                    exp2_title = str(row.get('exp_2_title', '')).strip() if pd.notna(row.get('exp_2_title')) else \
+                                 str(row.get('exp2_title', '')).strip() if pd.notna(row.get('exp2_title'),) else None
+                    
+                    exp2_company = str(row.get('exp_2_company', '')).strip() if pd.notna(row.get('exp_2_company')) else \
+                                   str(row.get('exp2_company', '')).strip() if pd.notna(row.get('exp2_company')) else None
+                    
+                    exp2_dates = str(row.get('exp_2_dates', '')).strip() if pd.notna(row.get('exp_2_dates')) else \
+                                 str(row.get('exp2_dates', '')).strip() if pd.notna(row.get('exp2_dates')) else None
+                    
+                    exp3_title = str(row.get('exp_3_title', '')).strip() if pd.notna(row.get('exp_3_title')) else \
+                                 str(row.get('exp3_title', '')).strip() if pd.notna(row.get('exp3_title')) else None
+                    
+                    exp3_company = str(row.get('exp_3_company', '')).strip() if pd.notna(row.get('exp_3_company')) else \
+                                   str(row.get('exp3_company', '')).strip() if pd.notna(row.get('exp3_company')) else None
+                    
+                    exp3_dates = str(row.get('exp_3_dates', '')).strip() if pd.notna(row.get('exp_3_dates')) else \
+                                 str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates')) else None
 
                     # Insert or update into database
                     try:

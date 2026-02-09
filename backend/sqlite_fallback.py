@@ -947,6 +947,10 @@ class SQLiteCursorWrapper:
     def lastrowid(self):
         return self._cursor.lastrowid
     
+    @property
+    def description(self):
+        return self._cursor.description
+    
     def __enter__(self):
         return self
     

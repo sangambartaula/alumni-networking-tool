@@ -148,7 +148,7 @@ For each job, I need:
 
 IMPORTANT:
 - Only extract ACTUAL JOBS where someone was employed
-- DO NOT include education or schools - only employers
+- DO NOT include education or schools unless their title matches a real job. Not Student or something similar. Certifications, projects, etc. aren't included but Lecturers, TA's etc. are.
 - Order by most recent first (current job first)
 
 Return ONLY a JSON array, no other text:
@@ -196,6 +196,33 @@ HTML:
                     "end_date": job.get("end_date", "").strip()
                 })
         
+        # Sort jobs by date (Most recent first) to fix ordering issues
+        def job_sort_key(job):
+            # Parse End Date
+            end_date = job.get('end_date', '')
+            end_info = parse_groq_date(end_date)
+            if not end_info:
+                end_y, end_m = 0, 0
+            else:
+                end_y = end_info.get('year', 0)
+                end_m = end_info.get('month', 0) or 0
+                if end_info.get('is_present'):
+                    end_y = 9999
+                    end_m = 13
+
+            # Parse Start Date
+            start_date = job.get('start_date', '')
+            start_info = parse_groq_date(start_date)
+            if not start_info:
+                start_y, start_m = 0, 0
+            else:
+                start_y = start_info.get('year', 0)
+                start_m = start_info.get('month', 0) or 0
+
+            return (end_y, end_m, start_y, start_m)
+
+        valid_jobs.sort(key=job_sort_key, reverse=True)
+
         if valid_jobs:
             logger.info(f"    ✓ Groq extracted {len(valid_jobs)} job(s)")
             for i, job in enumerate(valid_jobs):

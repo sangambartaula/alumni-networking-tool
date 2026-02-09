@@ -12,6 +12,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchWindowException
 
 # Local imports
+import html
+
+# Local imports
 import utils
 import config
 from config import logger
@@ -24,6 +27,7 @@ def normalize_scraped_data(data):
     Normalize all scraped data fields:
     - Strip leading/trailing whitespace from all string fields
     - Remove trailing slashes from URLs
+    - Unescape HTML entities (e.g. &amp; -> &)
     """
     if not data:
         return data
@@ -35,10 +39,14 @@ def normalize_scraped_data(data):
             # Remove trailing slashes from URLs
             if 'url' in key.lower() and value:
                 value = value.rstrip('/')
+            
+            # Unescape HTML entities
+            value = html.unescape(value)
+            
             data[key] = value
         elif isinstance(value, list):
             # Handle list fields like all_education
-            data[key] = [v.strip() if isinstance(v, str) else v for v in value]
+            data[key] = [html.unescape(v.strip()) if isinstance(v, str) else v for v in value]
     
     return data
 
