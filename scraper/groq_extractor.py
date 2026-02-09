@@ -11,6 +11,7 @@ import os
 import json
 import re
 from pathlib import Path
+from datetime import datetime
 from config import logger
 
 # Try to import groq and BeautifulSoup
@@ -56,16 +57,7 @@ def is_groq_available():
 
 def clean_html_for_llm(html: str, profile_name: str = "unknown") -> str:
     """
-    Clean HTML to reduce tokens while preserving important content.
-    
-    Removes:
-    - All attributes except aria-label (sometimes has useful text)
-    - Script and style tags
-    - SVG and image elements
-    - Empty elements
-    - Excessive whitespace
-    
-    This can reduce HTML size by 60-80%, significantly cutting token usage.
+    Clean HTML to reduce tokens while preserving structure and text.
     """
     if not BS4_AVAILABLE:
         # Fallback: just strip some obvious things with regex
@@ -76,36 +68,93 @@ def clean_html_for_llm(html: str, profile_name: str = "unknown") -> str:
     
     soup = BeautifulSoup(html, 'html.parser')
     
-    # Remove script, style, svg, img elements
-    for tag in soup.find_all(['script', 'style', 'svg', 'img', 'button', 'iframe']):
+    # 1. Remove non-content tags (script, style, svg, img, iframe, noscript)
+    for tag in soup.find_all(['script', 'style', 'svg', 'img', 'iframe', 'noscript']):
         tag.decompose()
+        
+    # 2. Remove hidden elements? (Be careful not to remove containers)
+    # Only remove if it's a leaf node or small text?
+    # For now, let's skip aggressive hidden removal if it's causing issues.
+    # Instead, let's just remove visually-hidden if it's explicitly marked?
+    # (Commented out to be safe for now, as 100% reduction suggests we lost root content)
+    # for tag in soup.find_all(attrs={"aria-hidden": "true"}):
+    #     tag.decompose()
     
-    # Remove all attributes except a few useful ones
+    # 3. Simplify attributes (keep class/aria-label)
     keep_attrs = {'aria-label', 'class'}
     for tag in soup.find_all(True):
         attrs_to_remove = [attr for attr in tag.attrs if attr not in keep_attrs]
         for attr in attrs_to_remove:
             del tag[attr]
-        # Simplify classes - keep only potentially useful ones
+            
+        # Keep useful layout classes
         if 'class' in tag.attrs:
-            useful_classes = [c for c in tag['class'] if any(x in c for x in ['t-bold', 't-14', 't-normal', 'pvs-entity'])]
+            # Keep structural classes (pvs-entity, etc) and Typography (t-bold, etc)
+            useful_classes = [c for c in tag['class'] if any(x in c for x in ['pvs-', 't-', 'inline-show-more-text', 'visually-hidden'])]
             if useful_classes:
                 tag['class'] = useful_classes
-            else:
-                del tag['class']
+    
+    # NEW: Remove specific noise classes (Description, Visually Hidden duplicates)
+    for tag in soup.find_all(class_=lambda x: x and any(c in x for c in ['visually-hidden', 'inline-show-more-text', 'artdeco-button__icon'])):
+        tag.decompose()
+
+    # NEW: Remove Skill sections
+    # Look for elements containing "skills" inside typical containers
+    for tag in soup.find_all(["strong", "span"]):
+        txt = tag.get_text()
+        # Case insensitive check for "and +X skill" or "and +X skills"
+        if ("skill" in txt.lower() and "+" in txt) or "skills" in txt.lower():
+             # Verify it looks like a skill list: usually has comma or "+"
+             if "+" in txt or "," in txt:
+                # Likely "Python and +X skills" - remove the parent container
+                parent = tag.find_parent("div", class_="display-flex")
+                if parent:
+                    parent.decompose()
+                else:
+                    tag.decompose()
+
+    # NEW: Remove diamond-icon skill/tag entries from sub-components
+    # These appear as <strong> text (e.g., "Teaching", "Problem Solving") inside
+    # .t-14.t-normal.t-black divs nested within pvs-entity__sub-components.
+    # Groq mistakes these for job titles, wasting extraction slots.
+    for sub_comp in soup.select('.pvs-entity__sub-components'):
+        for container in sub_comp.find_all('div', class_=lambda c: c and 't-14' in c and 't-normal' in c and 't-black' in c and 't-black--light' not in c):
+            if container.find('strong'):
+                li_parent = container.find_parent('li')
+                if li_parent:
+                    li_parent.decompose()
+                else:
+                    container.decompose()
+
+    # 4. Remove empty tags (recursive) - ONLY IF truly empty (no text, no children)
+    # We loop multiple times to clean nested empty tags
+    for _ in range(3):
+        for tag in soup.find_all():
+            if len(tag.get_text(strip=True)) == 0 and not tag.find_all(): # No text, no children
+                tag.decompose()
     
     # Get cleaned HTML
     cleaned = str(soup)
     
-    # Collapse whitespace
+    # 5. Fix whitespace merging (Prevent "WordWord")
+    # Replace newlines/tabs with space
     cleaned = re.sub(r'\s+', ' ', cleaned)
-    cleaned = re.sub(r'>\s+<', '><', cleaned)
+    # Add space between tags instead of removing it
+    cleaned = re.sub(r'>\s*<', '> <', cleaned)
+    
+    # 6. Safety Check: If we reduced to 0, return original (stripped)
+    if len(cleaned) < 50 and len(html) > 100:
+        logger.warning(f"    ⚠️ HTML Cleaning removed too much! Fallback to basic regex.")
+        return re.sub(r'<[^>]+>', ' ', html).strip()[:5000] # Just return text if desperate?
+        # Or return less processed HTML
+        # return html 
     
     # Save to debug file if enabled
     if DEBUG_SAVE_HTML:
         DEBUG_HTML_DIR.mkdir(parents=True, exist_ok=True)
         safe_name = re.sub(r'[^\w\-]', '_', profile_name)[:50]
-        debug_file = DEBUG_HTML_DIR / f"{safe_name}.html"
+        timestamp = datetime.now().strftime("%H%M%S")
+        debug_file = DEBUG_HTML_DIR / f"{safe_name}_{timestamp}.html"
         debug_file.write_text(cleaned, encoding='utf-8')
         logger.info(f"    📄 Saved debug HTML to: {debug_file.name}")
     
@@ -136,9 +185,12 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
     reduction = round((1 - cleaned_len / original_len) * 100) if original_len > 0 else 0
     logger.info(f"    📉 HTML cleaned: {original_len:,} → {cleaned_len:,} chars ({reduction}% reduction)")
     
+    # Ask Groq for extra jobs to buffer against duplicates/skills being filtered out
+    groq_max = max_jobs + 2
+    
     # Build a clear, simple prompt
     prompt = f"""I have provided you with the HTML of a LinkedIn Profile's Experience Section. 
-Extract their {max_jobs} most recent jobs (if any).
+Extract their {groq_max} most recent jobs (if any).
 
 For each job, I need:
 - company: The employer's name (e.g., "Wells Fargo", "Chewy", "Target")
@@ -148,10 +200,15 @@ For each job, I need:
 
 IMPORTANT:
 - Only extract ACTUAL JOBS where someone was employed
-- DO NOT include education or schools unless their title matches a real job. Not Student or something similar. Certifications, projects, etc. aren't included but Lecturers, TA's etc. are.
+- INCLUDE academic employment like "Teaching Assistant", "Research Assistant", "Lecturer", "Instructor", "Postdoc". These are valid jobs. Even at "University of North Texas".
+- INCLUDE nested roles (multiple roles at same company). Treat each nested role as a separate job entry.
+- DO NOT exclude a job just because it is at a university.
+- DO NOT include education entries (Student, Candidate) unless they have a job title.
 - Order by most recent first (current job first)
+- IGNORE metadata lines like "Skills: Python, Java...", "Teaching, Computer Science and +1 skill", or anything starting with a diamond symbol. These are NOT job titles.
+- DO NOT extract employment types (Internship, Part-time, Full-time, Contract, Seasonal) as the job_title. If the only title available is "Internship", look for the actual role (e.g., "Software Engineer Intern"). If none, skip it.
 
-Return ONLY a JSON array, no other text:
+Return ONLY a JSON array. Do NOT return valid javascript or any other code. Just the raw JSON.
 [{{"company": "...", "job_title": "...", "start_date": "...", "end_date": "..."}}]
 
 If no jobs found, return: []
@@ -178,20 +235,103 @@ HTML:
         elif "```" in result_text:
             result_text = result_text.split("```")[1].split("```")[0].strip()
         
+        # Clean up common JS artifacts if model hallucinates code
+        if result_text.startswith("const ") or result_text.startswith("let ") or result_text.startswith("var "):
+            # Try to find the array bracket
+            start_idx = result_text.find("[")
+            if start_idx != -1:
+                result_text = result_text[start_idx:]
+        
         # Parse JSON
-        jobs = json.loads(result_text)
+        try:
+            jobs = json.loads(result_text)
+        except json.JSONDecodeError:
+            # Fallback: try to find array in text
+            import re
+            match = re.search(r'\[.*\]', result_text, re.DOTALL)
+            if match:
+                try:
+                    jobs = json.loads(match.group(0))
+                except:
+                    logger.warning(f"⚠️ Failed to parse extracted JSON: {result_text[:100]}...")
+                    return []
+            else:
+                logger.warning(f"⚠️ Groq returned invalid JSON: {result_text[:100]}...")
+                return []
         
         if not isinstance(jobs, list):
             logger.warning("⚠️ Groq returned non-list response")
             return []
         
-        # Validate and clean results
         valid_jobs = []
-        for job in jobs[:max_jobs]:
+        import re
+        skill_pattern = re.compile(r'.*and \+\d+ skills?$', re.IGNORECASE)
+        # Regex for standalone employment types (case insensitive)
+        type_pattern = re.compile(r'^(Internship|Part-time|Full-time|Contract|Seasonal|Temporary|Self-employed|Freelance)$', re.IGNORECASE)
+        
+        for job in jobs[:groq_max]:
             if isinstance(job, dict) and (job.get("job_title") or job.get("company")):
+                title = job.get("job_title", "").strip()
+                company = job.get("company", "").strip()
+                
+                # Filter out obvious skill lines
+                if skill_pattern.search(title) or "skills" in title.lower() and "+" in title:
+                    logger.info(f"    🗑️ Skipping skill line: {title}")
+                    continue
+                
+                # Filter out standalone employment types as titles
+                if type_pattern.match(title):
+                    logger.info(f"    🗑️ Skipping employment type title: {title}")
+                    continue
+
+                # Clean up doubled text (e.g. "EngineerEngineer" -> "Engineer")
+                # Also handles "Engineer Engineer"
+                def clean_doubled(text):
+                    if not text or len(text) < 4: return text
+                    # Exact duplication "WordWord"
+                    if len(text) % 2 == 0:
+                        mid = len(text) // 2
+                        if text[:mid] == text[mid:]:
+                            return text[:mid]
+                    # Duplication with space "Word Word"
+                    # Check if text consists of two identical halves separated by space
+                    parts = text.split()
+                    if len(parts) >= 2 and len(parts) % 2 == 0:
+                        half = len(parts) // 2
+                        if parts[:half] == parts[half:]:
+                           return " ".join(parts[:half])
+                    
+                    # Heuristic: Check if end of string repeats start of string
+                    # e.g. "Senior Network EngineerSenior Network Engineer"
+                    # We already checked exact half split.
+                    return text
+
+                title = clean_doubled(title)
+                company = clean_doubled(company)
+                        
+                # Filter out duration strings in Company field
+                duration_pattern = re.compile(r'\b(\d+\s+yrs?|\d+\s+mos?|Full-time|Part-time|Contract|Internship)\b', re.IGNORECASE)
+                if duration_pattern.search(company) and len(company) < 30:
+                     if "·" in company or re.search(r'\d+\s+yrs?', company):
+                         logger.warning(f"    ⚠️ Suspicious company name (looks like duration): {company}")
+                         company = "" 
+
+                # Deduplication check against existing valid_jobs
+                is_duplicate = False
+                for existing in valid_jobs:
+                    # If Company matches AND (Title matches OR Start Date matches)
+                    if existing["company"].lower() == company.lower():
+                        if existing["job_title"].lower() == title.lower() or \
+                           (existing["start_date"] == job.get("start_date", "").strip() and job.get("start_date")):
+                            logger.info(f"    🗑️ Skipping duplicate job: {title} @ {company}")
+                            is_duplicate = True
+                            break
+                            
+                if is_duplicate: continue
+
                 valid_jobs.append({
-                    "job_title": job.get("job_title", "").strip(),
-                    "company": job.get("company", "").strip(),
+                    "job_title": title,
+                    "company": company,
                     "start_date": job.get("start_date", "").strip(),
                     "end_date": job.get("end_date", "").strip()
                 })
@@ -222,6 +362,9 @@ HTML:
             return (end_y, end_m, start_y, start_m)
 
         valid_jobs.sort(key=job_sort_key, reverse=True)
+
+        # Trim to requested max after dedup and sorting
+        valid_jobs = valid_jobs[:max_jobs]
 
         if valid_jobs:
             logger.info(f"    ✓ Groq extracted {len(valid_jobs)} job(s)")

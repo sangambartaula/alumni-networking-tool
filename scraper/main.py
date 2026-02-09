@@ -251,12 +251,31 @@ def run_review_mode(scraper, nav, history_mgr):
         
         logger.info(f"  🔄 Re-scraping: {profile_url}")
         
-        # Scrape the profile (bypassing history check since we're re-reviewing)
-        data = scraper.scrape_profile_page(profile_url)
-        
-        if data and database_handler.save_profile_to_csv(data):
-            history_mgr.mark_as_visited(profile_url, saved=True)
-            logger.info(f"  ✓ Updated: {data.get('full_name', 'Unknown')}")
+        try:
+            # Scrape the profile (bypassing history check since we're re-reviewing)
+            data = scraper.scrape_profile_page(profile_url)
+            
+            if data and database_handler.save_profile_to_csv(data):
+                history_mgr.mark_as_visited(profile_url, saved=True)
+                logger.info(f"  ✓ Updated: {data.get('name', 'Unknown')}")
+        except Exception as e:
+            msg = str(e).lower()
+            if "invalid session id" in msg or "no such window" in msg or "target window already closed" in msg:
+                logger.error(f"❌ WebDriver died ({e}). Restarting...")
+                try:
+                    scraper.quit()
+                    time.sleep(2)
+                    scraper.setup_driver()
+                    scraper.login()
+                    # Retry once
+                    logger.info(f"  🔄 Retrying: {profile_url}")
+                    data = scraper.scrape_profile_page(profile_url)
+                    if data and database_handler.save_profile_to_csv(data):
+                         history_mgr.mark_as_visited(profile_url, saved=True)
+                except Exception as retry_e:
+                     logger.error(f"❌ Retry failed: {retry_e}")
+            else:
+                logger.error(f"❌ Error processing {profile_url}: {e}")
         
         if should_stop():
             return

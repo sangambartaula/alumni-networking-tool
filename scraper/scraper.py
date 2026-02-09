@@ -304,7 +304,7 @@ class LinkedInScraper:
             data["location"] = location or "Not Found"
 
             # 4. Experience - Get up to 3 entries
-            all_experiences = self._extract_all_experiences(soup, max_entries=3)
+            all_experiences = self._extract_all_experiences(soup, max_entries=3, profile_name=name)
             
             # Primary experience (most recent)
             if all_experiences:
@@ -504,7 +504,7 @@ class LinkedInScraper:
         
         return name, headline, location
 
-    def _extract_all_experiences(self, soup, max_entries=3):
+    def _extract_all_experiences(self, soup, max_entries=3, profile_name="unknown"):
         """
         Extract up to max_entries experience entries, sorted by most recent first.
         
@@ -530,7 +530,7 @@ class LinkedInScraper:
                 experience_html = str(exp_root)
                 
                 # Call Groq to extract jobs
-                groq_jobs = extract_experiences_with_groq(experience_html, max_jobs=max_entries)
+                groq_jobs = extract_experiences_with_groq(experience_html, max_jobs=max_entries, profile_name=profile_name)
                 
                 if groq_jobs:
                     for job in groq_jobs:
