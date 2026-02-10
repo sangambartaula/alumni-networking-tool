@@ -36,13 +36,26 @@ DISCIPLINES = [
         "software developer", "software architect", "backend engineer",
         "frontend engineer", "full stack", "full-stack", "web developer",
         "application developer", "platform engineer", "systems engineer",
+        "systems administrator", "system administrator", "sysadmin", "sys admin",
         "devops", "site reliability engineer", "sre", "cloud engineer",
         "aws", "azure", "gcp", "api", "microservices", "programmer",
         "coding", "programming", "python", "java", "javascript", "typescript",
         "c++", "go", "rust", "data engineer", "data scientist", "data science",
+        "data analyst", "data analytics", "data architect", "data warehousing",
+        "business analytics", "business intelligence",
         "machine learning", "ml", "artificial intelligence", "ai",
         "deep learning", "cyber", "cybersecurity", "information technology",
-        "it", "infosec", "appsec", "security engineer"
+        "information science", "information system", "information systems", "information studies",
+        "informatics", "health informatics",
+        "it", "infosec", "appsec", "security engineer",
+        "network engineer", "network administrator", "network engineering",
+        "ui developer", "ux designer", "ux engineer",
+        "visual analytics", "human-computer interaction",
+        "mainframe", "mainframe developer",
+        "solutions architect", "solution architect",
+        "salesforce", "servicenow", "dynamics 365", "crm consultant",
+        "database administrator", "dba",
+        "computer and information"
     ]),
     
     # 2. EMBEDDED, ELECTRICAL & HARDWARE ENGINEERING
@@ -61,6 +74,7 @@ DISCIPLINES = [
     # 3. MECHANICAL & ENERGY ENGINEERING
     ("Mechanical & Energy Engineering", [
         "mechanical engineering", "mechanical engineer", "mech engineer",
+        "mechanical", "aeronautical", "aeronautical engineer",
         "mechanics", "machine design", "cad", "solidworks", "catia",
         "autocad", "ansys", "manufacturing engineer", "manufacturing engineering",
         "hvac", "thermal engineering", "thermodynamics", "heat transfer",
@@ -68,6 +82,7 @@ DISCIPLINES = [
         "renewable energy", "power generation", "turbines", "combustion",
         "automotive engineering", "aerospace engineering", "structural analysis",
         "stress analysis", "finite element", "fea", "industrial engineering",
+        "industrial engineer", "industrial management", "engineering/industrial",
         "plant engineer"
     ]),
     
@@ -85,8 +100,10 @@ DISCIPLINES = [
     ]),
     
     # 5. MATERIALS SCIENCE & MANUFACTURING
+    # NOTE: "sem" and "tem" removed — they matched "system"/"systems" as false positives
     ("Materials Science & Manufacturing", [
         "materials science", "materials engineering", "materials engineer",
+        "materials engineer", "senior materials engineer",
         "metallurgy", "metallurgical engineering", "polymers", "polymer science",
         "ceramics", "composites", "nanomaterials", "nanotechnology",
         "thin films", "surface science", "crystallography", "solid state materials",
@@ -94,13 +111,17 @@ DISCIPLINES = [
         "manufacturing science", "manufacturing process", "quality engineering",
         "six sigma", "lean manufacturing", "failure analysis", "corrosion",
         "heat treatment", "additive manufacturing", "3d printing",
-        "powder metallurgy", "materials characterization", "xrd", "sem", "tem"
+        "powder metallurgy", "materials characterization", "material characterization",
+        "analytical chemistry", "polymer chemist", "chemical formulation",
+        "xrd", "scanning electron", "transmission electron",
+        "supply chain", "logistics", "production manager"
     ]),
     
     # 6. CONSTRUCTION & ENGINEERING MANAGEMENT
     # Note: "project manager" can be IT, so this is intentionally construction-heavy
     ("Construction & Engineering Management", [
         "construction management", "construction manager", "construction engineer",
+        "construction", "construction project",
         "civil engineering", "civil engineer", "structural engineering",
         "structural engineer", "project manager construction",
         "engineering manager construction", "site engineer", "field engineer",
@@ -145,7 +166,9 @@ def infer_discipline(degree, job_title, headline):
         for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
             for keyword in keywords:
                 # Check if keyword matches
-                if len(keyword) <= 2:
+                # Short keywords (<=3 chars) use word boundary to avoid
+                # false positives (e.g. "arm" in "pharmacy", "cad" in "decade")
+                if len(keyword) <= 3:
                     pattern = r'\b' + re.escape(keyword) + r'\b'
                     if re.search(pattern, text_lower):
                         matches.append((len(keyword), cat_index, discipline_name))

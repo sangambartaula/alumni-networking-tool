@@ -890,12 +890,40 @@ def seed_alumni_data():
                         continue
                     job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
                     company = str(row['company']).strip() if pd.notna(row.get('company')) else None
-                    major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
+                    csv_major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
                     degree = str(row.get('degree')).strip() if pd.notna(row.get('degree')) else None
 
-                    # Auto-infer discipline if major is not set in CSV
-                    if not major:
-                        major = infer_discipline(degree or '', job_title or '', headline or '')
+                    # Approved engineering disciplines — only these are valid for the major column
+                    APPROVED_DISCIPLINES = [
+                        'Software, Data & AI Engineering',
+                        'Embedded, Electrical & Hardware Engineering',
+                        'Mechanical & Energy Engineering',
+                        'Biomedical Engineering',
+                        'Materials Science & Manufacturing',
+                        'Construction & Engineering Management',
+                    ]
+
+                    # If CSV major is already a valid discipline, keep it; otherwise infer.
+                    # NOTE: In our CSV, the 'major' column often contains the raw degree
+                    # text (e.g. "Bachelor's degree, Computer Science") because the scraper
+                    # stores degree info there. Use it as degree text for inference.
+                    if csv_major and csv_major in APPROVED_DISCIPLINES:
+                        major = csv_major
+                    else:
+                        # csv_major likely holds the degree text — use it for inference
+                        degree_text = degree or csv_major or ''
+                        major = infer_discipline(degree_text, job_title or '', headline or '')
+
+                    # Manual overrides for edge cases that can't be keyword-matched
+                    # (e.g. generic "Engineer" job at a construction company)
+                    name_full = f"{first_name} {last_name}".strip()
+                    MANUAL_OVERRIDES = {
+                        "David Rendon": "Construction & Engineering Management",
+                        "Dyuksha Kunder": "Biomedical Engineering",
+                        "Yara Kamal": "Construction & Engineering Management",
+                    }
+                    if name_full in MANUAL_OVERRIDES:
+                        major = MANUAL_OVERRIDES[name_full]
                     grad_year = int(row['graduation_year']) if pd.notna(row.get('graduation_year')) else None
                     profile_url = normalize_url(row.get('profile_url'))
                     scraped_at = str(row['scraped_at']).strip() if pd.notna(row.get('scraped_at')) else None
