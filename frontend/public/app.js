@@ -1,5 +1,5 @@
 // app.js
-// Approved engineering disciplines (must match backend backfill_disciplines.py)
+// Approved engineering disciplines (must match backend APPROVED_ENGINEERING_DISCIPLINES)
 const APPROVED_ENGINEERING_DISCIPLINES = [
   'Software, Data & AI Engineering',
   'Embedded, Electrical & Hardware Engineering',
@@ -7,7 +7,6 @@ const APPROVED_ENGINEERING_DISCIPLINES = [
   'Biomedical Engineering',
   'Materials Science & Manufacturing',
   'Construction & Engineering Management',
-  'Construction & Engineering Management'
 ];
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
 const fakeAlumni = [

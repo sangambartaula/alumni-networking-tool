@@ -92,8 +92,122 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Biomedical Engineering',
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
-    
 ]
+
+# =============================================================================
+# DISCIPLINE CLASSIFICATION (computed on-the-fly, NOT stored in DB)
+# Ordered list: first match wins.  Priority per alumni: job_title > degree > headline
+# =============================================================================
+import re
+
+DISCIPLINES = [
+    # 1. SOFTWARE, DATA & AI ENGINEERING
+    ("Software, Data & AI Engineering", [
+        "cs", "computer science", "computing", "software", "software engineer",
+        "software developer", "software architect", "backend engineer",
+        "frontend engineer", "full stack", "full-stack", "web developer",
+        "application developer", "platform engineer", "systems engineer",
+        "devops", "site reliability engineer", "sre", "cloud engineer",
+        "aws", "azure", "gcp", "api", "microservices", "programmer",
+        "coding", "programming", "python", "java", "javascript", "typescript",
+        "c++", "go", "rust", "data engineer", "data scientist", "data science",
+        "machine learning", "ml", "artificial intelligence", "ai",
+        "deep learning", "cyber", "cybersecurity", "information technology",
+        "it", "infosec", "appsec", "security engineer",
+    ]),
+    # 2. EMBEDDED, ELECTRICAL & HARDWARE ENGINEERING
+    ("Embedded, Electrical & Hardware Engineering", [
+        "embedded systems engineer", "embedded", "embedded systems", "embedded engineer", "firmware",
+        "firmware engineer", "rtos", "real-time systems", "electrical engineer",
+        "electrical engineering", "computer engineering", "hardware",
+        "hardware engineer", "electronics", "circuit design", "pcb",
+        "schematic", "altium", "orcad", "cadence", "fpga", "verilog",
+        "vhdl", "asic", "silicon", "semiconductor", "microcontroller",
+        "arm", "stm32", "esp32", "bare metal", "low level", "device driver",
+        "linux kernel", "robotics", "controls engineer", "mechatronics",
+        "signal processing", "digital design", "analog design", "power systems",
+    ]),
+    # 3. MECHANICAL & ENERGY ENGINEERING
+    ("Mechanical & Energy Engineering", [
+        "mechanical engineering", "mechanical engineer", "mech engineer",
+        "mechanics", "machine design", "cad", "solidworks", "catia",
+        "autocad", "ansys", "manufacturing engineer", "manufacturing engineering",
+        "hvac", "thermal engineering", "thermodynamics", "heat transfer",
+        "fluids", "fluid mechanics", "energy engineering", "energy systems",
+        "renewable energy", "power generation", "turbines", "combustion",
+        "automotive engineering", "aerospace engineering", "structural analysis",
+        "stress analysis", "finite element", "fea", "industrial engineering",
+        "plant engineer",
+    ]),
+    # 4. BIOMEDICAL ENGINEERING
+    ("Biomedical Engineering", [
+        "biomedical", "biomedical engineering", "biomedical engineer",
+        "bioengineering", "medical engineering", "medical devices",
+        "medical device engineer", "clinical engineer", "clinical engineering",
+        "healthcare engineering", "biotech", "biotechnology", "bioinformatics",
+        "computational biology", "medical imaging", "imaging engineer",
+        "mri", "ct scan", "ultrasound", "x-ray", "biosensors", "prosthetics",
+        "implants", "rehabilitation engineering", "neural engineering",
+        "tissue engineering", "biomaterials", "physiological systems",
+        "regulatory affairs", "fda",
+    ]),
+    # 5. MATERIALS SCIENCE & MANUFACTURING
+    ("Materials Science & Manufacturing", [
+        "materials science", "materials engineering", "materials engineer",
+        "metallurgy", "metallurgical engineering", "polymers", "polymer science",
+        "ceramics", "composites", "nanomaterials", "nanotechnology",
+        "thin films", "surface science", "crystallography", "solid state materials",
+        "semiconductor materials", "process engineering", "process engineer",
+        "manufacturing science", "manufacturing process", "quality engineering",
+        "six sigma", "lean manufacturing", "failure analysis", "corrosion",
+        "heat treatment", "additive manufacturing", "3d printing",
+        "powder metallurgy", "materials characterization", "xrd", "sem", "tem",
+    ]),
+    # 6. CONSTRUCTION & ENGINEERING MANAGEMENT
+    ("Construction & Engineering Management", [
+        "construction management", "construction manager", "construction engineer",
+        "civil engineering", "civil engineer", "structural engineering",
+        "structural engineer", "project manager construction",
+        "engineering manager construction", "site engineer", "field engineer",
+        "general contractor", "subcontractor", "estimating", "cost estimation",
+        "quantity surveying", "scheduler", "scheduling", "primavera", "p6",
+        "ms project", "bim", "revit", "autodesk construction", "project controls",
+        "capital projects", "infrastructure projects", "transportation engineering",
+        "geotechnical engineering", "surveying", "land development",
+        "building systems", "facilities engineering", "osha",
+    ]),
+]
+
+
+def infer_discipline(degree, job_title, headline):
+    """
+    Infer engineering discipline from degree, job title, and headline.
+    Priority: Job Title > Degree > Headline
+    Returns the best matching discipline or "Unknown" if no match.
+    """
+    sources = [job_title, degree, headline]
+
+    for text in sources:
+        if not text:
+            continue
+        text_lower = text.lower()
+
+        matches = []  # (keyword_length, category_index, discipline_name)
+        for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
+            for keyword in keywords:
+                if len(keyword) <= 2:
+                    if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
+                        matches.append((len(keyword), cat_index, discipline_name))
+                else:
+                    if keyword in text_lower:
+                        matches.append((len(keyword), cat_index, discipline_name))
+
+        if matches:
+            # Longest keyword first, then by category order (lower = higher priority)
+            matches.sort(key=lambda x: (-x[0], x[1]))
+            return matches[0][2]
+
+    return "Unknown"
 
 def get_current_user_id():
     """Get the current logged-in user's DB id from LinkedIn profile.
@@ -540,8 +654,9 @@ def api_get_alumni():
 
             alumni = []
             for r in rows:
-                # Extract degree level from full degree string
                 full_degree = r.get('degree', '') or ''
+                if not full_degree:
+                    full_degree = r.get('major', '') or ''
                 degree_level = 'Other'
                 
                 # Normalize to lowercase for matching
@@ -554,6 +669,13 @@ def api_get_alumni():
                         degree_level = 'Graduate'
                     elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
                         degree_level = 'PhD'
+
+                # Compute engineering discipline on-the-fly (not from DB)
+                discipline = infer_discipline(
+                    r.get('degree', ''),
+                    r.get('current_job_title', ''),
+                    r.get('headline', '')
+                )
                 
                 alumni.append({
                     "id": r.get('id'),
@@ -563,7 +685,7 @@ def api_get_alumni():
                     "current_job_title": r.get('current_job_title'),
                     "company": r.get('company'),
                     "grad_year": r.get('grad_year'),
-                    "major": r.get('major'),
+                    "major": discipline,
 
                     # OPTIONAL: keep backwards-compatible for alumni UI (if needed)
                     "role": r.get('current_job_title'),
@@ -1037,7 +1159,7 @@ def get_heatmap_data():
                     "role": row["current_job_title"] or row["headline"] or "Alumni",
                     "company": row["company"],
                     "linkedin": row["linkedin_url"],
-                    "created_at": row.get("created_at").isoformat() if row.get("created_at") else None
+                    "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), 'isoformat') else row.get("created_at")
                 })
                 
                 # Track location string frequencies for majority voting
@@ -1136,75 +1258,28 @@ def get_fallback_status_api():
         }), 500
 
 
-# ---------------------- Error handler ----------------------
-@app.errorhandler(404)
-def not_found(e):
-    return 'Page not found', 404
+# ---------------------- Majors / Filter API ----------------------
 
-if __name__ == "__main__":
-    # Initialize SQLite fallback system first (syncs from cloud if available)
-    if USE_SQLITE_FALLBACK and not DISABLE_DB:
-        try:
-            from sqlite_fallback import init_fallback_system
-            init_fallback_system()
-        except Exception as e:
-            app.logger.warning(f"SQLite fallback initialization failed: {e}")
-            app.logger.info("Continuing with direct database connection...")
-    
-    # Initialize database first (but skip re-seeding if data exists)
-    from database import init_db, seed_alumni_data
 @app.route('/api/alumni/majors', methods=['GET'])
 @api_login_required
 def api_get_majors():
     """
-    Return a list of approved engineering disciplines.
-    Only disciplines in APPROVED_ENGINEERING_DISCIPLINES are returned.
-    Useful for populating filter dropdowns.
+    Return the static list of approved engineering disciplines.
+    Disciplines are computed on-the-fly from alumni data, not stored in DB.
     """
-    if DISABLE_DB:
-        if not USE_SQLITE_FALLBACK:
-            return jsonify({"success": True, "majors": []}), 200
-
-    try:
-        conn = get_connection()
-        try:
-            with conn.cursor(dictionary=True) as cur:
-                # Only get approved disciplines that have alumni
-                placeholders = ','.join(['%s'] * len(APPROVED_ENGINEERING_DISCIPLINES))
-                cur.execute(f"""
-                    SELECT DISTINCT major
-                    FROM alumni
-                    WHERE major IN ({placeholders})
-                    ORDER BY major ASC
-                """, APPROVED_ENGINEERING_DISCIPLINES)
-                rows = cur.fetchall()
-                majors = [row['major'] for row in rows if row['major']]
-            
-            return jsonify({"success": True, "majors": majors}), 200
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-    except Exception as e:
-        app.logger.error(f"Error fetching majors: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+    return jsonify({"success": True, "majors": sorted(APPROVED_ENGINEERING_DISCIPLINES)}), 200
 
 
 @app.route('/api/alumni/filter', methods=['GET'])
 @api_login_required
 def api_filter_alumni():
     """
-    Filter alumni by major and other criteria.
+    Filter alumni by major (discipline) and other criteria.
+    NOTE: discipline is computed on-the-fly via infer_discipline(), NOT from the DB.
     Query params:
-      - major: filter by engineering discipline (e.g., 'Computer Engineering')
-      - location: filter by location
-      - company: filter by company
-      - job_title: filter by job title
-      - grad_year: filter by graduation year
-      - degree: filter by degree level
-      - limit: max results (default 10000)
-      - offset: pagination offset (default 0)
+      - major: filter by engineering discipline
+      - location, company, job_title, grad_year, degree: other filters
+      - limit (default 10000), offset (default 0)
     """
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
@@ -1218,11 +1293,11 @@ def api_filter_alumni():
         job_title = request.args.get('job_title', '').strip()
         grad_year = request.args.get('grad_year', '').strip()
         degree_filter = request.args.get('degree', '').strip()
-        
-        # Validate major parameter - only allow approved engineering disciplines
+
+        # Validate major parameter
         if major and major not in APPROVED_ENGINEERING_DISCIPLINES:
             return jsonify({"error": f"Invalid engineering discipline: {major}"}), 400
-        
+
         try:
             limit = int(request.args.get('limit', 10000))
         except Exception:
@@ -1235,51 +1310,39 @@ def api_filter_alumni():
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                # Build dynamic WHERE clause
+                # Build dynamic WHERE clause -- discipline (major) is NOT filtered in SQL
                 where_clauses = []
                 params = []
-                
-                if major:
-                    where_clauses.append("major = %s")
-                    params.append(major)
-                
+
                 if location:
                     where_clauses.append("location LIKE %s")
                     params.append(f"%{location}%")
-                
                 if company:
                     where_clauses.append("company LIKE %s")
                     params.append(f"%{company}%")
-                
                 if job_title:
                     where_clauses.append("current_job_title LIKE %s")
                     params.append(f"%{job_title}%")
-                
                 if grad_year:
                     where_clauses.append("grad_year = %s")
                     params.append(int(grad_year))
-                
                 if degree_filter:
-                    # Map degree filter to SQL pattern
                     if degree_filter.lower() == 'undergraduate':
                         where_clauses.append("(degree LIKE '%Bachelor%' OR degree LIKE '%B.S.%' OR degree LIKE '%B.A.%')")
                     elif degree_filter.lower() == 'graduate':
                         where_clauses.append("(degree LIKE '%Master%' OR degree LIKE '%M.S.%' OR degree LIKE '%MBA%')")
                     elif degree_filter.lower() == 'phd':
-                        where_clauses.append("(degree LIKE '%Ph.D%' OR degree LIKE '%PhD%')")
-                
+                        where_clauses.append("(degree LIKE '%Ph.D%' OR degree LIKE '%PhD%' OR degree LIKE '%Doctor%')")
+
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-                
+
                 query = f"""
-                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, 
+                    SELECT id, first_name, last_name, grad_year, degree, linkedin_url,
                            current_job_title, company, location, headline
                     FROM alumni
                     WHERE {where_clause}
                     ORDER BY last_name ASC, first_name ASC
-                    LIMIT %s OFFSET %s
                 """
-                params.extend([limit, offset])
-                
                 cur.execute(query, params)
                 rows = cur.fetchall()
 
@@ -1288,7 +1351,7 @@ def api_filter_alumni():
                     full_degree = r.get('degree', '') or ''
                     degree_level = 'Other'
                     degree_lower = full_degree.lower()
-                    
+
                     if degree_lower:
                         if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
                             degree_level = 'Undergraduate'
@@ -1296,14 +1359,25 @@ def api_filter_alumni():
                             degree_level = 'Graduate'
                         elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
                             degree_level = 'PhD'
-                    
+
+                    # Compute discipline on-the-fly
+                    discipline = infer_discipline(
+                        r.get('degree', ''),
+                        r.get('current_job_title', ''),
+                        r.get('headline', '')
+                    )
+
+                    # Apply discipline filter in Python (not SQL)
+                    if major and discipline != major:
+                        continue
+
                     alumni.append({
                         "id": r.get('id'),
                         "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
                         "current_job_title": r.get('current_job_title'),
                         "company": r.get('company'),
                         "grad_year": r.get('grad_year'),
-                        "major": r.get('major'),
+                        "major": discipline,
                         "role": r.get('current_job_title'),
                         "headline": r.get('headline'),
                         "class": r.get('grad_year'),
@@ -1313,7 +1387,9 @@ def api_filter_alumni():
                         "full_degree": full_degree
                     })
 
-                return jsonify({"success": True, "alumni": alumni, "count": len(alumni)}), 200
+                # Apply offset/limit after Python-side filtering
+                paginated = alumni[offset:offset + limit]
+                return jsonify({"success": True, "alumni": paginated, "count": len(alumni)}), 200
         finally:
             try:
                 conn.close()
@@ -1325,7 +1401,25 @@ def api_filter_alumni():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
-if __name__ == '__main__':
+# ---------------------- Error handler ----------------------
+@app.errorhandler(404)
+def not_found(e):
+    return 'Page not found', 404
+
+
+# ---------------------- Main entry point ----------------------
+if __name__ == "__main__":
+    # Initialize SQLite fallback system first (syncs from cloud if available)
+    if USE_SQLITE_FALLBACK and not DISABLE_DB:
+        try:
+            from sqlite_fallback import init_fallback_system
+            init_fallback_system()
+        except Exception as e:
+            app.logger.warning(f"SQLite fallback initialization failed: {e}")
+            app.logger.info("Continuing with direct database connection...")
+
+    # Initialize database (but skip re-seeding if data exists)
+    from database import init_db, seed_alumni_data
     if not DISABLE_DB:
         try:
             init_db()
@@ -1336,5 +1430,5 @@ if __name__ == '__main__':
                 exit(1)
             else:
                 app.logger.info("Continuing with SQLite fallback...")
-    
+
     app.run()
