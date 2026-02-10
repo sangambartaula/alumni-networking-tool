@@ -136,6 +136,7 @@ def init_db():
                     company VARCHAR(255),
                     location VARCHAR(255),
                     headline VARCHAR(500),
+                    education TEXT,
                     school_start_date VARCHAR(20) DEFAULT NULL,
                     job_start_date VARCHAR(20) DEFAULT NULL,
                     job_end_date VARCHAR(20) DEFAULT NULL,

@@ -197,6 +197,7 @@ class ConnectionManager:
                     company TEXT,
                     location TEXT,
                     headline TEXT,
+                    education TEXT,
                     school_start_date TEXT,
                     job_start_date TEXT,
                     job_end_date TEXT,
@@ -294,6 +295,13 @@ class ConnectionManager:
                 CREATE INDEX IF NOT EXISTS idx_pending_sync_table ON _pending_sync(table_name);
                 CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON _pending_sync(created_at);
             """)
+        
+        # Migration: add education column to alumni if missing (for existing databases)
+        try:
+            conn.execute("ALTER TABLE alumni ADD COLUMN education TEXT")
+            logger.info("Added education column to alumni table (migration)")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         conn.close()
         logger.info(f"✅ SQLite database initialized at {SQLITE_DB_PATH}")

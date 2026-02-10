@@ -1,4 +1,4 @@
-from flask import Flask, redirect, request, url_for, session, send_from_directory, jsonify
+from flask import Flask, redirect, request, url_for, session, send_from_directory, jsonify, make_response
 from dotenv import load_dotenv
 from functools import wraps
 import os
@@ -7,6 +7,13 @@ import mysql.connector  # for MySQL connection
 import secrets
 from database import get_connection
 from geocoding import geocode_location
+
+# Import discipline inference for on-the-fly classification (avoids needing DB backfill)
+try:
+    from backfill_disciplines import infer_discipline
+except ImportError:
+    def infer_discipline(degree, job_title, headline):
+        return "Unknown"
 
 load_dotenv()
 
@@ -135,7 +142,13 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         if 'linkedin_token' not in session:
             return redirect(url_for('login_linkedin'))
-        return f(*args, **kwargs)
+        response = make_response(f(*args, **kwargs))
+        # Prevent browser from caching authenticated pages so that
+        # after logout the browser must re-check with the server
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     return decorated_function
 
 def api_login_required(f):
@@ -300,7 +313,7 @@ def analytics_page():
 
 @app.route('/heatmap.js')
 def serve_heatmap_js():
-    return send_from_directory('../frontend/public', 'heatmap.js')
+    return send_from_directory('../frontend/public', 'heatmap_dual.js')
 
 @app.route('/heatmap_style.css')
 def serve_heatmap_css():
@@ -540,6 +553,41 @@ def api_get_alumni():
 
             alumni = []
             for r in rows:
+                # --- Compute discipline on-the-fly using keyword matching ---
+                db_major = r.get('major')
+                if not db_major or db_major == 'Unknown':
+                    computed_major = infer_discipline(
+                        r.get('degree') or '',
+                        r.get('current_job_title') or '',
+                        r.get('headline') or ''
+                    )
+                else:
+                    computed_major = db_major
+
+                # --- Compute degree level from degree field ---
+                full_degree = r.get('degree') or ''
+                degree_level = None
+                degree_lower = full_degree.lower()
+                if degree_lower:
+                    if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
+                        degree_level = 'Undergraduate'
+                    elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
+                        degree_level = 'Graduate'
+                    elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
+                        degree_level = 'PhD'
+
+                # If degree field is empty, try to infer from headline/education
+                if not degree_level:
+                    education_text = (r.get('education') or '').lower()
+                    headline_text = (r.get('headline') or '').lower()
+                    combined = f"{education_text} {headline_text}"
+                    if any(term in combined for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
+                        degree_level = 'Undergraduate'
+                    elif any(term in combined for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
+                        degree_level = 'Graduate'
+                    elif any(term in combined for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
+                        degree_level = 'PhD'
+
                 alumni.append({
                     "id": r.get('id'),
                     "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
@@ -548,7 +596,7 @@ def api_get_alumni():
                     "current_job_title": r.get('current_job_title'),
                     "company": r.get('company'),
                     "grad_year": r.get('grad_year'),
-                    "major": r.get('major'),
+                    "major": computed_major,
                     "education": r.get('education'),
 
                     # OPTIONAL: keep backwards-compatible for alumni UI (if needed)
@@ -559,8 +607,8 @@ def api_get_alumni():
                     "class": r.get('grad_year'),
                     "location": r.get('location'),
                     "linkedin": r.get('linkedin_url'),
-                    "degree": None, # Deprecated
-                    "full_degree": None # Deprecated
+                    "degree": degree_level,
+                    "full_degree": full_degree
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200
@@ -1126,8 +1174,9 @@ def not_found(e):
     return 'Page not found', 404
 
 if __name__ == "__main__":
-    # Initialize SQLite fallback system first (syncs from cloud if available)
-    if USE_SQLITE_FALLBACK and not DISABLE_DB:
+    # Initialize SQLite fallback system (syncs from cloud if available)
+    # Must run even when DISABLE_DB=1 so the SQLite DB is ready
+    if USE_SQLITE_FALLBACK:
         try:
             from sqlite_fallback import init_fallback_system
             init_fallback_system()
@@ -1141,38 +1190,11 @@ if __name__ == "__main__":
 @api_login_required
 def api_get_majors():
     """
-    Return a list of approved engineering disciplines.
-    Only disciplines in APPROVED_ENGINEERING_DISCIPLINES are returned.
-    Useful for populating filter dropdowns.
+    Return the list of approved engineering disciplines.
+    Disciplines are computed on-the-fly via keyword matching (not stored in DB),
+    so we return the full approved list directly.
     """
-    if DISABLE_DB:
-        if not USE_SQLITE_FALLBACK:
-            return jsonify({"success": True, "majors": []}), 200
-
-    try:
-        conn = get_connection()
-        try:
-            with conn.cursor(dictionary=True) as cur:
-                # Only get approved disciplines that have alumni
-                placeholders = ','.join(['%s'] * len(APPROVED_ENGINEERING_DISCIPLINES))
-                cur.execute(f"""
-                    SELECT DISTINCT major
-                    FROM alumni
-                    WHERE major IN ({placeholders})
-                    ORDER BY major ASC
-                """, APPROVED_ENGINEERING_DISCIPLINES)
-                rows = cur.fetchall()
-                majors = [row['major'] for row in rows if row['major']]
-            
-            return jsonify({"success": True, "majors": majors}), 200
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-    except Exception as e:
-        app.logger.error(f"Error fetching majors: {e}")
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+    return jsonify({"success": True, "majors": APPROVED_ENGINEERING_DISCIPLINES}), 200
 
 
 @app.route('/api/alumni/filter', methods=['GET'])
@@ -1311,6 +1333,7 @@ def api_filter_alumni():
 
 if __name__ == '__main__':
     if not DISABLE_DB:
+        # Normal mode: init DB (MySQL or fallback to SQLite) and seed
         try:
             init_db()
             seed_alumni_data()
@@ -1320,5 +1343,12 @@ if __name__ == '__main__':
                 exit(1)
             else:
                 app.logger.info("Continuing with SQLite fallback...")
+    elif USE_SQLITE_FALLBACK:
+        # DISABLE_DB=1 but SQLite fallback enabled: seed SQLite from CSV if available
+        app.logger.info("DISABLE_DB=1 with SQLite fallback: seeding SQLite from CSV...")
+        try:
+            seed_alumni_data()
+        except Exception as e:
+            app.logger.warning(f"SQLite seeding failed (may already have data): {e}")
     
     app.run()

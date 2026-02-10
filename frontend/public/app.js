@@ -6,7 +6,6 @@ const APPROVED_ENGINEERING_DISCIPLINES = [
   'Mechanical & Energy Engineering',
   'Biomedical Engineering',
   'Materials Science & Manufacturing',
-  'Construction & Engineering Management',
   'Construction & Engineering Management'
 ];
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
@@ -710,6 +709,19 @@ function setupFiltering(list) {
 
 // Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
 (async function init() {
+  // ---- Client-side auth check (defense-in-depth) ----
+  // If the browser served a cached page after logout, this will catch it
+  // and redirect to login before the user sees stale content.
+  try {
+    const authCheck = await fetch('/api/user-interactions');
+    if (authCheck.status === 401) {
+      window.location.href = '/login/linkedin';
+      return;
+    }
+  } catch (e) {
+    // Network error – allow page to continue (may be offline / dev mode)
+  }
+
   // Create notes modal first
   notesModal.create();
 
