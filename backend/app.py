@@ -7,7 +7,7 @@ import mysql.connector  # for MySQL connection
 import secrets
 from database import get_connection
 from geocoding import geocode_location
-
+import sqlite3
 # Import discipline inference for on-the-fly classification (avoids needing DB backfill)
 try:
     from backfill_disciplines import infer_discipline
@@ -667,8 +667,11 @@ def get_notes(alumni_id):
             
             if note:
                 # Handle timestamp formatting
-                created_at = note.get('created_at')
-                updated_at = note.get('updated_at')
+                created_at = note.get('created_at') if isinstance(note, dict) else note[2]
+                updated_at = note.get('updated_at') if isinstance(note, dict) else note[3]
+                note_id = note.get('id') if isinstance(note, dict) else note[0]
+                note_content = note.get('note_content') if isinstance(note, dict) else note[1]
+                
                 if hasattr(created_at, 'isoformat'):
                     created_at = created_at.isoformat()
                 if hasattr(updated_at, 'isoformat'):
@@ -677,8 +680,8 @@ def get_notes(alumni_id):
                 return jsonify({
                     "success": True,
                     "note": {
-                        "id": note['id'],
-                        "note_content": note['note_content'],
+                        "id": note_id,
+                        "note_content": note_content,
                         "created_at": created_at,
                         "updated_at": updated_at
                     }
@@ -694,7 +697,6 @@ def get_notes(alumni_id):
     except Exception as e:
         app.logger.error(f"Error getting notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
 
 
 @app.route('/api/notes', methods=['GET'])
@@ -812,8 +814,8 @@ def save_notes(alumni_id):
                 
                 conn.commit()
             else:
-                # MySQL mode - use %s placeholders and NOW()
-                with conn.cursor() as cur:
+                # MySQL mode - use %s placeholders and dictionary=True
+                with conn.cursor(dictionary=True) as cur:
                     cur.execute("""
                         SELECT id FROM notes
                         WHERE user_id = %s AND alumni_id = %s
@@ -850,7 +852,6 @@ def save_notes(alumni_id):
     except Exception as e:
         app.logger.error(f"Error saving notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
 
 
 @app.route('/api/notes/<int:alumni_id>', methods=['DELETE'])
