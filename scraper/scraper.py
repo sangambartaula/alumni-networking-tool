@@ -19,7 +19,7 @@ import utils
 import config
 from config import logger
 from entity_classifier import classify_entity, is_location, is_university
-from groq_extractor import is_groq_available, extract_experiences_with_groq, parse_groq_date
+from groq_extractor import is_groq_available, extract_experiences_with_groq, parse_groq_date, _clean_doubled
 
 
 def normalize_scraped_data(data):
@@ -578,9 +578,10 @@ class LinkedInScraper:
             end_d = None
             
             # Job Title: Look for t-bold class
-            title_elem = container.select_one('.t-bold span[aria-hidden="true"], div.t-bold span[aria-hidden="true"], .t-bold')
+            # Prefer inner span to avoid doubled text from parent div
+            title_elem = container.select_one('.t-bold span[aria-hidden="true"]') or container.select_one('.t-bold')
             if title_elem:
-                title = title_elem.get_text(strip=True)
+                title = _clean_doubled(title_elem.get_text(strip=True))
             
             # Company + Employment Type: Look for t-14 t-normal (not t-black--light)
             company_spans = container.select('span.t-14.t-normal:not(.t-black--light)')
@@ -593,8 +594,8 @@ class LinkedInScraper:
                 
                 # This could be "Company · Part-time" format
                 if text and not utils.DATE_RANGE_RE.search(text):
-                    # Clean up employment type suffix
-                    company = self._clean_company(text)
+                    # Clean up employment type suffix and doubled text
+                    company = _clean_doubled(self._clean_company(text))
                     break
             
             # Dates: Look for pvs-entity__caption-wrapper or t-black--light
@@ -766,6 +767,12 @@ class LinkedInScraper:
 
                 if company:
                     context_company = company
+
+                # Clean doubled text in fallback path
+                if title:
+                    title = _clean_doubled(title)
+                if company:
+                    company = _clean_doubled(company)
 
                 if title or company:
                     u_key = f"{(title or '').lower()}|{(company or '').lower()}|{start_d}|{end_d}"

@@ -920,8 +920,8 @@ def seed_alumni_data():
                             added += 1
                         elif cur.rowcount == 2:
                             updated += 1
-                    except mysql.connector.Error as err:
-                        logger.warning(f"Skipping record for {name}: {err}")
+                    except Exception as err:
+                        logger.warning(f"Skipping record for {first_name} {last_name}: {err}")
                         continue
 
                 conn.commit()
@@ -993,8 +993,14 @@ def cleanup_trailing_slashes():
                         # Try to update
                         cur.execute(f"UPDATE {table} SET linkedin_url = %s WHERE id = %s", (clean_url, row_id))
                         fixed += 1
-                    except mysql.connector.Error as err:
-                        if err.errno == 1062: # Duplicate entry
+                    except Exception as err:
+                        err_str = str(err)
+                        # MySQL errno 1062 = Duplicate entry; SQLite raises IntegrityError
+                        is_duplicate = (
+                            (hasattr(err, 'errno') and err.errno == 1062) or
+                            'UNIQUE constraint' in err_str
+                        )
+                        if is_duplicate:
                             # Collision! The clean URL matches another record.
                             # We delete the current record with the slash, keeping the other one.
                             logger.info(f"  Collision for {clean_url}. Deleting duplicate record ID {row_id}.")
