@@ -522,10 +522,9 @@ function populateFilters(list) {
   const roles = Array.from(new Set(list.map(x => x.role).filter(isValid))).sort();
   // Normalize companies before creating the Set
   const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
-  // Filter majors to only show approved engineering disciplines (which excludes Unknown now)
-  const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean)))
-    .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
-    .sort();
+  // Always show all approved engineering disciplines in the filter
+  // (even if no alumni currently match a given discipline)
+  const majors = [...APPROVED_ENGINEERING_DISCIPLINES].sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
   // Fixed order for degree levels
   const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
