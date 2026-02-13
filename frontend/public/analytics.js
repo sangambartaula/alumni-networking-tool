@@ -80,7 +80,10 @@ function initializeAnalyticsFilterUI() {
   toggleBtn?.addEventListener('click', () => {
     panel?.classList.add('active');
     backdrop?.classList.add('active');
-    showRecommendations(); // Show recommendations when panel opens
+    // Auto-focus location input so suggestions appear immediately
+    setTimeout(() => {
+      locationInput?.focus();
+    }, 150);
   });
 
   // Close filter panel
@@ -223,6 +226,10 @@ function initializeAnalyticsFilterUI() {
     }
   });
 
+  // Prevent input blur when clicking on suggestions (keeps focus on the input)
+  locationSuggestions?.addEventListener('mousedown', (e) => e.preventDefault());
+  companySuggestions?.addEventListener('mousedown', (e) => e.preventDefault());
+
   // Location suggestion click
   locationSuggestions?.addEventListener('click', (e) => {
     const item = e.target.closest('.analytics-suggestion-item');
@@ -230,7 +237,8 @@ function initializeAnalyticsFilterUI() {
       const location = item.getAttribute('data-value');
       addLocationFilter(location);
       locationInput.value = '';
-      showRecommendations(); // Show recommendations after adding filter
+      locationInput.focus();
+      showRecommendations();
     }
   });
 
@@ -241,7 +249,8 @@ function initializeAnalyticsFilterUI() {
       const company = item.getAttribute('data-value');
       addCompanyFilter(company);
       companyInput.value = '';
-      showRecommendations(); // Show recommendations after adding filter
+      companyInput.focus();
+      showRecommendations();
     }
   });
 
@@ -280,16 +289,42 @@ function initializeAnalyticsFilterUI() {
     }
   });
 
-  // Focus handlers to show recommendations
+  // Focus handlers to show recommendations & hide the other dropdown
   locationInput?.addEventListener('focus', () => {
+    if (companySuggestions) companySuggestions.style.display = 'none';
+    if (!locationInput.value.trim()) {
+      showRecommendations();
+    }
+  });
+
+  locationInput?.addEventListener('click', () => {
+    if (companySuggestions) companySuggestions.style.display = 'none';
     if (!locationInput.value.trim()) {
       showRecommendations();
     }
   });
 
   companyInput?.addEventListener('focus', () => {
+    if (locationSuggestions) locationSuggestions.style.display = 'none';
     if (!companyInput.value.trim()) {
       showRecommendations();
+    }
+  });
+
+  companyInput?.addEventListener('click', () => {
+    if (locationSuggestions) locationSuggestions.style.display = 'none';
+    if (!companyInput.value.trim()) {
+      showRecommendations();
+    }
+  });
+
+  // Hide suggestions when clicking outside the inputs/dropdowns
+  document.addEventListener('click', (e) => {
+    if (locationSuggestions && !locationSuggestions.contains(e.target) && e.target !== locationInput) {
+      locationSuggestions.style.display = 'none';
+    }
+    if (companySuggestions && !companySuggestions.contains(e.target) && e.target !== companyInput) {
+      companySuggestions.style.display = 'none';
     }
   });
 
