@@ -158,6 +158,9 @@ def run_names_mode(scraper, nav, history_mgr):
             if check_force_exit():
                 return
 
+            if config.is_blocked_url(url):
+                continue
+
             if history_mgr.should_skip(url):
                 continue
 
@@ -203,6 +206,9 @@ def run_search_mode(scraper, nav, history_mgr):
             if check_force_exit():
                 return
 
+            if config.is_blocked_url(profile_url):
+                continue
+
             if history_mgr.should_skip(profile_url):
                 continue
 
@@ -232,9 +238,17 @@ def run_review_mode(scraper, nav, history_mgr):
         logger.error(f"❌ Flagged file not found: {flagged_file}")
         return
     
-    # Read URLs from file
+    # Read URLs from file, filtering out blocked profiles
+    from config import is_blocked_url
     with open(flagged_file, 'r') as f:
-        urls = [line.strip() for line in f if line.strip() and line.strip().startswith('http')]
+        raw_urls = [line.strip() for line in f if line.strip() and line.strip().startswith('http')]
+    
+    # Strip comment suffixes (e.g. "url # flagged for review (bulk)")
+    urls = []
+    for raw in raw_urls:
+        url = raw.split('#')[0].strip() if '#' in raw else raw
+        if url and not is_blocked_url(url):
+            urls.append(url)
     
     if not urls:
         logger.info("📋 No URLs in flagged_for_review.txt")

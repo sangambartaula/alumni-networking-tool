@@ -80,4 +80,28 @@ CSV_COLUMNS = [
     'scraped_at'
 ]
 
+# ── Blocked Profiles ─────────────────────────────────────────
+# These LinkedIn slugs are fake / generic placeholder accounts.
+# Any matching URL will be:
+#   • skipped during scraping
+#   • rejected by save_profile_to_csv
+#   • auto-removed from the database on startup
+BLOCKED_PROFILE_SLUGS = {
+    "davidmartinez",
+    "emilybrown",
+    "jessicawilliams",
+    "johnsmith",
+    "lisaanderson",
+    "michaelchen",
+    "roberttaylor",
+    "sarahjohnson",
+}
 
+
+def is_blocked_url(url: str) -> bool:
+    """Return True if the LinkedIn URL belongs to a blocked profile."""
+    if not url:
+        return False
+    # Normalize: strip trailing slash, take last path segment
+    slug = url.rstrip("/").split("/")[-1].split("#")[0].split("?")[0].lower()
+    return slug in BLOCKED_PROFILE_SLUGS

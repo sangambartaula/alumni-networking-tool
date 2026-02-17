@@ -281,6 +281,12 @@ def flag_profile_for_review(profile_data):
 def save_profile_to_csv(profile_data):
     try:
         if not profile_data.get('profile_url') or not profile_data.get('name'): return False
+
+        # Block fake/placeholder profiles
+        from config import is_blocked_url
+        if is_blocked_url(profile_data.get('profile_url', '')):
+            logger.info(f"🚫 Blocked profile skipped: {profile_data.get('profile_url')}")
+            return False
         
         has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'education']])
         if not has_data: return False
