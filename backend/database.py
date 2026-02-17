@@ -212,7 +212,16 @@ def init_db():
             """)
             logger.info("notes table created/verified")
 
-
+            # Create normalized_job_titles lookup table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS normalized_job_titles (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    normalized_title VARCHAR(255) NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_normalized_title (normalized_title)
+                )
+            """)
+            logger.info("normalized_job_titles table created/verified")
 
             conn.commit()
             logger.info("All tables initialized successfully")
@@ -231,6 +240,39 @@ def init_db():
 # ============================================================
 # MIGRATIONS / COLUMN ENSURANCE
 # ============================================================
+
+def ensure_normalized_job_title_column():
+    """Ensure normalized_job_title_id column exists in alumni table."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni
+                    ADD COLUMN normalized_job_title_id INT DEFAULT NULL
+                """)
+                logger.info("Added normalized_job_title_id column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("normalized_job_title_id column already exists")
+                else:
+                    raise
+            except Exception as err:
+                # SQLite fallback: "duplicate column name" phrasing differs
+                if "duplicate column name" in str(err).lower():
+                    logger.info("normalized_job_title_id column already exists (SQLite)")
+                else:
+                    raise
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error ensuring normalized_job_title_id column: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def ensure_alumni_timestamp_columns():
     """Ensure scraped_at and last_updated columns exist in alumni table"""
@@ -855,16 +897,25 @@ def seed_alumni_data():
 
                     # Insert or update into database
                     try:
+                        # Compute normalized job title ID
+                        norm_title_id = None
+                        if job_title:
+                            try:
+                                from job_title_normalization import get_or_create_normalized_title
+                                norm_title_id = get_or_create_normalized_title(conn, job_title, use_groq=False)
+                            except Exception as norm_err:
+                                logger.debug(f"Normalization skipped for {first_name} {last_name}: {norm_err}")
+
                         cur.execute("""
                             INSERT INTO alumni 
                             (first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying,
                              exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
-                             scraped_at, last_updated)
+                             scraped_at, last_updated, normalized_job_title_id)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
-                                    %s, %s)
+                                    %s, %s, %s)
                             ON DUPLICATE KEY UPDATE
                                 first_name=VALUES(first_name),
                                 last_name=VALUES(last_name),
@@ -885,7 +936,8 @@ def seed_alumni_data():
                                 exp3_title=VALUES(exp3_title),
                                 exp3_company=VALUES(exp3_company),
                                 exp3_dates=VALUES(exp3_dates),
-                                last_updated=VALUES(last_updated)
+                                last_updated=VALUES(last_updated),
+                                normalized_job_title_id=VALUES(normalized_job_title_id)
                         """, (
                             first_name,
                             last_name,
@@ -908,7 +960,8 @@ def seed_alumni_data():
                             exp3_company,
                             exp3_dates,
                             scraped_at,
-                            scraped_at
+                            scraped_at,
+                            norm_title_id
                         ))
 
                         if cur.rowcount == 1:
