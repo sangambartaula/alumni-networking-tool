@@ -574,7 +574,7 @@ function updateStatistics(data = alumniData) {
   const totalAlumni = data.length;
   const uniqueCompanies = new Set(data.map(a => a.company).filter(c => c)).size;
   const uniqueLocations = new Set(data.map(a => a.location).filter(l => l && l !== 'Not Found')).size;
-  const uniqueJobs = new Set(data.map(a => a.current_job_title).filter(j => j)).size;
+  const uniqueJobs = new Set(data.map(a => a.normalized_title || a.current_job_title).filter(j => j)).size;
 
   document.getElementById('totalAlumni').textContent = totalAlumni;
   document.getElementById('totalCompanies').textContent = uniqueCompanies;
@@ -598,7 +598,7 @@ function getTopItems(items, topN = 5) {
 
 // Render top 5 jobs list
 function renderTopJobs(data = alumniData) {
-  const jobs = data.map(a => a.current_job_title).filter(j => j);
+  const jobs = data.map(a => a.normalized_title || a.current_job_title).filter(j => j);
   const topJobs = getTopItems(jobs, 5);
   const maxCount = topJobs[0]?.[1] || 1;
 
@@ -645,7 +645,7 @@ function generateColors(count) {
 
 // Render job title pie chart
 function renderJobPieChart(data = alumniData) {
-  const jobs = data.map(a => a.current_job_title).filter(j => j);
+  const jobs = data.map(a => a.normalized_title || a.current_job_title).filter(j => j);
   const topJobs = getTopItems(jobs, 10);
 
   const labels = topJobs.map(([job]) => job);
@@ -1033,7 +1033,7 @@ function filterAlumni(filterType, filterValue) {
 
   switch (filterType) {
     case 'job':
-      filtered = alumniData.filter(a => a.current_job_title === filterValue);
+      filtered = alumniData.filter(a => (a.normalized_title || a.current_job_title) === filterValue);
       filterTitle = `Alumni with Job Title: ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni working as ${filterValue}`;
       break;
