@@ -1,6 +1,7 @@
 <!-- heatmap.html -->
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -13,143 +14,153 @@
 </head>
 
 <body>
-<header class="appbar" role="banner">
-  <div class="appbar-inner">
-    <div class="brand">
-      <img src="/assets/unt-logo.png" alt="UNT Logo" class="unt-logo" />
-      <div class="brand-text">
-        <span class="brand-title">Alumni Network</span>
-        <small>Heatmap Visualization</small>
+  <header class="appbar" role="banner">
+    <div class="appbar-inner">
+      <div class="brand">
+        <img src="/assets/unt-logo.png" alt="UNT Logo" class="unt-logo" />
+        <div class="brand-text">
+          <span class="brand-title">Alumni Network</span>
+          <small>Heatmap Visualization</small>
+        </div>
+      </div>
+
+      <div class="app-actions">
+        <a class="btn action-btn" href="/alumni" title="View alumni directory">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" style="width: 18px; height: 18px;">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          Directory
+        </a>
+        <a class="btn action-btn" href="/analytics" title="View analytics dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" style="width: 18px; height: 18px;">
+            <path d="M18 20V10"></path>
+            <path d="M12 20V4"></path>
+            <path d="M6 20v-6"></path>
+          </svg>
+          Analytics
+        </a>
+        <a class="btn secondary" href="/logout">Sign out</a>
       </div>
     </div>
+  </header>
 
-    <div class="app-actions">
-      <a class="btn action-btn" href="/alumni">← Back to Alumni</a>
-      <a class="btn secondary" href="/logout">Sign out</a>
-    </div>
-  </div>
-</header>
+  <main class="page heatmap-page" role="main" style="max-width:100%;margin:0;padding:0;">
+    <section class="heatmap-section">
 
-<main class="page heatmap-page" role="main" style="max-width:100%;margin:0;padding:0;">
-<section class="heatmap-section">
-
-  <!-- COMPACT HEADER -->
-  <div class="heatmap-header-compact">
-      <div class="header-left">
+      <!-- COMPACT HEADER -->
+      <div class="heatmap-header-compact">
+        <div class="header-left">
           <h2>Alumni Distribution Heatmap</h2>
           <p class="heatmap-description">
-              Visualization of where our alumni are located worldwide
+            Visualization of where our alumni are located worldwide
           </p>
           <div class="heatmap-stats" id="heatmapStats"></div>
-      </div>
+        </div>
 
-      <!-- SEARCH BAR -->
-      <div class="header-search">
+        <!-- SEARCH BAR -->
+        <div class="header-search">
           <input id="locationSearchInput" type="text" placeholder="Search city, state, or country…">
           <button id="locationSearchButton" class="search-btn">Search</button>
           <div id="locationSuggestions" class="suggestions-box"></div>
-      </div>
-  </div>
-
-  <!-- CONTINENT FILTERS & FILTER BUTTON -->
-  <div id="continentFilters" class="continent-row">
-      <button class="continent-btn" onclick="filterByContinent('North America')">North America</button>
-      <button class="continent-btn" onclick="filterByContinent('Europe')">Europe</button>
-      <button class="continent-btn" onclick="filterByContinent('Asia')">Asia</button>
-      <button class="continent-btn" onclick="filterByContinent('Africa')">Africa</button>
-      <button class="continent-btn" onclick="filterByContinent('Oceania')">Oceania</button>
-      <button class="continent-btn" onclick="filterByContinent('South America')">South America</button>
-      <button class="continent-btn" onclick="filterByContinent('Antarctica')">Antarctica</button>
-      <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
-      <button id="filterToggleBtn" class="continent-btn filter-btn-icon" title="Open Filters">
-        <span style="font-size: 16px;">⊙</span>
-        <span class="filter-label">Filter</span>
-        <span id="filterBadge" class="filter-badge">0</span>
-      </button>
-  </div>
-
-  <!-- FILTER MODAL BACKDROP -->
-  <div class="filter-backdrop" id="filterBackdrop"></div>
-
-  <!-- LOCATION & COMPANY FILTER PANEL (MODAL) -->
-  <div class="filter-panel" id="filterPanel">
-    <div class="filter-panel-header">
-      <h3>Filters</h3>
-      <button class="filter-close-btn" id="filterCloseBtn">&times;</button>
-    </div>
-
-    <div class="filter-controls">
-      <div class="filter-group">
-        <label for="filterLocationInput">Hide Location</label>
-        <div class="filter-input-container">
-          <input 
-            id="filterLocationInput" 
-            type="text" 
-            placeholder="Location name..."
-            class="filter-input"
-          />
-          <button id="addLocationFilterBtn" class="filter-action-btn">Add</button>
         </div>
-        <div id="locationSuggestionsDropdown" class="suggestions-dropdown" style="display:none;"></div>
       </div>
 
-      <div class="filter-group">
-        <label for="filterCompanyInput">Hide Company</label>
-        <div class="filter-input-container">
-          <input 
-            id="filterCompanyInput" 
-            type="text" 
-            placeholder="Company name..."
-            class="filter-input"
-          />
-          <button id="addCompanyFilterBtn" class="filter-action-btn">Add</button>
+      <!-- CONTINENT FILTERS & FILTER BUTTON -->
+      <div id="continentFilters" class="continent-row">
+        <button class="continent-btn" onclick="filterByContinent('North America')">North America</button>
+        <button class="continent-btn" onclick="filterByContinent('Europe')">Europe</button>
+        <button class="continent-btn" onclick="filterByContinent('Asia')">Asia</button>
+        <button class="continent-btn" onclick="filterByContinent('Africa')">Africa</button>
+        <button class="continent-btn" onclick="filterByContinent('Oceania')">Oceania</button>
+        <button class="continent-btn" onclick="filterByContinent('South America')">South America</button>
+        <button class="continent-btn" onclick="filterByContinent('Antarctica')">Antarctica</button>
+        <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
+        <button id="filterToggleBtn" class="continent-btn filter-btn-icon" title="Open Filters">
+          <span style="font-size: 16px;">⊙</span>
+          <span class="filter-label">Filter</span>
+          <span id="filterBadge" class="filter-badge">0</span>
+        </button>
+      </div>
+
+      <!-- FILTER MODAL BACKDROP -->
+      <div class="filter-backdrop" id="filterBackdrop"></div>
+
+      <!-- LOCATION & COMPANY FILTER PANEL (MODAL) -->
+      <div class="filter-panel" id="filterPanel">
+        <div class="filter-panel-header">
+          <h3>Filters</h3>
+          <button class="filter-close-btn" id="filterCloseBtn">&times;</button>
         </div>
-        <div id="companySuggestionsDropdown" class="suggestions-dropdown" style="display:none;"></div>
+
+        <div class="filter-controls">
+          <div class="filter-group">
+            <label for="filterLocationInput">Hide Location</label>
+            <div class="filter-input-container">
+              <input id="filterLocationInput" type="text" placeholder="Location name..." class="filter-input" />
+              <button id="addLocationFilterBtn" class="filter-action-btn">Add</button>
+            </div>
+            <div id="locationSuggestionsDropdown" class="suggestions-dropdown" style="display:none;"></div>
+          </div>
+
+          <div class="filter-group">
+            <label for="filterCompanyInput">Hide Company</label>
+            <div class="filter-input-container">
+              <input id="filterCompanyInput" type="text" placeholder="Company name..." class="filter-input" />
+              <button id="addCompanyFilterBtn" class="filter-action-btn">Add</button>
+            </div>
+            <div id="companySuggestionsDropdown" class="suggestions-dropdown" style="display:none;"></div>
+          </div>
+
+          <button id="clearAllFiltersBtn" class="filter-clear-btn">Clear All Filters</button>
+        </div>
+
+        <!-- ACTIVE FILTERS DISPLAY -->
+        <div class="filter-content">
+          <div>
+            <span class="filter-tags-label">Hidden Locations (<span id="locationFilterCount">0</span>)</span>
+            <div class="filter-tags" id="locationFilterTags"></div>
+          </div>
+          <div style="margin-top: 16px;">
+            <span class="filter-tags-label">Hidden Companies (<span id="companyFilterCount">0</span>)</span>
+            <div class="filter-tags" id="companyFilterTags"></div>
+          </div>
+        </div>
       </div>
 
-      <button id="clearAllFiltersBtn" class="filter-clear-btn">Clear All Filters</button>
-    </div>
-
-    <!-- ACTIVE FILTERS DISPLAY -->
-    <div class="filter-content">
-      <div>
-        <span class="filter-tags-label">Hidden Locations (<span id="locationFilterCount">0</span>)</span>
-        <div class="filter-tags" id="locationFilterTags"></div>
+      <!-- MAP WRAPPER (THIS WAS MISSING → your map disappeared) -->
+      <div class="map-wrapper">
+        <div id="map2DContainer" class="map-container"></div>
+        <div id="map3DContainer" class="map-container" style="display:none;"></div>
       </div>
-      <div style="margin-top: 16px;">
-        <span class="filter-tags-label">Hidden Companies (<span id="companyFilterCount">0</span>)</span>
-        <div class="filter-tags" id="companyFilterTags"></div>
-      </div>
-    </div>
-  </div>
 
-  <!-- MAP WRAPPER (THIS WAS MISSING → your map disappeared) -->
-  <div class="map-wrapper">
-      <div id="map2DContainer" class="map-container"></div>
-      <div id="map3DContainer" class="map-container" style="display:none;"></div>
-  </div>
-
-  <!-- SIDEBAR (ALSO MISSING BEFORE) -->
-  <aside class="heatmap-sidebar" id="heatmapSidebar">
-      <button class="sidebar-close-btn" onclick="document.getElementById('heatmapSidebar').classList.remove('visible')">
+      <!-- SIDEBAR (ALSO MISSING BEFORE) -->
+      <aside class="heatmap-sidebar" id="heatmapSidebar">
+        <button class="sidebar-close-btn"
+          onclick="document.getElementById('heatmapSidebar').classList.remove('visible')">
           &times;
-      </button>
-      <h3>Location Details</h3>
-      <div id="locationDetails" class="location-details-content">
+        </button>
+        <h3>Location Details</h3>
+        <div id="locationDetails" class="location-details-content">
           <p class="info-text">Click on a cluster on the map to see details</p>
-      </div>
-  </aside>
+        </div>
+      </aside>
 
-</section>
-</main>
+    </section>
+  </main>
 
-<!-- SCRIPTS -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
-<script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+  <!-- SCRIPTS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
 
-<script src="heatmap_dual.js"></script>
-<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+  <script src="heatmap_dual.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 
 </body>
+
 </html>
