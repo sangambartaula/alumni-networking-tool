@@ -1,12 +1,12 @@
 // app.js
-// Approved engineering disciplines (must match backend backfill_disciplines.py)
+// Approved engineering disciplines (must match backend APPROVED_ENGINEERING_DISCIPLINES)
 const APPROVED_ENGINEERING_DISCIPLINES = [
   'Software, Data & AI Engineering',
   'Embedded, Electrical & Hardware Engineering',
   'Mechanical & Energy Engineering',
   'Biomedical Engineering',
   'Materials Science & Manufacturing',
-  'Construction & Engineering Management'
+  'Construction & Engineering Management',
 ];
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
 const fakeAlumni = [
@@ -38,7 +38,7 @@ function updateStatsBanner(alumniData) {
   const totalAlumni = alumniData.length;
 
   // Calculate unique locations
-  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc && loc !== 'Not Found'));
+  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc));
   const locationsCount = uniqueLocations.size;
 
   // Calculate bookmarked alumni - check interaction_type === 'bookmarked'
@@ -522,9 +522,10 @@ function populateFilters(list) {
   const roles = Array.from(new Set(list.map(x => x.role).filter(isValid))).sort();
   // Normalize companies before creating the Set
   const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
-  // Always show all approved engineering disciplines in the filter
-  // (even if no alumni currently match a given discipline)
-  const majors = [...APPROVED_ENGINEERING_DISCIPLINES].sort();
+  // Filter majors to only show approved engineering disciplines (which excludes Unknown now)
+  const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean)))
+    .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
+    .sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
   // Fixed order for degree levels
   const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
@@ -708,19 +709,6 @@ function setupFiltering(list) {
 
 // Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
 (async function init() {
-  // ---- Client-side auth check (defense-in-depth) ----
-  // If the browser served a cached page after logout, this will catch it
-  // and redirect to login before the user sees stale content.
-  try {
-    const authCheck = await fetch('/api/user-interactions');
-    if (authCheck.status === 401) {
-      window.location.href = '/login/linkedin';
-      return;
-    }
-  } catch (e) {
-    // Network error – allow page to continue (may be offline / dev mode)
-  }
-
   // Create notes modal first
   notesModal.create();
 

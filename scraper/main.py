@@ -271,9 +271,9 @@ def run_review_mode(scraper, nav, history_mgr):
                     logger.info(f"  🔄 Retrying: {profile_url}")
                     data = scraper.scrape_profile_page(profile_url)
                     if data and database_handler.save_profile_to_csv(data):
-                        history_mgr.mark_as_visited(profile_url, saved=True)
+                         history_mgr.mark_as_visited(profile_url, saved=True)
                 except Exception as retry_e:
-                    logger.error(f"❌ Retry failed: {retry_e}")
+                     logger.error(f"❌ Retry failed: {retry_e}")
             else:
                 logger.error(f"❌ Error processing {profile_url}: {e}")
         

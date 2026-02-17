@@ -287,27 +287,55 @@ def save_profile_to_csv(profile_data):
 
         existing_df = pd.read_csv(OUTPUT_CSV, encoding='utf-8') if OUTPUT_CSV.exists() else pd.DataFrame(columns=CSV_COLUMNS)
         
-        save_data = {k: v for k, v in profile_data.items() if k in CSV_COLUMNS}
-        save_data['job_title'] = clean_job_title(save_data.get('job_title', ''))
+        # Transform data to new schema
+        name = str(profile_data.get('name', '')).strip()
+        parts = name.split()
+        first = parts[0] if len(parts) > 0 else ''
+        last = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        save_data = {
+            'first': first,
+            'last': last,
+            'linkedin_url': profile_data.get('profile_url'),
+            'major': profile_data.get('major'),
+            'education': profile_data.get('education'),
+            'school_start': profile_data.get('school_start_date'),
+            'grad_year': profile_data.get('graduation_year'),
+            'location': profile_data.get('location'),
+            'working_while_studying': profile_data.get('working_while_studying'),
+            'title': clean_job_title(profile_data.get('job_title', '')),
+            'company': profile_data.get('company'),
+            'job_start': profile_data.get('job_start_date'),
+            'job_end': profile_data.get('job_end_date'),
+            'exp_2_title': profile_data.get('exp2_title'),
+            'exp_2_company': profile_data.get('exp2_company'),
+            'exp_2_dates': profile_data.get('exp2_dates'),
+            'exp_3_title': profile_data.get('exp3_title'),
+            'exp_3_company': profile_data.get('exp3_company'),
+            'exp_3_dates': profile_data.get('exp3_dates'),
+            'scraped_at': profile_data.get('scraped_at')
+        }
         
-        # Normalize text fields to fix fancy quotes/apostrophes
-        text_fields = ['name', 'headline', 'location', 'job_title', 'company', 'major', 
-                       'exp2_title', 'exp2_company', 'exp3_title', 'exp3_company']
+        # Normalize text fields
+        text_fields = ['first', 'last', 'location', 'title', 'company', 'major', 
+                       'exp_2_title', 'exp_2_company', 'exp_3_title', 'exp_3_company']
         for field in text_fields:
             if field in save_data and save_data[field]:
                 save_data[field] = normalize_text(str(save_data[field]))
         
+        # Ensure all columns exist
         for col in CSV_COLUMNS:
             save_data.setdefault(col, "")
             
         new_row = pd.DataFrame([save_data])[CSV_COLUMNS]
         combined_df = pd.concat([existing_df, new_row], ignore_index=True)
-        combined_df = combined_df.drop_duplicates(subset=['profile_url'], keep='last')
+        combined_df = combined_df.drop_duplicates(subset=['linkedin_url'], keep='last')
         
         combined_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')
         
         # Flag profiles with incomplete data for review
-        flag_profile_for_review(save_data)
+        # Note: flag_profile_for_review still expects original keys, so pass original profile_data
+        flag_profile_for_review(profile_data)
         
         return True
     except Exception as e:

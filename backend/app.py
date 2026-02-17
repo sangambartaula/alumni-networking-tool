@@ -1,4 +1,4 @@
-from flask import Flask, redirect, request, url_for, session, send_from_directory, jsonify, make_response
+from flask import Flask, redirect, request, url_for, session, send_from_directory, jsonify
 from dotenv import load_dotenv
 from functools import wraps
 import os
@@ -7,13 +7,6 @@ import mysql.connector  # for MySQL connection
 import secrets
 from database import get_connection
 from geocoding import geocode_location
-import sqlite3
-# Import discipline inference for on-the-fly classification (avoids needing DB backfill)
-try:
-    from backfill_disciplines import infer_discipline
-except ImportError:
-    def infer_discipline(degree, job_title, headline):
-        return "Unknown"
 
 load_dotenv()
 
@@ -99,8 +92,122 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Biomedical Engineering',
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
-    
 ]
+
+# =============================================================================
+# DISCIPLINE CLASSIFICATION (computed on-the-fly, NOT stored in DB)
+# Ordered list: first match wins.  Priority per alumni: job_title > degree > headline
+# =============================================================================
+import re
+
+DISCIPLINES = [
+    # 1. SOFTWARE, DATA & AI ENGINEERING
+    ("Software, Data & AI Engineering", [
+        "cs", "computer science", "computing", "software", "software engineer",
+        "software developer", "software architect", "backend engineer",
+        "frontend engineer", "full stack", "full-stack", "web developer",
+        "application developer", "platform engineer", "systems engineer",
+        "devops", "site reliability engineer", "sre", "cloud engineer",
+        "aws", "azure", "gcp", "api", "microservices", "programmer",
+        "coding", "programming", "python", "java", "javascript", "typescript",
+        "c++", "go", "rust", "data engineer", "data scientist", "data science",
+        "machine learning", "ml", "artificial intelligence", "ai",
+        "deep learning", "cyber", "cybersecurity", "information technology",
+        "it", "infosec", "appsec", "security engineer",
+    ]),
+    # 2. EMBEDDED, ELECTRICAL & HARDWARE ENGINEERING
+    ("Embedded, Electrical & Hardware Engineering", [
+        "embedded systems engineer", "embedded", "embedded systems", "embedded engineer", "firmware",
+        "firmware engineer", "rtos", "real-time systems", "electrical engineer",
+        "electrical engineering", "computer engineering", "hardware",
+        "hardware engineer", "electronics", "circuit design", "pcb",
+        "schematic", "altium", "orcad", "cadence", "fpga", "verilog",
+        "vhdl", "asic", "silicon", "semiconductor", "microcontroller",
+        "arm", "stm32", "esp32", "bare metal", "low level", "device driver",
+        "linux kernel", "robotics", "controls engineer", "mechatronics",
+        "signal processing", "digital design", "analog design", "power systems",
+    ]),
+    # 3. MECHANICAL & ENERGY ENGINEERING
+    ("Mechanical & Energy Engineering", [
+        "mechanical engineering", "mechanical engineer", "mech engineer",
+        "mechanics", "machine design", "cad", "solidworks", "catia",
+        "autocad", "ansys", "manufacturing engineer", "manufacturing engineering",
+        "hvac", "thermal engineering", "thermodynamics", "heat transfer",
+        "fluids", "fluid mechanics", "energy engineering", "energy systems",
+        "renewable energy", "power generation", "turbines", "combustion",
+        "automotive engineering", "aerospace engineering", "structural analysis",
+        "stress analysis", "finite element", "fea", "industrial engineering",
+        "plant engineer",
+    ]),
+    # 4. BIOMEDICAL ENGINEERING
+    ("Biomedical Engineering", [
+        "biomedical", "biomedical engineering", "biomedical engineer",
+        "bioengineering", "medical engineering", "medical devices",
+        "medical device engineer", "clinical engineer", "clinical engineering",
+        "healthcare engineering", "biotech", "biotechnology", "bioinformatics",
+        "computational biology", "medical imaging", "imaging engineer",
+        "mri", "ct scan", "ultrasound", "x-ray", "biosensors", "prosthetics",
+        "implants", "rehabilitation engineering", "neural engineering",
+        "tissue engineering", "biomaterials", "physiological systems",
+        "regulatory affairs", "fda",
+    ]),
+    # 5. MATERIALS SCIENCE & MANUFACTURING
+    ("Materials Science & Manufacturing", [
+        "materials science", "materials engineering", "materials engineer",
+        "metallurgy", "metallurgical engineering", "polymers", "polymer science",
+        "ceramics", "composites", "nanomaterials", "nanotechnology",
+        "thin films", "surface science", "crystallography", "solid state materials",
+        "semiconductor materials", "process engineering", "process engineer",
+        "manufacturing science", "manufacturing process", "quality engineering",
+        "six sigma", "lean manufacturing", "failure analysis", "corrosion",
+        "heat treatment", "additive manufacturing", "3d printing",
+        "powder metallurgy", "materials characterization", "xrd", "sem", "tem",
+    ]),
+    # 6. CONSTRUCTION & ENGINEERING MANAGEMENT
+    ("Construction & Engineering Management", [
+        "construction management", "construction manager", "construction engineer",
+        "civil engineering", "civil engineer", "structural engineering",
+        "structural engineer", "project manager construction",
+        "engineering manager construction", "site engineer", "field engineer",
+        "general contractor", "subcontractor", "estimating", "cost estimation",
+        "quantity surveying", "scheduler", "scheduling", "primavera", "p6",
+        "ms project", "bim", "revit", "autodesk construction", "project controls",
+        "capital projects", "infrastructure projects", "transportation engineering",
+        "geotechnical engineering", "surveying", "land development",
+        "building systems", "facilities engineering", "osha",
+    ]),
+]
+
+
+def infer_discipline(degree, job_title, headline):
+    """
+    Infer engineering discipline from degree, job title, and headline.
+    Priority: Job Title > Degree > Headline
+    Returns the best matching discipline or "Unknown" if no match.
+    """
+    sources = [job_title, degree, headline]
+
+    for text in sources:
+        if not text:
+            continue
+        text_lower = text.lower()
+
+        matches = []  # (keyword_length, category_index, discipline_name)
+        for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
+            for keyword in keywords:
+                if len(keyword) <= 2:
+                    if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
+                        matches.append((len(keyword), cat_index, discipline_name))
+                else:
+                    if keyword in text_lower:
+                        matches.append((len(keyword), cat_index, discipline_name))
+
+        if matches:
+            # Longest keyword first, then by category order (lower = higher priority)
+            matches.sort(key=lambda x: (-x[0], x[1]))
+            return matches[0][2]
+
+    return "Unknown"
 
 def get_current_user_id():
     """Get the current logged-in user's DB id from LinkedIn profile.
@@ -142,13 +249,7 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         if 'linkedin_token' not in session:
             return redirect(url_for('login_linkedin'))
-        response = make_response(f(*args, **kwargs))
-        # Prevent browser from caching authenticated pages so that
-        # after logout the browser must re-check with the server
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        return response
+        return f(*args, **kwargs)
     return decorated_function
 
 def api_login_required(f):
@@ -313,7 +414,7 @@ def analytics_page():
 
 @app.route('/heatmap.js')
 def serve_heatmap_js():
-    return send_from_directory('../frontend/public', 'heatmap_dual.js')
+    return send_from_directory('../frontend/public', 'heatmap.js')
 
 @app.route('/heatmap_style.css')
 def serve_heatmap_css():
@@ -544,7 +645,7 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, education
+                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline
                     FROM alumni
                     ORDER BY last_name ASC, first_name ASC
                     LIMIT %s OFFSET %s
@@ -553,21 +654,14 @@ def api_get_alumni():
 
             alumni = []
             for r in rows:
-                # --- Compute discipline on-the-fly using keyword matching ---
-                db_major = r.get('major')
-                if not db_major or db_major == 'Unknown':
-                    computed_major = infer_discipline(
-                        r.get('degree') or '',
-                        r.get('current_job_title') or '',
-                        r.get('headline') or ''
-                    )
-                else:
-                    computed_major = db_major
-
-                # --- Compute degree level from degree field ---
-                full_degree = r.get('degree') or ''
-                degree_level = None
+                full_degree = r.get('degree', '') or ''
+                if not full_degree:
+                    full_degree = r.get('major', '') or ''
+                degree_level = 'Other'
+                
+                # Normalize to lowercase for matching
                 degree_lower = full_degree.lower()
+                
                 if degree_lower:
                     if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
                         degree_level = 'Undergraduate'
@@ -576,18 +670,13 @@ def api_get_alumni():
                     elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
                         degree_level = 'PhD'
 
-                # If degree field is empty, try to infer from headline/education
-                if not degree_level:
-                    education_text = (r.get('education') or '').lower()
-                    headline_text = (r.get('headline') or '').lower()
-                    combined = f"{education_text} {headline_text}"
-                    if any(term in combined for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
-                        degree_level = 'Undergraduate'
-                    elif any(term in combined for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
-                        degree_level = 'Graduate'
-                    elif any(term in combined for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
-                        degree_level = 'PhD'
-
+                # Compute engineering discipline on-the-fly (not from DB)
+                discipline = infer_discipline(
+                    r.get('degree', ''),
+                    r.get('current_job_title', ''),
+                    r.get('headline', '')
+                )
+                
                 alumni.append({
                     "id": r.get('id'),
                     "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
@@ -596,8 +685,7 @@ def api_get_alumni():
                     "current_job_title": r.get('current_job_title'),
                     "company": r.get('company'),
                     "grad_year": r.get('grad_year'),
-                    "major": computed_major,
-                    "education": r.get('education'),
+                    "major": discipline,
 
                     # OPTIONAL: keep backwards-compatible for alumni UI (if needed)
                     "role": r.get('current_job_title'),
@@ -618,9 +706,12 @@ def api_get_alumni():
             except Exception:
                 pass
 
+    except mysql.connector.Error as err:
+        app.logger.error(f"MySQL error fetching alumni: {err}")
+        return jsonify({"error": f"Database error: {str(err)}"}), 500
     except Exception as e:
         app.logger.error(f"Error fetching alumni: {e}")
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
 
@@ -667,11 +758,8 @@ def get_notes(alumni_id):
             
             if note:
                 # Handle timestamp formatting
-                created_at = note.get('created_at') if isinstance(note, dict) else note[2]
-                updated_at = note.get('updated_at') if isinstance(note, dict) else note[3]
-                note_id = note.get('id') if isinstance(note, dict) else note[0]
-                note_content = note.get('note_content') if isinstance(note, dict) else note[1]
-                
+                created_at = note.get('created_at')
+                updated_at = note.get('updated_at')
                 if hasattr(created_at, 'isoformat'):
                     created_at = created_at.isoformat()
                 if hasattr(updated_at, 'isoformat'):
@@ -680,8 +768,8 @@ def get_notes(alumni_id):
                 return jsonify({
                     "success": True,
                     "note": {
-                        "id": note_id,
-                        "note_content": note_content,
+                        "id": note['id'],
+                        "note_content": note['note_content'],
                         "created_at": created_at,
                         "updated_at": updated_at
                     }
@@ -697,6 +785,7 @@ def get_notes(alumni_id):
     except Exception as e:
         app.logger.error(f"Error getting notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 
 @app.route('/api/notes', methods=['GET'])
@@ -814,8 +903,8 @@ def save_notes(alumni_id):
                 
                 conn.commit()
             else:
-                # MySQL mode - use %s placeholders and dictionary=True
-                with conn.cursor(dictionary=True) as cur:
+                # MySQL mode - use %s placeholders and NOW()
+                with conn.cursor() as cur:
                     cur.execute("""
                         SELECT id FROM notes
                         WHERE user_id = %s AND alumni_id = %s
@@ -852,6 +941,7 @@ def save_notes(alumni_id):
     except Exception as e:
         app.logger.error(f"Error saving notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 
 @app.route('/api/notes/<int:alumni_id>', methods=['DELETE'])
@@ -1063,17 +1153,13 @@ def get_heatmap_data():
                 location_clusters[cluster_key] += 1
 
                 # keep all alumni for this cluster (no limit)
-                created_at_val = row.get("created_at")
-                if hasattr(created_at_val, 'isoformat'):
-                    created_at_val = created_at_val.isoformat()
-                
                 location_details[cluster_key]["sample_alumni"].append({
                     "id": row["id"],
                     "name": f"{row['first_name']} {row['last_name']}".strip(),
                     "role": row["current_job_title"] or row["headline"] or "Alumni",
                     "company": row["company"],
                     "linkedin": row["linkedin_url"],
-                    "created_at": created_at_val
+                    "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), 'isoformat') else row.get("created_at")
                 })
                 
                 # Track location string frequencies for majority voting
@@ -1121,9 +1207,12 @@ def get_heatmap_data():
             except Exception:
                 pass
 
+    except mysql.connector.Error as err:
+        app.logger.error(f"MySQL error fetching heatmap data: {err}")
+        return jsonify({"error": f"Database error: {str(err)}"}), 500
     except Exception as e:
         app.logger.error(f"Error fetching heatmap data: {e}")
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
 @app.route("/api/geocode")
@@ -1169,49 +1258,28 @@ def get_fallback_status_api():
         }), 500
 
 
-# ---------------------- Error handler ----------------------
-@app.errorhandler(404)
-def not_found(e):
-    return 'Page not found', 404
+# ---------------------- Majors / Filter API ----------------------
 
-if __name__ == "__main__":
-    # Initialize SQLite fallback system (syncs from cloud if available)
-    # Must run even when DISABLE_DB=1 so the SQLite DB is ready
-    if USE_SQLITE_FALLBACK:
-        try:
-            from sqlite_fallback import init_fallback_system
-            init_fallback_system()
-        except Exception as e:
-            app.logger.warning(f"SQLite fallback initialization failed: {e}")
-            app.logger.info("Continuing with direct database connection...")
-    
-    # Initialize database first (but skip re-seeding if data exists)
-    from database import init_db, seed_alumni_data
 @app.route('/api/alumni/majors', methods=['GET'])
 @api_login_required
 def api_get_majors():
     """
-    Return the list of approved engineering disciplines.
-    Disciplines are computed on-the-fly via keyword matching (not stored in DB),
-    so we return the full approved list directly.
+    Return the static list of approved engineering disciplines.
+    Disciplines are computed on-the-fly from alumni data, not stored in DB.
     """
-    return jsonify({"success": True, "majors": APPROVED_ENGINEERING_DISCIPLINES}), 200
+    return jsonify({"success": True, "majors": sorted(APPROVED_ENGINEERING_DISCIPLINES)}), 200
 
 
 @app.route('/api/alumni/filter', methods=['GET'])
 @api_login_required
 def api_filter_alumni():
     """
-    Filter alumni by major and other criteria.
+    Filter alumni by major (discipline) and other criteria.
+    NOTE: discipline is computed on-the-fly via infer_discipline(), NOT from the DB.
     Query params:
-      - major: filter by engineering discipline (e.g., 'Computer Engineering')
-      - location: filter by location
-      - company: filter by company
-      - job_title: filter by job title
-      - grad_year: filter by graduation year
-      - degree: filter by degree level
-      - limit: max results (default 10000)
-      - offset: pagination offset (default 0)
+      - major: filter by engineering discipline
+      - location, company, job_title, grad_year, degree: other filters
+      - limit (default 10000), offset (default 0)
     """
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
@@ -1225,11 +1293,11 @@ def api_filter_alumni():
         job_title = request.args.get('job_title', '').strip()
         grad_year = request.args.get('grad_year', '').strip()
         degree_filter = request.args.get('degree', '').strip()
-        
-        # Validate major parameter - only allow approved engineering disciplines
+
+        # Validate major parameter
         if major and major not in APPROVED_ENGINEERING_DISCIPLINES:
             return jsonify({"error": f"Invalid engineering discipline: {major}"}), 400
-        
+
         try:
             limit = int(request.args.get('limit', 10000))
         except Exception:
@@ -1242,51 +1310,39 @@ def api_filter_alumni():
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                # Build dynamic WHERE clause
+                # Build dynamic WHERE clause -- discipline (major) is NOT filtered in SQL
                 where_clauses = []
                 params = []
-                
-                if major:
-                    where_clauses.append("major = %s")
-                    params.append(major)
-                
+
                 if location:
                     where_clauses.append("location LIKE %s")
                     params.append(f"%{location}%")
-                
                 if company:
                     where_clauses.append("company LIKE %s")
                     params.append(f"%{company}%")
-                
                 if job_title:
                     where_clauses.append("current_job_title LIKE %s")
                     params.append(f"%{job_title}%")
-                
                 if grad_year:
                     where_clauses.append("grad_year = %s")
                     params.append(int(grad_year))
-                
                 if degree_filter:
-                    # Map degree filter to SQL pattern
                     if degree_filter.lower() == 'undergraduate':
                         where_clauses.append("(degree LIKE '%Bachelor%' OR degree LIKE '%B.S.%' OR degree LIKE '%B.A.%')")
                     elif degree_filter.lower() == 'graduate':
                         where_clauses.append("(degree LIKE '%Master%' OR degree LIKE '%M.S.%' OR degree LIKE '%MBA%')")
                     elif degree_filter.lower() == 'phd':
-                        where_clauses.append("(degree LIKE '%Ph.D%' OR degree LIKE '%PhD%')")
-                
+                        where_clauses.append("(degree LIKE '%Ph.D%' OR degree LIKE '%PhD%' OR degree LIKE '%Doctor%')")
+
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-                
+
                 query = f"""
-                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, 
+                    SELECT id, first_name, last_name, grad_year, degree, linkedin_url,
                            current_job_title, company, location, headline
                     FROM alumni
                     WHERE {where_clause}
                     ORDER BY last_name ASC, first_name ASC
-                    LIMIT %s OFFSET %s
                 """
-                params.extend([limit, offset])
-                
                 cur.execute(query, params)
                 rows = cur.fetchall()
 
@@ -1295,7 +1351,7 @@ def api_filter_alumni():
                     full_degree = r.get('degree', '') or ''
                     degree_level = 'Other'
                     degree_lower = full_degree.lower()
-                    
+
                     if degree_lower:
                         if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
                             degree_level = 'Undergraduate'
@@ -1303,14 +1359,25 @@ def api_filter_alumni():
                             degree_level = 'Graduate'
                         elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
                             degree_level = 'PhD'
-                    
+
+                    # Compute discipline on-the-fly
+                    discipline = infer_discipline(
+                        r.get('degree', ''),
+                        r.get('current_job_title', ''),
+                        r.get('headline', '')
+                    )
+
+                    # Apply discipline filter in Python (not SQL)
+                    if major and discipline != major:
+                        continue
+
                     alumni.append({
                         "id": r.get('id'),
                         "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
                         "current_job_title": r.get('current_job_title'),
                         "company": r.get('company'),
                         "grad_year": r.get('grad_year'),
-                        "major": r.get('major'),
+                        "major": discipline,
                         "role": r.get('current_job_title'),
                         "headline": r.get('headline'),
                         "class": r.get('grad_year'),
@@ -1320,7 +1387,9 @@ def api_filter_alumni():
                         "full_degree": full_degree
                     })
 
-                return jsonify({"success": True, "alumni": alumni, "count": len(alumni)}), 200
+                # Apply offset/limit after Python-side filtering
+                paginated = alumni[offset:offset + limit]
+                return jsonify({"success": True, "alumni": paginated, "count": len(alumni)}), 200
         finally:
             try:
                 conn.close()
@@ -1332,9 +1401,26 @@ def api_filter_alumni():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
-if __name__ == '__main__':
+# ---------------------- Error handler ----------------------
+@app.errorhandler(404)
+def not_found(e):
+    return 'Page not found', 404
+
+
+# ---------------------- Main entry point ----------------------
+if __name__ == "__main__":
+    # Initialize SQLite fallback system first (syncs from cloud if available)
+    if USE_SQLITE_FALLBACK and not DISABLE_DB:
+        try:
+            from sqlite_fallback import init_fallback_system
+            init_fallback_system()
+        except Exception as e:
+            app.logger.warning(f"SQLite fallback initialization failed: {e}")
+            app.logger.info("Continuing with direct database connection...")
+
+    # Initialize database (but skip re-seeding if data exists)
+    from database import init_db, seed_alumni_data
     if not DISABLE_DB:
-        # Normal mode: init DB (MySQL or fallback to SQLite) and seed
         try:
             init_db()
             seed_alumni_data()
@@ -1344,12 +1430,5 @@ if __name__ == '__main__':
                 exit(1)
             else:
                 app.logger.info("Continuing with SQLite fallback...")
-    elif USE_SQLITE_FALLBACK:
-        # DISABLE_DB=1 but SQLite fallback enabled: seed SQLite from CSV if available
-        app.logger.info("DISABLE_DB=1 with SQLite fallback: seeding SQLite from CSV...")
-        try:
-            seed_alumni_data()
-        except Exception as e:
-            app.logger.warning(f"SQLite seeding failed (may already have data): {e}")
-    
+
     app.run()

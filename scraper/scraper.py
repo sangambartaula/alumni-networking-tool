@@ -12,10 +12,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchWindowException
 
 # Local imports
+import html
+
+# Local imports
 import utils
 import config
 from config import logger
 from entity_classifier import classify_entity, is_location, is_university
+from groq_extractor import is_groq_available, extract_experiences_with_groq, parse_groq_date, _clean_doubled
 
 
 def normalize_scraped_data(data):
@@ -23,6 +27,7 @@ def normalize_scraped_data(data):
     Normalize all scraped data fields:
     - Strip leading/trailing whitespace from all string fields
     - Remove trailing slashes from URLs
+    - Unescape HTML entities (e.g. &amp; -> &)
     """
     if not data:
         return data
@@ -34,10 +39,14 @@ def normalize_scraped_data(data):
             # Remove trailing slashes from URLs
             if 'url' in key.lower() and value:
                 value = value.rstrip('/')
+            
+            # Unescape HTML entities
+            value = html.unescape(value)
+            
             data[key] = value
         elif isinstance(value, list):
             # Handle list fields like all_education
-            data[key] = [v.strip() if isinstance(v, str) else v for v in value]
+            data[key] = [html.unescape(v.strip()) if isinstance(v, str) else v for v in value]
     
     return data
 
@@ -295,7 +304,7 @@ class LinkedInScraper:
             data["location"] = location or "Not Found"
 
             # 4. Experience - Get up to 3 entries
-            all_experiences = self._extract_all_experiences(soup, max_entries=3)
+            all_experiences = self._extract_all_experiences(soup, max_entries=3, profile_name=name)
             
             # Primary experience (most recent)
             if all_experiences:
@@ -336,8 +345,17 @@ class LinkedInScraper:
             
             if best_unt:
                 data["education"] = best_unt.get("school", "")
-                data["degree"] = best_unt.get("degree", "")
-                data["major"] = ""   # leave empty so backend infers discipline
+                # Combine degree and major into single "major" field
+                degree_part = best_unt.get("degree", "").strip()
+                major_part = best_unt.get("major", "").strip()
+                if degree_part and major_part:
+                    data["major"] = f"{degree_part} in {major_part}"
+                elif degree_part:
+                    data["major"] = degree_part
+                elif major_part:
+                    data["major"] = major_part
+                else:
+                    data["major"] = ""
                 data["graduation_year"] = best_unt.get("graduation_year", "")
 
                 
@@ -486,167 +504,135 @@ class LinkedInScraper:
         
         return name, headline, location
 
-    def _extract_all_experiences(self, soup, max_entries=3):
-        """Extract up to max_entries experience entries, sorted by most recent first."""
+    def _extract_all_experiences(self, soup, max_entries=3, profile_name="unknown"):
+        """
+        Extract up to max_entries experience entries, sorted by most recent first.
+        
+        Uses LinkedIn's CSS structure directly:
+        - Job title: in span with class containing 't-bold'
+        - Company: in span with class 't-14 t-normal' (format: "Company · Part-time")
+        - Dates: in span with class 'pvs-entity__caption-wrapper' or 't-black--light'
+        """
         exp_root = self._find_section_root(soup, "Experience")
-        if not exp_root: return []
+        if not exp_root: 
+            logger.info("    ℹ️ No Experience section found")
+            return []
 
-        # Patterns to filter OUT (these are not company/title)
-        junk_patterns = re.compile(
-            r'^(Full-time|Part-time|Contract|Internship|Freelance|Self-employed|Seasonal|Temporary|Remote|Hybrid|On-site)$|'
-            r'^\d+\s*(yr|yrs|year|years|mo|mos|month|months)\b|'  # "3 yrs 1 mo"
-            r'^·\s*\d+\s*(yr|yrs|mo|mos)|'  # "· 3 yrs"
-            r'^\d+\s*(yr|yrs)?\s*\d*\s*(mo|mos)?$',  # Just duration
-            re.I
-        )
-        
-        # Company indicator patterns
-        company_hints = re.compile(
-            r'\b(Inc\.?|Corp\.?|LLC|Ltd\.?|Company|Co\.?|Technologies|Solutions|Enterprises|Group|Partners|Services|Consulting|Software|Systems|S\.?R\.?L\.?)(?=\W|$)',
-            re.I
-        )
-        
-        # Job title indicator patterns
-        title_hints = re.compile(
-            r'\b(Engineer|Developer|Manager|Director|Analyst|Designer|Consultant|Specialist|Associate|Intern|Lead|Senior|Junior|Sr\.?|Jr\.?|Chief|Head|VP|Vice President|Coordinator|Administrator|Representative|Officer|Architect|Scientist|Drafter|Assistant|Fellow|Co-op)\b',
-            re.I
-        )
-
-        # Track context for grouped experiences (Company Name)
-        context_company = ""
-        
-        candidates = []
-        # Iterate specific containers if possible, but find_all("div") is broad.
-        # We rely on specific content patterns to distinguish Headers vs Rows.
-        
-        # We process in document order.
-        divs = exp_root.find_all("div", recursive=True) # Recursive to find nested items
-        
         parsed = []
-        seen_entries = set() # Avoid duplicates based on unique content signature
+        seen_entries = set()
         
-        for div in divs:
-            lines = self._p_texts_clean(div)
-            if not lines: continue
-            
-            # Check signatures
-            has_date_range = any(utils.DATE_RANGE_RE.search(t) for t in lines)
-            has_duration = any(re.match(r'^\d+\s*(yr|yrs|mo|mos)', t, re.I) for t in lines)
-            
-            # 1. Potential Company Header (No specific date range like "Jan 2020 - Present", but has "2 yrs 5 mos")
-            if has_duration and not has_date_range:
-                # Attempt to extract company name from this header to utilize as context
-                # Usually the company name is the first non-junk line
-                for t in lines:
-                    clean_t = t.strip()
-                    if not clean_t: continue
-                    if junk_patterns.match(clean_t): continue
+        # ============================================================
+        # APPROACH 0: Groq AI extraction (most accurate)
+        # ============================================================
+        if is_groq_available():
+            try:
+                # Get the raw HTML of the experience section
+                experience_html = str(exp_root)
+                
+                # Call Groq to extract jobs
+                groq_jobs = extract_experiences_with_groq(experience_html, max_jobs=max_entries, profile_name=profile_name)
+                
+                if groq_jobs:
+                    for job in groq_jobs:
+                        start_d = parse_groq_date(job.get("start_date", ""))
+                        end_d = parse_groq_date(job.get("end_date", ""))
+                        
+                        title = job.get("job_title", "")
+                        company = job.get("company", "")
+                        
+                        if (title or company) and start_d and end_d:
+                            u_key = f"{title.lower()}|{company.lower()}|{start_d}|{end_d}"
+                            if u_key not in seen_entries:
+                                parsed.append({
+                                    "title": title,
+                                    "company": company,
+                                    "start": start_d,
+                                    "end": end_d
+                                })
+                                seen_entries.add(u_key)
                     
-                    # Classify
-                    ent_type, conf = classify_entity(clean_t)
-                    if ent_type == "company" and conf >= 0.7:
-                        context_company = clean_t
-                        # print(f"DEBUG: Set context company to {context_company}")
+                    if parsed:
+                        logger.info(f"    ✓ Groq extracted {len(parsed)} experience(s)")
+                        return parsed[:max_entries]
+                        
+            except Exception as e:
+                logger.warning(f"    ⚠️ Groq extraction failed: {e}, falling back to CSS extraction")
+        
+        # ============================================================
+        # APPROACH 1: Direct CSS selector extraction (LinkedIn's structure)
+        # ============================================================
+        # Find experience entry containers - they have data-view-name="profile-component-entity"
+        # or are within an anchor that links to experience details
+        experience_containers = exp_root.select('div[data-view-name="profile-component-entity"]')
+        
+        # Also try finding by the link pattern (experience entries usually have links)
+        if not experience_containers:
+            experience_containers = exp_root.select('a[data-field="experience_company_logo"]')
+            # Get parent containers
+            experience_containers = [a.find_parent('div') for a in experience_containers if a.find_parent('div')]
+        
+        for container in experience_containers:
+            title = ""
+            company = ""
+            start_d = None
+            end_d = None
+            
+            # Job Title: Look for t-bold class
+            # Prefer inner span to avoid doubled text from parent div
+            title_elem = container.select_one('.t-bold span[aria-hidden="true"]') or container.select_one('.t-bold')
+            if title_elem:
+                title = _clean_doubled(title_elem.get_text(strip=True))
+            
+            # Company + Employment Type: Look for t-14 t-normal (not t-black--light)
+            company_spans = container.select('span.t-14.t-normal:not(.t-black--light)')
+            for span in company_spans:
+                text_elem = span.select_one('span[aria-hidden="true"]')
+                if text_elem:
+                    text = text_elem.get_text(strip=True)
+                else:
+                    text = span.get_text(strip=True)
+                
+                # This could be "Company · Part-time" format
+                if text and not utils.DATE_RANGE_RE.search(text):
+                    # Clean up employment type suffix and doubled text
+                    company = _clean_doubled(self._clean_company(text))
+                    break
+            
+            # Dates: Look for pvs-entity__caption-wrapper or t-black--light
+            date_spans = container.select('span.pvs-entity__caption-wrapper[aria-hidden="true"], span.t-black--light span[aria-hidden="true"]')
+            for span in date_spans:
+                text = span.get_text(strip=True)
+                if utils.DATE_RANGE_RE.search(text):
+                    start_d, end_d = utils.parse_date_range_line(text)
+                    if start_d and end_d:
                         break
-                continue # Don't process this div as an experience entry itself
             
-            # 2. Potential Experience Entry (Has Date Range)
-            if has_date_range:
-                # Identify the date line
-                date_idx = next((i for i, t in enumerate(lines) if utils.DATE_RANGE_RE.search(t)), None)
-                if date_idx is None: continue
-                
-                start_d, end_d = utils.parse_date_range_line(lines[date_idx])
-                if not (start_d and end_d): continue
-                
-                # Context is lines mostly BEFORE the date
-                # Grouped experiences often have Title BEFORE date.
-                # Sometimes Company is also there.
-                
-                # Use a window of text
-                text_window = lines[max(0, date_idx - 4):date_idx]
-                if not text_window: continue
-                
-                # Analyze content
-                company = ""
-                title = ""
-                
-                classified_items = []
-                for t in text_window:
-                    clean_t = self._clean_context_line(t)
-                    if not clean_t: continue
+            # Validate and add
+            if (title or company) and start_d and end_d:
+                u_key = f"{(title or '').lower()}|{(company or '').lower()}|{start_d}|{end_d}"
+                if u_key not in seen_entries:
+                    # Log partial extractions for debugging
+                    if title and not company:
+                        logger.info(f"    ⚠️ Found job title '{title}' but no company detected")
+                    elif company and not title:
+                        logger.info(f"    ⚠️ Found company '{company}' but no job title detected")
                     
-                    # Split logic (at/dots)
-                    parts = self._split_context_line(clean_t)
-                    
-                    for part in parts:
-                        if is_location(part): continue
-                        if is_university(part):
-                            classified_items.append((part, "university", 0.6))
-                        else:
-                            e_type, conf = classify_entity(part)
-                            classified_items.append((part, e_type, conf))
-
-                # Sort by confidence primarily, but we might override based on hints
-                classified_items.sort(key=lambda x: -x[2])
-                
-                # Re-eval candidates with hints to correct misclassifications
-                final_candidates = []
-                for text, cat, conf in classified_items:
-                    # Override: If it matches a specific title hint, force it to job_title
-                    if title_hints.search(text):
-                        final_candidates.append((text, "job_title", 1.0))
-                    # Override: If it matches a specific company hint, force it to company
-                    elif company_hints.search(text):
-                        final_candidates.append((text, "company", 1.0))
-                    else:
-                        final_candidates.append((text, cat, conf))
-                
-                # Re-sort after overrides (hints get 1.0 confidence)
-                final_candidates.sort(key=lambda x: -x[2])
-
-                for item_text, item_type, conf in final_candidates:
-                    if item_type == "company" and not company:
-                        company = item_text
-                    elif item_type == "university" and not company:
-                        company = item_text
-                    elif item_type == "job_title" and not title:
-                        title = item_text
-                    elif item_type == "unknown":
-                        # Tiebreakers (Redundant if we did overrides, but safe to keep)
-                        if not title and title_hints.search(item_text):
-                            title = item_text
-                        elif not company and company_hints.search(item_text):
-                            company = item_text
-                            
-                # Context propagation logic...
-                if title and not company and context_company:
-                     # Check if context_company is actually just the title again (safety)
-                     if context_company.lower() != title.lower():
-                         company = context_company
-
-                if company:
-                    context_company = company
-
-                if title and company:
-                    # Construct unique key to avoid sub-div duplicates
-                    # Often find_all("div") returns parent AND child. 
-                    # Child processing is better (more specific).
-                    # We accept the first valid extraction of a specific (Title/Company/Date) tuple.
-                    
-                    # Normalize simple
-                    u_key = f"{title.lower()}|{company.lower()}|{start_d}|{end_d}"
-                    if u_key not in seen_entries:
-                        parsed.append({
-                            "title": title,
-                            "company": company,
-                            "start": start_d,
-                            "end": end_d
-                        })
-                        seen_entries.add(u_key)
-
+                    parsed.append({
+                        "title": title or "",
+                        "company": company or "",
+                        "start": start_d,
+                        "end": end_d
+                    })
+                    seen_entries.add(u_key)
+        
+        # ============================================================
+        # APPROACH 2: Fallback to text-based extraction if Approach 1 failed
+        # ============================================================
+        if not parsed:
+            logger.info("    ℹ️ Direct CSS extraction found nothing, trying text-based fallback...")
+            parsed = self._extract_experiences_text_based(exp_root, max_entries, seen_entries)
+        
         # Sort by end date descending (most recent first)
-        # "Present" jobs should come first, then by year/month
         def experience_sort_key(exp):
             end = exp.get("end", {})
             if end.get("is_present"):
@@ -656,6 +642,155 @@ class LinkedInScraper:
             return (year, month)
         
         parsed.sort(key=experience_sort_key, reverse=True)
+        
+        # Log summary
+        if parsed:
+            logger.info(f"    ✓ Extracted {len(parsed)} experience(s)")
+        
+        return parsed[:max_entries]
+    
+    def _extract_experiences_text_based(self, exp_root, max_entries=3, seen_entries=None):
+        """
+        Fallback text-based experience extraction (original approach).
+        Used when CSS selector approach fails.
+        """
+        if seen_entries is None:
+            seen_entries = set()
+            
+        # Patterns to filter OUT (these are not company/title)
+        junk_patterns = re.compile(
+            r'^(Full-time|Part-time|Contract|Internship|Freelance|Self-employed|Seasonal|Temporary|Remote|Hybrid|On-site)$|'
+            r'^\d+\s*(yr|yrs|year|years|mo|mos|month|months)\b|'
+            r'^·\s*\d+\s*(yr|yrs|mo|mos)|'
+            r'^\d+\s*(yr|yrs)?\s*\d*\s*(mo|mos)?$',
+            re.I
+        )
+        
+        # Company indicator patterns
+        company_hints = re.compile(
+            r'\b(Inc\.?|Corp\.?|LLC|Ltd\.?|Company|Co\.?|Technologies|Solutions|Enterprises|Group|Partners|Services|Consulting|Software|Systems|S\.?R\.?L\.?)(?=\W|$)',
+            re.I
+        )
+        
+        # Job title indicator patterns  
+        title_hints = re.compile(
+            r'\b(Engineer|Developer|Manager|Director|Analyst|Designer|Consultant|Specialist|Associate|Intern|Lead|Senior|Junior|Sr\.?|Jr\.?|Chief|Head|VP|Vice President|Coordinator|Administrator|Representative|Officer|Architect|Scientist|Drafter|Assistant|Fellow|Co-op|Researcher|Student Researcher|Research Assistant|Teaching Assistant)\\b',
+            re.I
+        )
+
+        context_company = ""
+        parsed = []
+        
+        divs = exp_root.find_all("div", recursive=True)
+        
+        for div in divs:
+            lines = self._p_texts_clean(div)
+            if not lines: continue
+            
+            has_date_range = any(utils.DATE_RANGE_RE.search(t) for t in lines)
+            has_duration = any(re.match(r'^\d+\s*(yr|yrs|mo|mos)', t, re.I) for t in lines)
+            
+            # Company Header detection
+            if has_duration and not has_date_range:
+                for t in lines:
+                    clean_t = t.strip()
+                    if not clean_t or junk_patterns.match(clean_t): continue
+                    
+                    ent_type, conf = classify_entity(clean_t)
+                    if ent_type == "company" and conf >= 0.7:
+                        context_company = clean_t
+                        break
+                    # Also accept universities as employers
+                    if is_university(clean_t):
+                        context_company = clean_t
+                        break
+                continue
+            
+            # Experience Entry detection
+            if has_date_range:
+                date_idx = next((i for i, t in enumerate(lines) if utils.DATE_RANGE_RE.search(t)), None)
+                if date_idx is None: continue
+                
+                start_d, end_d = utils.parse_date_range_line(lines[date_idx])
+                if not (start_d and end_d): continue
+                
+                text_window = lines[max(0, date_idx - 4):date_idx]
+                if not text_window: continue
+                
+                company = ""
+                title = ""
+                
+                classified_items = []
+                for t in text_window:
+                    clean_t = self._clean_context_line(t)
+                    if not clean_t: continue
+                    
+                    parts = self._split_context_line(clean_t)
+                    
+                    for part in parts:
+                        if is_location(part): continue
+                        if is_university(part):
+                            # Universities can be employers!
+                            classified_items.append((part, "company", 0.85))
+                        else:
+                            e_type, conf = classify_entity(part)
+                            classified_items.append((part, e_type, conf))
+
+                classified_items.sort(key=lambda x: -x[2])
+                
+                final_candidates = []
+                for text, cat, conf in classified_items:
+                    if title_hints.search(text):
+                        final_candidates.append((text, "job_title", 1.0))
+                    elif company_hints.search(text):
+                        final_candidates.append((text, "company", 1.0))
+                    else:
+                        final_candidates.append((text, cat, conf))
+                
+                final_candidates.sort(key=lambda x: -x[2])
+
+                for item_text, item_type, conf in final_candidates:
+                    if item_type == "company" and not company:
+                        company = item_text
+                    elif item_type == "job_title" and not title:
+                        title = item_text
+                    elif item_type == "unknown":
+                        if not title and title_hints.search(item_text):
+                            title = item_text
+                        elif not company and company_hints.search(item_text):
+                            company = item_text
+                            
+                # Context propagation
+                if title and not company and context_company:
+                    if context_company.lower() != title.lower():
+                        company = context_company
+
+                if company:
+                    context_company = company
+
+                # Clean doubled text in fallback path
+                if title:
+                    title = _clean_doubled(title)
+                if company:
+                    company = _clean_doubled(company)
+
+                if title or company:
+                    u_key = f"{(title or '').lower()}|{(company or '').lower()}|{start_d}|{end_d}"
+                    if u_key not in seen_entries:
+                        # Log partial extractions
+                        if title and not company:
+                            logger.info(f"    ⚠️ [Fallback] Found job title '{title}' but no company")
+                        elif company and not title:
+                            logger.info(f"    ⚠️ [Fallback] Found company '{company}' but no job title")
+                        
+                        parsed.append({
+                            "title": title or "",
+                            "company": company or "",
+                            "start": start_d,
+                            "end": end_d
+                        })
+                        seen_entries.add(u_key)
+
         return parsed[:max_entries]
 
     def _clean_context_line(self, t):

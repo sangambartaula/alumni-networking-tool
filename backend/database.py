@@ -136,7 +136,6 @@ def init_db():
                     company VARCHAR(255),
                     location VARCHAR(255),
                     headline VARCHAR(500),
-                    education TEXT,
                     school_start_date VARCHAR(20) DEFAULT NULL,
                     job_start_date VARCHAR(20) DEFAULT NULL,
                     job_end_date VARCHAR(20) DEFAULT NULL,
@@ -193,11 +192,6 @@ def init_db():
                     user_id INT NOT NULL,
                     alumni_id INT NOT NULL,
                     note_content LONGTEXT,
-                    exp3_title TEXT,
-                    exp3_company TEXT,
-                    exp3_dates TEXT,
-                    education TEXT,
-                    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_user_alumni (user_id, alumni_id),
@@ -225,7 +219,7 @@ def init_db():
             conn.commit()
             logger.info("All tables initialized successfully")
 
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Database error: {err}")
         raise
     finally:
@@ -253,8 +247,8 @@ def ensure_alumni_timestamp_columns():
                     ADD COLUMN scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 """)
                 logger.info("Added scraped_at column to alumni table")
-            except Exception as err:
-                if "duplicate column" in str(err).lower():
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
                     logger.info("scraped_at column already exists")
                 else:
                     raise
@@ -266,14 +260,14 @@ def ensure_alumni_timestamp_columns():
                     ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 """)
                 logger.info("Added last_updated column to alumni table")
-            except Exception as err:
-                if "duplicate column" in str(err).lower():
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
                     logger.info("last_updated column already exists")
                 else:
                     raise
 
             conn.commit()
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error ensuring timestamp columns: {err}")
         raise
     finally:
@@ -300,8 +294,8 @@ def ensure_alumni_work_school_date_columns():
                 try:
                     cur.execute(sql)
                     logger.info(f"Added {name} column to alumni table")
-                except Exception as err:
-                    if "duplicate column" in str(err).lower():
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
                         logger.info(f"{name} column already exists")
                     else:
                         raise
@@ -320,7 +314,7 @@ def ensure_alumni_work_school_date_columns():
             add_col("ALTER TABLE alumni ADD COLUMN exp3_dates VARCHAR(50) DEFAULT NULL", "exp3_dates")
 
             conn.commit()
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error ensuring work/school date columns: {err}")
         raise
     finally:
@@ -346,13 +340,13 @@ def ensure_alumni_major_column():
                     ADD COLUMN major VARCHAR(255) DEFAULT NULL
                 """)
                 logger.info("Added major column to alumni table")
-            except Exception as err:
-                if "duplicate column" in str(err).lower():
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
                     logger.info("Major column already exists")
                 else:
                     raise
             conn.commit()
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error ensuring major column: {err}")
         raise
     finally:
@@ -389,7 +383,7 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
         logger.debug(f"💾 Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
         return True
 
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error saving visited profile: {err}")
         return False
     finally:
@@ -418,7 +412,7 @@ def get_all_visited_profiles():
         logger.info(f"✓ Retrieved {len(profiles)} visited profiles from database")
         return profiles
 
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error fetching visited profiles: {err}")
         return []
     finally:
@@ -444,7 +438,7 @@ def mark_profile_needs_update(linkedin_url, needs_update=True):
 
         return True
 
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error updating profile needs_update flag: {err}")
         return False
     finally:
@@ -480,7 +474,7 @@ def sync_alumni_to_visited_profiles():
         logger.info(f"✓ Synced {synced} alumni to visited_profiles table")
         return synced
 
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error syncing alumni to visited_profiles: {err}")
         return 0
     finally:
@@ -535,7 +529,7 @@ def migrate_visited_history_csv_to_db():
                             last_checked = NOW()
                     """, (url, saved, visited_at))
                     migrated += 1
-                except Exception as err:
+                except mysql.connector.Error as err:
                     logger.warning(f"Skipping {url}: {err}")
                     continue
 
@@ -573,7 +567,7 @@ def get_visited_profiles_stats():
 
         return stats
 
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error getting visited profiles stats: {err}")
         return None
     finally:
@@ -599,25 +593,17 @@ def get_authorized_emails():
         use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
         
         if use_sqlite:
+            # SQLite mode
+            conn.row_factory = lambda cursor, row: {
+                col[0]: row[idx] for idx, col in enumerate(cursor.description)
+            }
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT email, added_at, added_by_user_id, notes
                 FROM authorized_emails
                 ORDER BY added_at DESC
             """)
-            rows = cursor.fetchall()
-
-            # Convert rows to dict manually
-            emails = []
-            for row in rows:
-                emails.append({
-                    "email": row[0],
-                    "added_at": row[1].isoformat() if hasattr(row[1], "isoformat") else row[1],
-                    "added_by_user_id": row[2],
-                    "notes": row[3]
-                })
-
-
+            emails = cursor.fetchall()
         else:
             # MySQL mode
             with conn.cursor(dictionary=True) as cur:
@@ -758,109 +744,18 @@ def migrate_env_emails_to_db():
 # EXISTING FUNCTIONS
 # ============================================================
 
-def ensure_alumni_education_column():
-    """Ensure education column exists in alumni table"""
-    conn = get_connection()
-    try:
-        # Check if column exists
-        if USE_SQLITE_FALLBACK:
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(alumni)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'education' not in columns:
-                logger.info("🔧 Adding 'education' column to alumni table (SQLite)...")
-                cursor.execute("ALTER TABLE alumni ADD COLUMN education TEXT")
-                conn.commit()
-        else:
-            with conn.cursor() as cur:
-                cur.execute("SHOW COLUMNS FROM alumni LIKE 'education'")
-                if not cur.fetchone():
-                    logger.info("🔧 Adding 'education' column to alumni table (MySQL)...")
-                    cur.execute("ALTER TABLE alumni ADD COLUMN education TEXT")
-                    conn.commit()
-    except Exception as e:
-        logger.error(f"Error ensuring education column: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-
 def seed_alumni_data():
-    """Import alumni data from CSV file. Auto-fixes empty or malformed files."""
+    """Import alumni data from CSV file"""
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(backend_dir)
     csv_path = os.path.join(project_root, 'scraper', 'output', 'UNT_Alumni_Data.csv')
-
-    # Expected columns for alumni CSV
-    EXPECTED_COLUMNS = [
-        'name', 'headline', 'location', 'job_title', 'company', 'major', 'degree',
-        'graduation_year', 'profile_url', 'scraped_at', 'school_start_date',
-        'job_start_date', 'job_end_date', 'working_while_studying',
-        'exp2_title', 'exp2_company', 'exp2_dates',
-        'exp3_title', 'exp3_company', 'exp3_dates'
-    ]
 
     if not os.path.exists(csv_path):
         logger.warning(f"CSV file not found at {csv_path}, skipping import")
         return
 
-    # Check if file is empty or malformed
     try:
-        # Check file size first
-        if os.path.getsize(csv_path) == 0:
-            raise pd.errors.EmptyDataError("File is empty")
-        
         df = pd.read_csv(csv_path)
-        
-        # Validate that required columns exist
-        required_cols = ['name', 'profile_url']
-        missing_required = [col for col in required_cols if col not in df.columns]
-        if missing_required:
-            raise ValueError(f"Missing required columns: {missing_required}")
-            
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError) as e:
-        logger.warning(f"⚠️ CSV file is empty or malformed: {e}")
-        logger.info("🔧 Attempting to fix CSV by exporting from database...")
-        
-        # Try to regenerate CSV from existing database
-        try:
-            conn = get_connection()
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
-                    SELECT 
-                        CONCAT(first_name, ' ', last_name) as name,
-                        headline, location, current_job_title as job_title, company,
-                        major, degree, grad_year as graduation_year, linkedin_url as profile_url,
-                        scraped_at, school_start_date, job_start_date, job_end_date,
-                        working_while_studying, exp2_title, exp2_company, exp2_dates,
-                        exp3_title, exp3_company, exp3_dates
-                    FROM alumni
-                """)
-                rows = cur.fetchall()
-            conn.close()
-            
-            if rows:
-                # Export database data to CSV
-                db_df = pd.DataFrame(rows)
-                db_df.to_csv(csv_path, index=False)
-                logger.info(f"✅ Regenerated CSV with {len(rows)} records from database")
-                df = db_df
-            else:
-                # No data in database, create empty CSV with headers
-                empty_df = pd.DataFrame(columns=EXPECTED_COLUMNS)
-                empty_df.to_csv(csv_path, index=False)
-                logger.info("✅ Created empty CSV with proper headers (no data in database)")
-                return  # Nothing to import
-                
-        except Exception as regen_err:
-            logger.error(f"Failed to regenerate CSV: {regen_err}")
-            # As last resort, create empty CSV with headers
-            empty_df = pd.DataFrame(columns=EXPECTED_COLUMNS)
-            empty_df.to_csv(csv_path, index=False)
-            logger.info("✅ Created empty CSV with proper headers")
-            return
-
-    try:
         logger.info(f"✅ Importing alumni data from {csv_path}")
         logger.info(f"📊 Found {len(df)} records to import")
 
@@ -874,72 +769,63 @@ def seed_alumni_data():
                 for index, row in df.iterrows():
                     processed += 1
 
-                    # Parse name
-                    name = str(row['name']).strip() if pd.notna(row['name']) else ''
-                    if not name:
+                    # Parse name (Handle New 'first', 'last' OR Old 'name')
+                    first_name = str(row.get('first', '')).strip() if pd.notna(row.get('first')) else ''
+                    last_name = str(row.get('last', '')).strip() if pd.notna(row.get('last')) else ''
+                    
+                    if not first_name and not last_name:
+                        # Fallback to old 'name' column
+                        name = str(row.get('name', '')).strip() if pd.notna(row.get('name')) else ''
+                        if name:
+                            parts = name.split()
+                            first_name = parts[0]
+                            last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                    if not first_name and not last_name:
                         continue
 
-                    parts = name.split()
-                    first_name = parts[0] if len(parts) > 0 else ''
-                    last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+                    # Extract fields with New/Old keys
+                    headline = str(row.get('headline', '')).strip() if pd.notna(row.get('headline')) else None
+                    location = str(row.get('location', '')).strip() if pd.notna(row.get('location')) else None
+                    
+                    # title (new) vs job_title (old)
+                    job_title = str(row.get('title', '')).strip() if pd.notna(row.get('title')) else \
+                                str(row.get('job_title', '')).strip() if pd.notna(row.get('job_title')) else None
 
-                    # Extract other fields
-                    headline = str(row['headline']).strip() if pd.notna(row.get('headline')) else None
-                    location = str(row['location']).strip() if pd.notna(row.get('location')) else None
+                    company = str(row.get('company', '')).strip() if pd.notna(row.get('company')) else None
+                    major = str(row.get('major', '')).strip() if pd.notna(row.get('major')) else None
+                    degree = str(row.get('degree', '')).strip() if pd.notna(row.get('degree')) else None
 
-                    # BLOCK SAMPLE USERS
-                    FORBIDDEN_LOCATIONS = {
-                        'Seattle, WA', 'San Jose, CA', 'San Francisco, CA', 
-                        'New York, NY', 'Austin, TX', 'Palo Alto, CA', 
-                        'Cupertino, CA', 'Menlo Park, CA'
-                    }
-                    if location and location in FORBIDDEN_LOCATIONS:
-                        logger.info(f"🚫 Skipping sample user: {first_name} {last_name} from {location}")
-                        continue
-                    job_title = str(row['job_title']).strip() if pd.notna(row.get('job_title')) else None
-                    company = str(row['company']).strip() if pd.notna(row.get('company')) else None
-                    csv_major = str(row.get('major')).strip() if pd.notna(row.get('major')) else None
-                    degree = str(row.get('degree')).strip() if pd.notna(row.get('degree')) else None
+                    # Auto-infer discipline if major is not set in CSV
+                    if not major:
+                        major = infer_discipline(degree, job_title, headline)
+                    
+                    # grad_year (new) vs graduation_year (old)
+                    grad_year = None
+                    if pd.notna(row.get('grad_year')):
+                        grad_year = int(row['grad_year'])
+                    elif pd.notna(row.get('graduation_year')):
+                        grad_year = int(row['graduation_year'])
 
-                    # Approved engineering disciplines — only these are valid for the major column
-                    APPROVED_DISCIPLINES = [
-                        'Software, Data & AI Engineering',
-                        'Embedded, Electrical & Hardware Engineering',
-                        'Mechanical & Energy Engineering',
-                        'Biomedical Engineering',
-                        'Materials Science & Manufacturing',
-                        'Construction & Engineering Management',
-                    ]
-
-                    # If CSV major is already a valid discipline, keep it; otherwise infer.
-                    # NOTE: In our CSV, the 'major' column often contains the raw degree
-                    # text (e.g. "Bachelor's degree, Computer Science") because the scraper
-                    # stores degree info there. Use it as degree text for inference.
-                    if csv_major and csv_major in APPROVED_DISCIPLINES:
-                        major = csv_major
-                    else:
-                        # csv_major likely holds the degree text — use it for inference
-                        degree_text = degree or csv_major or ''
-                        major = infer_discipline(degree_text, job_title or '', headline or '')
-
-                    # Manual overrides for edge cases that can't be keyword-matched
-                    # (e.g. generic "Engineer" job at a construction company)
-                    name_full = f"{first_name} {last_name}".strip()
-                    MANUAL_OVERRIDES = {
-                        "David Rendon": "Construction & Engineering Management",
-                        "Dyuksha Kunder": "Biomedical Engineering",
-                        "Yara Kamal": "Construction & Engineering Management",
-                    }
-                    if name_full in MANUAL_OVERRIDES:
-                        major = MANUAL_OVERRIDES[name_full]
-                    grad_year = int(row['graduation_year']) if pd.notna(row.get('graduation_year')) else None
-                    profile_url = normalize_url(row.get('profile_url'))
-                    scraped_at = str(row['scraped_at']).strip() if pd.notna(row.get('scraped_at')) else None
+                    # linkedin_url (new) vs profile_url (old)
+                    raw_url = row.get('linkedin_url') if pd.notna(row.get('linkedin_url')) else row.get('profile_url')
+                    profile_url = normalize_url(raw_url)
+                    
+                    scraped_at = str(row.get('scraped_at', '')).strip() if pd.notna(row.get('scraped_at')) else None
 
                     # New fields (may not exist in older CSVs)
-                    school_start_date = str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date', None)) else None
-                    job_start_date = str(row.get('job_start_date', '')).strip() if pd.notna(row.get('job_start_date', None)) else None
-                    job_end_date = str(row.get('job_end_date', '')).strip() if pd.notna(row.get('job_end_date', None)) else None
+                    # school_start (new) vs school_start_date (old)
+                    school_start_date = str(row.get('school_start', '')).strip() if pd.notna(row.get('school_start')) else \
+                                        str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date')) else None
+
+                    # job_start (new) vs job_start_date (old)
+                    job_start_date = str(row.get('job_start', '')).strip() if pd.notna(row.get('job_start')) else \
+                                     str(row.get('job_start_date', '')).strip() if pd.notna(row.get('job_start_date')) else None
+
+                    # job_end (new) vs job_end_date (old)
+                    job_end_date = str(row.get('job_end', '')).strip() if pd.notna(row.get('job_end')) else \
+                                   str(row.get('job_end_date', '')).strip() if pd.notna(row.get('job_end_date')) else None
+
                     wws_raw = row.get('working_while_studying', None)
                     working_while_studying = None
                     if pd.notna(wws_raw):
@@ -949,18 +835,28 @@ def seed_alumni_data():
                                 working_while_studying = True
                             elif v in ("no", "false", "0"):
                                 working_while_studying = False
-                        elif isinstance(wws_raw, (int, float)):
-                            working_while_studying = bool(int(wws_raw))
+                        elif isinstance(wws_raw, (int, float, bool)):
+                            # pandas might load bool as bool or float
+                            working_while_studying = bool(wws_raw)
 
-                    # Experience 2 and 3 fields
-                    exp2_title = str(row.get('exp2_title', '')).strip() if pd.notna(row.get('exp2_title', None)) else None
-                    exp2_company = str(row.get('exp2_company', '')).strip() if pd.notna(row.get('exp2_company', None)) else None
-                    exp2_dates = str(row.get('exp2_dates', '')).strip() if pd.notna(row.get('exp2_dates', None)) else None
-                    exp3_title = str(row.get('exp3_title', '')).strip() if pd.notna(row.get('exp3_title', None)) else None
-                    exp3_company = str(row.get('exp3_company', '')).strip() if pd.notna(row.get('exp3_company', None)) else None
-                    exp3_dates = str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates', None)) else None
-
-                    education = str(row.get('education', '')).strip() if pd.notna(row.get('education')) else None
+                    # Experience 2 and 3 fields (New: exp_2_title vs Old: exp2_title)
+                    exp2_title = str(row.get('exp_2_title', '')).strip() if pd.notna(row.get('exp_2_title')) else \
+                                 str(row.get('exp2_title', '')).strip() if pd.notna(row.get('exp2_title'),) else None
+                    
+                    exp2_company = str(row.get('exp_2_company', '')).strip() if pd.notna(row.get('exp_2_company')) else \
+                                   str(row.get('exp2_company', '')).strip() if pd.notna(row.get('exp2_company')) else None
+                    
+                    exp2_dates = str(row.get('exp_2_dates', '')).strip() if pd.notna(row.get('exp_2_dates')) else \
+                                 str(row.get('exp2_dates', '')).strip() if pd.notna(row.get('exp2_dates')) else None
+                    
+                    exp3_title = str(row.get('exp_3_title', '')).strip() if pd.notna(row.get('exp_3_title')) else \
+                                 str(row.get('exp3_title', '')).strip() if pd.notna(row.get('exp3_title')) else None
+                    
+                    exp3_company = str(row.get('exp_3_company', '')).strip() if pd.notna(row.get('exp_3_company')) else \
+                                   str(row.get('exp3_company', '')).strip() if pd.notna(row.get('exp3_company')) else None
+                    
+                    exp3_dates = str(row.get('exp_3_dates', '')).strip() if pd.notna(row.get('exp_3_dates')) else \
+                                 str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates')) else None
 
                     # Insert or update into database
                     try:
@@ -968,37 +864,56 @@ def seed_alumni_data():
                             INSERT INTO alumni 
                             (first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying,
-                             exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates, education,
-                             scraped_at, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(linkedin_url) DO UPDATE SET
-                                first_name=excluded.first_name,
-                                last_name=excluded.last_name,
-                                grad_year=excluded.grad_year,
-                                degree=excluded.degree,
-                                major=excluded.major,
-                                current_job_title=excluded.current_job_title,
-                                company=excluded.company,
-                                location=excluded.location,
-                                headline=excluded.headline,
-                                school_start_date=excluded.school_start_date,
-                                job_start_date=excluded.job_start_date,
-                                job_end_date=excluded.job_end_date,
-                                working_while_studying=excluded.working_while_studying,
-                                exp2_title=excluded.exp2_title,
-                                exp2_company=excluded.exp2_company,
-                                exp2_dates=excluded.exp2_dates,
-                                exp3_title=excluded.exp3_title,
-                                exp3_company=excluded.exp3_company,
-                                exp3_dates=excluded.exp3_dates,
-                                education=excluded.education,
-                                scraped_at=excluded.scraped_at,
-                                updated_at=excluded.updated_at
+                             exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
+                             scraped_at, last_updated)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s,
+                                    %s, %s)
+                            ON DUPLICATE KEY UPDATE
+                            first_name = VALUES(first_name),
+                            last_name = VALUES(last_name),
+                            grad_year = VALUES(grad_year),
+                            degree = VALUES(degree),
+                            major = VALUES(major),
+                            current_job_title = VALUES(current_job_title),
+                            company = VALUES(company),
+                            location = VALUES(location),
+                            headline = VALUES(headline),
+                            school_start_date = VALUES(school_start_date),
+                            job_start_date = VALUES(job_start_date),
+                            job_end_date = VALUES(job_end_date),
+                            working_while_studying = VALUES(working_while_studying),
+                            exp2_title = VALUES(exp2_title),
+                            exp2_company = VALUES(exp2_company),
+                            exp2_dates = VALUES(exp2_dates),
+                            exp3_title = VALUES(exp3_title),
+                            exp3_company = VALUES(exp3_company),
+                            exp3_dates = VALUES(exp3_dates),
+                            last_updated = VALUES(last_updated)
                         """, (
-                            first_name, last_name, grad_year, degree, major, profile_url, job_title, company, location, headline,
-                            school_start_date, job_start_date, job_end_date, working_while_studying,
-                            exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates, education,
-                            scraped_at, scraped_at, scraped_at # created_at and updated_at
+                            first_name,
+                            last_name,
+                            grad_year,
+                            degree,  # degree is not in CSV yet
+                            major,
+                            profile_url,
+                            job_title,
+                            company,
+                            location,
+                            headline,
+                            school_start_date,
+                            job_start_date,
+                            job_end_date,
+                            working_while_studying,
+                            exp2_title,
+                            exp2_company,
+                            exp2_dates,
+                            exp3_title,
+                            exp3_company,
+                            exp3_dates,
+                            scraped_at,
+                            scraped_at
                         ))
 
                         if cur.rowcount == 1:
@@ -1006,7 +921,7 @@ def seed_alumni_data():
                         elif cur.rowcount == 2:
                             updated += 1
                     except Exception as err:
-                        logger.warning(f"Skipping record for {name}: {err}")
+                        logger.warning(f"Skipping record for {first_name} {last_name}: {err}")
                         continue
 
                 conn.commit()
@@ -1043,7 +958,7 @@ def truncate_dot_fields():
             """)
             conn.commit()
             logger.info("✅ Truncated '·' fields in alumni table")
-    except Exception as err:
+    except mysql.connector.Error as err:
         logger.error(f"Error truncating dot fields: {err}")
         raise
     finally:
@@ -1079,9 +994,13 @@ def cleanup_trailing_slashes():
                         cur.execute(f"UPDATE {table} SET linkedin_url = %s WHERE id = %s", (clean_url, row_id))
                         fixed += 1
                     except Exception as err:
-                        # Check if it's a duplicate entry error (MySQL 1062 or SQLite constraint)
-                        err_str = str(err).lower()
-                        if 'duplicate' in err_str or 'unique constraint' in err_str:
+                        err_str = str(err)
+                        # MySQL errno 1062 = Duplicate entry; SQLite raises IntegrityError
+                        is_duplicate = (
+                            (hasattr(err, 'errno') and err.errno == 1062) or
+                            'UNIQUE constraint' in err_str
+                        )
+                        if is_duplicate:
                             # Collision! The clean URL matches another record.
                             # We delete the current record with the slash, keeping the other one.
                             logger.info(f"  Collision for {clean_url}. Deleting duplicate record ID {row_id}.")
@@ -1116,7 +1035,6 @@ if __name__ == "__main__":
         ensure_alumni_timestamp_columns()
         ensure_alumni_work_school_date_columns()
         ensure_alumni_major_column()
-        ensure_alumni_education_column()
 
         # Seed alumni data
         seed_alumni_data()
