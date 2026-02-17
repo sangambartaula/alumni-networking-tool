@@ -676,9 +676,12 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, updated_at
-                    FROM alumni
-                    ORDER BY last_name ASC, first_name ASC
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
+                           a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
+                           a.updated_at, njt.normalized_title
+                    FROM alumni a
+                    LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
+                    ORDER BY a.last_name ASC, a.first_name ASC
                     LIMIT %s OFFSET %s
                 """, (limit, offset))
                 rows = cur.fetchall()
@@ -715,7 +718,8 @@ def api_get_alumni():
                     "linkedin": r.get('linkedin_url'),
                     "degree": degree_level,
                     "full_degree": full_degree,
-                    "updated_at": r.get('updated_at')
+                    "updated_at": r.get('updated_at'),
+                    "normalized_title": r.get('normalized_title')
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200
