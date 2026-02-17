@@ -575,18 +575,15 @@ def get_user_interactions():
         
         try:
             if use_sqlite:
-                # SQLite mode - set up row factory for dict-like access
-                conn.row_factory = lambda cursor, row: {
-                    col[0]: row[idx] for idx, col in enumerate(cursor.description)
-                }
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, alumni_id, interaction_type, notes, created_at, updated_at
-                    FROM user_interactions
-                    WHERE user_id = ?
-                    ORDER BY updated_at DESC
-                """, (user_id,))
-                interactions = cursor.fetchall()
+                # SQLite mode - use dictionary cursor for dict results
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute("""
+                        SELECT id, alumni_id, interaction_type, notes, created_at, updated_at
+                        FROM user_interactions
+                        WHERE user_id = ?
+                        ORDER BY updated_at DESC
+                    """, (user_id,))
+                    interactions = cursor.fetchall()
             else:
                 # MySQL mode - use dictionary cursor
                 with conn.cursor(dictionary=True) as cur:
@@ -654,20 +651,26 @@ def api_get_alumni():
 
             alumni = []
             for r in rows:
-                full_degree = r.get('degree', '') or ''
-                if not full_degree:
-                    full_degree = r.get('major', '') or ''
-                degree_level = 'Other'
-                
-                # Normalize to lowercase for matching
+                # --- Compute degree level from degree field ---
+                full_degree = r.get('degree') or ''
+                degree_level = None
                 degree_lower = full_degree.lower()
-                
                 if degree_lower:
                     if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
                         degree_level = 'Undergraduate'
                     elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
                         degree_level = 'Graduate'
                     elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
+                        degree_level = 'PhD'
+
+                # If degree field is empty, try to infer from headline
+                if not degree_level:
+                    headline_text = (r.get('headline') or '').lower()
+                    if any(term in headline_text for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
+                        degree_level = 'Undergraduate'
+                    elif any(term in headline_text for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
+                        degree_level = 'Graduate'
+                    elif any(term in headline_text for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
                         degree_level = 'PhD'
 
                 # Compute engineering discipline on-the-fly (not from DB)
@@ -733,18 +736,15 @@ def get_notes(alumni_id):
         
         try:
             if use_sqlite:
-                # SQLite mode - returns tuples, use ? placeholders
-                conn.row_factory = lambda cursor, row: {
-                    col[0]: row[idx] for idx, col in enumerate(cursor.description)
-                }
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, note_content, created_at, updated_at
-                    FROM notes
-                    WHERE user_id = ? AND alumni_id = ?
-                    LIMIT 1
-                """, (user_id, alumni_id))
-                note = cursor.fetchone()
+                # SQLite mode - use dictionary cursor for dict results
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute("""
+                        SELECT id, note_content, created_at, updated_at
+                        FROM notes
+                        WHERE user_id = ? AND alumni_id = ?
+                        LIMIT 1
+                    """, (user_id, alumni_id))
+                    note = cursor.fetchone()
             else:
                 # MySQL mode - use %s placeholders
                 with conn.cursor(dictionary=True) as cur:
@@ -804,18 +804,15 @@ def get_all_notes():
         
         try:
             if use_sqlite:
-                # SQLite mode - set up row factory for dict-like access
-                conn.row_factory = lambda cursor, row: {
-                    col[0]: row[idx] for idx, col in enumerate(cursor.description)
-                }
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, alumni_id, note_content, created_at, updated_at
-                    FROM notes
-                    WHERE user_id = ?
-                    ORDER BY updated_at DESC
-                """, (user_id,))
-                rows = cursor.fetchall()
+                # SQLite mode - use dictionary cursor for dict results
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute("""
+                        SELECT id, alumni_id, note_content, created_at, updated_at
+                        FROM notes
+                        WHERE user_id = ?
+                        ORDER BY updated_at DESC
+                    """, (user_id,))
+                    rows = cursor.fetchall()
             else:
                 # MySQL mode - use dictionary cursor
                 with conn.cursor(dictionary=True) as cur:
@@ -1348,16 +1345,26 @@ def api_filter_alumni():
 
                 alumni = []
                 for r in rows:
-                    full_degree = r.get('degree', '') or ''
-                    degree_level = 'Other'
+                    # --- Compute degree level from degree field ---
+                    full_degree = r.get('degree') or ''
+                    degree_level = None
                     degree_lower = full_degree.lower()
-
                     if degree_lower:
                         if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
                             degree_level = 'Undergraduate'
                         elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
                             degree_level = 'Graduate'
                         elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
+                            degree_level = 'PhD'
+
+                    # If degree field is empty, try to infer from headline
+                    if not degree_level:
+                        headline_text = (r.get('headline') or '').lower()
+                        if any(term in headline_text for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
+                            degree_level = 'Undergraduate'
+                        elif any(term in headline_text for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
+                            degree_level = 'Graduate'
+                        elif any(term in headline_text for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
                             degree_level = 'PhD'
 
                     # Compute discipline on-the-fly
