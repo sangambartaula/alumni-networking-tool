@@ -7,29 +7,34 @@ A web-based application designed to help the College of Engineering connect with
 ## Features
 
 ### LinkedIn Alumni Scraper
-- **Automated Profile Scraping** - Selenium-based scraper with anti-bot measures
+- **Automated Profile Scraping** — Selenium-based scraper with anti-bot defense layer
+- **Groq AI Extraction** — LLM-powered extraction for experience and education data
 - **Multiple Scraping Modes:**
-  - **Search Mode** - Iterates through UNT alumni search results
-  - **Names Mode** - Searches specific names from a CSV file
-  - **Connections Mode** - Scrapes from your LinkedIn connections
-  - **Review Mode** - Re-scrapes flagged profiles to fix data issues
-  - **Update Mode** - Refreshes outdated profiles based on configurable frequency
+  - **Search Mode** — Iterates through UNT alumni search results
+  - **Names Mode** — Searches specific names from a CSV file
+  - **Connections Mode** — Scrapes from your LinkedIn connections
+  - **Review Mode** — Re-scrapes flagged profiles; detects dead/removed URLs
+  - **Update Mode** — Refreshes outdated profiles based on configurable frequency
 
 ### Data Extraction
 - **Profile Information:** Name, headline, location
-- **Work Experience:** Up to 3 jobs with company, title, and date ranges
-- **Education:** School, degree/major, graduation year, school start date
+- **Work Experience:** Up to 3 jobs with company, title, and date ranges (Groq AI primary, CSS fallback)
+- **Education:** School, degree/major, graduation year, school start date (Groq AI primary, CSS fallback)
+- **Degree Normalization:** Deterministic mapping of raw degree strings to standardized forms (e.g. "B.S." → "Bachelor of Science")
 - **Working While Studying Detection:** Automatically determines if alumni worked during school
 - **Smart Entity Classification:** Tiered system using database lookup, spaCy NER, and regex to accurately distinguish job titles from company names
-- **Engineering Discipline Classification:** Smart categorization of alumni into 7 engineering disciplines based on Job Title, Degree, and Headline priority.
+- **Engineering Discipline Classification:** Smart categorization of alumni into 7 engineering disciplines based on Job Title, Degree, and Headline priority
 
 ### Data Management
-- **CSV Output** - All scraped data saved to `scraper/output/UNT_Alumni_Data.csv`
-- **MySQL Database** - Persistent storage with full profile data
-- **Visited Profile Tracking** - Prevents duplicate scraping across sessions
-- **Flagged Profile Review** - Re-scrape specific profiles to fix data issues
-- **Smart Duplicate Handling** - New data overwrites old when re-scraped
-- **CSV Data Cleanup** - Utility to fix swapped job titles/companies in existing data
+- **CSV Output** — All scraped data saved to `scraper/output/UNT_Alumni_Data.csv`
+- **MySQL Database** — Persistent storage with full profile data
+- **SQLite Fallback** — Automatic local backup when cloud DB is unreachable
+- **Visited Profile Tracking** — Prevents duplicate scraping across sessions
+- **Flagged Profile Review** — Re-scrape specific profiles to fix data issues
+- **Dead URL Detection** — Identifies removed/changed LinkedIn profiles during review mode
+- **Profile Blocklist** — Permanently blocks fake/placeholder profiles from being scraped or saved
+- **Smart Duplicate Handling** — New data overwrites old when re-scraped
+- **CSV Data Cleanup** — Utility to fix swapped job titles/companies in existing data
 
 ### Web Application
 - **Alumni Search** - Find alumni by name, graduation year, degree, or department
@@ -145,6 +150,19 @@ SCRAPER_MODE=review
 ```
 Or: Add URLs to `flagged_for_review.txt` and the scraper will prompt you on startup.
 
+**Dead URL Detection:** During review mode, the scraper detects when a LinkedIn profile returns "This page doesn't exist". At the end of the session, all dead URLs are listed and you're prompted to remove them from the database and history files:
+```
+============================================================
+⚠️  3 DEAD / REMOVED PROFILES DETECTED:
+============================================================
+  💀 https://linkedin.com/in/someone
+  💀 https://linkedin.com/in/anotherone
+============================================================
+
+Remove these profiles from database & history? [y/N]: y
+✅ Dead profiles cleaned from all data sources.
+```
+
 ### Update Mode
 Automatically detects profiles older than `UPDATE_FREQUENCY` and prompts to re-scrape.
 
@@ -173,13 +191,78 @@ To fix bad data in existing profiles:
 
 ---
 
+## Groq AI Extraction
+
+The scraper uses [Groq](https://console.groq.com/) LLM to extract structured data from LinkedIn HTML, with CSS-based extraction as a fallback.
+
+### How It Works
+1. LinkedIn profile HTML is cleaned and structured
+2. Sent to Groq's `llama-3.3-70b-versatile` model with a specialized prompt
+3. Response is parsed as JSON and validated
+4. Falls back to CSS selectors if Groq is unavailable or returns invalid data
+
+### Modules
+| Module | Purpose |
+|--------|--------|
+| `groq_client.py` | Shared client, API key handling, JSON parsing, debug HTML saving |
+| `groq_extractor_experience.py` | Experience extraction (up to 3 jobs) |
+| `groq_extractor_education.py` | Education extraction (degree, school, dates) |
+
+### Configuration
+```bash
+# .env
+GROQ_API_KEY=gsk_...         # Get from https://console.groq.com/keys
+USE_GROQ=true                # Enable/disable Groq (falls back to CSS)
+SCRAPER_DEBUG_HTML=true      # Save raw HTML for debugging
+```
+
+---
+
+## Degree Normalization
+
+Raw degree strings from LinkedIn are normalized to standardized forms using a deterministic mapping.
+
+| Raw Input | Normalized |
+|-----------|------------|
+| B.S. | Bachelor of Science |
+| Master of Science in Computer Science | Master of Science |
+| Ph.D. | Doctor of Philosophy |
+| MBA | Master of Business Administration |
+
+### Retroactive Migration
+To normalize degrees for existing alumni records:
+```bash
+python migrations/migrate_normalize_degrees.py
+```
+
+---
+
+## Profile Blocklist
+
+Fake or placeholder LinkedIn profiles can be permanently blocked. Blocked profiles are:
+- Skipped during scraping (all modes)
+- Rejected by `save_profile_to_csv`
+- Never saved to the database
+
+To add a profile to the blocklist, add its LinkedIn slug to `BLOCKED_PROFILE_SLUGS` in `scraper/config.py`:
+```python
+BLOCKED_PROFILE_SLUGS = {
+    "davidmartinez",
+    "emilybrown",
+    "johnsmith",
+    # Add more slugs here...
+}
+```
+
+---
+
 ## Automated Data Pipeline
 
 After any scraping operation completes, the tool automatically:
 
-1. **Syncs CSV to Database** - Imports/updates all profiles from `UNT_Alumni_Data.csv` to MySQL
-2. **Updates Visited Profiles** - Ensures all alumni are tracked in the visited profiles table
-3. **Geocodes New Locations** - Converts location strings to latitude/longitude for the heatmap
+1. **Syncs CSV to Database** — Imports/updates all profiles from `UNT_Alumni_Data.csv` to MySQL
+2. **Updates Visited Profiles** — Ensures all alumni are tracked in the visited profiles table
+3. **Geocodes New Locations** — Converts location strings to latitude/longitude for the heatmap
 
 This automation runs in the `finally` block of `main.py`, so it happens even if you stop the scraper early.
 
@@ -249,37 +332,57 @@ This script:
 ```
 alumni-networking-tool/
 ├── backend/
-│   ├── app.py              # Flask web application
-│   ├── database.py         # Database models and migrations
-│   ├── backfill_disciplines.py # Logic for inferring engineering disciplines
-│   ├── sqlite_fallback.py  # SQLite offline fallback system
-│   ├── geocoding.py        # Location geocoding service
-│   └── alumni_backup.db    # Local SQLite backup (auto-generated)
+│   ├── app.py                    # Flask web application
+│   ├── database.py               # Database models and migrations
+│   ├── degree_normalization.py   # Deterministic degree normalization
+│   ├── job_title_normalization.py # Deterministic job title normalization
+│   ├── backfill_disciplines.py   # Engineering discipline classification
+│   ├── sqlite_fallback.py        # SQLite offline fallback system
+│   ├── geocoding.py              # Location geocoding service
+│   └── alumni_backup.db          # Local SQLite backup (auto-generated)
 │
 ├── frontend/
-│   ├── alumni.html         # Alumni profile page
-│   ├── heatmap.html        # Alumni location heatmap
-│   └── index.html          # Main landing page
+│   ├── alumni.html               # Alumni profile page
+│   ├── heatmap.html              # Alumni location heatmap
+│   └── index.html                # Main landing page
 │
 ├── scraper/
-│   ├── main.py             # Main scraper entry point
-│   ├── scraper.py          # LinkedIn scraping logic
-│   ├── config.py           # Configuration and constants
-│   ├── utils.py            # Utility functions
-│   ├── database_handler.py # CSV and history management
-│   ├── entity_classifier.py # Job title/company classification
-│   ├── fix_csv_data.py     # CSV cleanup utility
+│   ├── main.py                   # Main scraper entry point
+│   ├── scraper.py                # LinkedIn scraping logic
+│   ├── config.py                 # Configuration, constants, and blocklist
+│   ├── groq_client.py            # Shared Groq LLM client infrastructure
+│   ├── groq_extractor_experience.py # AI experience extraction
+│   ├── groq_extractor_education.py  # AI education extraction
+│   ├── utils.py                  # Utility functions
+│   ├── database_handler.py       # CSV and history management
+│   ├── entity_classifier.py      # Job title/company classification
+│   ├── fix_csv_data.py           # CSV cleanup utility
+│   ├── defense/                  # Anti-bot defense layer
+│   │   ├── navigator.py          # Safe navigation with health checks
+│   │   ├── backoff.py            # Exponential backoff controller
+│   │   └── page_health.py        # Page health verification
 │   ├── data/
-│   │   └── companies.json  # Curated company/university database
+│   │   └── companies.json        # Curated company/university database
 │   └── output/
-│       ├── UNT_Alumni_Data.csv      # Scraped data
-│       └── flagged_for_review.txt   # Profiles to re-scrape
+│       ├── UNT_Alumni_Data.csv        # Scraped data
+│       ├── flagged_for_review.txt     # Profiles to re-scrape
+│       └── visited_history.csv        # Visited profile tracking
+│
+├── migrations/
+│   ├── migrate_normalize_titles.py   # Retroactive job title normalization
+│   └── migrate_normalize_degrees.py  # Retroactive degree normalization
+│
+├── tests/
+│   ├── test_degree_normalization.py  # Degree normalization tests
+│   ├── test_groq_imports.py          # Groq module import tests
+│   └── test_scraper_logic.py         # Scraper logic tests
 │
 ├── .env                    # Environment variables (not in git)
 ├── .env.example            # Example environment file
 ├── requirements.txt        # Python dependencies
 ├── README.md               # This file
-└── GETTING_STARTED.md      # Detailed setup tutorial
+├── SETUP_GUIDE.md          # Detailed setup tutorial
+└── GETTING_STARTED.md      # Getting started guide
 ```
 
 ---
@@ -300,6 +403,8 @@ Tests cover:
 - API route validation
 - Database connectivity
 - Scraper data extraction logic
+- Groq module imports and refactoring validation
+- Degree normalization (exact matches, abbreviations, prefixes, edge cases)
 - Entity classification (job titles, companies, locations, universities)
 - Text normalization (newlines, special characters)
 
@@ -400,8 +505,11 @@ Returns:
 | UPDATE_FREQUENCY | How often to re-scrape profiles | 6 months |
 | HEADLESS | Run Chrome without UI | false |
 | TESTING | Enable shorter delays for testing | false |
-| INPUT_CSV | CSV file with names (names mode) | - |
+| INPUT_CSV | CSV file with names (names mode) | — |
 | CONNECTIONS_CSV | CSV of connections (connections mode) | connections.csv |
+| GROQ_API_KEY | Groq API key for AI extraction | — |
+| USE_GROQ | Enable Groq LLM extraction | true |
+| SCRAPER_DEBUG_HTML | Save raw HTML for debugging | false |
 | USE_SQLITE_FALLBACK | Enable local SQLite backup | 1 (enabled) |
 | DISABLE_DB | Disable all database operations | 0 (disabled) |
 | FLAG_MISSING_GRAD_YEAR | Flag profile if grad year is missing | false |
