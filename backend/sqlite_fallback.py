@@ -85,6 +85,11 @@ TABLE_CONFIG = {
         'pk': ['id'],
         'unique_cols': ['email'],
         'timestamp_col': 'added_at'
+    },
+    'normalized_job_titles': {
+        'pk': ['id'],
+        'unique_cols': ['normalized_title'],
+        'timestamp_col': 'created_at'
     }
 }
 
@@ -203,6 +208,7 @@ class ConnectionManager:
                     working_while_studying INTEGER,
                     latitude REAL,
                     longitude REAL,
+                    normalized_job_title_id INTEGER,
                     exp2_title TEXT,
                     exp2_company TEXT,
                     exp2_dates TEXT,
@@ -290,9 +296,17 @@ class ConnectionManager:
                     discarded_at TEXT DEFAULT (datetime('now'))
                 );
                 
+                -- Normalized job titles lookup table
+                CREATE TABLE IF NOT EXISTS normalized_job_titles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    normalized_title TEXT NOT NULL UNIQUE,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
                 -- Create indexes for better query performance
                 CREATE INDEX IF NOT EXISTS idx_pending_sync_table ON _pending_sync(table_name);
                 CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON _pending_sync(created_at);
+                CREATE INDEX IF NOT EXISTS idx_normalized_title ON normalized_job_titles(normalized_title);
             """)
         
         conn.close()
