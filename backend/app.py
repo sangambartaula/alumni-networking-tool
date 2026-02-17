@@ -1433,10 +1433,13 @@ if __name__ == "__main__":
             app.logger.info("Continuing with direct database connection...")
 
     # Initialize database (but skip re-seeding if data exists)
-    from database import init_db, seed_alumni_data
+    from database import init_db, seed_alumni_data, ensure_normalized_job_title_column, ensure_normalized_degree_column
     if not DISABLE_DB:
         try:
             init_db()
+            # Ensure migration columns exist (safe to call repeatedly)
+            ensure_normalized_job_title_column()
+            ensure_normalized_degree_column()
             seed_alumni_data()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
