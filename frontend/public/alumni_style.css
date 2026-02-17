@@ -453,6 +453,14 @@ select:focus {
   min-width: 200px;
 }
 
+.sort-label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+
 /* ===== GRID LAYOUT ===== */
 .grid {
   display: grid;
