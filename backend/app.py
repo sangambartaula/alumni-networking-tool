@@ -209,6 +209,40 @@ def infer_discipline(degree, job_title, headline):
 
     return "Unknown"
 
+
+def classify_degree(degree_field, headline=''):
+    """
+    Classify degree into Undergraduate / Graduate / PhD.
+    Checks degree field first, falls back to headline keywords.
+    Returns the level string or None if unclassifiable.
+    """
+    degree_lower = (degree_field or '').lower()
+    if degree_lower:
+        if any(t in degree_lower for t in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
+            return 'Undergraduate'
+        if any(t in degree_lower for t in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
+            return 'Graduate'
+        if any(t in degree_lower for t in ['doctor', 'ph.d', 'phd', 'doctorate']):
+            return 'PhD'
+
+    headline_lower = (headline or '').lower()
+    if headline_lower:
+        if any(t in headline_lower for t in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
+            return 'Undergraduate'
+        if any(t in headline_lower for t in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
+            return 'Graduate'
+        if any(t in headline_lower for t in ['doctor', 'ph.d', 'phd', 'doctorate']):
+            return 'PhD'
+
+    return None
+
+
+# ---- Heatmap cache ----
+import time as _time
+_heatmap_cache = {}  # key: continent_filter -> {"data": ..., "ts": ...}
+_HEATMAP_CACHE_TTL = 60  # seconds
+
+
 def get_current_user_id():
     """Get the current logged-in user's DB id from LinkedIn profile.
        In dev (DISABLE_DB=1), return a stable placeholder id from session.
@@ -651,27 +685,8 @@ def api_get_alumni():
 
             alumni = []
             for r in rows:
-                # --- Compute degree level from degree field ---
                 full_degree = r.get('degree') or ''
-                degree_level = None
-                degree_lower = full_degree.lower()
-                if degree_lower:
-                    if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
-                        degree_level = 'Undergraduate'
-                    elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
-                        degree_level = 'Graduate'
-                    elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
-                        degree_level = 'PhD'
-
-                # If degree field is empty, try to infer from headline
-                if not degree_level:
-                    headline_text = (r.get('headline') or '').lower()
-                    if any(term in headline_text for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
-                        degree_level = 'Undergraduate'
-                    elif any(term in headline_text for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
-                        degree_level = 'Graduate'
-                    elif any(term in headline_text for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
-                        degree_level = 'PhD'
+                degree_level = classify_degree(full_degree, r.get('headline', ''))
 
                 # Compute engineering discipline on-the-fly (not from DB)
                 discipline = infer_discipline(
@@ -1088,20 +1103,24 @@ def get_heatmap_data():
 
     - Groups alumni by rounded lat/lon (city-level clusters)
     - Includes a limited sample of alumni per cluster for popups
-    - Designed to scale for 20k+ alumni rows
+    - Uses a 60-second in-memory cache to avoid redundant DB queries
     """
-    continent_filter = request.args.get("continent")
+    continent_filter = request.args.get("continent") or None
 
     if DISABLE_DB:
-        # Dev mode: try SQLite fallback if enabled, otherwise return empty
         if not USE_SQLITE_FALLBACK:
             return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
+
+    # --- Check cache ---
+    cache_key = continent_filter or "__all__"
+    cached = _heatmap_cache.get(cache_key)
+    if cached and (_time.time() - cached["ts"]) < _HEATMAP_CACHE_TTL:
+        return jsonify(cached["data"]), 200
 
     try:
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                # Pull all geocoded alumni
                 cur.execute("""
                     SELECT id,
                            first_name,
@@ -1134,7 +1153,6 @@ def get_heatmap_data():
                 if continent_filter and continent != continent_filter:
                     continue
 
-                # round to 3 decimals → more precise clustering (~100m cells)
                 cluster_key = (round(lat, 3), round(lon, 3))
 
                 if cluster_key not in location_clusters:
@@ -1149,7 +1167,6 @@ def get_heatmap_data():
 
                 location_clusters[cluster_key] += 1
 
-                # keep all alumni for this cluster (no limit)
                 location_details[cluster_key]["sample_alumni"].append({
                     "id": row["id"],
                     "name": f"{row['first_name']} {row['last_name']}".strip(),
@@ -1158,11 +1175,10 @@ def get_heatmap_data():
                     "linkedin": row["linkedin_url"],
                     "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), 'isoformat') else row.get("created_at")
                 })
-                
-                # Track location string frequencies for majority voting
+
                 if "location_counts" not in location_details[cluster_key]:
                     location_details[cluster_key]["location_counts"] = {}
-                
+
                 loc_str = row["location"]
                 location_details[cluster_key]["location_counts"][loc_str] = location_details[cluster_key]["location_counts"].get(loc_str, 0) + 1
 
@@ -1172,11 +1188,9 @@ def get_heatmap_data():
             for cluster_key, count in location_clusters.items():
                 details = location_details[cluster_key]
                 max_count = max(max_count, count)
-                
-                # Determine majority location name
+
                 location_counts = details.get("location_counts", {})
                 if location_counts:
-                    # Sort by count (desc), then alphabetically (to ensure determinism)
                     sorted_locs = sorted(location_counts.items(), key=lambda x: (-x[1], x[0]))
                     majority_location_name = sorted_locs[0][0]
                 else:
@@ -1191,12 +1205,17 @@ def get_heatmap_data():
                     "sample_alumni": details["sample_alumni"]
                 })
 
-            return jsonify({
+            response_data = {
                 "success": True,
                 "locations": locations,
                 "total_alumni": total_alumni,
                 "max_count": max_count
-            }), 200, {"Cache-Control": "no-cache, no-store, must-revalidate"}
+            }
+
+            # Store in cache
+            _heatmap_cache[cache_key] = {"data": response_data, "ts": _time.time()}
+
+            return jsonify(response_data), 200
 
         finally:
             try:
@@ -1264,7 +1283,9 @@ def api_get_majors():
     Return the static list of approved engineering disciplines.
     Disciplines are computed on-the-fly from alumni data, not stored in DB.
     """
-    return jsonify({"success": True, "majors": sorted(APPROVED_ENGINEERING_DISCIPLINES)}), 200
+    resp = jsonify({"success": True, "majors": sorted(APPROVED_ENGINEERING_DISCIPLINES)})
+    resp.headers['Cache-Control'] = 'public, max-age=3600'
+    return resp, 200
 
 
 @app.route('/api/alumni/filter', methods=['GET'])
@@ -1345,27 +1366,8 @@ def api_filter_alumni():
 
                 alumni = []
                 for r in rows:
-                    # --- Compute degree level from degree field ---
                     full_degree = r.get('degree') or ''
-                    degree_level = None
-                    degree_lower = full_degree.lower()
-                    if degree_lower:
-                        if any(term in degree_lower for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
-                            degree_level = 'Undergraduate'
-                        elif any(term in degree_lower for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
-                            degree_level = 'Graduate'
-                        elif any(term in degree_lower for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
-                            degree_level = 'PhD'
-
-                    # If degree field is empty, try to infer from headline
-                    if not degree_level:
-                        headline_text = (r.get('headline') or '').lower()
-                        if any(term in headline_text for term in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
-                            degree_level = 'Undergraduate'
-                        elif any(term in headline_text for term in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
-                            degree_level = 'Graduate'
-                        elif any(term in headline_text for term in ['doctor', 'ph.d', 'phd', 'doctorate']):
-                            degree_level = 'PhD'
+                    degree_level = classify_degree(full_degree, r.get('headline', ''))
 
                     # Compute discipline on-the-fly
                     discipline = infer_discipline(

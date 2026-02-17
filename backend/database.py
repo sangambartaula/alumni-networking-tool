@@ -8,11 +8,14 @@ from pathlib import Path
 load_dotenv()
 
 # Import discipline inference function for auto-classification
+# NOTE: backfill_disciplines.py was removed; import from app module instead
 try:
-    from backfill_disciplines import infer_discipline
+    from app import infer_discipline
 except ImportError:
-    # Fallback if module not available
+    # Fallback: minimal inline version if app module can't be imported
+    import re as _re
     def infer_discipline(degree, job_title, headline):
+        """Minimal fallback — classifies based on simple keyword matching."""
         return "Unknown"
 
 # Configure logging
@@ -102,10 +105,18 @@ def init_db():
                 )
             """)
             logger.info("users table created/verified")
-                        # Create authorized_emails table
+
+            # Create authorized_emails table (full schema with tracking fields)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS authorized_emails (
-                    email VARCHAR(255) PRIMARY KEY
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    added_by_user_id INT,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes VARCHAR(500),
+                    CONSTRAINT fk_added_by_user FOREIGN KEY (added_by_user_id) 
+                        REFERENCES users(id) ON DELETE SET NULL,
+                    INDEX idx_email (email)
                 )
             """)
             logger.info("authorized_emails table created/verified")
@@ -201,20 +212,7 @@ def init_db():
             """)
             logger.info("notes table created/verified")
 
-            # Create authorized_emails table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS authorized_emails (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    added_by_user_id INT,
-                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    notes VARCHAR(500),
-                    CONSTRAINT fk_added_by_user FOREIGN KEY (added_by_user_id) 
-                        REFERENCES users(id) ON DELETE SET NULL,
-                    INDEX idx_email (email)
-                )
-            """)
-            logger.info("authorized_emails table created/verified")
+
 
             conn.commit()
             logger.info("All tables initialized successfully")
@@ -559,7 +557,7 @@ def get_visited_profiles_stats():
                 SELECT 
                     COUNT(*) as total,
                     SUM(is_unt_alum) as unt_alumni,
-                    SUM(NOT is_unt_alum) as non_unt,
+                    SUM(CASE WHEN is_unt_alum = 0 THEN 1 ELSE 0 END) as non_unt,
                     SUM(needs_update) as needs_update
                 FROM visited_profiles
             """)

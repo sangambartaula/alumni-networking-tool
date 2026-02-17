@@ -35,7 +35,13 @@ CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "connections.csv")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 USE_GROQ = os.getenv("USE_GROQ", "true").lower() == "true"
 if USE_GROQ and not GROQ_API_KEY:
-    logger.info("ℹ️ Groq disabled (no GROQ_API_KEY). Using CSS extraction only.")
+    logger.warning(
+        "⚠️  Groq LLM extraction is DISABLED — no GROQ_API_KEY found.\n"
+        "    To enable AI-powered job extraction:\n"
+        "    1. Go to https://console.groq.com/keys and create a free API key\n"
+        "    2. Add GROQ_API_KEY=gsk_... to your .env file\n"
+        "    Falling back to CSS-only extraction."
+    )
 
 # Timeouts & Delays
 PAGE_SETTLE_SECONDS = int(os.getenv("PAGE_SETTLE_SECONDS", "0"))
