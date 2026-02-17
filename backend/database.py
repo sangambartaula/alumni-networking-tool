@@ -593,17 +593,14 @@ def get_authorized_emails():
         use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
         
         if use_sqlite:
-            # SQLite mode
-            conn.row_factory = lambda cursor, row: {
-                col[0]: row[idx] for idx, col in enumerate(cursor.description)
-            }
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT email, added_at, added_by_user_id, notes
-                FROM authorized_emails
-                ORDER BY added_at DESC
-            """)
-            emails = cursor.fetchall()
+            # SQLite mode — use dictionary cursor for dict results
+            with conn.cursor(dictionary=True) as cursor:
+                cursor.execute("""
+                    SELECT email, added_at, added_by_user_id, notes
+                    FROM authorized_emails
+                    ORDER BY added_at DESC
+                """)
+                emails = cursor.fetchall()
         else:
             # MySQL mode
             with conn.cursor(dictionary=True) as cur:
