@@ -609,6 +609,7 @@ function setupFiltering(list) {
   const gradSelect = document.getElementById('gradSelect');
   const sortSelect = document.getElementById('sortSelect');
   const sortReverseBtn = document.getElementById('sortReverseBtn');
+  const sortLabel = document.getElementById('sortLabel');
   let sortDirection = 'desc'; // 'asc' or 'desc'
 
   const clearBtn = document.getElementById('clear-filters');
@@ -655,17 +656,29 @@ function setupFiltering(list) {
         return sortDirection === 'asc' ? valA - valB : valB - valA;
       });
     } else if (value === "updated") {
-       sorted.sort((a, b) => {
+      sorted.sort((a, b) => {
         const valA = new Date(a.updated_at || 0).getTime();
         const valB = new Date(b.updated_at || 0).getTime();
         return sortDirection === 'asc' ? valA - valB : valB - valA;
-       });
+      });
     }
-    
+
     return sorted;
   }
 
-  // Helper: Normalize company names for filtering
+  function updateSortLabel() {
+    if (!sortLabel || !sortSelect) return;
+    const val = sortSelect.value;
+    let text = "";
+    if (val === 'name') {
+      text = sortDirection === 'asc' ? "(A → Z)" : "(Z → A)";
+    } else if (val === 'year') {
+      text = sortDirection === 'asc' ? "(Oldest → Newest)" : "(Newest → Oldest)";
+    } else if (val === 'updated') {
+      text = sortDirection === 'asc' ? "(Oldest → Newest)" : "(Newest → Oldest)";
+    }
+    sortLabel.textContent = text;
+  }
   function getNormalizedCompany(name) {
     if (!name) return "";
     // Check for "Dallas" exclusion first
@@ -727,14 +740,16 @@ function setupFiltering(list) {
     // User requested "reverse the sort method", implies toggle.
     // Let's set a sensible default per type?
     // For now, preserve existing direction or just apply.
+    updateSortLabel();
     apply();
   });
 
   if (sortReverseBtn) {
     sortReverseBtn.addEventListener('click', () => {
-        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-        // Optional: update icon rotation or visual indicator
-        apply();
+      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      // Optional: update icon rotation or visual indicator
+      updateSortLabel();
+      apply();
     });
   }
 }
@@ -786,6 +801,19 @@ function setupFiltering(list) {
   // Show all profiles on first load (default sort)
   const sortSelect = document.getElementById('sortSelect');
   if (sortSelect) sortSelect.value = "";
+
+  // Initial label update if needed (though default is empty)
+  // But if we want to show label for default or if we set a value:
+  // updateSortLabel(); // undefined function at this scope if not careful, but it's inside setupFiltering closure.
+  // Actually setupFiltering is called above. We need to trigger label update there?
+  // setupFiltering defines updateSortLabel inside. We can't call it here easily unless we expose it.
+  // Or we just trigger a change event?
+  // Simpler: Just rely on user interaction or ensure setupFiltering initializes it if value exists.
+  // But wait, setupFiltering is a function that runs ONCE to setup listeners.
+  // The inner functions are scoped.
+  // To initialize label, we might need to expose it or run it inside logic.
+  // Let's rely on the fact that default is "" (Default) which has no label text in my logic above.
+
   // Manually trigger initial rendering
   if (typeof renderProfiles === 'function') renderProfiles(alumniData);
 })();
