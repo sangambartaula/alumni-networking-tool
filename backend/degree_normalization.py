@@ -1,0 +1,268 @@
+"""
+Degree Normalization Module
+
+Deterministic normalization of degree strings to canonical forms.
+Follows the same pattern as job_title_normalization.py.
+
+Example:
+    "Bachelor of Science" → "Bachelor of Science"
+    "BS" → "Bachelor of Science"
+    "M.S." → "Master of Science"
+    "BSME" → "Bachelor of Science in Mechanical Engineering"
+"""
+
+import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ── Canonical degree mapping ──────────────────────────────────────────────
+# Keys are lowercase patterns; values are canonical display strings.
+DEGREE_MAP = {
+    # Bachelor of Science variants
+    "bachelor of science": "Bachelor of Science",
+    "bachelors of science": "Bachelor of Science",
+    "bachelor's of science": "Bachelor of Science",
+    "b.s.": "Bachelor of Science",
+    "b.s": "Bachelor of Science",
+    "bs": "Bachelor of Science",
+    "bsc": "Bachelor of Science",
+    "b.sc.": "Bachelor of Science",
+    "b.sc": "Bachelor of Science",
+
+    # Bachelor of Arts variants
+    "bachelor of arts": "Bachelor of Arts",
+    "bachelors of arts": "Bachelor of Arts",
+    "bachelor's of arts": "Bachelor of Arts",
+    "b.a.": "Bachelor of Arts",
+    "b.a": "Bachelor of Arts",
+    "ba": "Bachelor of Arts",
+
+    # Bachelor of Engineering variants
+    "bachelor of engineering": "Bachelor of Engineering",
+    "b.e.": "Bachelor of Engineering",
+    "b.eng.": "Bachelor of Engineering",
+    "b.eng": "Bachelor of Engineering",
+    "beng": "Bachelor of Engineering",
+
+    # Bachelor of Business Administration
+    "bachelor of business administration": "Bachelor of Business Administration",
+    "bba": "Bachelor of Business Administration",
+    "b.b.a.": "Bachelor of Business Administration",
+    "b.b.a": "Bachelor of Business Administration",
+
+    # Bachelor of Fine Arts
+    "bachelor of fine arts": "Bachelor of Fine Arts",
+    "bfa": "Bachelor of Fine Arts",
+    "b.f.a.": "Bachelor of Fine Arts",
+    "b.f.a": "Bachelor of Fine Arts",
+
+    # BSME / BSEE / BSCE specialty abbreviations
+    "bsme": "Bachelor of Science in Mechanical Engineering",
+    "bsee": "Bachelor of Science in Electrical Engineering",
+    "bsce": "Bachelor of Science in Civil Engineering",
+    "bscs": "Bachelor of Science in Computer Science",
+    "bsie": "Bachelor of Science in Industrial Engineering",
+
+    # Master of Science variants
+    "master of science": "Master of Science",
+    "masters of science": "Master of Science",
+    "master's of science": "Master of Science",
+    "m.s.": "Master of Science",
+    "m.s": "Master of Science",
+    "ms": "Master of Science",
+    "msc": "Master of Science",
+    "m.sc.": "Master of Science",
+    "m.sc": "Master of Science",
+
+    # Master of Arts variants
+    "master of arts": "Master of Arts",
+    "masters of arts": "Master of Arts",
+    "master's of arts": "Master of Arts",
+    "m.a.": "Master of Arts",
+    "m.a": "Master of Arts",
+    "ma": "Master of Arts",
+
+    # Master of Engineering
+    "master of engineering": "Master of Engineering",
+    "m.eng.": "Master of Engineering",
+    "m.eng": "Master of Engineering",
+    "meng": "Master of Engineering",
+    "m.e.": "Master of Engineering",
+
+    # MBA
+    "master of business administration": "Master of Business Administration",
+    "mba": "Master of Business Administration",
+    "m.b.a.": "Master of Business Administration",
+    "m.b.a": "Master of Business Administration",
+
+    # MFA
+    "master of fine arts": "Master of Fine Arts",
+    "mfa": "Master of Fine Arts",
+    "m.f.a.": "Master of Fine Arts",
+    "m.f.a": "Master of Fine Arts",
+
+    # Doctor of Philosophy
+    "doctor of philosophy": "Doctor of Philosophy",
+    "phd": "Doctor of Philosophy",
+    "ph.d.": "Doctor of Philosophy",
+    "ph.d": "Doctor of Philosophy",
+    "doctorate": "Doctor of Philosophy",
+
+    # Doctor of Education
+    "doctor of education": "Doctor of Education",
+    "edd": "Doctor of Education",
+    "ed.d.": "Doctor of Education",
+    "ed.d": "Doctor of Education",
+
+    # Associate degrees
+    "associate of science": "Associate of Science",
+    "associate of arts": "Associate of Arts",
+    "associate's degree": "Associate's Degree",
+    "associate degree": "Associate's Degree",
+    "associates degree": "Associate's Degree",
+    "a.s.": "Associate of Science",
+    "a.a.": "Associate of Arts",
+    "aas": "Associate of Applied Science",
+    "a.a.s.": "Associate of Applied Science",
+
+    # Juris Doctor
+    "juris doctor": "Juris Doctor",
+    "jd": "Juris Doctor",
+    "j.d.": "Juris Doctor",
+    "j.d": "Juris Doctor",
+
+    # Doctor of Medicine
+    "doctor of medicine": "Doctor of Medicine",
+    "md": "Doctor of Medicine",
+    "m.d.": "Doctor of Medicine",
+    "m.d": "Doctor of Medicine",
+}
+
+
+def normalize_degree_deterministic(raw_degree: str) -> str:
+    """
+    Normalize a degree string to its canonical form.
+
+    Steps:
+    1. Strip and lowercase
+    2. Try full-string exact match in DEGREE_MAP
+    3. Try extracting the degree prefix (before "in", ",", or "-") and matching
+    4. Return the original cleaned string if no match found
+
+    Args:
+        raw_degree: The raw degree string (e.g., "BS in Computer Science")
+
+    Returns:
+        Normalized canonical degree string (e.g., "Bachelor of Science")
+        Returns "" for empty/None input.
+    """
+    if not raw_degree:
+        return ""
+
+    cleaned = raw_degree.strip()
+    if not cleaned:
+        return ""
+
+    lower = cleaned.lower()
+
+    # 1. Full exact match
+    if lower in DEGREE_MAP:
+        return DEGREE_MAP[lower]
+
+    # 2. Try prefix before "in", ",", or "-"
+    # Example: "BS in Computer Science" → try "bs"
+    # Example: "Bachelor of Science, Computer Science" → try "bachelor of science"
+    prefix_match = re.match(r'^(.+?)\s*(?:\bin\b|,|\s*[-–—]\s*)', lower)
+    if prefix_match:
+        prefix = prefix_match.group(1).strip()
+        if prefix in DEGREE_MAP:
+            return DEGREE_MAP[prefix]
+
+    # 3. Try matching known patterns anywhere in the string
+    # Sort by longest match first to prefer more specific matches
+    for pattern in sorted(DEGREE_MAP.keys(), key=len, reverse=True):
+        if pattern in lower:
+            return DEGREE_MAP[pattern]
+
+    # 4. No match — return the original cleaned string (title case)
+    return cleaned
+
+
+def get_or_create_normalized_degree(conn, raw_degree: str) -> int | None:
+    """
+    Get or create a normalized degree entry in the database.
+
+    Args:
+        conn: Database connection (MySQL or SQLite).
+        raw_degree: The raw degree string.
+
+    Returns:
+        The ID of the normalized_degrees row, or None if raw_degree is empty.
+    """
+    normalized = normalize_degree_deterministic(raw_degree)
+    if not normalized:
+        return None
+
+    is_sqlite = hasattr(conn, 'execute') and not hasattr(conn, 'cmd_query')
+
+    try:
+        cur = conn.cursor()
+
+        if is_sqlite:
+            # SQLite: INSERT OR IGNORE + SELECT
+            cur.execute(
+                "INSERT OR IGNORE INTO normalized_degrees (normalized_degree) VALUES (?)",
+                (normalized,)
+            )
+            cur.execute(
+                "SELECT id FROM normalized_degrees WHERE normalized_degree = ?",
+                (normalized,)
+            )
+        else:
+            # MySQL: INSERT IGNORE + SELECT
+            cur.execute(
+                "INSERT IGNORE INTO normalized_degrees (normalized_degree) VALUES (%s)",
+                (normalized,)
+            )
+            cur.execute(
+                "SELECT id FROM normalized_degrees WHERE normalized_degree = %s",
+                (normalized,)
+            )
+
+        row = cur.fetchone()
+        cur.close()
+
+        if row:
+            return row[0] if not isinstance(row, dict) else row.get('id')
+        return None
+
+    except Exception as e:
+        logger.error(f"Error getting/creating normalized degree '{normalized}': {e}")
+        return None
+
+
+def get_all_normalized_degrees(conn) -> dict:
+    """
+    Fetch all normalized degrees from the database.
+
+    Returns:
+        Dict mapping normalized_degree string → id
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, normalized_degree FROM normalized_degrees")
+        rows = cur.fetchall()
+        cur.close()
+
+        result = {}
+        for row in rows:
+            if isinstance(row, dict):
+                result[row['normalized_degree']] = row['id']
+            else:
+                result[row[1]] = row[0]
+        return result
+
+    except Exception as e:
+        logger.error(f"Error fetching normalized degrees: {e}")
+        return {}
