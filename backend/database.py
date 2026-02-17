@@ -223,6 +223,17 @@ def init_db():
             """)
             logger.info("normalized_job_titles table created/verified")
 
+            # Create normalized_degrees lookup table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS normalized_degrees (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    normalized_degree VARCHAR(255) NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_normalized_degree (normalized_degree)
+                )
+            """)
+            logger.info("normalized_degrees table created/verified")
+
             conn.commit()
             logger.info("All tables initialized successfully")
 
@@ -267,6 +278,42 @@ def ensure_normalized_job_title_column():
             conn.commit()
     except Exception as e:
         logger.error(f"Error ensuring normalized_job_title_id column: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+def ensure_normalized_degree_column():
+    """Ensure normalized_degree_id and raw_degree columns exist in alumni table."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            for col_name, col_def in [
+                ("normalized_degree_id", "INT DEFAULT NULL"),
+                ("raw_degree", "VARCHAR(255) DEFAULT NULL"),
+            ]:
+                try:
+                    cur.execute(f"""
+                        ALTER TABLE alumni
+                        ADD COLUMN {col_name} {col_def}
+                    """)
+                    logger.info(f"Added {col_name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        logger.info(f"{col_name} column already exists")
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        logger.info(f"{col_name} column already exists (SQLite)")
+                    else:
+                        raise
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error ensuring degree columns: {e}")
     finally:
         if conn:
             try:

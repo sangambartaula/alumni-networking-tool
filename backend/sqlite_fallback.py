@@ -90,6 +90,11 @@ TABLE_CONFIG = {
         'pk': ['id'],
         'unique_cols': ['normalized_title'],
         'timestamp_col': 'created_at'
+    },
+    'normalized_degrees': {
+        'pk': ['id'],
+        'unique_cols': ['normalized_degree'],
+        'timestamp_col': 'created_at'
     }
 }
 
@@ -303,10 +308,18 @@ class ConnectionManager:
                     created_at TEXT DEFAULT (datetime('now'))
                 );
 
+                -- Normalized degrees lookup table
+                CREATE TABLE IF NOT EXISTS normalized_degrees (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    normalized_degree TEXT NOT NULL UNIQUE,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
                 -- Create indexes for better query performance
                 CREATE INDEX IF NOT EXISTS idx_pending_sync_table ON _pending_sync(table_name);
                 CREATE INDEX IF NOT EXISTS idx_pending_sync_created ON _pending_sync(created_at);
                 CREATE INDEX IF NOT EXISTS idx_normalized_title ON normalized_job_titles(normalized_title);
+                CREATE INDEX IF NOT EXISTS idx_normalized_degree ON normalized_degrees(normalized_degree);
             """)
         
         conn.close()
