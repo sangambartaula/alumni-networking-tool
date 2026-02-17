@@ -1,59 +1,19 @@
 """
 Groq API integration for extracting job experiences from LinkedIn HTML.
 
-Uses Groq's free API tier with Llama 3.1 model:
-- 30 requests/minute
-- 14.4K requests/day (8b model) or 1K RPD (70b model)
-- Model: llama-3.1-8b-instant (default, high volume)
+Uses shared Groq client infrastructure from groq_client.py.
 """
 
-import os
-import json
 import re
-from pathlib import Path
-from datetime import datetime
 from config import logger
+from groq_client import (
+    _get_client, is_groq_available, GROQ_MODEL, BS4_AVAILABLE,
+    SCRAPER_DEBUG_HTML, save_debug_html, parse_groq_json_response,
+    _clean_doubled, parse_groq_date
+)
 
-# Try to import groq and BeautifulSoup
-try:
-    from groq import Groq
-    GROQ_AVAILABLE = True
-except ImportError:
-    GROQ_AVAILABLE = False
-    logger.warning("⚠️ groq not installed. Run: pip install groq")
-
-try:
+if BS4_AVAILABLE:
     from bs4 import BeautifulSoup
-    BS4_AVAILABLE = True
-except ImportError:
-    BS4_AVAILABLE = False
-
-# Configuration
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_ENABLED = os.getenv("USE_GROQ", "true").lower() == "true"
-# Model choice: "llama-3.1-8b-instant" (14.4K RPD) or "llama-3.3-70b-versatile" (1K RPD, better quality)
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-# Debug: save HTML to file for inspection
-DEBUG_SAVE_HTML = os.getenv("DEBUG_SAVE_HTML", "false").lower() == "true"
-DEBUG_HTML_DIR = Path(__file__).parent / "output" / "debug_html"
-
-# Initialize the client once
-_client = None
-
-def _get_client():
-    """Lazy initialization of Groq client."""
-    global _client
-    if _client is None and GROQ_AVAILABLE and GROQ_API_KEY:
-        try:
-            _client = Groq(api_key=GROQ_API_KEY)
-            logger.info(f"✓ Groq API initialized (model: {GROQ_MODEL})")
-        except Exception as e:
-            logger.error(f"Failed to initialize Groq: {e}")
-    return _client
-
-def is_groq_available():
-    """Check if Groq API is available and configured."""
-    return GROQ_AVAILABLE and GROQ_ENABLED and bool(GROQ_API_KEY)
 
 
 def _html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
@@ -124,14 +84,7 @@ def _html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
         structured = '\n---\n'.join(entries)
     
     # Save debug output if enabled
-    if DEBUG_SAVE_HTML:
-        DEBUG_HTML_DIR.mkdir(parents=True, exist_ok=True)
-        safe_name = re.sub(r'[^\w\-]', '_', profile_name)[:50]
-        timestamp = datetime.now().strftime("%H%M%S")
-        # Save both the structured text AND the raw cleaned HTML for comparison
-        debug_file = DEBUG_HTML_DIR / f"{safe_name}_{timestamp}.txt"
-        debug_file.write_text(structured, encoding='utf-8')
-        logger.info(f"    📄 Saved debug text to: {debug_file.name}")
+    save_debug_html(structured, profile_name, "experience")
     
     return structured.strip()
 
@@ -201,13 +154,7 @@ def clean_html_for_llm(html: str, profile_name: str = "unknown") -> str:
         logger.warning(f"    ⚠️ HTML Cleaning removed too much! Fallback to basic regex.")
         return re.sub(r'<[^>]+>', ' ', html).strip()[:5000]
     
-    if DEBUG_SAVE_HTML:
-        DEBUG_HTML_DIR.mkdir(parents=True, exist_ok=True)
-        safe_name = re.sub(r'[^\w\-]', '_', profile_name)[:50]
-        timestamp = datetime.now().strftime("%H%M%S")
-        debug_file = DEBUG_HTML_DIR / f"{safe_name}_{timestamp}.html"
-        debug_file.write_text(cleaned, encoding='utf-8')
-        logger.info(f"    📄 Saved debug HTML to: {debug_file.name}")
+    save_debug_html(cleaned, profile_name, "experience_html")
     
     return cleaned.strip()
 
@@ -295,21 +242,10 @@ Data:
         
         result_text = response.choices[0].message.content.strip()
         
-        # Fix #4: Single parse attempt, no retries — fall back immediately on failure
-        try:
-            parsed = json.loads(result_text)
-        except json.JSONDecodeError:
-            # One fallback: try to find an array in the text
-            match = re.search(r'\[.*\]', result_text, re.DOTALL)
-            if match:
-                try:
-                    parsed = json.loads(match.group(0))
-                except json.JSONDecodeError:
-                    logger.warning(f"⚠️ Groq returned invalid JSON, falling back to HTML parser: {result_text[:100]}...")
-                    return []
-            else:
-                logger.warning(f"⚠️ Groq returned invalid JSON, falling back to HTML parser: {result_text[:100]}...")
-                return []
+        # Parse JSON response
+        parsed = parse_groq_json_response(result_text)
+        if parsed is None:
+            return []
         
         # Handle json_object mode wrapping (Groq may return {"jobs": [...]} instead of [...])
         if isinstance(parsed, dict):
@@ -427,24 +363,6 @@ Data:
         return []
 
 
-def _clean_doubled(text):
-    """Clean up doubled text like 'EngineerEngineer' -> 'Engineer'."""
-    if not text or len(text) < 4:
-        return text
-    # Exact duplication "WordWord"
-    if len(text) % 2 == 0:
-        mid = len(text) // 2
-        if text[:mid] == text[mid:]:
-            return text[:mid]
-    # Duplication with space "Word Word Word Word" -> "Word Word"
-    parts = text.split()
-    if len(parts) >= 2 and len(parts) % 2 == 0:
-        half = len(parts) // 2
-        if parts[:half] == parts[half:]:
-            return " ".join(parts[:half])
-    return text
-
-
 def _job_sort_key(job):
     """Sort key for jobs — most recent first."""
     end_date = job.get('end_date', '')
@@ -467,40 +385,3 @@ def _job_sort_key(job):
         start_m = start_info.get('month', 0) or 0
 
     return (end_y, end_m, start_y, start_m)
-
-
-def parse_groq_date(date_str: str) -> dict:
-    """
-    Parse a date string like "Oct 2024" or "Present" into the format used by the scraper.
-    
-    Returns:
-        dict with keys: year (int), month (int or None), is_present (bool)
-    """
-    if not date_str:
-        return None
-    
-    date_str = date_str.strip()
-    
-    # Check for "Present"
-    if date_str.lower() == "present":
-        return {"year": 9999, "month": 12, "is_present": True}
-    
-    # Month mapping
-    month_map = {
-        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
-    }
-    
-    # Try "Mon YYYY" format
-    match = re.match(r'([A-Za-z]{3})\s*(\d{4})', date_str)
-    if match:
-        month_str, year_str = match.groups()
-        month = month_map.get(month_str.lower(), None)
-        return {"year": int(year_str), "month": month, "is_present": False}
-    
-    # Try "YYYY" format
-    match = re.match(r'^(\d{4})$', date_str)
-    if match:
-        return {"year": int(match.group(1)), "month": None, "is_present": False}
-    
-    return None

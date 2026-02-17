@@ -19,7 +19,9 @@ import utils
 import config
 from config import logger
 from entity_classifier import classify_entity, is_location, is_university
-from groq_extractor import is_groq_available, extract_experiences_with_groq, parse_groq_date, _clean_doubled
+from groq_extractor_experience import extract_experiences_with_groq
+from groq_extractor_education import extract_education_with_groq
+from groq_client import is_groq_available, parse_groq_date, _clean_doubled
 
 
 def normalize_scraped_data(data):
@@ -332,8 +334,36 @@ class LinkedInScraper:
                     data[f"exp{i}_company"] = ""
                     data[f"exp{i}_dates"] = ""
 
-            # 5. Education
-            edu_entries = self._extract_education_entries(soup)
+            # 5. Education — Try Groq first, CSS fallback
+            edu_entries = []
+            groq_edu_raw = []  # Keep raw Groq output for raw_degree
+
+            if is_groq_available():
+                edu_root = self._find_section_root(soup, "Education")
+                if edu_root:
+                    edu_html = str(edu_root)
+                    groq_edu_raw = extract_education_with_groq(edu_html, profile_name=data.get("name", "unknown"))
+                    if groq_edu_raw:
+                        logger.info(f"    ✓ Using Groq education results ({len(groq_edu_raw)} entries)")
+                        # Convert Groq format to existing entry format
+                        for ge in groq_edu_raw:
+                            start_info = parse_groq_date(ge.get("start_date", ""))
+                            end_info = parse_groq_date(ge.get("end_date", ""))
+                            grad_year = ""
+                            if end_info and end_info.get("year") and end_info["year"] != 9999:
+                                grad_year = str(end_info["year"])
+                            edu_entries.append({
+                                "school": ge.get("school", ""),
+                                "degree": ge.get("raw_degree", ""),
+                                "raw_degree": ge.get("raw_degree", ""),
+                                "graduation_year": grad_year,
+                                "school_start": start_info,
+                                "school_end": end_info
+                            })
+
+            # CSS fallback if Groq didn't produce results
+            if not edu_entries:
+                edu_entries = self._extract_education_entries(soup)
             
             # Fallback: Check top card shortcuts for education if no Education section found
             if not edu_entries:
@@ -357,6 +387,8 @@ class LinkedInScraper:
                 else:
                     data["major"] = ""
                 data["graduation_year"] = best_unt.get("graduation_year", "")
+                # Pass through raw_degree from Groq for normalization (if available)
+                data["raw_degree"] = best_unt.get("raw_degree", "")
 
                 
                 school_start_d = best_unt.get("school_start")
