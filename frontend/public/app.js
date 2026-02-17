@@ -519,7 +519,7 @@ function populateFilters(list) {
   }
 
   const locations = Array.from(new Set(list.map(x => x.location).filter(isValid))).sort();
-  const roles = Array.from(new Set(list.map(x => x.role).filter(isValid))).sort();
+  const roles = Array.from(new Set(list.map(x => x.normalized_title || x.role).filter(isValid))).sort();
   // Normalize companies before creating the Set
   const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
   // Filter majors to only show approved engineering disciplines (which excludes Unknown now)
@@ -697,7 +697,7 @@ function setupFiltering(list) {
       const t = `${a.name} ${a.role} ${a.company} ${a.headline}`.toLowerCase();
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
-      const matchRole = !f.role.length || f.role.includes(a.role);
+      const matchRole = !f.role.length || f.role.includes(a.normalized_title || a.role);
 
       // Normalize company for matching
       const normCompany = getNormalizedCompany(a.company);
@@ -771,6 +771,7 @@ function setupFiltering(list) {
         id: a.id,
         name: a.name || '',
         role: a.role || '',
+        normalized_title: a.normalized_title || '',
         company: a.company || '',
         class: a.class || '',
         location: a.location || '',
