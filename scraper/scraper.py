@@ -256,6 +256,20 @@ class LinkedInScraper:
         except Exception:
             return False
 
+    def _page_not_found(self):
+        """Detect LinkedIn's 'This page doesn't exist' error page."""
+        try:
+            html = (self.driver.page_source or "").lower()
+            markers = [
+                "this page doesn't exist",
+                "this page doesn\u2019t exist",
+                "page not found",
+                "please check your url or return to linkedin home",
+            ]
+            return any(m in html for m in markers)
+        except Exception:
+            return False
+
     # ============================================================
     # Core Scraping Logic
     # ============================================================
@@ -282,6 +296,11 @@ class LinkedInScraper:
             if self._page_looks_blocked():
                 logger.warning("⚠️ Page looks blocked or empty.")
                 return None
+
+            # Check if page/profile no longer exists
+            if self._page_not_found():
+                logger.warning(f"⚠️ PAGE NOT FOUND: {profile_url} — this profile may have been removed or the URL changed.")
+                return "PAGE_NOT_FOUND"
             
             # 1. Trigger Full Page Load (Aggressive Scroll)
             # This is critical for the Education section to appear in DOM

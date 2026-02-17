@@ -168,6 +168,10 @@ def run_names_mode(scraper, nav, history_mgr):
             # scrape_profile_page likely handles its own navigation.
             data = scraper.scrape_profile_page(url)
 
+            if data == "PAGE_NOT_FOUND":
+                logger.warning(f"  💀 Dead URL skipped: {url}")
+                continue
+
             if data and database_handler.save_profile_to_csv(data):
                 history_mgr.mark_as_visited(url, saved=True)
 
@@ -216,6 +220,10 @@ def run_search_mode(scraper, nav, history_mgr):
             # scrape_profile_page likely handles its own navigation.
             data = scraper.scrape_profile_page(profile_url)
 
+            if data == "PAGE_NOT_FOUND":
+                logger.warning(f"  💀 Dead URL skipped: {profile_url}")
+                continue
+
             if data and database_handler.save_profile_to_csv(data):
                 history_mgr.mark_as_visited(profile_url, saved=True)
 
@@ -231,6 +239,7 @@ def run_review_mode(scraper, nav, history_mgr):
     """
     Process profiles from flagged_for_review.txt file.
     These are profiles that need to be re-scraped.
+    Tracks dead/removed profiles and offers to clean them from DB at the end.
     """
     flagged_file = PROJECT_ROOT / "scraper" / "output" / "flagged_for_review.txt"
     
@@ -256,18 +265,25 @@ def run_review_mode(scraper, nav, history_mgr):
     
     logger.info(f"📋 Review mode: {len(urls)} profiles to re-scrape")
     
+    dead_urls = []  # Collect profiles that no longer exist
+    
     for profile_url in urls:
         if should_stop():
             break
         
         if check_force_exit():
-            return
+            break
         
         logger.info(f"  🔄 Re-scraping: {profile_url}")
         
         try:
             # Scrape the profile (bypassing history check since we're re-reviewing)
             data = scraper.scrape_profile_page(profile_url)
+            
+            # Handle dead/removed profiles
+            if data == "PAGE_NOT_FOUND":
+                dead_urls.append(profile_url)
+                continue
             
             if data and database_handler.save_profile_to_csv(data):
                 history_mgr.mark_as_visited(profile_url, saved=True)
@@ -284,7 +300,9 @@ def run_review_mode(scraper, nav, history_mgr):
                     # Retry once
                     logger.info(f"  🔄 Retrying: {profile_url}")
                     data = scraper.scrape_profile_page(profile_url)
-                    if data and database_handler.save_profile_to_csv(data):
+                    if data == "PAGE_NOT_FOUND":
+                        dead_urls.append(profile_url)
+                    elif data and database_handler.save_profile_to_csv(data):
                          history_mgr.mark_as_visited(profile_url, saved=True)
                 except Exception as retry_e:
                      logger.error(f"❌ Retry failed: {retry_e}")
@@ -292,11 +310,117 @@ def run_review_mode(scraper, nav, history_mgr):
                 logger.error(f"❌ Error processing {profile_url}: {e}")
         
         if should_stop():
-            return
+            break
         
         wait_between_profiles()
     
     logger.info("✅ Review mode complete")
+    
+    # ── Report dead URLs ──────────────────────────────────────
+    if dead_urls:
+        print("\n" + "=" * 60)
+        print(f"⚠️  {len(dead_urls)} DEAD / REMOVED PROFILES DETECTED:")
+        print("=" * 60)
+        for url in dead_urls:
+            print(f"  💀 {url}")
+        print("=" * 60)
+        
+        try:
+            answer = input(f"\nRemove these {len(dead_urls)} profiles from database & history? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        
+        if answer == "y":
+            _remove_dead_urls(dead_urls, flagged_file, history_mgr)
+        else:
+            logger.info("ℹ️  Dead URLs left untouched.")
+
+
+def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
+    """Remove dead/changed URLs from database, CSV, flagged file, and visited history."""
+    import csv
+    dead_set = set(dead_urls)
+    
+    # 1. Remove from SQLite / cloud DB
+    try:
+        import sys
+        sys.path.insert(0, str(PROJECT_ROOT / "backend"))
+        from database import get_connection
+        conn = get_connection()
+        cur = conn.cursor()
+        for url in dead_urls:
+            cur.execute("DELETE FROM alumni WHERE linkedin_url LIKE ?".replace("?", "%s"), (f"%{url.rstrip('/').split('/')[-1]}",))
+        conn.commit()
+        logger.info(f"🗑️  Removed {len(dead_urls)} dead profiles from database")
+        try:
+            conn.close()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"⚠️  Could not clean database: {e}")
+    
+    # 2. Remove from flagged_for_review.txt
+    try:
+        if flagged_file.exists():
+            with open(flagged_file, 'r') as f:
+                lines = f.readlines()
+            kept = [l for l in lines if l.split('#')[0].strip().rstrip('/') not in {u.rstrip('/') for u in dead_set}]
+            with open(flagged_file, 'w') as f:
+                f.writelines(kept)
+            logger.info(f"🗑️  Removed {len(lines) - len(kept)} entries from flagged_for_review.txt")
+    except Exception as e:
+        logger.warning(f"⚠️  Could not clean flagged file: {e}")
+    
+    # 3. Remove from visited_history.csv
+    try:
+        visited_csv = PROJECT_ROOT / "scraper" / "output" / "visited_history.csv"
+        if visited_csv.exists():
+            rows = []
+            removed = 0
+            with open(visited_csv, 'r') as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                for row in reader:
+                    profile_url = row.get('profile_url', '').rstrip('/')
+                    if profile_url in {u.rstrip('/') for u in dead_set}:
+                        removed += 1
+                    else:
+                        rows.append(row)
+            with open(visited_csv, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            if removed:
+                logger.info(f"🗑️  Removed {removed} entries from visited_history.csv")
+    except Exception as e:
+        logger.warning(f"⚠️  Could not clean visited history: {e}")
+    
+    # 4. Remove from UNT_Alumni_Data.csv
+    try:
+        alumni_csv = PROJECT_ROOT / "scraper" / "output" / "UNT_Alumni_Data.csv"
+        if alumni_csv.exists():
+            rows = []
+            removed = 0
+            with open(alumni_csv, 'r') as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                for row in reader:
+                    url = (row.get('linkedin_url', '') or row.get('profile_url', '')).rstrip('/')
+                    if url in {u.rstrip('/') for u in dead_set}:
+                        removed += 1
+                    else:
+                        rows.append(row)
+            with open(alumni_csv, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            if removed:
+                logger.info(f"🗑️  Removed {removed} entries from UNT_Alumni_Data.csv")
+    except Exception as e:
+        logger.warning(f"⚠️  Could not clean alumni CSV: {e}")
+    
+    print(f"\n✅ Dead profiles cleaned from all data sources.")
+
 
 
 # ============================================================
