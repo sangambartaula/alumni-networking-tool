@@ -608,6 +608,8 @@ function setupFiltering(list) {
   const q = document.getElementById('q');
   const gradSelect = document.getElementById('gradSelect');
   const sortSelect = document.getElementById('sortSelect');
+  const sortReverseBtn = document.getElementById('sortReverseBtn');
+  let sortDirection = 'desc'; // 'asc' or 'desc'
 
   const clearBtn = document.getElementById('clear-filters');
   if (clearBtn) {
@@ -636,13 +638,30 @@ function setupFiltering(list) {
     // If no sort selected, treat as 'Default'
     const value = sortSelect.value || "";
     let sorted = [...listToSort];
+
+    // Filter first if needed (bookmarked is special, acts as filter here)
     if (value === "bookmarked") {
       sorted = sorted.filter(a => hasInteraction(a.id, 'bookmarked'));
     } else if (value === "name") {
-      sorted.sort((a, b) => a.name.localeCompare(b.name));
+      sorted.sort((a, b) => {
+        const valA = (a.name || "").toLowerCase();
+        const valB = (b.name || "").toLowerCase();
+        return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      });
     } else if (value === "year") {
-      sorted.sort((a, b) => b.class - a.class);
+      sorted.sort((a, b) => {
+        const valA = parseInt(a.class) || 0;
+        const valB = parseInt(b.class) || 0;
+        return sortDirection === 'asc' ? valA - valB : valB - valA;
+      });
+    } else if (value === "updated") {
+       sorted.sort((a, b) => {
+        const valA = new Date(a.updated_at || 0).getTime();
+        const valB = new Date(b.updated_at || 0).getTime();
+        return sortDirection === 'asc' ? valA - valB : valB - valA;
+       });
     }
+    
     return sorted;
   }
 
@@ -703,8 +722,21 @@ function setupFiltering(list) {
   });
   if (sortSelect) sortSelect.addEventListener('change', () => {
     currentPage = 1; // Reset to page 1 on sort change
+    // Reset direction to default for the new sort type if desired,
+    // or keep current direction. Let's keep current direction or default to desc for consistency?
+    // User requested "reverse the sort method", implies toggle.
+    // Let's set a sensible default per type?
+    // For now, preserve existing direction or just apply.
     apply();
   });
+
+  if (sortReverseBtn) {
+    sortReverseBtn.addEventListener('click', () => {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        // Optional: update icon rotation or visual indicator
+        apply();
+    });
+  }
 }
 
 // Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
@@ -730,7 +762,9 @@ function setupFiltering(list) {
         headline: a.headline || '',
         linkedin: a.linkedin || '',
         degree: a.degree || '',
-        major: a.major || ''
+        degree: a.degree || '',
+        major: a.major || '',
+        updated_at: a.updated_at || ''
       }));
       console.log('Loaded alumni from API, count=', alumniData.length);
     } else {

@@ -676,7 +676,7 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline
+                    SELECT id, first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, updated_at
                     FROM alumni
                     ORDER BY last_name ASC, first_name ASC
                     LIMIT %s OFFSET %s
@@ -714,7 +714,8 @@ def api_get_alumni():
                     "location": r.get('location'),
                     "linkedin": r.get('linkedin_url'),
                     "degree": degree_level,
-                    "full_degree": full_degree
+                    "full_degree": full_degree,
+                    "updated_at": r.get('updated_at')
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200
