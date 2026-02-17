@@ -96,22 +96,17 @@ python backend/backfill_disciplines.py
    pip install -r requirements.txt
    ```
 
-4. **Configure environment variables:**
-   Create a `.env` file in the project root (see `.env.example`):
    ```
-   LINKEDIN_EMAIL=your_email@example.com
-   LINKEDIN_PASSWORD=your_password
-   SCRAPER_MODE=search
-   UPDATE_FREQUENCY=6 months
-   ```
-
-5. **Run the scraper:**
-   ```bash
-   cd scraper
-   python main.py
-   ```
-
-For detailed step-by-step instructions, see [GETTING_STARTED.md](GETTING_STARTED.md).
+   
+   4. **Configure environment variables:**
+      Create a `.env` file in the project root. See the [Setup Guide](SETUP_GUIDE.md) for a full template and instructions on getting API keys.
+   
+   5. **Run the application:**
+      ```bash
+      python backend/app.py
+      ```
+   
+   For a complete walkthrough including LinkedIn API setup, see [SETUP_GUIDE.md](SETUP_GUIDE.md).
 
 ---
 
