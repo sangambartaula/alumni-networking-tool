@@ -266,3 +266,71 @@ def get_all_normalized_degrees(conn) -> dict:
     except Exception as e:
         logger.error(f"Error fetching normalized degrees: {e}")
         return {}
+
+
+# ── Simple grouping labels (for standardized_degree column) ───────────────
+# Maps canonical display strings → group labels
+_DEGREE_GROUP_MAP = {
+    # Bachelors
+    "Bachelor of Science": "Bachelors",
+    "Bachelor of Arts": "Bachelors",
+    "Bachelor of Engineering": "Bachelors",
+    "Bachelor of Business Administration": "Bachelors",
+    "Bachelor of Fine Arts": "Bachelors",
+    "Bachelor of Science in Mechanical Engineering": "Bachelors",
+    "Bachelor of Science in Electrical Engineering": "Bachelors",
+    "Bachelor of Science in Civil Engineering": "Bachelors",
+    "Bachelor of Science in Computer Science": "Bachelors",
+    "Bachelor of Science in Industrial Engineering": "Bachelors",
+    # Masters
+    "Master of Science": "Masters",
+    "Master of Arts": "Masters",
+    "Master of Engineering": "Masters",
+    "Master of Business Administration": "Masters",
+    "Master of Fine Arts": "Masters",
+    # Doctorate
+    "Doctor of Philosophy": "Doctorate",
+    "Doctor of Education": "Doctorate",
+    "Doctor of Medicine": "Doctorate",
+    "Juris Doctor": "Doctorate",
+    # Associate
+    "Associate of Science": "Associate",
+    "Associate of Arts": "Associate",
+    "Associate's Degree": "Associate",
+    "Associate of Applied Science": "Associate",
+}
+
+# Keyword fallbacks for strings that don't match DEGREE_MAP exactly
+_GROUP_KEYWORDS = [
+    # Order matters — check most specific first
+    (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
+    (re.compile(r'\b(master|m\.?s\.?|m\.?a\.?|m\.?eng|mba|m\.?b\.?a)\b', re.I), "Masters"),
+    (re.compile(r'\b(bachelor|b\.?s\.?|b\.?a\.?|b\.?eng|b\.?e\.?)\b', re.I), "Bachelors"),
+    (re.compile(r'\b(associate|a\.?s\.?|a\.?a\.?|aas)\b', re.I), "Associate"),
+    (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Certificate"),
+]
+
+
+def standardize_degree(raw_degree: str) -> str:
+    """
+    Map a raw degree string to a simple group label.
+
+    Returns one of: Bachelors, Masters, Doctorate, Associate, Certificate, Other.
+    """
+    if not raw_degree or not raw_degree.strip():
+        return "Other"
+
+    # First: try canonical resolution via existing DEGREE_MAP
+    canonical = normalize_degree_deterministic(raw_degree)
+
+    # If canonical matched in our group map, we're done
+    if canonical in _DEGREE_GROUP_MAP:
+        return _DEGREE_GROUP_MAP[canonical]
+
+    # Keyword fallback on the raw string
+    lower = raw_degree.lower()
+    for pattern, group in _GROUP_KEYWORDS:
+        if pattern.search(lower):
+            return group
+
+    return "Other"
