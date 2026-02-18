@@ -81,7 +81,7 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
         profile_name: Name of the profile (for debug file naming).
 
     Returns:
-        List of dicts with keys: school, raw_degree, start_date, end_date.
+        List of dicts with keys: school, degree_raw, major_raw, start_date, end_date.
         Returns empty list if extraction fails.
 
     Note:
@@ -103,21 +103,26 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
 
 For each education entry return:
 - school: The full school/university name
-- raw_degree: The full degree text (e.g. "Bachelor of Science in Computer Science", "Master of Business Administration")
-- start_date: Format "YYYY" or "Mon YYYY" if available
-- end_date: Format "YYYY" or "Mon YYYY" if available
+- degree_raw: ONLY the degree type (e.g. "Bachelor of Science", "Master of Arts", "PhD"). Do NOT include the field of study here.
+- major_raw: ONLY the field of study / major (e.g. "Computer Science", "Electrical Engineering"). Do NOT include the degree type here.
+- start_year: Format "YYYY" or "Mon YYYY" if available
+- end_year: Format "YYYY" or "Mon YYYY" if available
 
 Rules:
+- SPLIT the degree type from the major. For example:
+  "Bachelor of Science in Computer Science" → degree_raw: "Bachelor of Science", major_raw: "Computer Science"
+  "Master of Science - MS, Computational Science" → degree_raw: "Master of Science", major_raw: "Computational Science"
+  "BS, Mechanical Engineering" → degree_raw: "BS", major_raw: "Mechanical Engineering"
 - Extract every school listed, even if there is only 1
-- If the degree field is missing or blank, set raw_degree to ""
-- If start_date or end_date are missing, set them to ""
+- If the degree field is missing or blank, set degree_raw to ""
+- If the major field is missing or blank, set major_raw to ""
+- If start_year or end_year are missing, set them to ""
 - DO NOT invent data — if something is not present in the text, leave it blank
-- DO NOT split a combined degree string (e.g. "Bachelor of Science, Computer Science") into separate entries
 - IGNORE activity/society lists, grades, and descriptions
 - Each entry should represent ONE school attendance
 
 Return ONLY a JSON object with an "education" key:
-{{"education": [{{"school":"...","raw_degree":"...","start_date":"...","end_date":"..."}}]}}
+{{"education": [{{"school":"...","degree_raw":"...","major_raw":"...","start_year":"...","end_year":"..."}}]}}
 
 If no education found return: {{"education": []}}
 
@@ -177,22 +182,25 @@ Data:
                 continue
 
             school = (entry.get("school") or "").strip()
-            raw_degree = (entry.get("raw_degree") or "").strip()
-            start_date = (entry.get("start_date") or "").strip()
-            end_date = (entry.get("end_date") or "").strip()
+            degree_raw = (entry.get("degree_raw") or entry.get("raw_degree") or "").strip()
+            major_raw = (entry.get("major_raw") or "").strip()
+            start_year = (entry.get("start_year") or entry.get("start_date") or "").strip()
+            end_year = (entry.get("end_year") or entry.get("end_date") or "").strip()
 
             if not school:
                 continue
 
             # Clean doubled text
             school = _clean_doubled(school)
-            raw_degree = _clean_doubled(raw_degree)
+            degree_raw = _clean_doubled(degree_raw)
+            major_raw = _clean_doubled(major_raw)
 
-            # Deduplicate: same school + same degree
+            # Deduplicate: same school + same degree + same major
             is_dup = False
             for existing in valid_entries:
                 if (existing["school"].lower() == school.lower()
-                        and existing["raw_degree"].lower() == raw_degree.lower()):
+                        and existing["degree_raw"].lower() == degree_raw.lower()
+                        and existing["major_raw"].lower() == major_raw.lower()):
                     is_dup = True
                     break
             if is_dup:
@@ -201,15 +209,16 @@ Data:
 
             valid_entries.append({
                 "school": school,
-                "raw_degree": raw_degree,
-                "start_date": start_date,
-                "end_date": end_date
+                "degree_raw": degree_raw,
+                "major_raw": major_raw,
+                "start_date": start_year,
+                "end_date": end_year,
             })
 
         if valid_entries:
             logger.info(f"    ✓ Groq extracted {len(valid_entries)} education entry/entries")
             for i, e in enumerate(valid_entries):
-                logger.info(f"      Edu {i+1}: {e['school']} — {e['raw_degree']} ({e['start_date']}–{e['end_date']})")
+                logger.info(f"      Edu {i+1}: {e['school']} — {e['degree_raw']} / {e['major_raw']} ({e['start_date']}–{e['end_date']})")
 
         return valid_entries
 
