@@ -17,7 +17,7 @@ if BS4_AVAILABLE:
     from bs4 import BeautifulSoup
 
 
-def _education_html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
+def _education_html_to_structured_text(html: str, profile_name: str = "unknown", relaxed: bool = False) -> str:
     """
     Convert education section HTML into clean structured text for the LLM.
 
@@ -25,6 +25,10 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown")
     - Remove all markup noise
     - Pipe-separated text per entry separated by ---
     - Save debug output when enabled
+    
+    Args:
+        relaxed (bool): If True, skips aggressive cleaning (removing visually-hidden, sub-components)
+                       to prevent data loss in edge cases.
     """
     if not BS4_AVAILABLE:
         text = re.sub(r'<[^>]+>', ' ', html)
@@ -40,23 +44,28 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown")
     # 2. Remove visually-hidden and button-icon elements
     #    BUT *unwrap* inline-show-more-text instead of decomposing it,
     #    because LinkedIn wraps school name / degree / dates inside these divs.
-    for tag in soup.find_all(class_=lambda x: x and any(
-        c in x for c in ['visually-hidden', 'artdeco-button__icon']
-    )):
-        tag.decompose()
+    #    Conditional: Only do this if NOT relaxed.
+    if not relaxed:
+        for tag in soup.find_all(class_=lambda x: x and any(
+            c in x for c in ['visually-hidden', 'artdeco-button__icon']
+        )):
+            tag.decompose()
+            
     for tag in soup.find_all(class_=lambda x: x and 'inline-show-more-text' in x):
         tag.unwrap()  # keeps inner content, removes the wrapping tag
 
     # 3. Remove diamond-icon skill/tag entries from sub-components
     #    (same logic as the experience extractor)
-    for sub_comp in soup.select('.pvs-entity__sub-components'):
-        for container in sub_comp.find_all('div', class_=lambda c: c and 't-14' in c and 't-normal' in c and 't-black' in c and 't-black--light' not in c):
-            if container.find('strong'):
-                li_parent = container.find_parent('li')
-                if li_parent:
-                    li_parent.decompose()
-                else:
-                    container.decompose()
+    #    Conditional: Only do this if NOT relaxed.
+    if not relaxed:
+        for sub_comp in soup.select('.pvs-entity__sub-components'):
+            for container in sub_comp.find_all('div', class_=lambda c: c and 't-14' in c and 't-normal' in c and 't-black' in c and 't-black--light' not in c):
+                if container.find('strong'):
+                    li_parent = container.find_parent('li')
+                    if li_parent:
+                        li_parent.decompose()
+                    else:
+                        container.decompose()
 
     # 4. Remove skill lines like "Civil Engineering, Problem Solving and +4 skills"
     for tag in soup.find_all(["strong", "span"]):
@@ -77,8 +86,12 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown")
     # Extract structured entries from education list items
     entries = []
 
+    # Prioritize 'artdeco-list__item' which is the standard container for main profile items.
+    # Previous logic prioritized 'pvs-list' which matched CHILDREN items (details) in some profiles, 
+    # causing the parent item (with School Name) to be ignored.
     education_items = (
-        soup.select('li.pvs-list__paged-list-item')
+        soup.select('li.artdeco-list__item')
+        or soup.select('li.pvs-list__paged-list-item')
         or soup.select('li[class*="pvs-list"]')
         or soup.find_all('li')
     )
@@ -99,7 +112,19 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown")
         structured = '\n---\n'.join(entries)
 
     # Save debug output
-    save_debug_html(structured, profile_name, "education")
+    mode_suffix = "_relaxed" if relaxed else ""
+    save_debug_html(structured, profile_name + mode_suffix, "education")
+
+    # Save debug HTML to see what's being passed after cleaning (for diagnosis)
+    try:
+        import os
+        debug_dir = "scraper/output/debug_html"
+        if not os.path.exists(debug_dir): os.makedirs(debug_dir)
+        debug_path = f"{debug_dir}/{profile_name.replace(' ', '_')}_education_cleaned{mode_suffix}.html"
+        with open(debug_path, "w", encoding="utf-8") as f:
+             f.write(str(soup))
+    except Exception:
+        pass
 
     return structured.strip()
 
@@ -125,8 +150,51 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
         logger.warning("⚠️ Groq not available, skipping education LLM extraction")
         return []
 
-    structured_text = _education_html_to_structured_text(education_html, profile_name)
     original_len = len(education_html)
+    
+    # Adaptive Cleaning Logic:
+    # 1. Try standard cleaning (removes noise).
+    # 2. Check if we lost the target university (UNT) keywords found in raw JSON.
+    # 3. If lost, retry with relaxed cleaning.
+    
+    unt_keywords = ["university of north texas", "north texas", "unt"]
+    raw_lower = education_html.lower()
+    has_unt_raw = any(k in raw_lower for k in unt_keywords)
+    
+    # Try Standard
+    structured_text = _education_html_to_structured_text(education_html, profile_name, relaxed=False)
+    
+    # Check if we messed up
+    should_retry = False
+    retry_reason = ""
+
+    # 1. Check for lost UNT keywords
+    if has_unt_raw:
+        text_lower = structured_text.lower()
+        if not any(k in text_lower for k in unt_keywords):
+            should_retry = True
+            retry_reason = "Loss of UNT keywords"
+
+    # 2. Check for over-aggressive reduction (e.g. >99% loss on large input)
+    if not should_retry and original_len > 1000:
+        ratio = len(structured_text) / original_len
+        if ratio < 0.01:  # Less than 1% preserved
+            should_retry = True
+            retry_reason = f"Extreme reduction ({original_len} -> {len(structured_text)} chars)"
+
+    if should_retry:
+        logger.warning(f"    ⚠️ Standard cleaning failed: {retry_reason}. Retrying with RELAXED cleaning for {profile_name}...")
+        structured_text = _education_html_to_structured_text(education_html, profile_name, relaxed=True)
+        
+        # Log result of retry
+        if has_unt_raw:
+            if any(k in structured_text.lower() for k in unt_keywords):
+                    logger.info("      ✓ Relaxed cleaning recovered UNT keywords.")
+            else:
+                    logger.warning("      ❌ Relaxed cleaning still missed UNT keywords (check debug HTML).")
+        else:
+            logger.info("      ✓ Retried with relaxed cleaning.")
+
     text_len = len(structured_text)
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
     logger.info(f"    📉 Education HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
@@ -152,6 +220,8 @@ Rules:
 - DO NOT invent data — if something is not present in the text, leave it blank
 - IGNORE activity/society lists, grades, and descriptions
 - Each entry should represent ONE school attendance
+- If a single entry mentions a degree and then repeats it or a similar one in the description (e.g. "Masters in X" ... "MS in Y"), treat it as ONE degree. DO NOT split into two entries unless the dates are distinct.
+- If duplicate information appears (e.g. parent item + child detail item), merge them into one entry.
 
 Return ONLY a JSON object with an "education" key:
 {{"education": [{{"school":"...","degree_raw":"...","major_raw":"...","start_year":"...","end_year":"..."}}]}}

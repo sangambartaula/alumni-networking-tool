@@ -20,6 +20,8 @@ DEGREE_LEVELS = {
     'master': 80, 'ms': 80, 'm.s': 80, 'mba': 80, 'm.b.a': 80, 'ma': 80, 'm.a': 80,
     'bachelor': 60, 'bs': 60, 'b.s': 60, 'ba': 60, 'b.a': 60, 'bba': 60,
     'associate': 40,
+    'certificate': 20, 'cert': 20,
+    'high school': 10, 'hs': 10, 'diploma': 10, 'ged': 10
 }
 
 ENGINEERING_KEYWORDS = (

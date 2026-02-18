@@ -307,7 +307,8 @@ _GROUP_KEYWORDS = [
     (re.compile(r'\b(master|m\.?s\.?|m\.?a\.?|m\.?eng|mba|m\.?b\.?a)\b', re.I), "Masters"),
     (re.compile(r'\b(bachelor|b\.?s\.?|b\.?a\.?|b\.?eng|b\.?e\.?)\b', re.I), "Bachelors"),
     (re.compile(r'\b(associate|a\.?s\.?|a\.?a\.?|aas)\b', re.I), "Associate"),
-    (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Certificate"),
+    (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Other"),
+    (re.compile(r'\b(high\s*school|h\.?s\.?|diploma|ged)\b', re.I), "Other"),
 ]
 
 
