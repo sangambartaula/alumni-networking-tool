@@ -63,7 +63,7 @@ class HistoryManager:
                 df = pd.read_csv(VISITED_HISTORY_FILE)
                 self.visited_history = {}
                 for _, row in df.iterrows():
-                    url = str(row.get('profile_url', '')).strip()
+                    url = str(row.get('profile_url', '')).strip().rstrip('/')
                     if not url: continue
                     self.visited_history[url] = {
                         'saved': str(row.get('saved', 'no')).strip().lower(),
@@ -91,7 +91,7 @@ class HistoryManager:
 
         self.visited_history = {}
         for profile in db_profiles:
-            url = (profile.get('linkedin_url') or "").strip()
+            url = (profile.get('linkedin_url') or "").strip().rstrip('/')
             if not url: continue
 
             is_unt = bool(profile.get('is_unt_alum'))
@@ -137,7 +137,7 @@ class HistoryManager:
 
     def mark_as_visited(self, url, saved=False, update_needed=False):
         if not url: return
-        url = url.strip()
+        url = url.strip().rstrip('/')
         save_visited_profile(url, is_unt_alum=bool(saved)) # DB Call
         
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -151,6 +151,8 @@ class HistoryManager:
         self.save_history_csv()
 
     def should_skip(self, url):
+        if not url: return False
+        url = url.strip().rstrip('/')
         if url not in self.visited_history: return False
         entry = self.visited_history[url]
         saved = entry.get('saved', 'no').lower()
@@ -213,6 +215,7 @@ def flag_profile_for_review(profile_data):
     url = profile_data.get('profile_url', '')
     if not url:
         return
+    url = url.strip().rstrip('/')
     
     issues = []
     
@@ -302,7 +305,7 @@ def save_profile_to_csv(profile_data):
         save_data = {
             'first': first,
             'last': last,
-            'linkedin_url': profile_data.get('profile_url'),
+            'linkedin_url': str(profile_data.get('profile_url', '')).strip().rstrip('/'),
             # Primary education
             'school': profile_data.get('school', profile_data.get('education', '')),
             'degree': profile_data.get('degree', ''),

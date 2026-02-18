@@ -192,6 +192,7 @@ class LinkedInScraper:
                     url = url.split("?")[0]
                     if not url.startswith("http"):
                         url = "https://www.linkedin.com" + url
+                    url = url.rstrip('/')
                     profile_urls.add(url)
         
         return list(profile_urls)
