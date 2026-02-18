@@ -416,6 +416,13 @@ class LinkedInScraper:
                     if utils.check_working_while_studying(school_start_d, school_end_d, job_start_d, job_end_d):
                         is_overlap = True
                         break
+
+                # Fallback: TA/RA at own school implies working while studying
+                if not is_overlap:
+                    is_overlap = self._is_student_worker_at_school(all_experiences, data.get("school", ""))
+                    if is_overlap:
+                        logger.info("      ✓ TA/RA heuristic: working while studying (student-worker at own school)")
+
                 data["working_while_studying"] = "yes" if is_overlap else "no"
             else:
                 # If we have NO education entries, or just no UNT, try expanding
@@ -444,6 +451,14 @@ class LinkedInScraper:
                                 ):
                                     is_overlap = True
                                     break
+
+                            # Fallback: TA/RA at own school implies working while studying
+                            if not is_overlap:
+                                school_name = unt_details.get("education", "")
+                                is_overlap = self._is_student_worker_at_school(all_experiences, school_name)
+                                if is_overlap:
+                                    logger.info("      ✓ TA/RA heuristic: working while studying (student-worker at own school)")
+
                             data["working_while_studying"] = "yes" if is_overlap else "no"
                     else:
                         return None # No UNT found at all
@@ -461,6 +476,27 @@ class LinkedInScraper:
                 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
                 from degree_normalization import standardize_degree
                 from major_normalization import standardize_major
+                from discipline_classification import infer_discipline
+
+                # --- Discipline Classification (LLM Fallback) ---
+                # Only run for the primary entry to save time/cost, or could run for all if needed.
+                # App uses: degree, job_title, headline.
+                # We use the primary extracted degree + major for better context.
+                data["discipline"] = infer_discipline(
+                    f"{data.get('degree', '')} {data.get('major', '')}",
+                    data.get("job_title", ""),
+                    data.get("headline", ""),
+                    use_llm=True
+                )
+                
+                # Helper to log standardization for review
+                def _log_std(filename, raw, std):
+                    if raw and std and raw != std:
+                        try:
+                            with open(f"scraper/output/{filename}", "a") as f:
+                                f.write(f"{raw} -> {std}\n")
+                        except Exception:
+                            pass
 
                 for suffix in ("", "2", "3"):
                     deg_key = f"degree{suffix}" if suffix else "degree"
@@ -471,11 +507,22 @@ class LinkedInScraper:
                     raw_deg = data.get(deg_key, "")
                     raw_maj = data.get(maj_key, "")
                     if raw_deg:
-                        data[std_deg_key] = standardize_degree(raw_deg)
+                        std_deg = standardize_degree(raw_deg)
+                        data[std_deg_key] = std_deg
+                        _log_std("standardized_degree.txt", raw_deg, std_deg)
+                        
                     if raw_maj:
-                        data[std_maj_key] = standardize_major(raw_maj)
+                        std_maj = standardize_major(raw_maj)
+                        data[std_maj_key] = std_maj
+                        _log_std("standardized_major.txt", raw_maj, std_maj)
+                        
+                # Log inferred discipline
+                if data.get("discipline") and data.get("discipline") != "Unknown":
+                    with open("scraper/output/inferred_disciplines.txt", "a") as f:
+                         f.write(f"{data.get('name')} | {data.get('degree')} | {data.get('job_title')} -> {data['discipline']}\n")
+
             except Exception as norm_err:
-                logger.debug(f"    ⚠️ Education normalization skipped: {norm_err}")
+                logger.debug(f"    ⚠️ Education normalization/discipline failed: {norm_err}")
 
             # --- Structured education logging ---
             logger.info(f"    ✓ Scraped: {data.get('name', 'N/A')}")
@@ -506,6 +553,51 @@ class LinkedInScraper:
         except Exception as e:
             logger.error(f"Error scraping profile {profile_url}: {e}")
             return None
+
+    # ============================================================
+    # Student-Worker Heuristic
+    # ============================================================
+    _STUDENT_WORKER_PATTERNS = re.compile(
+        r'\b('
+        r'teaching\s+assistant|research\s+assistant|graduate\s+assistant|'
+        r'graduate\s+research|graduate\s+teaching|'
+        r'lab\s+assistant|student\s+worker|student\s+assistant|'
+        r'student\s+employee|tutor|grader|'
+        r'resident\s+assistant|resident\s+advisor|'
+        r'\bta\b|\bra\b|\bga\b'
+        r')\b', re.IGNORECASE
+    )
+
+    def _is_student_worker_at_school(self, all_experiences, school_name):
+        """
+        Check if any experience is a student-worker role at the given school.
+        TA/RA/GA roles at one's own university imply working while studying.
+        """
+        if not school_name or not all_experiences:
+            return False
+
+        school_lower = school_name.lower()
+        # Build flexible school matching tokens (e.g. "university of north texas" → match "north texas")
+        school_tokens = [t for t in school_lower.split() if t not in ('of', 'the', 'and', 'at', 'in')]
+
+        for exp in all_experiences:
+            title = (exp.get("title") or "").lower()
+            company = (exp.get("company") or "").lower()
+
+            # Check if job title matches student-worker patterns
+            if not self._STUDENT_WORKER_PATTERNS.search(title):
+                continue
+
+            # Check if company matches the school
+            if school_lower in company or company in school_lower:
+                return True
+            # Fuzzy: check if most school name tokens appear in the company
+            if len(school_tokens) >= 2:
+                matching = sum(1 for t in school_tokens if t in company)
+                if matching >= len(school_tokens) * 0.6:
+                    return True
+
+        return False
 
     # ============================================================
     # Parsing Methods
@@ -1118,14 +1210,20 @@ class LinkedInScraper:
                     link = a.get('href')
                     break
             
-            if not link: return [], None
+            if not link:
+                logger.info("    ℹ️ No 'Show all education' link found.")
+                return [], None
 
+            logger.info("    Found 'Show all education' link. Clicking...")
             if not link.startswith("http"): link = "https://www.linkedin.com" + link
             self.driver.get(link)
             time.sleep(3)
             
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
             main = soup.find('main') or soup
+            
+            # Count expansion items
+            debug_count = 0
             
             for div in main.find_all("div"):
                 lines = self._p_texts_clean(div)
@@ -1140,6 +1238,8 @@ class LinkedInScraper:
                         continue
 
                 all_edus.append(school)
+                debug_count += 1
+                logger.info(f"      Found: {school} | {degree}")
                 
                 # Capture UNT details if found
                 if unt_details is None and any(k in school.lower() for k in utils.UNT_KEYWORDS):
@@ -1163,6 +1263,12 @@ class LinkedInScraper:
                             break
                         if re.findall(r"\d{4}", t) and not unt_details["graduation_year"]:
                             unt_details["graduation_year"] = re.findall(r"\d{4}", t)[-1]
+            
+            logger.info(f"    ✓ Extracted {debug_count} education(s) from detailed view.")
+            if unt_details:
+                logger.info(f"      ✓ Found expanded UNT details: {unt_details.get('major', 'Unknown Major')}")
+            else:
+                logger.info("      ❌ Still no UNT education found in detailed view.")
 
             # Go back
             self.driver.get(profile_url)

@@ -294,7 +294,29 @@ def save_profile_to_csv(profile_data):
         has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'school', 'education']])
         if not has_data: return False
 
-        existing_df = pd.read_csv(OUTPUT_CSV, encoding='utf-8') if OUTPUT_CSV.exists() else pd.DataFrame(columns=CSV_COLUMNS)
+        if OUTPUT_CSV.exists():
+            try:
+                existing_df = pd.read_csv(OUTPUT_CSV, encoding='utf-8')
+                # Strict schema enforcement: if headers don't match exactly, backup and reset
+                if list(existing_df.columns) != CSV_COLUMNS:
+                    logger.warning("⚠️ CSV Schema mismatch detected. Resetting file to fix headers.")
+                    
+                    # Backup corrupted file
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_path = OUTPUT_CSV.parent / f"{OUTPUT_CSV.stem}_corrupt_{timestamp}.csv"
+                    try:
+                        existing_df.to_csv(backup_path, index=False, encoding='utf-8')
+                        logger.info(f"  ↪ Archived original file to: {backup_path.name}")
+                    except Exception as backup_err:
+                        logger.error(f"  Failed to backup: {backup_err}")
+                    
+                    # Reset to empty DataFrame with correct columns
+                    existing_df = pd.DataFrame(columns=CSV_COLUMNS)
+            except Exception as e:
+                logger.warning(f"⚠️ Error reading existing CSV ({e}). Starting fresh.")
+                existing_df = pd.DataFrame(columns=CSV_COLUMNS)
+        else:
+            existing_df = pd.DataFrame(columns=CSV_COLUMNS)
         
         # Transform data to new schema
         name = str(profile_data.get('name', '')).strip()

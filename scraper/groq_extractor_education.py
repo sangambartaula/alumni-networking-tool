@@ -9,7 +9,7 @@ import re
 from config import logger
 from groq_client import (
     _get_client, is_groq_available, GROQ_MODEL, BS4_AVAILABLE,
-    save_debug_html, parse_groq_json_response, strip_noise_elements,
+    save_debug_html, parse_groq_json_response,
     _clean_doubled
 )
 
@@ -33,10 +33,42 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown")
 
     soup = BeautifulSoup(html, 'html.parser')
 
-    # Remove noise elements (shared utility)
-    strip_noise_elements(soup)
+    # 1. Remove script/style/media (same as experience extractor)
+    for tag in soup.find_all(['script', 'style', 'svg', 'img', 'iframe', 'noscript']):
+        tag.decompose()
 
-    # Remove activity-related sections (they show in education area sometimes)
+    # 2. Remove visually-hidden and button-icon elements
+    #    BUT *unwrap* inline-show-more-text instead of decomposing it,
+    #    because LinkedIn wraps school name / degree / dates inside these divs.
+    for tag in soup.find_all(class_=lambda x: x and any(
+        c in x for c in ['visually-hidden', 'artdeco-button__icon']
+    )):
+        tag.decompose()
+    for tag in soup.find_all(class_=lambda x: x and 'inline-show-more-text' in x):
+        tag.unwrap()  # keeps inner content, removes the wrapping tag
+
+    # 3. Remove diamond-icon skill/tag entries from sub-components
+    #    (same logic as the experience extractor)
+    for sub_comp in soup.select('.pvs-entity__sub-components'):
+        for container in sub_comp.find_all('div', class_=lambda c: c and 't-14' in c and 't-normal' in c and 't-black' in c and 't-black--light' not in c):
+            if container.find('strong'):
+                li_parent = container.find_parent('li')
+                if li_parent:
+                    li_parent.decompose()
+                else:
+                    container.decompose()
+
+    # 4. Remove skill lines like "Civil Engineering, Problem Solving and +4 skills"
+    for tag in soup.find_all(["strong", "span"]):
+        txt = tag.get_text()
+        if ("skill" in txt.lower() and "+" in txt) or ("skills" in txt.lower() and ("+" in txt or "," in txt)):
+            parent = tag.find_parent("div", class_="display-flex")
+            if parent:
+                parent.decompose()
+            else:
+                tag.decompose()
+
+    # 5. Remove activity-related sections (they show in education area sometimes)
     for tag in soup.find_all(class_=lambda x: x and any(
         c in x for c in ['activities-societies', 'pv-shared-text-with-see-more']
     )):

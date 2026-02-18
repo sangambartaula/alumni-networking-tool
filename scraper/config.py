@@ -78,6 +78,7 @@ CSV_COLUMNS = [
     'standardized_degree', 'standardized_major',
     'standardized_degree2', 'standardized_major2',
     'standardized_degree3', 'standardized_major3',
+    'discipline',
     'location', 'working_while_studying', 
     'title', 'company', 'job_start', 'job_end', 
     'exp_2_title', 'exp_2_company', 'exp_2_dates', 
