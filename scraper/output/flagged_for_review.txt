@@ -434,3 +434,23 @@ https://www.linkedin.com/in/zahra-gharahbeigi-b2309490 # flagged for review (bul
 https://www.linkedin.com/in/zainab-fatima-754a4124b # flagged for review (bulk)
 https://www.linkedin.com/in/zohreh-farahmandpour-a73944199 # flagged for review (bulk)
 https://wwwlinkedin.com/in/antonio-de-jesus-garcia-b213542a3 # flagged for review (bulk)
+
+# === Education Schema Refactor — flagged 18 CSV URLs for re-review ===
+https://www.linkedin.com/in/adrianpedrazaa
+https://www.linkedin.com/in/ajith-rao-velpuri-0a5924221
+https://www.linkedin.com/in/anjali-sharma-840935262
+https://www.linkedin.com/in/deepika-lingutla-082183175
+https://www.linkedin.com/in/hasini-kanuru
+https://www.linkedin.com/in/hebertalvarez
+https://www.linkedin.com/in/khajaunt
+https://www.linkedin.com/in/layamyadam
+https://www.linkedin.com/in/lethan-nguyen-16l3
+https://www.linkedin.com/in/mohammad-mari
+https://www.linkedin.com/in/niranjan-paudel-14a31a330
+https://www.linkedin.com/in/puneetputtu
+https://www.linkedin.com/in/sachin-banjade-345339248
+https://www.linkedin.com/in/sangambartaula
+https://www.linkedin.com/in/sanjay-chaudhary-1254b3245
+https://www.linkedin.com/in/sri-v-ram
+https://www.linkedin.com/in/vamsi-geddavalasa
+https://www.linkedin.com/in/youssef-higazy
