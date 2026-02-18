@@ -288,7 +288,7 @@ def save_profile_to_csv(profile_data):
             logger.info(f"🚫 Blocked profile skipped: {profile_data.get('profile_url')}")
             return False
         
-        has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'education']])
+        has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'school', 'education']])
         if not has_data: return False
 
         existing_df = pd.read_csv(OUTPUT_CSV, encoding='utf-8') if OUTPUT_CSV.exists() else pd.DataFrame(columns=CSV_COLUMNS)
@@ -303,10 +303,27 @@ def save_profile_to_csv(profile_data):
             'first': first,
             'last': last,
             'linkedin_url': profile_data.get('profile_url'),
-            'major': profile_data.get('major'),
-            'education': profile_data.get('education'),
+            # Primary education
+            'school': profile_data.get('school', profile_data.get('education', '')),
+            'degree': profile_data.get('degree', ''),
+            'major': profile_data.get('major', ''),
             'school_start': profile_data.get('school_start_date'),
             'grad_year': profile_data.get('graduation_year'),
+            # Education 2 and 3
+            'school2': profile_data.get('school2', ''),
+            'degree2': profile_data.get('degree2', ''),
+            'major2': profile_data.get('major2', ''),
+            'school3': profile_data.get('school3', ''),
+            'degree3': profile_data.get('degree3', ''),
+            'major3': profile_data.get('major3', ''),
+            # Standardized fields
+            'standardized_degree': profile_data.get('standardized_degree', ''),
+            'standardized_major': profile_data.get('standardized_major', ''),
+            'standardized_degree2': profile_data.get('standardized_degree2', ''),
+            'standardized_major2': profile_data.get('standardized_major2', ''),
+            'standardized_degree3': profile_data.get('standardized_degree3', ''),
+            'standardized_major3': profile_data.get('standardized_major3', ''),
+            # Other fields
             'location': profile_data.get('location'),
             'working_while_studying': profile_data.get('working_while_studying'),
             'title': clean_job_title(profile_data.get('job_title', '')),
@@ -323,7 +340,8 @@ def save_profile_to_csv(profile_data):
         }
         
         # Normalize text fields
-        text_fields = ['first', 'last', 'location', 'title', 'company', 'major', 
+        text_fields = ['first', 'last', 'location', 'title', 'company', 'major',
+                       'degree', 'major2', 'degree2', 'major3', 'degree3',
                        'exp_2_title', 'exp_2_company', 'exp_3_title', 'exp_3_company']
         for field in text_fields:
             if field in save_data and save_data[field]:

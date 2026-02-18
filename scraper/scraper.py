@@ -355,17 +355,15 @@ class LinkedInScraper:
 
             # 5. Education — Try Groq first, CSS fallback
             edu_entries = []
-            groq_edu_raw = []  # Keep raw Groq output for raw_degree
 
             if is_groq_available():
                 edu_root = self._find_section_root(soup, "Education")
                 if edu_root:
                     edu_html = str(edu_root)
-                    groq_edu_raw = extract_education_with_groq(edu_html, profile_name=data.get("name", "unknown"))
-                    if groq_edu_raw:
-                        logger.info(f"    ✓ Using Groq education results ({len(groq_edu_raw)} entries)")
-                        # Convert Groq format to existing entry format
-                        for ge in groq_edu_raw:
+                    groq_results = extract_education_with_groq(edu_html, profile_name=data.get("name", "unknown"))
+                    if groq_results:
+                        logger.info(f"    ✓ Using Groq education results ({len(groq_results)} entries)")
+                        for ge in groq_results:
                             start_info = parse_groq_date(ge.get("start_date", ""))
                             end_info = parse_groq_date(ge.get("end_date", ""))
                             grad_year = ""
@@ -373,11 +371,12 @@ class LinkedInScraper:
                                 grad_year = str(end_info["year"])
                             edu_entries.append({
                                 "school": ge.get("school", ""),
-                                "degree": ge.get("raw_degree", ""),
-                                "raw_degree": ge.get("raw_degree", ""),
+                                "degree": ge.get("degree_raw", ge.get("raw_degree", "")),
+                                "major": ge.get("major_raw", ""),
+                                "raw_degree": ge.get("degree_raw", ge.get("raw_degree", "")),
                                 "graduation_year": grad_year,
                                 "school_start": start_info,
-                                "school_end": end_info
+                                "school_end": end_info,
                             })
 
             # CSS fallback if Groq didn't produce results
@@ -390,25 +389,19 @@ class LinkedInScraper:
             
             data["all_education"] = list(dict.fromkeys([e["school"] for e in edu_entries if e.get("school")]))
 
+            # --- Pick best UNT education as primary entry ---
             best_unt = self._pick_best_unt_education(edu_entries)
             
             if best_unt:
                 data["education"] = best_unt.get("school", "")
-                # Combine degree and major into single "major" field
-                degree_part = best_unt.get("degree", "").strip()
-                major_part = best_unt.get("major", "").strip()
-                if degree_part and major_part:
-                    data["major"] = f"{degree_part} in {major_part}"
-                elif degree_part:
-                    data["major"] = degree_part
-                elif major_part:
-                    data["major"] = major_part
-                else:
-                    data["major"] = ""
+                data["school"] = best_unt.get("school", "")
+                data["degree"] = best_unt.get("degree", "").strip()
+                data["major"] = best_unt.get("major", "").strip()
+                # Fallback: if CSS gave combined degree without major, keep degree as-is
+                if not data["major"] and data["degree"]:
+                    data["major"] = data["degree"]
                 data["graduation_year"] = best_unt.get("graduation_year", "")
-                # Pass through raw_degree from Groq for normalization (if available)
                 data["raw_degree"] = best_unt.get("raw_degree", "")
-
                 
                 school_start_d = best_unt.get("school_start")
                 school_end_d = best_unt.get("school_end")
@@ -434,6 +427,8 @@ class LinkedInScraper:
                     
                     if unt_details:
                         data["education"] = unt_details.get("education", "")
+                        data["school"] = unt_details.get("education", "")
+                        data["degree"] = unt_details.get("degree", "")
                         data["major"] = unt_details.get("major", "")
                         data["graduation_year"] = unt_details.get("graduation_year", "")
                         data["school_start_date"] = unt_details.get("school_start_date", "")
@@ -452,15 +447,56 @@ class LinkedInScraper:
                     else:
                         return None # No UNT found at all
 
-            # Log scrape summary
+            # --- Store up to 3 education entries (school2/degree2/major2, etc.) ---
+            other_entries = [e for e in edu_entries if e.get("school", "").lower() != data.get("school", "").lower()]
+            for i, entry in enumerate(other_entries[:2], start=2):
+                data[f"school{i}"] = entry.get("school", "")
+                data[f"degree{i}"] = entry.get("degree", "").strip()
+                data[f"major{i}"] = entry.get("major", "").strip()
+
+            # --- Apply normalization for standardized_* fields ---
+            try:
+                import sys, os
+                sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+                from degree_normalization import standardize_degree
+                from major_normalization import standardize_major
+
+                for suffix in ("", "2", "3"):
+                    deg_key = f"degree{suffix}" if suffix else "degree"
+                    maj_key = f"major{suffix}" if suffix else "major"
+                    std_deg_key = f"standardized_degree{suffix}" if suffix else "standardized_degree"
+                    std_maj_key = f"standardized_major{suffix}" if suffix else "standardized_major"
+
+                    raw_deg = data.get(deg_key, "")
+                    raw_maj = data.get(maj_key, "")
+                    if raw_deg:
+                        data[std_deg_key] = standardize_degree(raw_deg)
+                    if raw_maj:
+                        data[std_maj_key] = standardize_major(raw_maj)
+            except Exception as norm_err:
+                logger.debug(f"    ⚠️ Education normalization skipped: {norm_err}")
+
+            # --- Structured education logging ---
             logger.info(f"    ✓ Scraped: {data.get('name', 'N/A')}")
             logger.info(f"      Headline: {data.get('headline', 'N/A')[:60]}{'...' if len(data.get('headline', '')) > 60 else ''}")
             logger.info(f"      Location: {data.get('location', 'N/A')}")
             logger.info(f"      Company: {data.get('company', 'N/A')} | Job: {data.get('job_title', 'N/A')}")
             if len(all_experiences) > 1:
                 logger.info(f"      ({len(all_experiences)} experiences captured)")
-            logger.info(f"      School: {data.get('education', 'N/A')} | Grad: {data.get('graduation_year', 'N/A')}")
-            logger.info(f"      Major: {data.get('major', 'N/A')}")
+            # Education detail log
+            for suffix in ("", "2", "3"):
+                sch = data.get(f"school{suffix}" if suffix else "school", "")
+                if not sch:
+                    continue
+                deg = data.get(f"degree{suffix}" if suffix else "degree", "")
+                maj = data.get(f"major{suffix}" if suffix else "major", "")
+                std_d = data.get(f"standardized_degree{suffix}" if suffix else "standardized_degree", "")
+                std_m = data.get(f"standardized_major{suffix}" if suffix else "standardized_major", "")
+                label = f"Edu{suffix or '1'}"
+                logger.info(f"      {label}: {sch} | {deg} / {maj}")
+                if std_d or std_m:
+                    logger.info(f"        → std: {std_d} / {std_m}")
+            logger.info(f"      Grad: {data.get('graduation_year', 'N/A')}")
             logger.info(f"      Working While Studying: {data.get('working_while_studying', 'N/A')}")
 
             # Normalize all fields before returning

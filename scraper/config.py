@@ -72,7 +72,12 @@ FLAGGED_PROFILES_FILE = OUTPUT_DIR / "flagged_for_review.txt"
 VISITED_HISTORY_COLUMNS = ['profile_url', 'saved', 'visited_at', 'update_needed', 'last_db_update']
 CSV_COLUMNS = [
     'first', 'last', 'linkedin_url', 
-    'major', 'education', 'school_start', 'grad_year', 
+    'school', 'degree', 'major', 'school_start', 'grad_year',
+    'school2', 'degree2', 'major2',
+    'school3', 'degree3', 'major3',
+    'standardized_degree', 'standardized_major',
+    'standardized_degree2', 'standardized_major2',
+    'standardized_degree3', 'standardized_major3',
     'location', 'working_while_studying', 
     'title', 'company', 'job_start', 'job_end', 
     'exp_2_title', 'exp_2_company', 'exp_2_dates', 
