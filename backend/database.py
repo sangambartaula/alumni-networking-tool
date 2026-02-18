@@ -444,6 +444,69 @@ def ensure_alumni_major_column():
                 pass
 
 
+def ensure_education_columns():
+    """Ensure all education refactor columns exist: school*, degree*, major*, standardized_*."""
+    NEW_COLS = [
+        # Raw columns
+        ("school",                "VARCHAR(255) DEFAULT NULL"),
+        ("school2",               "VARCHAR(255) DEFAULT NULL"),
+        ("school3",               "VARCHAR(255) DEFAULT NULL"),
+        ("degree2",               "VARCHAR(255) DEFAULT NULL"),
+        ("degree3",               "VARCHAR(255) DEFAULT NULL"),
+        ("major2",                "VARCHAR(255) DEFAULT NULL"),
+        ("major3",                "VARCHAR(255) DEFAULT NULL"),
+        # Standardized columns
+        ("standardized_degree",   "VARCHAR(50) DEFAULT NULL"),
+        ("standardized_degree2",  "VARCHAR(50) DEFAULT NULL"),
+        ("standardized_degree3",  "VARCHAR(50) DEFAULT NULL"),
+        ("standardized_major",    "VARCHAR(255) DEFAULT NULL"),
+        ("standardized_major2",   "VARCHAR(255) DEFAULT NULL"),
+        ("standardized_major3",   "VARCHAR(255) DEFAULT NULL"),
+    ]
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            for col_name, col_def in NEW_COLS:
+                try:
+                    cur.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_def}")
+                    logger.info(f"Added {col_name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        pass  # already exists
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        pass  # SQLite: already exists
+                    else:
+                        raise
+
+            # Migrate: copy education → school where school is still NULL
+            try:
+                cur.execute("""
+                    UPDATE alumni
+                    SET school = education
+                    WHERE school IS NULL AND education IS NOT NULL
+                """)
+                migrated = cur.rowcount
+                if migrated:
+                    logger.info(f"Migrated {migrated} rows: education → school")
+            except Exception as e:
+                logger.warning(f"education → school migration skipped: {e}")
+
+            conn.commit()
+            logger.info("✅ Education columns ensured")
+    except Exception as e:
+        logger.error(f"Error ensuring education columns: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 # ============================================================
 # VISITED PROFILES FUNCTIONS
 # ============================================================
@@ -880,6 +943,18 @@ def seed_alumni_data():
                     major = str(row.get('major', '')).strip() if pd.notna(row.get('major')) else None
                     degree = str(row.get('degree', '')).strip() if pd.notna(row.get('degree')) else None
 
+                    # school (new) vs education (old)
+                    school = str(row.get('school', '')).strip() if pd.notna(row.get('school')) else \
+                             str(row.get('education', '')).strip() if pd.notna(row.get('education')) else None
+
+                    # Education entries 2 and 3
+                    school2 = str(row.get('school2', '')).strip() if pd.notna(row.get('school2')) else None
+                    school3 = str(row.get('school3', '')).strip() if pd.notna(row.get('school3')) else None
+                    degree2 = str(row.get('degree2', '')).strip() if pd.notna(row.get('degree2')) else None
+                    degree3 = str(row.get('degree3', '')).strip() if pd.notna(row.get('degree3')) else None
+                    major2 = str(row.get('major2', '')).strip() if pd.notna(row.get('major2')) else None
+                    major3 = str(row.get('major3', '')).strip() if pd.notna(row.get('major3')) else None
+
                     # Auto-infer discipline if major is not set in CSV
                     if not major:
                         major = infer_discipline(degree, job_title, headline)
@@ -942,6 +1017,21 @@ def seed_alumni_data():
                     exp3_dates = str(row.get('exp_3_dates', '')).strip() if pd.notna(row.get('exp_3_dates')) else \
                                  str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates')) else None
 
+                    # Compute standardized values
+                    std_degree = std_degree2 = std_degree3 = None
+                    std_major = std_major2 = std_major3 = None
+                    try:
+                        from degree_normalization import standardize_degree
+                        from major_normalization import standardize_major
+                        if degree: std_degree = standardize_degree(degree)
+                        if degree2: std_degree2 = standardize_degree(degree2)
+                        if degree3: std_degree3 = standardize_degree(degree3)
+                        if major: std_major = standardize_major(major)
+                        if major2: std_major2 = standardize_major(major2)
+                        if major3: std_major3 = standardize_major(major3)
+                    except Exception:
+                        pass  # normalization modules not yet available
+
                     # Insert or update into database
                     try:
                         # Compute normalized job title ID
@@ -958,10 +1048,16 @@ def seed_alumni_data():
                             (first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying,
                              exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
+                             school, school2, school3, degree2, degree3, major2, major3,
+                             standardized_degree, standardized_degree2, standardized_degree3,
+                             standardized_major, standardized_major2, standardized_major3,
                              scraped_at, last_updated, normalized_job_title_id)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s,
+                                    %s, %s, %s,
                                     %s, %s, %s)
                             ON DUPLICATE KEY UPDATE
                                 first_name=VALUES(first_name),
@@ -983,13 +1079,26 @@ def seed_alumni_data():
                                 exp3_title=VALUES(exp3_title),
                                 exp3_company=VALUES(exp3_company),
                                 exp3_dates=VALUES(exp3_dates),
+                                school=VALUES(school),
+                                school2=VALUES(school2),
+                                school3=VALUES(school3),
+                                degree2=VALUES(degree2),
+                                degree3=VALUES(degree3),
+                                major2=VALUES(major2),
+                                major3=VALUES(major3),
+                                standardized_degree=VALUES(standardized_degree),
+                                standardized_degree2=VALUES(standardized_degree2),
+                                standardized_degree3=VALUES(standardized_degree3),
+                                standardized_major=VALUES(standardized_major),
+                                standardized_major2=VALUES(standardized_major2),
+                                standardized_major3=VALUES(standardized_major3),
                                 last_updated=VALUES(last_updated),
                                 normalized_job_title_id=VALUES(normalized_job_title_id)
                         """, (
                             first_name,
                             last_name,
                             grad_year,
-                            degree,  # degree is not in CSV yet
+                            degree,
                             major,
                             profile_url,
                             job_title,
@@ -1006,6 +1115,19 @@ def seed_alumni_data():
                             exp3_title,
                             exp3_company,
                             exp3_dates,
+                            school,
+                            school2,
+                            school3,
+                            degree2,
+                            degree3,
+                            major2,
+                            major3,
+                            std_degree,
+                            std_degree2,
+                            std_degree3,
+                            std_major,
+                            std_major2,
+                            std_major3,
                             scraped_at,
                             scraped_at,
                             norm_title_id
@@ -1130,6 +1252,7 @@ if __name__ == "__main__":
         ensure_alumni_timestamp_columns()
         ensure_alumni_work_school_date_columns()
         ensure_alumni_major_column()
+        ensure_education_columns()
 
         # Seed alumni data
         seed_alumni_data()
