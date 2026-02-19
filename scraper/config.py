@@ -21,6 +21,7 @@ try:
         tracebacks_show_locals=False,
     )
     _handler.setLevel(logging.INFO)
+    _handler.setFormatter(logging.Formatter("%(message)s"))
 except ImportError:
     _handler = logging.StreamHandler()
     _handler.setLevel(logging.INFO)
@@ -92,6 +93,7 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         edu_raw_lines.append(f"  • {school} — {degree} / {major}" if major else f"  • {school} — {degree}")
         edu_std_lines.append(f"  • {school} — {std_deg} / {std_maj}" if std_maj else f"  • {school} — {std_deg}")
 
+    discipline = data.get("discipline", "Other")
     wws = data.get("working_while_studying", "N/A")
 
     # Build output using rich if available
@@ -127,7 +129,8 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         else:
             out.append("Education: None found\n", style="yellow")
 
-        out.append(f"\nWorking While Studying: {wws.title()}\n\n", style="white")
+        out.append(f"\nDiscipline: {discipline}\n", style="cyan bold")
+        out.append(f"Working While Studying: {wws.title()}\n\n", style="white")
 
         if token_count:
             out.append(f"Groq Tokens: {token_count:,}\n\n", style="white")
@@ -158,7 +161,8 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
             lines.extend(edu_std_lines)
         else:
             lines.append("\nEducation: None found")
-        lines.append(f"\nWorking While Studying: {wws.title()}")
+        lines.append(f"\nDiscipline: {discipline}")
+        lines.append(f"Working While Studying: {wws.title()}")
         if token_count:
             lines.append(f"\nGroq Tokens: {token_count:,}")
         lines.append(f"\n✓ Completed — {status}")

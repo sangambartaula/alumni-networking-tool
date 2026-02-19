@@ -23,14 +23,16 @@ from groq_extractor_experience import extract_experiences_with_groq
 from groq_extractor_education import extract_education_with_groq
 from groq_client import is_groq_available, parse_groq_date, _clean_doubled
 
-# Backend normalization imports (for in-scraper display)
+# Normalization imports (now local to scraper)
 try:
-    import sys as _sys, os as _os
-    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..', 'backend'))
-    from job_title_normalization import normalize_title_deterministic
-    from company_normalization import normalize_company_deterministic
+    from job_title_normalization import normalize_title_deterministic, normalize_title_with_groq
+    from company_normalization import normalize_company_deterministic, normalize_company_with_groq
+    from degree_normalization import standardize_degree
+    from major_normalization import standardize_major
+    from discipline_classification import infer_discipline
     _NORM_AVAILABLE = True
-except ImportError:
+except ImportError as err:
+    logger.warning(f"Normalization modules missing: {err}")
     _NORM_AVAILABLE = False
 
 
@@ -491,11 +493,6 @@ class LinkedInScraper:
 
             # --- Apply normalization for standardized_* fields ---
             try:
-                import sys, os
-                sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
-                from degree_normalization import standardize_degree
-                from major_normalization import standardize_major
-                from discipline_classification import infer_discipline
 
                 # --- Discipline Classification (LLM Fallback) ---
                 # Only run for the primary entry to save time/cost, or could run for all if needed.
@@ -531,7 +528,7 @@ class LinkedInScraper:
                         _log_std("standardized_degree.txt", raw_deg, std_deg)
                         
                     if raw_maj:
-                        std_maj = standardize_major(raw_maj)
+                        std_maj = standardize_major(raw_maj, data.get("job_title", ""))
                         data[std_maj_key] = std_maj
                         _log_std("standardized_major.txt", raw_maj, std_maj)
                         

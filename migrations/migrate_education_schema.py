@@ -50,7 +50,7 @@ def migrate():
 
         # Fetch rows needing normalization
         cur.execute("""
-            SELECT id, degree, major, degree2, major2, degree3, major3
+            SELECT id, job_title, degree, major, degree2, major2, degree3, major3
             FROM alumni
         """)
         rows = cur.fetchall()
@@ -59,21 +59,21 @@ def migrate():
         for row in rows:
             if isinstance(row, dict):
                 rid = row['id']
-                vals = [row.get('degree'), row.get('major'),
+                vals = [row.get('job_title'), row.get('degree'), row.get('major'),
                         row.get('degree2'), row.get('major2'),
                         row.get('degree3'), row.get('major3')]
             else:
                 rid = row[0]
                 vals = list(row[1:])
 
-            degree, major, degree2, major2, degree3, major3 = vals
+            job_title, degree, major, degree2, major2, degree3, major3 = vals
 
             std_d = standardize_degree(degree or "") if degree else None
-            std_m = standardize_major(major or "") if major else None
+            std_m = standardize_major(major or "", job_title or "") if major else None
             std_d2 = standardize_degree(degree2 or "") if degree2 else None
-            std_m2 = standardize_major(major2 or "") if major2 else None
+            std_m2 = standardize_major(major2 or "", job_title or "") if major2 else None
             std_d3 = standardize_degree(degree3 or "") if degree3 else None
-            std_m3 = standardize_major(major3 or "") if major3 else None
+            std_m3 = standardize_major(major3 or "", job_title or "") if major3 else None
 
             cur.execute(f"""
                 UPDATE alumni SET

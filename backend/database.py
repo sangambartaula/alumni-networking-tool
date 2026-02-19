@@ -7,16 +7,24 @@ from pathlib import Path
 
 load_dotenv()
 
-# Import discipline inference function for auto-classification
-# NOTE: backfill_disciplines.py was removed; import from app module instead
-try:
-    from app import infer_discipline
-except ImportError:
-    # Fallback: minimal inline version if app module can't be imported
-    import re as _re
-    def infer_discipline(degree, job_title, headline):
-        """Minimal fallback — classifies based on simple keyword matching."""
-        return "Unknown"
+def _get_or_create_normalized_entity(cur, table, column, value):
+    """Inline helper to insert normalized strings and return their DB ID."""
+    if not value or str(value).strip() == '': return None
+    value = str(value).strip()
+    try:
+        cur.execute(f"INSERT INTO {table} ({column}) VALUES (%s) ON DUPLICATE KEY UPDATE {column}=VALUES({column})", (value,))
+    except Exception:
+        # SQLite fallback syntax
+        cur.execute(f"INSERT OR IGNORE INTO {table} ({column}) VALUES (?)", (value,))
+    
+    try:
+        cur.execute(f"SELECT id FROM {table} WHERE {column} = %s", (value,))
+    except Exception:
+        cur.execute(f"SELECT id FROM {table} WHERE {column} = ?", (value,))
+    
+    row = cur.fetchone()
+    if not row: return None
+    return row['id'] if isinstance(row, dict) else row[0]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -998,13 +1006,10 @@ def seed_alumni_data():
                     major2 = str(row.get('major2', '')).strip() if pd.notna(row.get('major2')) else None
                     major3 = str(row.get('major3', '')).strip() if pd.notna(row.get('major3')) else None
 
-                    # Use discipline already computed by Groq at scrape time.
-                    # Only fall back to keyword-only infer_discipline for legacy CSV rows missing it.
+                    # Use discipline already computed by scraper at scrape time.
                     saved_discipline = str(row.get('discipline', '')).strip() if pd.notna(row.get('discipline')) else ''
                     if saved_discipline:
                         major = saved_discipline
-                    elif not major:
-                        major = infer_discipline(degree, job_title, headline)
                     
                     # grad_year (new) vs graduation_year (old)
                     grad_year = None
@@ -1064,40 +1069,23 @@ def seed_alumni_data():
                     exp3_dates = str(row.get('exp_3_dates', '')).strip() if pd.notna(row.get('exp_3_dates')) else \
                                  str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates')) else None
 
-                    # Compute standardized values
-                    std_degree = std_degree2 = std_degree3 = None
-                    std_major = std_major2 = std_major3 = None
-                    try:
-                        from degree_normalization import standardize_degree
-                        from major_normalization import standardize_major
-                        if degree: std_degree = standardize_degree(degree)
-                        if degree2: std_degree2 = standardize_degree(degree2)
-                        if degree3: std_degree3 = standardize_degree(degree3)
-                        if major: std_major = standardize_major(major)
-                        if major2: std_major2 = standardize_major(major2)
-                        if major3: std_major3 = standardize_major(major3)
-                    except Exception:
-                        pass  # normalization modules not yet available
+                    # Read standardized values from CSV (now handled purely by scraper)
+                    std_degree = str(row.get('standardized_degree', '')).strip() if pd.notna(row.get('standardized_degree')) else None
+                    std_degree2 = str(row.get('standardized_degree2', '')).strip() if pd.notna(row.get('standardized_degree2')) else None
+                    std_degree3 = str(row.get('standardized_degree3', '')).strip() if pd.notna(row.get('standardized_degree3')) else None
+                    
+                    std_major = str(row.get('standardized_major', '')).strip() if pd.notna(row.get('standardized_major')) else None
+                    std_major2 = str(row.get('standardized_major2', '')).strip() if pd.notna(row.get('standardized_major2')) else None
+                    std_major3 = str(row.get('standardized_major3', '')).strip() if pd.notna(row.get('standardized_major3')) else None
 
                     # Insert or update into database
                     try:
-                        # Compute normalized job title ID
-                        norm_title_id = None
-                        if job_title:
-                            try:
-                                from job_title_normalization import get_or_create_normalized_title
-                                norm_title_id = get_or_create_normalized_title(conn, job_title, use_groq=True)
-                            except Exception as norm_err:
-                                logger.debug(f"Job title normalization skipped for {first_name} {last_name}: {norm_err}")
+                        # Get normalized job title and company IDs directly using SQL helper
+                        norm_title = str(row.get('normalized_job_title', '')).strip() if pd.notna(row.get('normalized_job_title')) else None
+                        norm_title_id = _get_or_create_normalized_entity(cur, 'normalized_job_titles', 'normalized_title', norm_title)
 
-                        # Compute normalized company ID
-                        norm_company_id = None
-                        if company:
-                            try:
-                                from company_normalization import get_or_create_normalized_company
-                                norm_company_id = get_or_create_normalized_company(conn, company, use_groq=True)
-                            except Exception as norm_err:
-                                logger.debug(f"Company normalization skipped for {first_name} {last_name}: {norm_err}")
+                        norm_comp = str(row.get('normalized_company', '')).strip() if pd.notna(row.get('normalized_company')) else None
+                        norm_company_id = _get_or_create_normalized_entity(cur, 'normalized_companies', 'normalized_company', norm_comp)
 
                         cur.execute("""
                             INSERT INTO alumni 
@@ -1149,8 +1137,8 @@ def seed_alumni_data():
                                 standardized_major2=VALUES(standardized_major2),
                                 standardized_major3=VALUES(standardized_major3),
                                 last_updated=VALUES(last_updated),
-                                normalized_job_title_id=VALUES(normalized_job_title_id),
-                                normalized_company_id=VALUES(normalized_company_id)
+                                normalized_job_title_id=COALESCE(VALUES(normalized_job_title_id), normalized_job_title_id),
+                                normalized_company_id=COALESCE(VALUES(normalized_company_id), normalized_company_id)
                         """, (
                             first_name,
                             last_name,
@@ -1197,7 +1185,18 @@ def seed_alumni_data():
                             updated += 1
                     except Exception as err:
                         logger.warning(f"Skipping record for {first_name} {last_name}: {err}")
+                        if "Lost connection" in str(err) or "MySQL Connection not available" in str(err):
+                            logger.error("🛑 MySQL connection lost. Exiting loop to save progress.")
+                            break
                         continue
+
+                    # Incremental commit every 5 rows to prevent total data loss on timeout
+                    if processed % 5 == 0:
+                        try:
+                            conn.commit()
+                            logger.info(f"💾 Auto-committed batch at record {processed}")
+                        except Exception as commit_err:
+                            logger.error(f"❌ Auto-commit failed: {commit_err}")
 
                 conn.commit()
                 logger.info(f"✅ Added {added} new alumni records")

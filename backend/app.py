@@ -88,7 +88,15 @@ def is_authorized_user(email):
 # DISCIPLINE CLASSIFICATION (computed on-the-fly, NOT stored in DB)
 # Ordered list: first match wins.  Priority per alumni: job_title > degree > headline
 # =============================================================================
-from discipline_classification import APPROVED_ENGINEERING_DISCIPLINES, infer_discipline
+# Approved engineering disciplines for the frontend filter
+APPROVED_ENGINEERING_DISCIPLINES = [
+    'Software, Data & AI Engineering',
+    'Embedded, Electrical & Hardware Engineering',
+    'Mechanical & Energy Engineering',
+    'Biomedical Engineering',
+    'Materials Science & Manufacturing',
+    'Construction & Engineering Management',
+]
 
 
 def classify_degree(degree_field, headline=''):
