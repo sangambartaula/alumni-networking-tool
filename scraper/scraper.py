@@ -312,7 +312,14 @@ class LinkedInScraper:
             if self._page_not_found():
                 logger.warning(f"⚠️ PAGE NOT FOUND: {profile_url} — this profile may have been removed or the URL changed.")
                 return "PAGE_NOT_FOUND"
-            
+
+            # Capture canonical URL (LinkedIn may redirect vanity → generated or vice versa)
+            canonical_url = self.driver.current_url.split("?")[0].rstrip("/")
+            if canonical_url != profile_url.rstrip("/"):
+                logger.info(f"URL redirect: {profile_url} → {canonical_url}")
+                data["profile_url"] = canonical_url
+                data["_original_url"] = profile_url  # Keep original for history tracking
+
             # 1. Trigger Full Page Load (Aggressive Scroll)
             # This is critical for the Education section to appear in DOM
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight / 2);")

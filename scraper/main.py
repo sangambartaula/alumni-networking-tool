@@ -124,6 +124,38 @@ def wait_between_profiles():
         time.sleep(delay / 10)
 
 
+def _save_and_track(data, input_url, history_mgr):
+    """
+    Save profile to CSV, handling canonical URL dedup.
+    
+    If LinkedIn redirected input_url → canonical_url:
+      - Mark both URLs in history so neither is re-visited
+      - The CSV's drop_duplicates(subset=['linkedin_url'], keep='last')
+        naturally replaces any older entry with the same canonical URL
+    """
+    if not data or data == "PAGE_NOT_FOUND":
+        return False
+    
+    canonical_url = data.get("profile_url", input_url)
+    original_url = data.pop("_original_url", None)  # Remove internal key before save
+    
+    # Check if canonical URL was already saved in this session under a different input URL
+    if original_url and history_mgr.should_skip(canonical_url):
+        logger.info(f"Skipping duplicate (already saved via canonical URL): {canonical_url}")
+        # Still mark the input URL so we don't try it again
+        history_mgr.mark_as_visited(input_url, saved=True)
+        return False
+    
+    if database_handler.save_profile_to_csv(data):
+        # Mark canonical URL as visited
+        history_mgr.mark_as_visited(canonical_url, saved=True)
+        # Also mark the original input URL so it's not re-visited
+        if original_url and original_url.rstrip('/') != canonical_url.rstrip('/'):
+            history_mgr.mark_as_visited(original_url, saved=True)
+        return True
+    return False
+
+
 # ============================================================
 # MODES
 # ============================================================
@@ -172,8 +204,8 @@ def run_names_mode(scraper, nav, history_mgr):
                 logger.warning(f"  💀 Dead URL skipped: {url}")
                 continue
 
-            if data and database_handler.save_profile_to_csv(data):
-                history_mgr.mark_as_visited(url, saved=True)
+            if data and data != "PAGE_NOT_FOUND":
+                _save_and_track(data, url, history_mgr)
 
             if should_stop():
                 return
@@ -224,8 +256,8 @@ def run_search_mode(scraper, nav, history_mgr):
                 logger.warning(f"  💀 Dead URL skipped: {profile_url}")
                 continue
 
-            if data and database_handler.save_profile_to_csv(data):
-                history_mgr.mark_as_visited(profile_url, saved=True)
+            if data and data != "PAGE_NOT_FOUND":
+                _save_and_track(data, profile_url, history_mgr)
 
             if should_stop():
                 return
@@ -285,8 +317,8 @@ def run_review_mode(scraper, nav, history_mgr):
                 dead_urls.append(profile_url)
                 continue
             
-            if data and database_handler.save_profile_to_csv(data):
-                history_mgr.mark_as_visited(profile_url, saved=True)
+            if data and data != "PAGE_NOT_FOUND":
+                _save_and_track(data, profile_url, history_mgr)
                 logger.debug(f"Updated: {data.get('name', 'Unknown')}")
         except Exception as e:
             msg = str(e).lower()
@@ -302,8 +334,8 @@ def run_review_mode(scraper, nav, history_mgr):
                     data = scraper.scrape_profile_page(profile_url)
                     if data == "PAGE_NOT_FOUND":
                         dead_urls.append(profile_url)
-                    elif data and database_handler.save_profile_to_csv(data):
-                         history_mgr.mark_as_visited(profile_url, saved=True)
+                    elif data and data != "PAGE_NOT_FOUND":
+                        _save_and_track(data, profile_url, history_mgr)
                 except Exception as retry_e:
                      logger.error(f"❌ Retry failed: {retry_e}")
             else:
