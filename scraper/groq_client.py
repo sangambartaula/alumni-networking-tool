@@ -54,7 +54,7 @@ def _get_client():
     if _client is None and GROQ_AVAILABLE and GROQ_API_KEY:
         try:
             _client = Groq(api_key=GROQ_API_KEY)
-            logger.info(f"✓ Groq API initialized (model: {GROQ_MODEL})")
+            logger.debug(f"Groq API initialized (model: {GROQ_MODEL})")
         except Exception as e:
             logger.error(f"Failed to initialize Groq: {e}")
     return _client
@@ -83,7 +83,7 @@ def save_debug_html(content: str, profile_name: str, section: str = "experience"
         ext = ".html" if "<" in content else ".txt"
         debug_file = DEBUG_HTML_DIR / f"{safe_name}_{section}_{timestamp}{ext}"
         debug_file.write_text(content, encoding='utf-8')
-        logger.info(f"    📄 Saved debug {section} to: {debug_file.name}")
+        logger.debug(f"Saved debug {section} to: {debug_file.name}")
     except Exception as e:
         # Debug saving must never crash production
         logger.warning(f"    ⚠️ Failed to save debug {section}: {e}")

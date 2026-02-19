@@ -17,6 +17,43 @@ if BS4_AVAILABLE:
     from bs4 import BeautifulSoup
 
 
+def _degree_level_key(degree_str: str) -> str:
+    """
+    Reduce a degree string to a canonical level key for dedup comparison.
+    E.g., "Master of Science" → "masters", "MS" → "masters", "PhD" → "phd"
+    Returns empty string if no level can be determined.
+    """
+    d = degree_str.lower().strip()
+    if not d:
+        return ""
+    # PhD / Doctorate
+    if any(k in d for k in ["ph.d", "phd", "doctor", "doctorate"]):
+        return "phd"
+    # Masters
+    if any(k in d for k in ["master", "m.s.", "m.s", "ms,", "ms ", "m.a.", "m.a", "ma,", "ma ",
+                              "mba", "m.eng", "meng", "m.tech", "mtech", "m.ed"]):
+        return "masters"
+    if d in ("ms", "ma", "msc", "m.sc", "m.sc."):
+        return "masters"
+    # Bachelors
+    if any(k in d for k in ["bachelor", "b.s.", "b.s", "bs,", "bs ", "b.a.", "b.a", "ba,", "ba ",
+                              "b.e.", "b.e", "b.tech", "btech", "b.eng"]):
+        return "bachelors"
+    if d in ("bs", "ba", "bsc", "b.sc", "b.sc.", "be"):
+        return "bachelors"
+    # Associate
+    if "associate" in d:
+        return "associate"
+    return ""
+
+
+def _same_degree_level(deg1: str, deg2: str) -> bool:
+    """Check if two degree strings refer to the same degree level."""
+    k1 = _degree_level_key(deg1)
+    k2 = _degree_level_key(deg2)
+    return k1 != "" and k1 == k2
+
+
 def _education_html_to_structured_text(html: str, profile_name: str = "unknown", relaxed: bool = False) -> str:
     """
     Convert education section HTML into clean structured text for the LLM.
@@ -189,15 +226,15 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
         # Log result of retry
         if has_unt_raw:
             if any(k in structured_text.lower() for k in unt_keywords):
-                    logger.info("      ✓ Relaxed cleaning recovered UNT keywords.")
+                     logger.debug("Relaxed cleaning recovered UNT keywords.")
             else:
                     logger.warning("      ❌ Relaxed cleaning still missed UNT keywords (check debug HTML).")
         else:
-            logger.info("      ✓ Retried with relaxed cleaning.")
+            logger.debug("Retried with relaxed cleaning.")
 
     text_len = len(structured_text)
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
-    logger.info(f"    📉 Education HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
+    logger.debug(f"Education HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
 
     prompt = f"""Extract ALL education entries from this LinkedIn education data.
 
@@ -219,8 +256,10 @@ Rules:
 - If start_year or end_year are missing, set them to ""
 - DO NOT invent data — if something is not present in the text, leave it blank
 - IGNORE activity/society lists, grades, and descriptions
+- IMPORTANT: LinkedIn education entries are NEVER nested. Unlike jobs which can be grouped under a company, each education entry is independent with its own school name. Each entry = one school + one degree.
+- DO NOT extract degree information from descriptions or activity lines below the main entry. Only use the structured degree/major fields.
 - Each entry should represent ONE school attendance
-- If a single entry mentions a degree and then repeats it or a similar one in the description (e.g. "Masters in X" ... "MS in Y"), treat it as ONE degree. DO NOT split into two entries unless the dates are distinct.
+- If a single entry mentions a degree and then repeats it or a similar one in the description (e.g. "Masters in X" ... "MS in Y"), treat it as ONE degree. DO NOT split into two entries unless the SCHOOL NAME is different.
 - If duplicate information appears (e.g. parent item + child detail item), merge them into one entry.
 
 Return ONLY a JSON object with an "education" key:
@@ -252,6 +291,8 @@ Data:
         )
 
         result_text = response.choices[0].message.content.strip()
+        _tokens = getattr(response, 'usage', None)
+        edu_token_count = _tokens.total_tokens if _tokens else 0
 
         parsed = parse_groq_json_response(result_text)
         if parsed is None:
@@ -297,16 +338,26 @@ Data:
             degree_raw = _clean_doubled(degree_raw)
             major_raw = _clean_doubled(major_raw)
 
-            # Deduplicate: same school + same degree + same major
+            # Deduplicate: same school + same or equivalent degree level
             is_dup = False
             for existing in valid_entries:
-                if (existing["school"].lower() == school.lower()
-                        and existing["degree_raw"].lower() == degree_raw.lower()
+                if existing["school"].lower() != school.lower():
+                    continue
+                # Exact match
+                if (existing["degree_raw"].lower() == degree_raw.lower()
                         and existing["major_raw"].lower() == major_raw.lower()):
                     is_dup = True
                     break
+                # Degree-level match (e.g., "Master of Science" ≈ "MS" at same school)
+                if _same_degree_level(existing["degree_raw"], degree_raw):
+                    # Same school + same degree level → keep the one with more detail
+                    is_dup = True
+                    # If the new entry has a more specific major, update the existing one
+                    if major_raw and not existing["major_raw"]:
+                        existing["major_raw"] = major_raw
+                    break
             if is_dup:
-                logger.info(f"    🗑️ Skipping duplicate education: {school}")
+                logger.debug(f"Skipping duplicate education: {school} ({degree_raw})")
                 continue
 
             valid_entries.append({
@@ -318,12 +369,12 @@ Data:
             })
 
         if valid_entries:
-            logger.info(f"    ✓ Groq extracted {len(valid_entries)} education entry/entries")
+            logger.debug(f"Groq extracted {len(valid_entries)} education entry/entries")
             for i, e in enumerate(valid_entries):
-                logger.info(f"      Edu {i+1}: {e['school']} — {e['degree_raw']} / {e['major_raw']} ({e['start_date']}–{e['end_date']})")
+                logger.debug(f"  Edu {i+1}: {e['school']} — {e['degree_raw']} / {e['major_raw']} ({e['start_date']}–{e['end_date']})")
 
-        return valid_entries
+        return valid_entries, edu_token_count
 
     except Exception as e:
-        logger.error(f"⚠️ Groq education extraction failed: {e}")
-        return []
+        logger.error(f"Groq education extraction failed: {e}")
+        return [], 0

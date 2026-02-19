@@ -303,12 +303,15 @@ _DEGREE_GROUP_MAP = {
 # Keyword fallbacks for strings that don't match DEGREE_MAP exactly
 _GROUP_KEYWORDS = [
     # Order matters — check most specific first
-    (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
-    (re.compile(r'\b(master|m\.?s\.?|m\.?a\.?|m\.?eng|mba|m\.?b\.?a)\b', re.I), "Masters"),
-    (re.compile(r'\b(bachelor|b\.?s\.?|b\.?a\.?|b\.?eng|b\.?e\.?)\b', re.I), "Bachelors"),
-    (re.compile(r'\b(associate|a\.?s\.?|a\.?a\.?|aas)\b', re.I), "Associate"),
+    # IMPORTANT: high school / diploma MUST come before Masters,
+    # because "diploma" contains "ma" which can match m.a. regex
+    (re.compile(r'\b(high\s*school|diploma|ged)\b', re.I), "Other"),
     (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Other"),
-    (re.compile(r'\b(high\s*school|h\.?s\.?|diploma|ged)\b', re.I), "Other"),
+    (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
+    (re.compile(r'\b(master|m\.?s\.?c?|m\.?eng|mba|m\.?b\.?a)\b', re.I), "Masters"),
+    (re.compile(r'(?<![a-z])m\.?a\.?(?![a-z])', re.I), "Masters"),
+    (re.compile(r'\b(bachelor|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?)\b', re.I), "Bachelors"),
+    (re.compile(r'\b(associate|a\.?s\.?|a\.?a\.?|aas)\b', re.I), "Associate"),
 ]
 
 

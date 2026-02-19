@@ -559,9 +559,10 @@ def api_get_alumni():
                 cur.execute("""
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
-                           a.updated_at, njt.normalized_title
+                           a.updated_at, njt.normalized_title, nc.normalized_company
                     FROM alumni a
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
+                    LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
                     ORDER BY a.last_name ASC, a.first_name ASC
                     LIMIT %s OFFSET %s
                 """, (limit, offset))
@@ -600,7 +601,8 @@ def api_get_alumni():
                     "degree": degree_level,
                     "full_degree": full_degree,
                     "updated_at": r.get('updated_at'),
-                    "normalized_title": r.get('normalized_title')
+                    "normalized_title": r.get('normalized_title'),
+                    "normalized_company": r.get('normalized_company')
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200
@@ -1219,33 +1221,38 @@ def api_filter_alumni():
                 params = []
 
                 if location:
-                    where_clauses.append("location LIKE %s")
+                    where_clauses.append("a.location LIKE %s")
                     params.append(f"%{location}%")
                 if company:
-                    where_clauses.append("company LIKE %s")
+                    where_clauses.append("(a.company LIKE %s OR nc.normalized_company LIKE %s)")
+                    params.append(f"%{company}%")
                     params.append(f"%{company}%")
                 if job_title:
-                    where_clauses.append("current_job_title LIKE %s")
+                    where_clauses.append("(a.current_job_title LIKE %s OR njt.normalized_title LIKE %s)")
+                    params.append(f"%{job_title}%")
                     params.append(f"%{job_title}%")
                 if grad_year:
-                    where_clauses.append("grad_year = %s")
+                    where_clauses.append("a.grad_year = %s")
                     params.append(int(grad_year))
                 if degree_filter:
                     if degree_filter.lower() == 'undergraduate':
-                        where_clauses.append("(degree LIKE '%Bachelor%' OR degree LIKE '%B.S.%' OR degree LIKE '%B.A.%')")
+                        where_clauses.append("(a.degree LIKE '%Bachelor%' OR a.degree LIKE '%B.S.%' OR a.degree LIKE '%B.A.%')")
                     elif degree_filter.lower() == 'graduate':
-                        where_clauses.append("(degree LIKE '%Master%' OR degree LIKE '%M.S.%' OR degree LIKE '%MBA%')")
+                        where_clauses.append("(a.degree LIKE '%Master%' OR a.degree LIKE '%M.S.%' OR a.degree LIKE '%MBA%')")
                     elif degree_filter.lower() == 'phd':
-                        where_clauses.append("(degree LIKE '%Ph.D%' OR degree LIKE '%PhD%' OR degree LIKE '%Doctor%')")
+                        where_clauses.append("(a.degree LIKE '%Ph.D%' OR a.degree LIKE '%PhD%' OR a.degree LIKE '%Doctor%')")
 
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
                 query = f"""
-                    SELECT id, first_name, last_name, grad_year, degree, linkedin_url,
-                           current_job_title, company, location, headline
-                    FROM alumni
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.linkedin_url,
+                           a.current_job_title, a.company, a.location, a.headline,
+                           njt.normalized_title, nc.normalized_company
+                    FROM alumni a
+                    LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
+                    LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
                     WHERE {where_clause}
-                    ORDER BY last_name ASC, first_name ASC
+                    ORDER BY a.last_name ASC, a.first_name ASC
                 """
                 cur.execute(query, params)
                 rows = cur.fetchall()
@@ -1279,7 +1286,9 @@ def api_filter_alumni():
                         "location": r.get('location'),
                         "linkedin": r.get('linkedin_url'),
                         "degree": degree_level,
-                        "full_degree": full_degree
+                        "full_degree": full_degree,
+                        "normalized_title": r.get('normalized_title'),
+                        "normalized_company": r.get('normalized_company')
                     })
 
                 # Apply offset/limit after Python-side filtering
@@ -1314,13 +1323,14 @@ if __name__ == "__main__":
             app.logger.info("Continuing with direct database connection...")
 
     # Initialize database (but skip re-seeding if data exists)
-    from database import init_db, seed_alumni_data, ensure_normalized_job_title_column, ensure_normalized_degree_column
+    from database import init_db, seed_alumni_data, ensure_normalized_job_title_column, ensure_normalized_degree_column, ensure_normalized_company_column
     if not DISABLE_DB:
         try:
             init_db()
             # Ensure migration columns exist (safe to call repeatedly)
             ensure_normalized_job_title_column()
             ensure_normalized_degree_column()
+            ensure_normalized_company_column()
             seed_alumni_data()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")

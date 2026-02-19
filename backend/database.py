@@ -234,6 +234,17 @@ def init_db():
             """)
             logger.info("normalized_degrees table created/verified")
 
+            # Create normalized_companies lookup table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS normalized_companies (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    normalized_company VARCHAR(255) NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_normalized_company (normalized_company)
+                )
+            """)
+            logger.info("normalized_companies table created/verified")
+
             conn.commit()
             logger.info("All tables initialized successfully")
 
@@ -314,6 +325,38 @@ def ensure_normalized_degree_column():
             conn.commit()
     except Exception as e:
         logger.error(f"Error ensuring degree columns: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+def ensure_normalized_company_column():
+    """Ensure normalized_company_id column exists in alumni table."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni
+                    ADD COLUMN normalized_company_id INT DEFAULT NULL
+                """)
+                logger.info("Added normalized_company_id column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("normalized_company_id column already exists")
+                else:
+                    raise
+            except Exception as err:
+                if "duplicate column name" in str(err).lower():
+                    logger.info("normalized_company_id column already exists (SQLite)")
+                else:
+                    raise
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error ensuring normalized_company_id column: {e}")
     finally:
         if conn:
             try:
@@ -1039,9 +1082,18 @@ def seed_alumni_data():
                         if job_title:
                             try:
                                 from job_title_normalization import get_or_create_normalized_title
-                                norm_title_id = get_or_create_normalized_title(conn, job_title, use_groq=False)
+                                norm_title_id = get_or_create_normalized_title(conn, job_title, use_groq=True)
                             except Exception as norm_err:
-                                logger.debug(f"Normalization skipped for {first_name} {last_name}: {norm_err}")
+                                logger.debug(f"Job title normalization skipped for {first_name} {last_name}: {norm_err}")
+
+                        # Compute normalized company ID
+                        norm_company_id = None
+                        if company:
+                            try:
+                                from company_normalization import get_or_create_normalized_company
+                                norm_company_id = get_or_create_normalized_company(conn, company, use_groq=True)
+                            except Exception as norm_err:
+                                logger.debug(f"Company normalization skipped for {first_name} {last_name}: {norm_err}")
 
                         cur.execute("""
                             INSERT INTO alumni 
@@ -1051,14 +1103,14 @@ def seed_alumni_data():
                              school, school2, school3, degree2, degree3, major2, major3,
                              standardized_degree, standardized_degree2, standardized_degree3,
                              standardized_major, standardized_major2, standardized_major3,
-                             scraped_at, last_updated, normalized_job_title_id)
+                             scraped_at, last_updated, normalized_job_title_id, normalized_company_id)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s,
                                     %s, %s, %s,
-                                    %s, %s, %s)
+                                    %s, %s, %s, %s)
                             ON DUPLICATE KEY UPDATE
                                 first_name=VALUES(first_name),
                                 last_name=VALUES(last_name),
@@ -1093,7 +1145,8 @@ def seed_alumni_data():
                                 standardized_major2=VALUES(standardized_major2),
                                 standardized_major3=VALUES(standardized_major3),
                                 last_updated=VALUES(last_updated),
-                                normalized_job_title_id=VALUES(normalized_job_title_id)
+                                normalized_job_title_id=VALUES(normalized_job_title_id),
+                                normalized_company_id=VALUES(normalized_company_id)
                         """, (
                             first_name,
                             last_name,
@@ -1130,7 +1183,8 @@ def seed_alumni_data():
                             std_major3,
                             scraped_at,
                             scraped_at,
-                            norm_title_id
+                            norm_title_id,
+                            norm_company_id
                         ))
 
                         if cur.rowcount == 1:

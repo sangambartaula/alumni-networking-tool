@@ -17,11 +17,21 @@ import html
 # Local imports
 import utils
 import config
-from config import logger
+from config import logger, print_profile_summary
 from entity_classifier import classify_entity, is_location, is_university
 from groq_extractor_experience import extract_experiences_with_groq
 from groq_extractor_education import extract_education_with_groq
 from groq_client import is_groq_available, parse_groq_date, _clean_doubled
+
+# Backend normalization imports (for in-scraper display)
+try:
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..', 'backend'))
+    from job_title_normalization import normalize_title_deterministic
+    from company_normalization import normalize_company_deterministic
+    _NORM_AVAILABLE = True
+except ImportError:
+    _NORM_AVAILABLE = False
 
 
 def normalize_scraped_data(data):
@@ -155,7 +165,7 @@ class LinkedInScraper:
         """
         Updated to be faster and more reliable using window.scrollBy
         """
-        logger.info("Scrolling page...")
+        logger.debug("Scrolling page...")
         try:
             # Scroll down in chunks to trigger lazy loading
             # Reduced steps from 12 to 5 for speed
@@ -174,7 +184,7 @@ class LinkedInScraper:
             pass
 
     def extract_profile_urls_from_page(self):
-        logger.info("Extracting profile URLs...")
+        logger.debug("Extracting profile URLs...")
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
         profile_urls = set()
 
@@ -286,7 +296,7 @@ class LinkedInScraper:
         }
 
         try:
-            logger.info(f"  Opening profile: {profile_url}")
+            logger.debug(f"Opening profile: {profile_url}")
             self.driver.get(profile_url)
             self._force_focus()
             
@@ -315,7 +325,7 @@ class LinkedInScraper:
             # 2. Wait for Education specifically
             found_edu = self._wait_for_education_ready(timeout=10)
             if not found_edu:
-                logger.info("    ℹ️ Education section not detected quickly (might be missing or different layout).")
+                logger.debug("Education section not detected quickly (might be missing or different layout).")
 
             soup = BeautifulSoup(self.driver.execute_script("return document.body.innerHTML;"), "html.parser")
 
@@ -327,6 +337,7 @@ class LinkedInScraper:
 
             # 4. Experience - Get up to 3 entries
             all_experiences = self._extract_all_experiences(soup, max_entries=3, profile_name=name)
+            _total_tokens = getattr(self, '_last_exp_tokens', 0)  # From Groq experience extraction
             
             # Primary experience (most recent)
             if all_experiences:
@@ -361,9 +372,10 @@ class LinkedInScraper:
                 edu_root = self._find_section_root(soup, "Education")
                 if edu_root:
                     edu_html = str(edu_root)
-                    groq_results = extract_education_with_groq(edu_html, profile_name=data.get("name", "unknown"))
+                    groq_results, edu_tokens = extract_education_with_groq(edu_html, profile_name=data.get("name", "unknown"))
+                    _total_tokens += edu_tokens
                     if groq_results:
-                        logger.info(f"    ✓ Using Groq education results ({len(groq_results)} entries)")
+                        logger.debug(f"Using Groq education results ({len(groq_results)} entries)")
                         for ge in groq_results:
                             start_info = parse_groq_date(ge.get("start_date", ""))
                             end_info = parse_groq_date(ge.get("end_date", ""))
@@ -421,13 +433,13 @@ class LinkedInScraper:
                 if not is_overlap:
                     is_overlap = self._is_student_worker_at_school(all_experiences, data.get("school", ""))
                     if is_overlap:
-                        logger.info("      ✓ TA/RA heuristic: working while studying (student-worker at own school)")
+                        logger.debug("TA/RA heuristic: working while studying (student-worker at own school)")
 
                 data["working_while_studying"] = "yes" if is_overlap else "no"
             else:
                 # If we have NO education entries, or just no UNT, try expanding
                 if not edu_entries or "unt" not in str(edu_entries).lower():
-                    logger.info("    ❌ No UNT education found in main profile. Expanding...")
+                    logger.debug("No UNT education found in main profile. Expanding...")
                     expanded_edus, unt_details = self.scrape_all_education(profile_url)
                     
                     if expanded_edus:
@@ -457,7 +469,7 @@ class LinkedInScraper:
                                 school_name = unt_details.get("education", "")
                                 is_overlap = self._is_student_worker_at_school(all_experiences, school_name)
                                 if is_overlap:
-                                    logger.info("      ✓ TA/RA heuristic: working while studying (student-worker at own school)")
+                                    logger.debug("TA/RA heuristic: working while studying (student-worker at own school)")
 
                             data["working_while_studying"] = "yes" if is_overlap else "no"
                     else:
@@ -524,28 +536,28 @@ class LinkedInScraper:
             except Exception as norm_err:
                 logger.debug(f"    ⚠️ Education normalization/discipline failed: {norm_err}")
 
-            # --- Structured education logging ---
-            logger.info(f"    ✓ Scraped: {data.get('name', 'N/A')}")
-            logger.info(f"      Headline: {data.get('headline', 'N/A')[:60]}{'...' if len(data.get('headline', '')) > 60 else ''}")
-            logger.info(f"      Location: {data.get('location', 'N/A')}")
-            logger.info(f"      Company: {data.get('company', 'N/A')} | Job: {data.get('job_title', 'N/A')}")
-            if len(all_experiences) > 1:
-                logger.info(f"      ({len(all_experiences)} experiences captured)")
-            # Education detail log
-            for suffix in ("", "2", "3"):
-                sch = data.get(f"school{suffix}" if suffix else "school", "")
-                if not sch:
-                    continue
-                deg = data.get(f"degree{suffix}" if suffix else "degree", "")
-                maj = data.get(f"major{suffix}" if suffix else "major", "")
-                std_d = data.get(f"standardized_degree{suffix}" if suffix else "standardized_degree", "")
-                std_m = data.get(f"standardized_major{suffix}" if suffix else "standardized_major", "")
-                label = f"Edu{suffix or '1'}"
-                logger.info(f"      {label}: {sch} | {deg} / {maj}")
-                if std_d or std_m:
-                    logger.info(f"        → std: {std_d} / {std_m}")
-            logger.info(f"      Grad: {data.get('graduation_year', 'N/A')}")
-            logger.info(f"      Working While Studying: {data.get('working_while_studying', 'N/A')}")
+            # --- Add normalized experience titles/companies for display ---
+            if _NORM_AVAILABLE:
+                for idx, suffix in enumerate(["", "2", "3"], start=1):
+                    title_key = "job_title" if not suffix else f"exp{idx}_title"
+                    comp_key = "company" if not suffix else f"exp{idx}_company"
+                    raw_title = data.get(title_key, "")
+                    raw_comp = data.get(comp_key, "")
+                    if raw_title:
+                        data[f"normalized_job_title" if not suffix else f"normalized_exp{idx}_title"] = normalize_title_deterministic(raw_title)
+                    if raw_comp:
+                        data[f"normalized_company" if not suffix else f"normalized_exp{idx}_company"] = normalize_company_deterministic(raw_comp)
+
+            # --- Warnings for missing data ---
+            if not all_experiences:
+                logger.warning(f"No experience found for {data.get('name', 'Unknown')}")
+            if not edu_entries:
+                logger.warning(f"No education found for {data.get('name', 'Unknown')}")
+            if not data.get("graduation_year"):
+                logger.warning(f"No graduation year for {data.get('name', 'Unknown')}")
+
+            # --- Clean summary block ---
+            print_profile_summary(data, token_count=_total_tokens, status="Saved")
 
             # Normalize all fields before returning
             return normalize_scraped_data(data)
@@ -695,7 +707,8 @@ class LinkedInScraper:
         """
         exp_root = self._find_section_root(soup, "Experience")
         if not exp_root: 
-            logger.info("    ℹ️ No Experience section found")
+            logger.debug("No Experience section found")
+            self._last_exp_tokens = 0
             return []
 
         parsed = []
@@ -710,7 +723,8 @@ class LinkedInScraper:
                 experience_html = str(exp_root)
                 
                 # Call Groq to extract jobs
-                groq_jobs = extract_experiences_with_groq(experience_html, max_jobs=max_entries, profile_name=profile_name)
+                groq_jobs, exp_tokens = extract_experiences_with_groq(experience_html, max_jobs=max_entries, profile_name=profile_name)
+                self._last_exp_tokens = exp_tokens
                 
                 if groq_jobs:
                     for job in groq_jobs:
@@ -732,7 +746,7 @@ class LinkedInScraper:
                                 seen_entries.add(u_key)
                     
                     if parsed:
-                        logger.info(f"    ✓ Groq extracted {len(parsed)} experience(s)")
+                        logger.debug(f"Groq extracted {len(parsed)} experience(s)")
                         return parsed[:max_entries]
                         
             except Exception as e:
@@ -793,9 +807,9 @@ class LinkedInScraper:
                 if u_key not in seen_entries:
                     # Log partial extractions for debugging
                     if title and not company:
-                        logger.info(f"    ⚠️ Found job title '{title}' but no company detected")
+                        logger.debug(f"Found job title '{title}' but no company detected")
                     elif company and not title:
-                        logger.info(f"    ⚠️ Found company '{company}' but no job title detected")
+                        logger.debug(f"Found company '{company}' but no job title detected")
                     
                     parsed.append({
                         "title": title or "",
@@ -809,7 +823,7 @@ class LinkedInScraper:
         # APPROACH 2: Fallback to text-based extraction if Approach 1 failed
         # ============================================================
         if not parsed:
-            logger.info("    ℹ️ Direct CSS extraction found nothing, trying text-based fallback...")
+            logger.debug("Direct CSS extraction found nothing, trying text-based fallback...")
             parsed = self._extract_experiences_text_based(exp_root, max_entries, seen_entries)
         
         # Sort by end date descending (most recent first)
@@ -825,7 +839,7 @@ class LinkedInScraper:
         
         # Log summary
         if parsed:
-            logger.info(f"    ✓ Extracted {len(parsed)} experience(s)")
+            logger.debug(f"Extracted {len(parsed)} experience(s) via CSS fallback")
         
         return parsed[:max_entries]
     
@@ -1211,10 +1225,10 @@ class LinkedInScraper:
                     break
             
             if not link:
-                logger.info("    ℹ️ No 'Show all education' link found.")
+                logger.debug("No 'Show all education' link found.")
                 return [], None
 
-            logger.info("    Found 'Show all education' link. Clicking...")
+            logger.debug("Found 'Show all education' link. Clicking...")
             if not link.startswith("http"): link = "https://www.linkedin.com" + link
             self.driver.get(link)
             time.sleep(3)
@@ -1239,7 +1253,7 @@ class LinkedInScraper:
 
                 all_edus.append(school)
                 debug_count += 1
-                logger.info(f"      Found: {school} | {degree}")
+                logger.debug(f"Found: {school} | {degree}")
                 
                 # Capture UNT details if found
                 if unt_details is None and any(k in school.lower() for k in utils.UNT_KEYWORDS):

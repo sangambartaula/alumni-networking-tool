@@ -114,3 +114,6 @@ out/
 # Editor temp files
 *.orig
 *~
+
+*.csv
+*.txt

@@ -116,7 +116,7 @@ def check_force_exit():
 # ============================================================
 def wait_between_profiles():
     delay = random.uniform(config.MIN_DELAY, config.MAX_DELAY)
-    logger.info(f"\n⏳ Waiting {delay:.1f}s before next profile...\n")
+    logger.info(f"Next profile in {delay:.0f}s")
 
     for _ in range(10):
         if force_exit:
@@ -274,7 +274,7 @@ def run_review_mode(scraper, nav, history_mgr):
         if check_force_exit():
             break
         
-        logger.info(f"  🔄 Re-scraping: {profile_url}")
+        logger.debug(f"Re-scraping: {profile_url}")
         
         try:
             # Scrape the profile (bypassing history check since we're re-reviewing)
@@ -287,7 +287,7 @@ def run_review_mode(scraper, nav, history_mgr):
             
             if data and database_handler.save_profile_to_csv(data):
                 history_mgr.mark_as_visited(profile_url, saved=True)
-                logger.info(f"  ✓ Updated: {data.get('name', 'Unknown')}")
+                logger.debug(f"Updated: {data.get('name', 'Unknown')}")
         except Exception as e:
             msg = str(e).lower()
             if "invalid session id" in msg or "no such window" in msg or "target window already closed" in msg:

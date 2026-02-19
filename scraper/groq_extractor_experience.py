@@ -182,7 +182,7 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
     original_len = len(experience_html)
     text_len = len(structured_text)
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
-    logger.info(f"    📉 HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
+    logger.debug(f"Experience HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
     
     # Ask Groq for extra jobs to buffer against duplicates being filtered out
     groq_max = max_jobs + 2
@@ -241,6 +241,8 @@ Data:
         )
         
         result_text = response.choices[0].message.content.strip()
+        _tokens = getattr(response, 'usage', None)
+        token_count = _tokens.total_tokens if _tokens else 0
         
         # Parse JSON response
         parsed = parse_groq_json_response(result_text)
@@ -258,7 +260,7 @@ Data:
             if jobs is None:
                 # Groq returned a single job object instead of an array — wrap it
                 if parsed.get("job_title") or parsed.get("company"):
-                    logger.info("ℹ️ Groq returned single job object, wrapping in array")
+                    logger.debug("Groq returned single job object, wrapping in array")
                     jobs = [parsed]
                 else:
                     logger.warning("⚠️ Groq returned JSON object with no job data")
@@ -288,17 +290,17 @@ Data:
             
             # Filter out skill lines
             if skill_pattern.search(title) or ("skills" in title.lower() and "+" in title):
-                logger.info(f"    🗑️ Skipping skill line: {title}")
+                logger.debug(f"Skipping skill line: {title}")
                 continue
             
             # Filter out standalone employment types as titles
             if type_pattern.match(title):
-                logger.info(f"    🗑️ Skipping employment type title: {title}")
+                logger.debug(f"Skipping employment type title: {title}")
                 continue
             
             # Filter out hallucinated role names
             if hallucinated_pattern.match(title):
-                logger.info(f"    🗑️ Skipping hallucinated role name: {title} @ {company}")
+                logger.debug(f"Skipping hallucinated role name: {title} @ {company}")
                 continue
 
             # Clean up doubled text (e.g. "EngineerEngineer" -> "Engineer")
@@ -331,7 +333,7 @@ Data:
                 
                 # Only duplicate if same company + same title + same dates
                 if same_title and same_dates:
-                    logger.info(f"    🗑️ Skipping duplicate job: {title} @ {company}")
+                    logger.debug(f"Skipping duplicate job: {title} @ {company}")
                     is_duplicate = True
                     break
                     
@@ -352,15 +354,15 @@ Data:
         valid_jobs = valid_jobs[:max_jobs]
 
         if valid_jobs:
-            logger.info(f"    ✓ Groq extracted {len(valid_jobs)} job(s)")
+            logger.debug(f"Groq extracted {len(valid_jobs)} job(s)")
             for i, job in enumerate(valid_jobs):
-                logger.info(f"      Job {i+1}: {job['job_title']} @ {job['company']} ({job['start_date']} - {job['end_date']})")
+                logger.debug(f"  Job {i+1}: {job['job_title']} @ {job['company']} ({job['start_date']} - {job['end_date']})")
         
-        return valid_jobs
+        return valid_jobs, token_count
         
     except Exception as e:
-        logger.error(f"⚠️ Groq extraction failed: {e}")
-        return []
+        logger.error(f"Groq extraction failed: {e}")
+        return [], 0
 
 
 def _job_sort_key(job):
