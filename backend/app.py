@@ -573,12 +573,8 @@ def api_get_alumni():
                 full_degree = r.get('degree') or ''
                 degree_level = classify_degree(full_degree, r.get('headline', ''))
 
-                # Compute engineering discipline on-the-fly (not from DB)
-                discipline = infer_discipline(
-                    r.get('degree', ''),
-                    r.get('current_job_title', ''),
-                    r.get('headline', '')
-                )
+                # Read discipline from DB — set at scrape time by Groq, not computed here
+                discipline = r.get('major') or 'Other'
                 
                 alumni.append({
                     "id": r.get('id'),
@@ -1262,12 +1258,8 @@ def api_filter_alumni():
                     full_degree = r.get('degree') or ''
                     degree_level = classify_degree(full_degree, r.get('headline', ''))
 
-                    # Compute discipline on-the-fly
-                    discipline = infer_discipline(
-                        r.get('degree', ''),
-                        r.get('current_job_title', ''),
-                        r.get('headline', '')
-                    )
+                    # Read discipline from DB — set at scrape time by Groq
+                    discipline = r.get('major') or 'Other'
 
                     # Apply discipline filter in Python (not SQL)
                     if major and discipline != major:

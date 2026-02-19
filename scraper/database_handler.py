@@ -348,6 +348,8 @@ def save_profile_to_csv(profile_data):
             'standardized_major2': profile_data.get('standardized_major2', ''),
             'standardized_degree3': profile_data.get('standardized_degree3', ''),
             'standardized_major3': profile_data.get('standardized_major3', ''),
+            # Discipline — set at scrape time by Groq, persisted here
+            'discipline': profile_data.get('discipline', ''),
             # Other fields
             'location': profile_data.get('location'),
             'working_while_studying': profile_data.get('working_while_studying'),

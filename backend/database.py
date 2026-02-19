@@ -998,8 +998,12 @@ def seed_alumni_data():
                     major2 = str(row.get('major2', '')).strip() if pd.notna(row.get('major2')) else None
                     major3 = str(row.get('major3', '')).strip() if pd.notna(row.get('major3')) else None
 
-                    # Auto-infer discipline if major is not set in CSV
-                    if not major:
+                    # Use discipline already computed by Groq at scrape time.
+                    # Only fall back to keyword-only infer_discipline for legacy CSV rows missing it.
+                    saved_discipline = str(row.get('discipline', '')).strip() if pd.notna(row.get('discipline')) else ''
+                    if saved_discipline:
+                        major = saved_discipline
+                    elif not major:
                         major = infer_discipline(degree, job_title, headline)
                     
                     # grad_year (new) vs graduation_year (old)

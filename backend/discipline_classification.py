@@ -136,14 +136,14 @@ def infer_discipline(degree: str, job_title: str, headline: str, use_llm: bool =
     if use_llm:
         return _infer_discipline_with_llm(degree, job_title, headline)
 
-    return "Unknown"
+    return "Other"
 
 def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> str:
     """Fallback: use Groq LLM to classify discipline."""
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         print("⚠️ GROQ_API_KEY not set, skipping LLM discipline inference")
-        return "Unknown"
+        return "Other"
 
     try:
         from groq import Groq
@@ -158,7 +158,7 @@ def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> st
         - Degree: {degree}
         - Headline: {headline}
         
-        Return JSON: {{ "discipline": "Exact Name From List" }} or {{ "discipline": "Unknown" }}
+        Return JSON: {{ "discipline": "Exact Name From List" }} or {{ "discipline": "Other" }} if none of the disciplines apply.
         """
         
         completion = client.chat.completions.create(
@@ -172,12 +172,14 @@ def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> st
         )
         
         result = json.loads(completion.choices[0].message.content)
-        discipline = result.get("discipline", "Unknown")
+        discipline = result.get("discipline", "Other")
         
         if discipline in APPROVED_ENGINEERING_DISCIPLINES:
             return discipline
-            
+        # Groq returned something off-list — treat as Other
+        return "Other"
+
     except Exception as e:
         print(f"⚠️ LLM discipline inference failed: {e}")
-        
-    return "Unknown"
+
+    return "Other"
