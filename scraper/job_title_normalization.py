@@ -38,12 +38,12 @@ TITLE_MAP = {
     "software engineer": "Software Engineer",
     "software engineer ii": "Software Engineer",
     "software engineer iii": "Software Engineer",
-    "software engineer intern": "Software Engineer Intern",
-    "software engineering intern": "Software Engineer Intern",
-    "software developer intern": "Software Engineer Intern",
-    "software developer summer analyst": "Software Engineer Intern",
-    "software intern": "Software Engineer Intern",
-    "software development intern": "Software Engineer Intern",
+    "software engineer intern": "Software Engineer",
+    "software engineering intern": "Software Engineer",
+    "software developer intern": "Software Engineer",
+    "software developer summer analyst": "Software Engineer",
+    "software intern": "Software Engineer",
+    "software development intern": "Software Engineer",
     "software development engineer 1": "Software Engineer",
     "software developer(ta)": "Software Engineer",
     "software application developer": "Software Engineer",
@@ -51,24 +51,24 @@ TITLE_MAP = {
     "associate software engineer": "Software Engineer",
     "associate software": "Software Engineer",
     "software systems engineer": "Systems Engineer",
-    "sr. software engineer": "Senior Software Engineer",
-    "sr software engineer": "Senior Software Engineer",
-    "senior software engineer": "Senior Software Engineer",
-    "senior software developer": "Senior Software Engineer",
-    "sr. software developer": "Senior Software Engineer",
-    "sr software developer": "Senior Software Engineer",
-    "junior software engineer": "Junior Software Engineer",
-    "jr. software engineer": "Junior Software Engineer",
-    "jr software engineer": "Junior Software Engineer",
-    "junior software developer": "Junior Software Engineer",
-    "jr. software developer": "Junior Software Engineer",
-    "lead software engineer": "Lead Software Engineer",
-    "lead front end software engineer": "Lead Software Engineer",
-    "vice president lead software engineer": "Lead Software Engineer",
-    "principal software engineer": "Principal Software Engineer",
-    "staff software engineer": "Staff Software Engineer",
+    "sr. software engineer": "Software Engineer",
+    "sr software engineer": "Software Engineer",
+    "senior software engineer": "Software Engineer",
+    "senior software developer": "Software Engineer",
+    "sr. software developer": "Software Engineer",
+    "sr software developer": "Software Engineer",
+    "junior software engineer": "Software Engineer",
+    "jr. software engineer": "Software Engineer",
+    "jr software engineer": "Software Engineer",
+    "junior software developer": "Software Engineer",
+    "jr. software developer": "Software Engineer",
+    "lead software engineer": "Software Engineer",
+    "lead front end software engineer": "Software Engineer",
+    "vice president lead software engineer": "Software Engineer",
+    "principal software engineer": "Software Engineer",
+    "staff software engineer": "Software Engineer",
     "sr. director of software engineering": "Director of Engineering",
-    "vp of software engineering": "VP of Engineering",
+    "vp of software engineering": "Engineering",
     "developer": "Software Engineer",
     "application developer": "Software Engineer",
     "application development analyst": "Software Engineer",
@@ -89,8 +89,8 @@ TITLE_MAP = {
     "full stack .net developer": "Full Stack Engineer",
     "java full stack developer": "Full Stack Engineer",
     "java fullstack developer": "Full Stack Engineer",
-    "sr. full stack java developer": "Senior Full Stack Engineer",
-    "sr .net developer": "Senior Full Stack Engineer",
+    "sr. full stack java developer": "Full Stack Engineer",
+    "sr .net developer": "Full Stack Engineer",
 
     # ── Frontend / Backend / Web ──
     "frontend developer": "Frontend Engineer",
@@ -124,10 +124,10 @@ TITLE_MAP = {
     "software engineer - machine learning": "AI/ML Engineer",
     "data & ai engineer": "Data Engineer",
     "data scientist": "Data Scientist",
-    "sr. data scientist": "Senior Data Scientist",
-    "sr data scientist": "Senior Data Scientist",
-    "senior data scientist": "Senior Data Scientist",
-    "senior data science consultant": "Senior Data Scientist",
+    "sr. data scientist": "Data Scientist",
+    "sr data scientist": "Data Scientist",
+    "senior data scientist": "Data Scientist",
+    "senior data science consultant": "Data Scientist",
     "data analyst": "Data Analyst",
     "data engineer": "Data Engineer",
     "cloud data engineer": "Data Engineer",
@@ -151,7 +151,7 @@ TITLE_MAP = {
     "site reliability engineer": "Site Reliability Engineer",
     "sre": "Site Reliability Engineer",
     "cloud engineer": "Cloud Engineer",
-    "aws cloud practitioner- internship": "Cloud Engineer Intern",
+    "aws cloud practitioner- internship": "Cloud Engineer",
     "amazon web services (aws)": "Cloud Engineer",
     "cloud architect": "Cloud Architect",
     "solutions architect": "Solutions Architect",
@@ -176,7 +176,7 @@ TITLE_MAP = {
     "cybersecurity analyst (graduate assistant)": "Cybersecurity Analyst",
     "security engineer": "Security Engineer",
     "cybersecurity engineer": "Security Engineer",
-    "sr. cyber security engineer": "Senior Security Engineer",
+    "sr. cyber security engineer": "Security Engineer",
     "security analyst": "Security Analyst",
 
     # ── QA & Testing ──
@@ -199,10 +199,10 @@ TITLE_MAP = {
     "associate engineer": "Engineer",
     "mechanical engineer": "Mechanical Engineer",
     "mechanical design engineer": "Mechanical Engineer",
-    "mechanical engineering intern": "Mechanical Engineer Intern",
+    "mechanical engineering intern": "Mechanical Engineer",
     "development engineer - mechanical": "Mechanical Engineer",
     "civil engineer": "Civil Engineer",
-    "civil enginnering co-op/intern": "Civil Engineering Intern",
+    "civil enginnering co-op/intern": "Civil Engineering",
     "structural engineer": "Structural Engineer",
     "piping engineer": "Piping Engineer",
     "process engineer": "Process Engineer",
@@ -213,8 +213,8 @@ TITLE_MAP = {
     "feo project engineer": "Project Engineer",
     "project engineer": "Project Engineer",
     "engineering technician": "Engineering Technician",
-    "senior technical engineer": "Senior Engineer",
-    "senior materials engineer": "Senior Engineer",
+    "senior technical engineer": "Engineer",
+    "senior materials engineer": "Engineer",
     "automation engineering lead": "Automation Engineer",
 
     # ── Management & Leadership ──
@@ -225,23 +225,23 @@ TITLE_MAP = {
     "team lead": "Team Lead",
     "project manager": "Project Manager",
     "project manager 2": "Project Manager",
-    "senior project manager": "Senior Project Manager",
+    "senior project manager": "Project Manager",
     "commercial construction project manager": "Project Manager",
     "assistant project manager": "Project Manager",
     "project management coordinator": "Project Manager",
-    "project management intern": "Project Manager Intern",
+    "project management intern": "Project Manager",
     "program manager": "Program Manager",
     "product manager": "Product Manager",
     "scrum master": "Scrum Master",
-    "vp of engineering": "VP of Engineering",
-    "vice president of engineering": "VP of Engineering",
-    "cto": "Chief Technology Officer",
-    "chief technology officer": "Chief Technology Officer",
-    "coo": "Chief Operations Officer",
-    "chief operations officer": "Chief Operations Officer",
+    "vp of engineering": "Engineering",
+    "vice president of engineering": "Engineering",
+    "cto": "Technology Officer",
+    "chief technology officer": "Technology Officer",
+    "coo": "Operations Officer",
+    "chief operations officer": "Operations Officer",
     "director of engineering": "Director of Engineering",
     "manager": "Manager",
-    "senior manager": "Senior Manager",
+    "senior manager": "Manager",
     "regional manager": "Manager",
     "senior manager of field marketing": "Marketing Manager",
     "senior marketing manager": "Marketing Manager",
@@ -250,7 +250,7 @@ TITLE_MAP = {
     "production manager": "Operations Manager",
     "supply chain manager": "Operations Manager",
     "procurement manager": "Operations Manager",
-    "executive vice president of operations": "VP of Operations",
+    "executive vice president of operations": "Operations",
     "director of southwest region": "Director",
     "director of strategic initiatives": "Director",
     "senior director, assurance & enterprise risk management": "Director",
@@ -258,7 +258,7 @@ TITLE_MAP = {
     "founder and director": "Director",
     "co-owner & operations head": "Director",
     "owner": "Director",
-    "vp of sales": "VP of Sales",
+    "vp of sales": "Sales",
 
     # ── Consulting & IT ──
     "consultant": "Consultant",
@@ -270,13 +270,13 @@ TITLE_MAP = {
     "social media marketing consultant": "Marketing Consultant",
     "technical architect": "Solutions Architect",
     "technology analyst": "IT Analyst",
-    "technology summer analyst": "IT Analyst Intern",
+    "technology summer analyst": "IT Analyst",
     "senior analyst": "Analyst",
     "it systems analyst": "IT Analyst",
     "computing supervisor": "IT Support",
     "it support agent": "IT Support",
     "information technology support engineer": "IT Support",
-    "information technology intern": "IT Intern",
+    "information technology intern": "IT",
     "it specialist": "IT Specialist",
     "it support specialist": "IT Support",
     "technical support engineer": "IT Support",
@@ -338,17 +338,17 @@ TITLE_MAP = {
     "summer internship": "Intern",
     "development intern": "Intern",
     "trainee": "Intern",
-    "data science intern": "Data Science Intern",
-    "data analyst intern": "Data Analyst Intern",
-    "data engineer intern": "Data Engineer Intern",
-    "engineering intern": "Engineering Intern",
-    "it intern": "IT Intern",
-    "web development intern": "Web Developer Intern",
-    "web developer intern": "Web Developer Intern",
-    "graphic design intern": "Design Intern",
-    "architectural intern": "Architecture Intern",
-    "administrative assistant intern": "Administrative Intern",
-    "sales and marketing intern": "Marketing Intern",
+    "data science intern": "Data Science",
+    "data analyst intern": "Data Analyst",
+    "data engineer intern": "Data Engineer",
+    "engineering intern": "Engineering",
+    "it intern": "IT",
+    "web development intern": "Web Developer",
+    "web developer intern": "Web Developer",
+    "graphic design intern": "Design",
+    "architectural intern": "Architecture",
+    "administrative assistant intern": "Administrative",
+    "sales and marketing intern": "Marketing",
 
     # ── Design & Creative ──
     "ux designer": "UX Designer",
@@ -411,7 +411,11 @@ _LEVEL_SUFFIXES = re.compile(
 )
 _PAREN_QUALIFIER = re.compile(r'\s*\(.*?\)\s*$')
 _SENIORITY_PREFIX = re.compile(
-    r'^(?:senior|sr\.?|junior|jr\.?|lead|staff|principal|chief|associate|vice president|vp of)\s+',
+    r'^(?:senior|sr\.?|junior|jr\.?|lead|staff|principal|chief|associate|vice president|vp of|vp)\s+',
+    re.IGNORECASE,
+)
+_SENIORITY_SUFFIX = re.compile(
+    r'\s+(?:intern|trainee)$',
     re.IGNORECASE,
 )
 
@@ -468,8 +472,21 @@ def normalize_title_deterministic(raw_title: str) -> str:
     if stripped != key and stripped in TITLE_MAP:
         return TITLE_MAP[stripped]
 
-    # No match — return cleaned title as its own category
-    return cleaned
+    # Pass 5: strip seniority (Senior, Intern, etc) on top of suffixes and parens
+    stripped_all = _SENIORITY_PREFIX.sub('', _PAREN_QUALIFIER.sub('', _LEVEL_SUFFIXES.sub('', key)))
+    stripped_all = _SENIORITY_SUFFIX.sub('', stripped_all).strip()
+    if stripped_all != key and stripped_all in TITLE_MAP:
+        return TITLE_MAP[stripped_all]
+
+    # No match — return cleaned title as its own category, but with seniority stripped
+    final_clean = _SENIORITY_PREFIX.sub('', cleaned)
+    final_clean = _SENIORITY_SUFFIX.sub('', final_clean).strip()
+    
+    if final_clean:
+        # Title-case roughly to fix lowercase first letter if prefix was removed
+        final_clean = final_clean[0].upper() + final_clean[1:]
+        
+    return final_clean or cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +545,7 @@ Given a raw job title and a list of existing normalized titles, do ONE of:
 2. If no match exists, return a NEW concise standardized title.
 
 Rules:
-- Preserve seniority levels (Senior, Junior, Lead, Staff, Principal).
+- REMOVE all seniority titles, modifiers, and levels (e.g., Lead, Senior, Junior, Intern, Staff, Principal, Associate, VP, Chief). Return the base job function only (e.g., 'Software Engineer' instead of 'Senior Software Engineer Intern').
 - Use common industry terminology (e.g. "Software Engineer" not "Software Developer").
 - Keep it concise: 1-4 words max.
 - Return ONLY the normalized title string. No explanation.
@@ -545,10 +562,10 @@ Normalized title:"""
             model=GROQ_MODEL,
             messages=[
                 {
-                    "role": "system",
+                    "role": "System",
                     "content": "You output exactly one job title string. No explanation, no quotes, no punctuation."
                 },
-                {"role": "user", "content": prompt}
+                {"role": "User", "content": prompt}
             ],
             temperature=0,
             max_tokens=50

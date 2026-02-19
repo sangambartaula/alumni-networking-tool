@@ -1,10 +1,10 @@
-
 import re
 import os
 import json
 from typing import Optional, List, Tuple
 
 # Approved engineering disciplines (only these will appear in the filter)
+# Rule 2: "Other" is now included in the approved disciplines.
 APPROVED_ENGINEERING_DISCIPLINES = [
     'Software, Data & AI Engineering',
     'Embedded, Electrical & Hardware Engineering',
@@ -12,12 +12,24 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Biomedical Engineering',
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
+    'Other'
 ]
 
 # =============================================================================
 # DISCIPLINE CLASSIFICATION RULES
-# Ordered list: first match wins.  Priority per alumni: job_title > degree > headline
+# Evaluated strictly for fallback keyword match: first match wins.
+# Priority: Degree > Job Title > Headline (Wait: explicit check for non-engineering degrees first!)
 # =============================================================================
+
+# Keywords that heavily indicate a non-engineering degree ("Other")
+NON_ENGINEERING_DEGREE_KEYWORDS = [
+    "business", "arts", "fine arts", "history", "marketing", "sales", 
+    "finance", "accounting", "nursing", "english", "literature", "music", 
+    "theatre", "education", "sociology", "psychology", "political science", 
+    "law", "communications", "journalism", "kinesiology", "biology", 
+    "chemistry", "physics" # Unless explicitly tied to bio-engineering or chemical engineering
+]
+
 DISCIPLINES = [
     # 1. SOFTWARE, DATA & AI ENGINEERING
     ("Software, Data & AI Engineering", [
@@ -31,7 +43,7 @@ DISCIPLINES = [
         "c++", "go", "rust", "data engineer", "data scientist", "data science",
         "machine learning", "ml", "artificial intelligence", "ai",
         "deep learning", "cyber", "cybersecurity", "information technology",
-        "it", "infosec", "appsec", "security engineer",
+        "it", "infosec", "appsec", "security engineer", "computer applications"
     ]),
     # 2. EMBEDDED, ELECTRICAL & HARDWARE ENGINEERING
     ("Embedded, Electrical & Hardware Engineering", [
@@ -96,26 +108,105 @@ DISCIPLINES = [
     ]),
 ]
 
-def infer_discipline(degree: str, job_title: str, headline: str, use_llm: bool = False) -> str:
+
+def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> str:
+    """
+    Rule 3 & 4: Uses Groq LLM to classify discipline FIRST, prioritizing degree context.
+    Rule 6: Restricts output safely exclusively to JSON format string value.
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        print("⚠️ GROQ_API_KEY not set, skipping LLM discipline inference")
+        return ""
+
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+
+        prompt = f"""
+        Classify this alumni into ONE of these EXACT engineering disciplines:
+        {json.dumps(APPROVED_ENGINEERING_DISCIPLINES, indent=2)}
+        
+        CRITICAL RULES:
+        1. "Degree-first priority": ALWAYS check the degree first. 
+        2. Any degree outside these designated engineering fields (e.g., Business, Arts, Sales, Marketing, History, English, Political Science) AUTOMATICALLY maps to "Other" WITHOUT relying on their job title or headline. 
+        3. Do not falsely classify someone sharing generalized titles (e.g. Someone selling "Software" in headline should be "Other" if their degree is Business).
+        
+        Alumni Data:
+        - Degree: {degree}
+        - Job Title: {job_title}
+        - Headline: {headline}
+        
+        Return JSON: {{ "discipline": "<Exact Name From List>" }}. No explanations. Never return free text!
+        """
+        
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are an automated engineering degree classifier. You must output strictly valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_tokens=64
+        )
+        
+        # Rule 6: Parse the JSON object properly
+        result = json.loads(completion.choices[0].message.content)
+        discipline = result.get("discipline", "Other")
+        
+        # Rule 3 & 4: Output strictly in approved array, else Other.
+        if discipline in APPROVED_ENGINEERING_DISCIPLINES:
+            return discipline
+        return "Other"
+
+    except Exception as e:
+        print(f"⚠️ LLM discipline inference failed: {e}")
+
+    # Explicit failure indicator so keyword fallback knows to run
+    return ""
+
+
+def infer_discipline(degree: str, job_title: str, headline: str, use_llm: bool = True) -> str:
     """
     Infer engineering discipline from degree, job title, and headline.
-    Priority: Job Title > Degree > Headline
     
-    Args:
-        degree: The academic degree/major
-        job_title: Current job title
-        headline: LinkedIn headline
-        use_llm: If True, use Groq API as fallback when keywords fail (slower)
-        
-    Returns:
-        The best matching discipline or "Unknown" if no match.
+    Rule 1: Priority -> Degree > Job Title > Headline. (Checked in sequence).
+    Rule 3: LLM goes first.
+    Rule 5: Fallback regex keyword match.
     """
-    sources = [job_title, degree, headline]
+    # 1. Use the LLM (Groq API) as the first classification step
+    if use_llm:
+        llm_result = _infer_discipline_with_llm(degree, job_title, headline)
+        if llm_result:
+            return llm_result
+    
+    # 2. Keyword fallback - execute only if LLM was disabled or errored
+    degree_lower = degree.lower() if degree else ""
+    job_title_lower = job_title.lower() if job_title else ""
+    headline_lower = headline.lower() if headline else ""
 
-    for text in sources:
-        if not text:
+    # Rule 1 & Rule 2 explicit enforcement for regex:
+    # If degree has obvious non-engineering terms, kill script and map to "Other".
+    if degree_lower:
+        for non_eng_kw in NON_ENGINEERING_DEGREE_KEYWORDS:
+            if re.search(r'\b' + re.escape(non_eng_kw) + r'\b', degree_lower):
+                # We specifically look out for "Bio" in biology though. So simple guard. 
+                if non_eng_kw == "biology" and ("computational biology" in degree_lower or "bioinformatics" in degree_lower):
+                    continue
+                    
+                return "Other"
+
+    # Enforce priority sequence: Degree -> Job -> Headline
+    sources = [
+        degree_lower,
+        job_title_lower,
+        headline_lower
+    ]
+
+    for text_lower in sources:
+        if not text_lower:
             continue
-        text_lower = text.lower()
 
         matches = []  # (keyword_length, category_index, discipline_name)
         for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
@@ -128,58 +219,10 @@ def infer_discipline(degree: str, job_title: str, headline: str, use_llm: bool =
                         matches.append((len(keyword), cat_index, discipline_name))
 
         if matches:
-            # Longest keyword first, then by category order (lower = higher priority)
+            # Longest keyword matched first, then category ordering (lower = higher priority)
             matches.sort(key=lambda x: (-x[0], x[1]))
+            # Return strict approved match
             return matches[0][2]
 
-    # Keyword matching failed
-    if use_llm:
-        return _infer_discipline_with_llm(degree, job_title, headline)
-
-    return "Other"
-
-def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> str:
-    """Fallback: use Groq LLM to classify discipline."""
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        print("⚠️ GROQ_API_KEY not set, skipping LLM discipline inference")
-        return "Other"
-
-    try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        
-        prompt = f"""
-        Classify this alumni into ONE of these engineering disciplines:
-        {json.dumps(APPROVED_ENGINEERING_DISCIPLINES, indent=2)}
-        
-        Alumni Data:
-        - Job Title: {job_title}
-        - Degree: {degree}
-        - Headline: {headline}
-        
-        Return JSON: {{ "discipline": "Exact Name From List" }} or {{ "discipline": "Other" }} if none of the disciplines apply.
-        """
-        
-        completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a classifier. Output valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.1-8b-instant",
-            response_format={"type": "json_object"},
-            temperature=0
-        )
-        
-        result = json.loads(completion.choices[0].message.content)
-        discipline = result.get("discipline", "Other")
-        
-        if discipline in APPROVED_ENGINEERING_DISCIPLINES:
-            return discipline
-        # Groq returned something off-list — treat as Other
-        return "Other"
-
-    except Exception as e:
-        print(f"⚠️ LLM discipline inference failed: {e}")
-
+    # Rule 4: Return one of the approved disciplines string
     return "Other"
