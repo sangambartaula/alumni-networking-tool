@@ -41,6 +41,8 @@ DISCIPLINES = [
         "aws", "azure", "gcp", "api", "microservices", "programmer",
         "coding", "programming", "python", "java", "javascript", "typescript",
         "c++", "go", "rust", "data engineer", "data scientist", "data science",
+        "data analyst", "data analytics", "business analyst", "business intelligence", 
+        "bi developer", "ui developer", "ux developer", "ui/ux", "web design",
         "machine learning", "ml", "artificial intelligence", "ai",
         "deep learning", "cyber", "cybersecurity", "information technology",
         "it", "infosec", "appsec", "security engineer", "computer applications"
@@ -104,7 +106,11 @@ DISCIPLINES = [
         "ms project", "bim", "revit", "autodesk construction", "project controls",
         "capital projects", "infrastructure projects", "transportation engineering",
         "geotechnical engineering", "surveying", "land development",
-        "building systems", "facilities engineering", "osha",
+        "building systems", "facilities engineering", "osha"
+    ]),
+    # 7. CATCH-ALL ENGINEERING
+    ("Other", [
+        "engineer", "engineering"
     ]),
 ]
 
@@ -128,9 +134,10 @@ def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> st
         {json.dumps(APPROVED_ENGINEERING_DISCIPLINES, indent=2)}
         
         CRITICAL RULES:
-        1. "Degree-first priority": ALWAYS check the degree first. 
-        2. Any degree outside these designated engineering fields (e.g., Business, Arts, Sales, Marketing, History, English, Political Science) AUTOMATICALLY maps to "Other" WITHOUT relying on their job title or headline. 
-        3. Do not falsely classify someone sharing generalized titles (e.g. Someone selling "Software" in headline should be "Other" if their degree is Business).
+        1. "Degree-first priority": Usually check the degree first. 
+        2. However, if the major is blank or non-engineering (e.g., Business, Arts, Political Science), you MUST check the job title. If the job title clearly indicates a tech/engineering role (e.g., "Software Engineer", "Senior UI Developer", "Data Scientist", "IT Manager"), classify them into the appropriate engineering discipline based on that job title rather than defaulting to 'Other'.
+        3. If the job title also lacks clear engineering indicators or is missing, check the headline. If the headline clearly indicates a tech/engineering role, classify them into the appropriate engineering discipline based on the headline.
+        4. ONLY if the degree, job title, and headline lack engineering/tech indicators, map to "Other". Do not falsely classify someone purely based on generalized non-tech roles (e.g., a "Sales Manager" selling "Software" should be "Other" if their degree is Business and job is Sales).
         
         Alumni Data:
         - Degree: {degree}
@@ -187,15 +194,43 @@ def infer_discipline(degree: str, job_title: str, headline: str, use_llm: bool =
     headline_lower = headline.lower() if headline else ""
 
     # Rule 1 & Rule 2 explicit enforcement for regex:
-    # If degree has obvious non-engineering terms, kill script and map to "Other".
+    # If degree has obvious non-engineering terms, map to "Other" UNLESS 
+    # the job title clearly matches an engineering field.
     if degree_lower:
         for non_eng_kw in NON_ENGINEERING_DEGREE_KEYWORDS:
             if re.search(r'\b' + re.escape(non_eng_kw) + r'\b', degree_lower):
-                # We specifically look out for "Bio" in biology though. So simple guard. 
                 if non_eng_kw == "biology" and ("computational biology" in degree_lower or "bioinformatics" in degree_lower):
                     continue
-                    
-                return "Other"
+                
+                # Check if job title or headline has an engineering keyword to override the kill
+                has_eng_override = False
+                
+                # Try job title first
+                if job_title_lower:
+                    for _, keywords in DISCIPLINES:
+                        for kw in keywords:
+                            if len(kw) <= 2:
+                                if re.search(r'\b' + re.escape(kw) + r'\b', job_title_lower):
+                                    has_eng_override = True; break
+                            else:
+                                if kw in job_title_lower:
+                                    has_eng_override = True; break
+                        if has_eng_override: break
+                
+                # Fall back to headline if job title didn't override
+                if not has_eng_override and headline_lower:
+                    for _, keywords in DISCIPLINES:
+                        for kw in keywords:
+                            if len(kw) <= 2:
+                                if re.search(r'\b' + re.escape(kw) + r'\b', headline_lower):
+                                    has_eng_override = True; break
+                            else:
+                                if kw in headline_lower:
+                                    has_eng_override = True; break
+                        if has_eng_override: break
+                
+                if not has_eng_override:
+                    return "Other"
 
     # Enforce priority sequence: Degree -> Job -> Headline
     sources = [

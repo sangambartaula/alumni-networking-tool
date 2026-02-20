@@ -1243,9 +1243,6 @@ class LinkedInScraper:
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
             main = soup.find('main') or soup
             
-            # Count expansion items
-            debug_count = 0
-            
             for div in main.find_all("div"):
                 lines = self._p_texts_clean(div)
                 if len(lines) < 2: continue
@@ -1259,7 +1256,6 @@ class LinkedInScraper:
                         continue
 
                 all_edus.append(school)
-                debug_count += 1
                 logger.debug(f"Found: {school} | {degree}")
                 
                 # Capture UNT details if found
@@ -1285,7 +1281,8 @@ class LinkedInScraper:
                         if re.findall(r"\d{4}", t) and not unt_details["graduation_year"]:
                             unt_details["graduation_year"] = re.findall(r"\d{4}", t)[-1]
             
-            logger.info(f"    ✓ Extracted {debug_count} education(s) from detailed view.")
+            unique_edus = list(dict.fromkeys(all_edus))
+            logger.info(f"    ✓ Extracted {len(unique_edus)} education(s) from detailed view.")
             if unt_details:
                 logger.info(f"      ✓ Found expanded UNT details: {unt_details.get('major', 'Unknown Major')}")
             else:
@@ -1298,7 +1295,7 @@ class LinkedInScraper:
         except Exception as e:
             logger.error(f"Error expanding education: {e}")
         
-        return list(dict.fromkeys(all_edus)), unt_details
+        return unique_edus, unt_details
 
     # ============================================================
     # Parsing Helpers

@@ -30,6 +30,15 @@ DEGREE_MAP = {
     "b.sc.": "Bachelor of Science",
     "b.sc": "Bachelor of Science",
 
+    # Bare "bachelors" / "bachelor's" / "bachelor's degree"
+    "bachelor": "Bachelor's Degree",
+    "bachelors": "Bachelor's Degree",
+    "bachelor's": "Bachelor's Degree",
+    "bachelor's degree": "Bachelor's Degree",
+    "bachelors degree": "Bachelor's Degree",
+    "undergraduate degree": "Bachelor's Degree",
+    "undergraduate": "Bachelor's Degree",
+
     # Bachelor of Arts variants
     "bachelor of arts": "Bachelor of Arts",
     "bachelors of arts": "Bachelor of Arts",
@@ -45,11 +54,26 @@ DEGREE_MAP = {
     "b.eng": "Bachelor of Engineering",
     "beng": "Bachelor of Engineering",
 
+    # Bachelor of Technology variants
+    "bachelor of technology": "Bachelor of Technology",
+    "bachelor of technology - btech": "Bachelor of Technology",
+    "b.tech.": "Bachelor of Technology",
+    "b.tech": "Bachelor of Technology",
+    "btech": "Bachelor of Technology",
+
     # Bachelor of Business Administration
     "bachelor of business administration": "Bachelor of Business Administration",
     "bba": "Bachelor of Business Administration",
     "b.b.a.": "Bachelor of Business Administration",
     "b.b.a": "Bachelor of Business Administration",
+
+    # BAAS (Bachelor of Applied Arts and Science)
+    "bachelor of applied arts and science": "Bachelor of Applied Arts and Science",
+    "bachelor of applied art and science": "Bachelor of Applied Arts and Science",
+    "baas": "Bachelor of Applied Arts and Science",
+
+    # BSBA (Bachelor of Science in Business Administration)
+    "bsba": "Bachelor of Business Administration",
 
     # Bachelor of Fine Arts
     "bachelor of fine arts": "Bachelor of Fine Arts",
@@ -75,6 +99,13 @@ DEGREE_MAP = {
     "m.sc.": "Master of Science",
     "m.sc": "Master of Science",
 
+    # Bare "masters" / "master's" / "master's degree"
+    "master": "Master's Degree",
+    "masters": "Master's Degree",
+    "master's": "Master's Degree",
+    "master's degree": "Master's Degree",
+    "masters degree": "Master's Degree",
+
     # Master of Arts variants
     "master of arts": "Master of Arts",
     "masters of arts": "Master of Arts",
@@ -95,6 +126,12 @@ DEGREE_MAP = {
     "mba": "Master of Business Administration",
     "m.b.a.": "Master of Business Administration",
     "m.b.a": "Master of Business Administration",
+
+    # MPA
+    "master of public administration": "Master of Public Administration",
+    "mpa": "Master of Public Administration",
+    "m.p.a.": "Master of Public Administration",
+    "m.p.a": "Master of Public Administration",
 
     # MFA
     "master of fine arts": "Master of Fine Arts",
@@ -120,6 +157,7 @@ DEGREE_MAP = {
     "associate of arts": "Associate of Arts",
     "associate's degree": "Associate's Degree",
     "associate degree": "Associate's Degree",
+    "associated degree": "Associate's Degree",
     "associates degree": "Associate's Degree",
     "a.s.": "Associate of Science",
     "a.a.": "Associate of Arts",
@@ -181,8 +219,9 @@ def normalize_degree_deterministic(raw_degree: str) -> str:
 
     # 3. Try matching known patterns anywhere in the string
     # Sort by longest match first to prefer more specific matches
+    # Use lookaround to prevent false substring hits (e.g. "ma" in "diploma")
     for pattern in sorted(DEGREE_MAP.keys(), key=len, reverse=True):
-        if pattern in lower:
+        if re.search(r'(?<![a-z])' + re.escape(pattern) + r'(?![a-z])', lower):
             return DEGREE_MAP[pattern]
 
     # 4. No match — return the original cleaned string (title case)
@@ -275,8 +314,11 @@ _DEGREE_GROUP_MAP = {
     "Bachelor of Science": "Bachelors",
     "Bachelor of Arts": "Bachelors",
     "Bachelor of Engineering": "Bachelors",
+    "Bachelor of Technology": "Bachelors",
     "Bachelor of Business Administration": "Bachelors",
     "Bachelor of Fine Arts": "Bachelors",
+    "Bachelor of Applied Arts and Science": "Bachelors",
+    "Bachelor's Degree": "Bachelors",
     "Bachelor of Science in Mechanical Engineering": "Bachelors",
     "Bachelor of Science in Electrical Engineering": "Bachelors",
     "Bachelor of Science in Civil Engineering": "Bachelors",
@@ -288,6 +330,8 @@ _DEGREE_GROUP_MAP = {
     "Master of Engineering": "Masters",
     "Master of Business Administration": "Masters",
     "Master of Fine Arts": "Masters",
+    "Master of Public Administration": "Masters",
+    "Master's Degree": "Masters",
     # Doctorate
     "Doctor of Philosophy": "Doctorate",
     "Doctor of Education": "Doctorate",
@@ -308,10 +352,10 @@ _GROUP_KEYWORDS = [
     (re.compile(r'\b(high\s*school|diploma|ged)\b', re.I), "Other"),
     (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Other"),
     (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
-    (re.compile(r'\b(master|m\.?s\.?c?|m\.?eng|mba|m\.?b\.?a)\b', re.I), "Masters"),
+    (re.compile(r'\b(masters?|m\.?s\.?c?|m\.?eng|mba|m\.?b\.?a|m\.?p\.?a)\b', re.I), "Masters"),
     (re.compile(r'(?<![a-z])m\.?a\.?(?![a-z])', re.I), "Masters"),
-    (re.compile(r'\b(bachelor|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?)\b', re.I), "Bachelors"),
-    (re.compile(r'\b(associate|a\.?s\.?|a\.?a\.?|aas)\b', re.I), "Associate"),
+    (re.compile(r'\b(bachelors?|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?|b\.?tech)\b', re.I), "Bachelors"),
+    (re.compile(r'\b(associates?|a\.?s\.?|a\.?a\.?|aas)\b', re.I), "Associate"),
 ]
 
 
@@ -324,17 +368,29 @@ def standardize_degree(raw_degree: str) -> str:
     if not raw_degree or not raw_degree.strip():
         return "Other"
 
+    # Early exit: high school / diploma / GED are always "Other"
+    # Must check before normalize_degree_deterministic to prevent
+    # short DEGREE_MAP keys (e.g. "ma") false-matching inside "diploma".
+    if re.search(r'\b(high\s*school|diploma|ged)\b', raw_degree, re.I):
+        return "Other"
+
     # First: try canonical resolution via existing DEGREE_MAP
     canonical = normalize_degree_deterministic(raw_degree)
 
     # If canonical matched in our group map, we're done
     if canonical in _DEGREE_GROUP_MAP:
-        return _DEGREE_GROUP_MAP[canonical]
+        result = _DEGREE_GROUP_MAP[canonical]
+    else:
+        # Keyword fallback on the raw string
+        result = "Other"
+        lower = raw_degree.lower()
+        for pattern, group in _GROUP_KEYWORDS:
+            if pattern.search(lower):
+                result = group
+                break
 
-    # Keyword fallback on the raw string
-    lower = raw_degree.lower()
-    for pattern, group in _GROUP_KEYWORDS:
-        if pattern.search(lower):
-            return group
+    # Sanity check: "diploma" never belongs to Masters
+    if result == "Masters" and re.search(r'\bdiploma\b', raw_degree, re.I):
+        return "Other"
 
-    return "Other"
+    return result

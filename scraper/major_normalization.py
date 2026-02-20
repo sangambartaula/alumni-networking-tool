@@ -55,7 +55,7 @@ _MAJOR_PATTERNS = [
      "Materials Science and Engineering"),
 
     # --- Mechanical & Energy ---
-    (re.compile(r'\b(mechanical\s*and\s*energy\s*engineering)\b', re.I),
+    (re.compile(r'\b(mechanical\s*(?:and|&)\s*energy\s*engineering)\b', re.I),
      "Mechanical and Energy Engineering"),
 
     (re.compile(r'\b(mechanical\s*engineering|m\.?e\.?|mech\.?eng)\b', re.I),
@@ -130,39 +130,42 @@ def standardize_major(raw_major: str, job_title: str = "") -> str:
         raw_major: The major/degree string from LinkedIn
         job_title: Optional job title for context (used by LLM fallback)
 
-    Returns the canonical name if matched, otherwise:
-    - "Other Engineering" if 'engineering' appears in the text and LLM fails
-    - "Other" for everything else
+    Returns the canonical name if matched by explicit regex, otherwise
+    preserves the raw major as-is.  LLM is only invoked when the text
+    contains 'engineering' but didn't match a specific pattern.
 
     Logic:
-    1. Regex Match (Fast)
-    2. LLM Fallback (If regex returns 'Other')
+    1. Regex Match against explicit engineering taxonomy
+    2. LLM Fallback ONLY for ambiguous engineering strings
+    3. Preserve raw value for everything else (no silent mutation)
     """
     if not raw_major or not raw_major.strip():
-        return "Other"
+        return ""
 
     text = raw_major.strip()
     
-    # 1. Regex Match
-    regex_result = "Other"
+    # 1. Regex Match against explicit engineering taxonomy
     for pattern, canonical in _MAJOR_PATTERNS:
         if pattern.search(text):
-            regex_result = canonical
+            if canonical not in ("Other", "Other Engineering"):
+                if canonical != text:
+                    logger.debug(f"Major standardized: \"{text}\" → \"{canonical}\"")
+                return canonical
+            # Matched catch-all "engineering" — try LLM below
             break
             
-    # If specific match found, return it
-    if regex_result not in ["Other", "Other Engineering"]:
-        return regex_result
-        
-    # 2. LLM Fallback
-    # Only try LLM if we have a key and regex didn't find a specific major
-    if os.getenv("GROQ_API_KEY"):
+    # 2. LLM Fallback — ONLY for strings containing 'engineering'
+    #    that didn't match a specific pattern above.
+    if re.search(r'\bengineering\b', text, re.I) and os.getenv("GROQ_API_KEY"):
         llm_result = _standardize_major_with_llm(text, job_title)
         if llm_result in CANONICAL_MAJORS:
+            logger.debug(f"Major standardized (LLM): \"{text}\" → \"{llm_result}\"")
             return llm_result
 
-    # 3. Fallback to regex result (preserves "Other Engineering" if matched)
-    return regex_result
+    # 3. No match — preserve raw value exactly as-is.
+    #    Non-engineering fields (Business, General Studies, etc.)
+    #    must not be silently mutated.
+    return text
 
 
 def _standardize_major_with_llm(raw_major: str, job_title: str) -> str:
