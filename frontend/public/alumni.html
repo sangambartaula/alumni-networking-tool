@@ -68,6 +68,10 @@
         <div class="stat-value" id="bookmarkedCount">0</div>
         <div class="stat-label">Bookmarked</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-value" id="workingWhileStudyingCount">0</div>
+        <div class="stat-label">Worked While Studying</div>
+      </div>
     </div>
   </div>
 
@@ -154,6 +158,28 @@
           Degree
         </div>
         <div class="checklist" id="degreeChecks"></div>
+      </div>
+
+      <div class="group" id="wws-group">
+        <div class="label">
+          <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          Working While Studying
+        </div>
+        <div class="wws-toggle-group">
+          <label class="check">
+            <input type="radio" name="workingWhileStudying" value="" checked /> <span>All</span>
+          </label>
+          <label class="check">
+            <input type="radio" name="workingWhileStudying" value="yes" /> <span>Yes</span>
+          </label>
+          <label class="check">
+            <input type="radio" name="workingWhileStudying" value="no" /> <span>No</span>
+          </label>
+        </div>
       </div>
 
       <button id="clear-filters" class="btn-clear" type="button">

@@ -575,11 +575,14 @@ function updateStatistics(data = alumniData) {
   const uniqueCompanies = new Set(data.map(a => a.company).filter(c => c)).size;
   const uniqueLocations = new Set(data.map(a => a.location).filter(l => l && l !== 'Not Found')).size;
   const uniqueJobs = new Set(data.map(a => a.normalized_title || a.current_job_title).filter(j => j)).size;
+  const workingWhileStudyingCount = data.filter(a => a.working_while_studying === true || a.working_while_studying === 1).length;
 
   document.getElementById('totalAlumni').textContent = totalAlumni;
   document.getElementById('totalCompanies').textContent = uniqueCompanies;
   document.getElementById('totalLocations').textContent = uniqueLocations;
   document.getElementById('totalJobs').textContent = uniqueJobs;
+  const wwsEl = document.getElementById('totalWorkingWhileStudying');
+  if (wwsEl) wwsEl.textContent = workingWhileStudyingCount;
 }
 
 // Get top N items from a frequency map

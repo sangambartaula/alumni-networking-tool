@@ -44,14 +44,19 @@ function updateStatsBanner(alumniData) {
   // Calculate bookmarked alumni - check interaction_type === 'bookmarked'
   const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
 
+  // Calculate working while studying count
+  const wwsCount = alumniData.filter(a => a.working_while_studying === true).length;
+
   // Update DOM elements
   const totalAlumniEl = document.getElementById('totalAlumni');
   const locationsCountEl = document.getElementById('locationsCount');
   const bookmarkedCountEl = document.getElementById('bookmarkedCount');
+  const wwsCountEl = document.getElementById('workingWhileStudyingCount');
 
   if (totalAlumniEl) totalAlumniEl.textContent = totalAlumni;
   if (locationsCountEl) locationsCountEl.textContent = locationsCount;
   if (bookmarkedCountEl) bookmarkedCountEl.textContent = bookmarkedCount;
+  if (wwsCountEl) wwsCountEl.textContent = wwsCount;
 }
 
 // Helper function to update just the bookmarked count in the banner
@@ -618,6 +623,9 @@ function setupFiltering(list) {
       document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"]').forEach(cb => cb.checked = false);
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
+      // Reset working while studying radio to 'All'
+      const wwsAll = document.querySelector('input[name="workingWhileStudying"][value=""]');
+      if (wwsAll) wwsAll.checked = true;
       currentPage = 1; // Reset to page 1 when clearing filters
       apply();
     });
@@ -631,7 +639,9 @@ function setupFiltering(list) {
     const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
     const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
     const year = gradSelect ? gradSelect.value : '';
-    return { term, loc, role, company, major, degree, year };
+    const wwsRadio = document.querySelector('input[name="workingWhileStudying"]:checked');
+    const wws = wwsRadio ? wwsRadio.value : '';
+    return { term, loc, role, company, major, degree, year, wws };
   }
 
   function getSorted(listToSort) {
@@ -706,7 +716,11 @@ function setupFiltering(list) {
       const matchMajor = !f.major.length || f.major.includes(a.major);
       const matchDegree = !f.degree.length || f.degree.includes(a.degree);
       const matchYear = !f.year || String(a.class) === String(f.year);
-      return matchTerm && matchLoc && matchRole && matchCompany && matchMajor && matchDegree && matchYear;
+      // Working while studying: '' = all, 'yes' = true, 'no' = false/null
+      let matchWws = true;
+      if (f.wws === 'yes') matchWws = a.working_while_studying === true;
+      else if (f.wws === 'no') matchWws = a.working_while_studying === false || a.working_while_studying === null;
+      return matchTerm && matchLoc && matchRole && matchCompany && matchMajor && matchDegree && matchYear && matchWws;
     });
     const sortedFiltered = getSorted(filtered);
     const paginated = getPaginated(sortedFiltered);
@@ -728,7 +742,7 @@ function setupFiltering(list) {
     apply();
   });
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"]')) {
       currentPage = 1; // Reset to page 1 on filter change
       apply();
     }
@@ -778,9 +792,9 @@ function setupFiltering(list) {
         headline: a.headline || '',
         linkedin: a.linkedin || '',
         degree: a.degree || '',
-        degree: a.degree || '',
         major: a.major || '',
-        updated_at: a.updated_at || ''
+        updated_at: a.updated_at || '',
+        working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null
       }));
       console.log('Loaded alumni from API, count=', alumniData.length);
     } else {

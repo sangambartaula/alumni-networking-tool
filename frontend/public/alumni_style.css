@@ -103,7 +103,7 @@ body {
   margin: 0 auto;
   padding: 24px 24px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 24px;
 }
 
@@ -371,6 +371,35 @@ select:focus {
   height: 16px;
 }
 
+/* ===== WORKING WHILE STUDYING TOGGLE ===== */
+.wws-toggle-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wws-toggle-group .check {
+  flex: 1;
+  justify-content: center;
+  padding: 6px 12px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+  min-width: 52px;
+}
+
+.wws-toggle-group .check:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-light);
+  color: var(--brand);
+}
+
+.wws-toggle-group input[type="radio"] {
+  display: none;
+}
+
 /* ===== RESULTS SECTION ===== */
 .results-head {
   display: flex;
@@ -470,6 +499,10 @@ select:focus {
 
 @media (max-width: 1200px) {
   .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats-banner-inner {
     grid-template-columns: repeat(2, 1fr);
   }
 }
