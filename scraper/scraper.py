@@ -525,6 +525,16 @@ class LinkedInScraper:
 
                     raw_deg = data.get(deg_key, "")
                     raw_maj = data.get(maj_key, "")
+                    
+                    # NEW: Fallback for hidden degrees in the major field
+                    if not raw_deg and raw_maj:
+                        from degree_normalization import extract_hidden_degree # delayed import
+                        extracted_deg, cleaned_maj = extract_hidden_degree(raw_maj)
+                        if extracted_deg:
+                            raw_deg = extracted_deg
+                            raw_maj = cleaned_maj
+                            logger.info(f"    ✓ Extracted hidden degree '{extracted_deg}' from major field.")
+
                     if raw_deg:
                         std_deg = standardize_degree(raw_deg)
                         data[std_deg_key] = std_deg

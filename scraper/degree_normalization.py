@@ -352,10 +352,10 @@ _GROUP_KEYWORDS = [
     (re.compile(r'\b(high\s*school|diploma|ged)\b', re.I), "Other"),
     (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Other"),
     (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
-    (re.compile(r'\b(masters?|m\.?s\.?c?|m\.?eng|mba|m\.?b\.?a|m\.?p\.?a)\b', re.I), "Masters"),
+    (re.compile(r'\b(masters?|m\.?s\.?c?|m\.?eng|mba|m\.?b\.?a|m\.?p\.?a|m\.?f\.?a)\b', re.I), "Masters"),
     (re.compile(r'(?<![a-z])m\.?a\.?(?![a-z])', re.I), "Masters"),
-    (re.compile(r'\b(bachelors?|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?|b\.?tech)\b', re.I), "Bachelors"),
-    (re.compile(r'\b(associates?|a\.?s\.?|a\.?a\.?|aas)\b', re.I), "Associate"),
+    (re.compile(r'\b(bachelors?|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?|b\.?tech|b\.?f\.?a)\b', re.I), "Bachelors"),
+    (re.compile(r'\b(associates?|a\.?s\.?|a\.?a\.?|a\.?a\.?s)\b', re.I), "Associate"),
 ]
 
 
@@ -394,3 +394,48 @@ def standardize_degree(raw_degree: str) -> str:
         return "Other"
 
     return result
+
+def extract_hidden_degree(raw_major: str) -> tuple[str, str]:
+    """
+    If the degree field is blank but the major contains an obvious degree 
+    keyword (like PhD, BFA, Master's), extract the standard degree group
+    and remove the degree text from the major string.
+    
+    Returns: (extracted_degree_group, cleaned_major_string)
+    """
+    if not raw_major:
+         return "", ""
+         
+    lower_maj = raw_major.lower()
+    extracted_degree_group = ""
+    
+    # Check if a degree keyword is present
+    for pattern, group in _GROUP_KEYWORDS:
+        if pattern.search(lower_maj):
+            extracted_degree_group = group # e.g. "Bachelors", "Doctorate"
+            break
+            
+    if not extracted_degree_group:
+        return "", raw_major
+        
+    cleaned = raw_major
+    
+    # 1. Strip full formal names (Bachelor of Science, Doctor of Philosophy, etc)
+    cleaned = re.sub(r'(?i)\b(?:Doctor|Master|Bachelor|Associate)s?\s*(?:of\s+[A-Za-z\s]+)?\b', '', cleaned)
+    
+    # 2. Strip acronyms (PhD, BFA, MS, etc)
+    cleaned = re.sub(r'(?i)\b(ph\.?d|b\.?f\.?a|m\.?b\.?a|m\.?s|b\.?s|b\.?a|m\.?a|b\.?tech|m\.?s\.?c|b\.?s\.?c)\b', '', cleaned)
+    
+    # 3. Strip prefix/plurals like "2 ", "'s "
+    cleaned = re.sub(r"(?i)\b\d+\s*'?s?\b", "", cleaned)
+    cleaned = cleaned.replace("'s", "")
+    
+    # 4. Strip connectors like " in ", " - ", ","
+    cleaned = re.sub(r'(?i)^\s*(in|of|in the field of)\s+', '', cleaned)
+    
+    # Clean up dangling punctuation from stripping
+    cleaned = re.sub(r'^[,\-\/\.\s]+', '', cleaned)
+    cleaned = re.sub(r'[,\-\/\.\s]+$', '', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    
+    return extracted_degree_group, cleaned
