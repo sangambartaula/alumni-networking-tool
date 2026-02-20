@@ -147,6 +147,83 @@ def date_to_comparable(d: dict, bound: str):
     if bound == "start": return (y, 1, "year")
     return (y, 12, "year")
 
+def determine_work_study_status(
+    school_end: dict,
+    job_start: dict,
+    job_end: dict,
+    is_expected: bool = False,
+) -> str:
+    """
+    Determine whether an alumni worked before, during, or after graduation.
+
+    Logic (per spec):
+      1. Identify graduation year from school_end. Year 9999 means "Present/ongoing".
+      2. If graduation is marked "Expected" (or school end is_present / 9999) → treat as
+         not yet graduated (currently studying).
+      3. Compare job_start year with graduation year:
+         a. Job start year < grad year → "yes" (Worked While Studying).
+         b. Grad year in the future (or Expected) AND job is active → "currently"
+            (Currently Working While Studying).
+         c. Job start year >= grad year → "no" (Worked After Graduation / no overlap).
+
+    Returns:
+        "yes"       – worked while studying (job started before graduation)
+        "currently" – actively working while still studying (expected grad or no grad yet)
+        "no"        – worked after graduation
+        ""          – insufficient data to determine
+    """
+    CURRENT_YEAR = datetime.now().year
+
+    # --- Get graduation year -------------------------------------------------
+    grad_year = None
+    still_studying = False  # True if not yet graduated
+
+    if school_end:
+        if school_end.get("is_present") or school_end.get("year") == 9999:
+            # Ongoing education → not yet graduated
+            still_studying = True
+        else:
+            grad_year = school_end.get("year")
+
+    # Treat "Expected" flag or missing graduation year as not yet graduated
+    if is_expected or grad_year is None:
+        still_studying = True
+
+    # --- Get job start year --------------------------------------------------
+    job_start_year = None
+    if job_start and not job_start.get("is_present"):
+        job_start_year = job_start.get("year")
+
+    if job_start_year is None:
+        return ""  # Can't determine without job start
+
+    # --- Classify ------------------------------------------------------------
+    if still_studying:
+        # Not yet graduated: any active job = currently working while studying
+        job_is_active = job_end is None or job_end.get("is_present") or job_end.get("year") == 9999
+        if job_is_active:
+            return "currently"
+        # Job has ended but they were still in school → "yes"
+        job_end_year = job_end.get("year") if job_end else None
+        if job_end_year and job_end_year > CURRENT_YEAR:
+            return "currently"
+        return "yes"
+
+    # grad_year is known
+    # Step 4: job started before graduation → worked while studying
+    if job_start_year < grad_year:
+        return "yes"
+
+    # Step 5: grad year is in the future and job is active → currently working while studying
+    if grad_year > CURRENT_YEAR:
+        job_is_active = job_end is None or job_end.get("is_present") or (job_end.get("year") or 0) > CURRENT_YEAR
+        if job_is_active:
+            return "currently"
+
+    # Step 6: job started at or after graduation → worked after graduation
+    return "no"
+
+
 def check_working_while_studying(school_start: dict, school_end: dict, job_start: dict, job_end: dict) -> bool:
     # 1. Get comparable dates (Year, Month)
     ss = date_to_comparable(school_start, "start")

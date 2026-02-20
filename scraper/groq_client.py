@@ -137,10 +137,12 @@ def _clean_doubled(text):
 
 def parse_groq_date(date_str: str) -> dict:
     """
-    Parse a date string like "Oct 2024" or "Present" into the format used by the scraper.
+    Parse a date string like "Oct 2024", "Present", or "Expected 2026" into the
+    format used by the scraper.
 
     Returns:
-        dict with keys: year (int), month (int or None), is_present (bool)
+        dict with keys: year (int), month (int or None), is_present (bool),
+                        is_expected (bool)
     """
     if not date_str:
         return None
@@ -149,7 +151,13 @@ def parse_groq_date(date_str: str) -> dict:
 
     # Check for "Present"
     if date_str.lower() == "present":
-        return {"year": 9999, "month": 12, "is_present": True}
+        return {"year": 9999, "month": 12, "is_present": True, "is_expected": False}
+
+    # Check for "Expected YYYY" or "Expected: YYYY"
+    expected_match = re.match(r'expected[:\s]+(\d{4})', date_str, re.IGNORECASE)
+    if expected_match:
+        year = int(expected_match.group(1))
+        return {"year": year, "month": None, "is_present": False, "is_expected": True}
 
     # Month mapping
     month_map = {
@@ -162,12 +170,12 @@ def parse_groq_date(date_str: str) -> dict:
     if match:
         month_str, year_str = match.groups()
         month = month_map.get(month_str.lower(), None)
-        return {"year": int(year_str), "month": month, "is_present": False}
+        return {"year": int(year_str), "month": month, "is_present": False, "is_expected": False}
 
     # Try "YYYY" format
     match = re.match(r'^(\d{4})$', date_str)
     if match:
-        return {"year": int(match.group(1)), "month": None, "is_present": False}
+        return {"year": int(match.group(1)), "month": None, "is_present": False, "is_expected": False}
 
     return None
 

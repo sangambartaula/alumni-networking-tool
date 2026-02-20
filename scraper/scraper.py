@@ -22,6 +22,7 @@ from entity_classifier import classify_entity, is_location, is_university
 from groq_extractor_experience import extract_experiences_with_groq
 from groq_extractor_education import extract_education_with_groq
 from groq_client import is_groq_available, parse_groq_date, _clean_doubled
+from utils import determine_work_study_status
 
 # Normalization imports (now local to scraper)
 try:
@@ -429,22 +430,30 @@ class LinkedInScraper:
                 school_end_d = best_unt.get("school_end")
                 data["school_start_date"] = utils.format_date_for_storage(school_start_d)
 
-                # Check ALL experiences for overlap with school (not just the latest)
-                is_overlap = False
+                # Determine working_while_studying using graduation-year comparison.
+                # Priority order: "currently" > "yes" > "no" > ""
+                wws_priority = {"": 0, "no": 1, "yes": 2, "currently": 3}
+                is_expected = bool(school_end_d and school_end_d.get("is_expected"))
+
+                best_wws = ""
                 for exp in all_experiences:
                     job_start_d = exp.get("start")
                     job_end_d = exp.get("end")
-                    if utils.check_working_while_studying(school_start_d, school_end_d, job_start_d, job_end_d):
-                        is_overlap = True
-                        break
+                    status = determine_work_study_status(
+                        school_end_d, job_start_d, job_end_d, is_expected=is_expected
+                    )
+                    if wws_priority.get(status, 0) > wws_priority.get(best_wws, 0):
+                        best_wws = status
+                        if best_wws == "currently":
+                            break  # Can't get higher
 
                 # Fallback: TA/RA at own school implies working while studying
-                if not is_overlap:
-                    is_overlap = self._is_student_worker_at_school(all_experiences, data.get("school", ""))
-                    if is_overlap:
+                if best_wws in ("", "no"):
+                    if self._is_student_worker_at_school(all_experiences, data.get("school", "")):
                         logger.debug("TA/RA heuristic: working while studying (student-worker at own school)")
+                        best_wws = "yes"
 
-                data["working_while_studying"] = "yes" if is_overlap else "no"
+                data["working_while_studying"] = best_wws
             else:
                 # If we have NO education entries, or just no UNT, try expanding
                 if not edu_entries or "unt" not in str(edu_entries).lower():
@@ -462,25 +471,30 @@ class LinkedInScraper:
                         data["graduation_year"] = unt_details.get("graduation_year", "")
                         data["school_start_date"] = unt_details.get("school_start_date", "")
                         
-                        if unt_details.get("school_start") and unt_details.get("school_end"):
-                            # Check ALL experiences for overlap
-                            is_overlap = False
+                        if unt_details.get("school_end"):
+                            school_end_exp = unt_details["school_end"]
+                            is_expected = bool(school_end_exp.get("is_expected"))
+
+                            wws_priority = {"": 0, "no": 1, "yes": 2, "currently": 3}
+                            best_wws = ""
                             for exp in all_experiences:
-                                if utils.check_working_while_studying(
-                                    unt_details["school_start"], unt_details["school_end"], 
-                                    exp.get("start"), exp.get("end")
-                                ):
-                                    is_overlap = True
-                                    break
+                                status = determine_work_study_status(
+                                    school_end_exp, exp.get("start"), exp.get("end"),
+                                    is_expected=is_expected
+                                )
+                                if wws_priority.get(status, 0) > wws_priority.get(best_wws, 0):
+                                    best_wws = status
+                                    if best_wws == "currently":
+                                        break
 
                             # Fallback: TA/RA at own school implies working while studying
-                            if not is_overlap:
+                            if best_wws in ("", "no"):
                                 school_name = unt_details.get("education", "")
-                                is_overlap = self._is_student_worker_at_school(all_experiences, school_name)
-                                if is_overlap:
+                                if self._is_student_worker_at_school(all_experiences, school_name):
                                     logger.debug("TA/RA heuristic: working while studying (student-worker at own school)")
+                                    best_wws = "yes"
 
-                            data["working_while_studying"] = "yes" if is_overlap else "no"
+                            data["working_while_studying"] = best_wws
                     else:
                         return None # No UNT found at all
 
