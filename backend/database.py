@@ -159,6 +159,7 @@ def init_db():
                     job_start_date VARCHAR(20) DEFAULT NULL,
                     job_end_date VARCHAR(20) DEFAULT NULL,
                     working_while_studying BOOLEAN DEFAULT NULL,
+                    working_while_studying_status VARCHAR(20) DEFAULT NULL,
                     latitude DOUBLE NULL,
                     longitude DOUBLE NULL,
                     scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -442,6 +443,7 @@ def ensure_alumni_work_school_date_columns():
             add_col("ALTER TABLE alumni ADD COLUMN job_start_date VARCHAR(20) DEFAULT NULL", "job_start_date")
             add_col("ALTER TABLE alumni ADD COLUMN job_end_date VARCHAR(20) DEFAULT NULL", "job_end_date")
             add_col("ALTER TABLE alumni ADD COLUMN working_while_studying BOOLEAN DEFAULT NULL", "working_while_studying")
+            add_col("ALTER TABLE alumni ADD COLUMN working_while_studying_status VARCHAR(20) DEFAULT NULL", "working_while_studying_status")
             
             # Experience 2 and 3 columns
             add_col("ALTER TABLE alumni ADD COLUMN exp2_title VARCHAR(255) DEFAULT NULL", "exp2_title")
@@ -1039,16 +1041,20 @@ def seed_alumni_data():
 
                     wws_raw = row.get('working_while_studying', None)
                     working_while_studying = None
+                    working_while_studying_status = None
                     if pd.notna(wws_raw):
                         if isinstance(wws_raw, str):
                             v = wws_raw.strip().lower()
-                            if v in ("yes", "true", "1"):
+                            if v in ("yes", "currently", "true", "1"):
+                                # "currently" = actively working while still studying → treat as True
                                 working_while_studying = True
+                                working_while_studying_status = v if v in ("yes", "no", "currently") else "yes"
                             elif v in ("no", "false", "0"):
                                 working_while_studying = False
+                                working_while_studying_status = "no"
                         elif isinstance(wws_raw, (int, float, bool)):
-                            # pandas might load bool as bool or float
                             working_while_studying = bool(wws_raw)
+                            working_while_studying_status = "yes" if working_while_studying else "no"
 
                     # Experience 2 and 3 fields (New: exp_2_title vs Old: exp2_title)
                     exp2_title = str(row.get('exp_2_title', '')).strip() if pd.notna(row.get('exp_2_title')) else \
@@ -1090,14 +1096,14 @@ def seed_alumni_data():
                         cur.execute("""
                             INSERT INTO alumni 
                             (first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, 
-                             school_start_date, job_start_date, job_end_date, working_while_studying,
+                             school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status,
                              exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
                              school, school2, school3, degree2, degree3, major2, major3,
                              standardized_degree, standardized_degree2, standardized_degree3,
                              standardized_major, standardized_major2, standardized_major3,
                              scraped_at, last_updated, normalized_job_title_id, normalized_company_id)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s,
@@ -1117,6 +1123,7 @@ def seed_alumni_data():
                                 job_start_date=VALUES(job_start_date),
                                 job_end_date=VALUES(job_end_date),
                                 working_while_studying=VALUES(working_while_studying),
+                                working_while_studying_status=VALUES(working_while_studying_status),
                                 exp2_title=VALUES(exp2_title),
                                 exp2_company=VALUES(exp2_company),
                                 exp2_dates=VALUES(exp2_dates),
@@ -1154,6 +1161,7 @@ def seed_alumni_data():
                             job_start_date,
                             job_end_date,
                             working_while_studying,
+                            working_while_studying_status,
                             exp2_title,
                             exp2_company,
                             exp2_dates,

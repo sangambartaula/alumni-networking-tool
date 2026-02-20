@@ -567,7 +567,8 @@ def api_get_alumni():
                 cur.execute("""
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
-                           a.updated_at, njt.normalized_title, nc.normalized_company
+                           a.updated_at, njt.normalized_title, nc.normalized_company,
+                           a.working_while_studying, a.working_while_studying_status
                     FROM alumni a
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
@@ -606,7 +607,14 @@ def api_get_alumni():
                     "full_degree": full_degree,
                     "updated_at": r.get('updated_at'),
                     "normalized_title": r.get('normalized_title'),
-                    "normalized_company": r.get('normalized_company')
+                    "normalized_company": r.get('normalized_company'),
+                    # Prefer the fine-grained status string ("yes"/"no"/"currently");
+                    # fall back to deriving from the boolean if status not yet stored.
+                    "working_while_studying": (
+                        r.get('working_while_studying_status')
+                        or (True if r.get('working_while_studying') else
+                            (False if r.get('working_while_studying') is not None else None))
+                    )
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200
