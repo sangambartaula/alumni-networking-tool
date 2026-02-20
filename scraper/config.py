@@ -244,7 +244,8 @@ CSV_COLUMNS = [
     'title', 'company', 'job_start', 'job_end', 
     'exp_2_title', 'exp_2_company', 'exp_2_dates', 
     'exp_3_title', 'exp_3_company', 'exp_3_dates',
-    'scraped_at'
+    'scraped_at',
+    'normalized_job_title', 'normalized_exp2_title', 'normalized_exp3_title'
 ]
 
 # ── Blocked Profiles ─────────────────────────────────────────

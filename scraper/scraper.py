@@ -485,7 +485,10 @@ class LinkedInScraper:
                         return None # No UNT found at all
 
             # --- Store up to 3 education entries (school2/degree2/major2, etc.) ---
-            other_entries = [e for e in edu_entries if e.get("school", "").lower() != data.get("school", "").lower()]
+            # Trust the extraction layer (Groq/CSS) to return clean entries.
+            # Only exclude the primary entry itself.
+            primary_entry = best_unt if best_unt else None
+            other_entries = [e for e in edu_entries if e is not primary_entry]
             for i, entry in enumerate(other_entries[:2], start=2):
                 data[f"school{i}"] = entry.get("school", "")
                 data[f"degree{i}"] = entry.get("degree", "").strip()

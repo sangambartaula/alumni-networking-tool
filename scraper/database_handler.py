@@ -363,7 +363,10 @@ def save_profile_to_csv(profile_data):
             'exp_3_title': profile_data.get('exp3_title'),
             'exp_3_company': profile_data.get('exp3_company'),
             'exp_3_dates': profile_data.get('exp3_dates'),
-            'scraped_at': profile_data.get('scraped_at')
+            'scraped_at': profile_data.get('scraped_at'),
+            'normalized_job_title': profile_data.get('normalized_job_title', ''),
+            'normalized_exp2_title': profile_data.get('normalized_exp2_title', ''),
+            'normalized_exp3_title': profile_data.get('normalized_exp3_title', ''),
         }
         
         # Normalize text fields
