@@ -119,3 +119,7 @@ out/
 *.csv
 *.txt*.db-shm
 *.db-wal
+
+# Temporary test/diagnostic scripts
+test_api.py
+check_db.py
