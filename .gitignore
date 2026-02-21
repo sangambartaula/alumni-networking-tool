@@ -15,6 +15,7 @@ FEATURE_OVERVIEW.md
 DELIVERABLES.md
 UPDATES_SUMMARY.md
 HEATMAP_FULLSCREEN_FIX.md
+visited_history.csv
 
 # Python cache and virtual environments
 __pycache__/

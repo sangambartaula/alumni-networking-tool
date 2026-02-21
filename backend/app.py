@@ -540,11 +540,11 @@ def get_user_interactions():
 
 
 @app.route('/api/alumni', methods=['GET'])
-@api_login_required
 def api_get_alumni():
     """
     Return a list of alumni from the database.
     Query params: limit (default: all records), offset (default 0)
+    NOTE: Public endpoint - no authentication required
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
@@ -568,7 +568,7 @@ def api_get_alumni():
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at, njt.normalized_title, nc.normalized_company,
-                           a.working_while_studying, a.working_while_studying_status
+                           a.working_while_studying
                     FROM alumni a
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
@@ -1189,11 +1189,11 @@ def api_get_majors():
 
 
 @app.route('/api/alumni/filter', methods=['GET'])
-@api_login_required
 def api_filter_alumni():
     """
     Filter alumni by major (discipline) and other criteria.
     NOTE: discipline is computed on-the-fly via infer_discipline(), NOT from the DB.
+    NOTE: Public endpoint - no authentication required
     Query params:
       - major: filter by engineering discipline
       - location, company, job_title, grad_year, degree: other filters
