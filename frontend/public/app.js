@@ -776,7 +776,7 @@ function setupFiltering(list) {
   // Attempt to fetch alumni from backend
   let alumniData = fakeAlumni;
   try {
-    const resp = await fetch('/api/alumni?limit=500');
+    const resp = await fetch('/api/alumni?limit=10000');  // Get all alumni (up to 10,000)
     const data = await resp.json();
 
     if (data && data.success && Array.isArray(data.alumni) && data.alumni.length > 0) {
