@@ -4,7 +4,7 @@ import json
 from typing import Optional, List, Tuple
 
 # Approved engineering disciplines (only these will appear in the filter)
-# Rule 2: "Other" is now included in the approved disciplines.
+# Rule 2: "Unknown" is the catch-all.
 APPROVED_ENGINEERING_DISCIPLINES = [
     'Software, Data & AI Engineering',
     'Embedded, Electrical & Hardware Engineering',
@@ -12,8 +12,37 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Biomedical Engineering',
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
-    'Other'
+    'Unknown'
 ]
+
+# UNT College of Engineering (CENG) Official Major Mapping (Reference for classification)
+UNT_CENG_MAJORS = {
+    "Biomedical Engineering": [
+        "B.S. Biomedical Engineering", "M.S. Biomedical Engineering", 
+        "Ph.D. Biomedical Engineering", "Biomedical Engineering (Concentration)"
+    ],
+    "Software, Data & AI Engineering": [
+        "B.A. Information Technology", "B.S. Computer Engineering", "B.S. Computer Science", "B.S. Cybersecurity",
+        "M.S. Computer Engineering", "M.S. Computer Science", "M.S. Cybersecurity", "M.S. Data Engineering",
+        "Autonomous Systems (Concentration)", "Machine Learning (Concentration)", "Ph.D. Computer Science and Engineering"
+    ],
+    "Embedded, Electrical & Hardware Engineering": [
+        "B.S. Electrical Engineering", "M.S. Electrical Engineering", "Ph.D. Electrical Engineering"
+    ],
+    "Materials Science & Manufacturing": [
+        "B.S. Materials Science and Engineering", "M.S. Materials Science and Engineering", 
+        "Ph.D. Materials Science and Engineering"
+    ],
+    "Mechanical & Energy Engineering": [
+        "B.S. Mechanical and Energy Engineering", "B.S.E.T. Mechanical Engineering Technology",
+        "M.S. Mechanical and Energy Engineering", "M.S. Engineering Management (General, Energy)",
+        "Ph.D. Mechanical and Energy Engineering", "Mechanical Engineering"
+    ],
+    "Construction & Engineering Management": [
+        "B.S. Construction Management", "M.S. Engineering Management (Construction Management)", 
+        "M.S. Engineering Technology (Construction Management)"
+    ]
+}
 
 # =============================================================================
 # DISCIPLINE CLASSIFICATION RULES
@@ -21,13 +50,13 @@ APPROVED_ENGINEERING_DISCIPLINES = [
 # Priority: Degree > Job Title > Headline (Wait: explicit check for non-engineering degrees first!)
 # =============================================================================
 
-# Keywords that heavily indicate a non-engineering degree ("Other")
+# Keywords that heavily indicate a non-engineering degree
 NON_ENGINEERING_DEGREE_KEYWORDS = [
     "business", "arts", "fine arts", "history", "marketing", "sales", 
     "finance", "accounting", "nursing", "english", "literature", "music", 
     "theatre", "education", "sociology", "psychology", "political science", 
     "law", "communications", "journalism", "kinesiology", "biology", 
-    "chemistry", "physics" # Unless explicitly tied to bio-engineering or chemical engineering
+    "chemistry", "physics" 
 ]
 
 DISCIPLINES = [
@@ -45,17 +74,19 @@ DISCIPLINES = [
         "bi developer", "ui developer", "ux developer", "ui/ux", "web design",
         "machine learning", "ml", "artificial intelligence", "ai",
         "deep learning", "cyber", "cybersecurity", "information technology",
-        "it", "infosec", "appsec", "security engineer", "computer applications"
+        "it", "infosec", "appsec", "security engineer", "computer applications",
+        "computer engineering", "autonomous systems"
     ]),
     # 2. EMBEDDED, ELECTRICAL & HARDWARE ENGINEERING
     ("Embedded, Electrical & Hardware Engineering", [
         "embedded systems engineer", "embedded", "embedded systems", "embedded engineer", "firmware",
         "firmware engineer", "rtos", "real-time systems", "electrical engineer",
-        "electrical engineering", "computer engineering", "hardware",
+        "electrical engineering", "hardware",
         "hardware engineer", "electronics", "circuit design", "pcb",
         "schematic", "altium", "orcad", "cadence", "fpga", "verilog",
         "vhdl", "asic", "silicon", "semiconductor", "microcontroller",
-        "arm", "stm32", "esp32", "bare metal", "low level", "device driver",
+        "arm", "stm32", "esp32",
+        "bare metal", "low level", "device driver",
         "linux kernel", "robotics", "controls engineer", "mechatronics",
         "signal processing", "digital design", "analog design", "power systems",
     ]),
@@ -69,7 +100,9 @@ DISCIPLINES = [
         "renewable energy", "power generation", "turbines", "combustion",
         "automotive engineering", "aerospace engineering", "structural analysis",
         "stress analysis", "finite element", "fea", "industrial engineering",
-        "plant engineer",
+        "industrial engineer", "industrial", "manufacturing engineer", 
+        "manufacturing engineering", "manufacturing", "plant engineer",
+        "mechanical and energy engineering", "engineering management", "engineering technology",
     ]),
     # 4. BIOMEDICAL ENGINEERING
     ("Biomedical Engineering", [
@@ -91,7 +124,8 @@ DISCIPLINES = [
         "thin films", "surface science", "crystallography", "solid state materials",
         "semiconductor materials", "process engineering", "process engineer",
         "manufacturing science", "manufacturing process", "quality engineering",
-        "six sigma", "lean manufacturing", "failure analysis", "corrosion",
+        "quality engineer", "quality", "six sigma", "lean manufacturing", 
+        "failure analysis", "corrosion",
         "heat treatment", "additive manufacturing", "3d printing",
         "powder metallurgy", "materials characterization", "xrd", "sem", "tem",
     ]),
@@ -107,23 +141,17 @@ DISCIPLINES = [
         "capital projects", "infrastructure projects", "transportation engineering",
         "geotechnical engineering", "surveying", "land development",
         "building systems", "facilities engineering", "osha"
-    ]),
-    # 7. CATCH-ALL ENGINEERING
-    ("Other", [
-        "engineer", "engineering"
-    ]),
+    ])
 ]
 
 
-def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> str:
+def _infer_discipline_with_llm(text: str, job_title_unused: str = "", headline_unused: str = "") -> str:
     """
-    Rule 3 & 4: Uses Groq LLM to classify discipline FIRST, prioritizing degree context.
-    Rule 6: Restricts output safely exclusively to JSON format string value.
+    Uses Groq LLM to classify discipline for a specific piece of text.
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("⚠️ GROQ_API_KEY not set, skipping LLM discipline inference")
-        return ""
+        return "Unknown"
 
     try:
         from groq import Groq
@@ -133,18 +161,18 @@ def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> st
         Classify this alumni into ONE of these EXACT engineering disciplines:
         {json.dumps(APPROVED_ENGINEERING_DISCIPLINES, indent=2)}
         
+        REFERENCE: Use these official UNT CENG major mappings to guide your decision:
+        {json.dumps(UNT_CENG_MAJORS, indent=2)}
+        
         CRITICAL RULES:
-        1. "Degree-first priority": Usually check the degree first. 
-        2. However, if the major is blank or non-engineering (e.g., Business, Arts, Political Science), you MUST check the job title. If the job title clearly indicates a tech/engineering role (e.g., "Software Engineer", "Senior UI Developer", "Data Scientist", "IT Manager"), classify them into the appropriate engineering discipline based on that job title rather than defaulting to 'Other'.
-        3. If the job title also lacks clear engineering indicators or is missing, check the headline. If the headline clearly indicates a tech/engineering role, classify them into the appropriate engineering discipline based on the headline.
-        4. ONLY if the degree, job title, and headline lack engineering/tech indicators, map to "Other". Do not falsely classify someone purely based on generalized non-tech roles (e.g., a "Sales Manager" selling "Software" should be "Other" if their degree is Business and job is Sales).
+        1. "Major-priority": Use the UNT CENG major mapping above as the PRIMARY source of truth. 
+        2. If the info is blank or non-engineering (e.g., Business, Arts, Political Science, Biology, Chemistry), YOU MUST pick "Unknown".
+        4. "Systems" rule: Only map "Systems" to "Software, Data & AI Engineering" if it is "Information Systems", "Computer Systems", or "Cybersecurity Systems". "Engineering Systems" usually maps to "Mechanical & Energy Engineering" if it relates to Manufacturing/Industrial.
         
-        Alumni Data:
-        - Degree: {degree}
-        - Job Title: {job_title}
-        - Headline: {headline}
+        Current Data Piece to Classify:
+        - Text: {text}
         
-        Return JSON: {{ "discipline": "<Exact Name From List>" }}. No explanations. Never return free text!
+        Return ONLY JSON: {{ "discipline": "<Exact Name From List>" }}. No explanations.
         """
         
         completion = client.chat.completions.create(
@@ -158,106 +186,92 @@ def _infer_discipline_with_llm(degree: str, job_title: str, headline: str) -> st
             max_tokens=64
         )
         
-        # Rule 6: Parse the JSON object properly
         result = json.loads(completion.choices[0].message.content)
-        discipline = result.get("discipline", "Other")
+        discipline = result.get("discipline", "Unknown")
         
-        # Rule 3 & 4: Output strictly in approved array, else Other.
         if discipline in APPROVED_ENGINEERING_DISCIPLINES:
             return discipline
-        return "Other"
+        return "Unknown"
 
     except Exception as e:
         print(f"⚠️ LLM discipline inference failed: {e}")
+        return "Unknown"
 
-    # Explicit failure indicator so keyword fallback knows to run
-    return ""
+
+def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> str:
+    """Helper to classify a single source of text (Degree, Job, or Headline)."""
+    if not text or not text.strip():
+        return "Other"
+
+    text_lower = text.lower()
+
+    # 1. Deterministic UNT Major Match (Only relevant if current_priority is 'degree')
+    if current_priority == 'degree':
+        for disc_name, official_majors in UNT_CENG_MAJORS.items():
+            for official in official_majors:
+                official_clean = re.sub(r'[^\w\s]', '', official.lower())
+                text_clean = re.sub(r'[^\w\s]', '', text_lower)
+                if official_clean == text_clean or official_clean in text_clean:
+                    return disc_name
+
+    # 2. Keyword Anchor Overrides
+    if any(kw in text_lower for kw in ["information", "analytics"]):
+        return "Software, Data & AI Engineering"
+    if "systems" in text_lower and any(kw in text_lower for kw in ["computer", "management", "information"]):
+        return "Software, Data & AI Engineering"
+
+    # 3. LLM Inference
+    if use_llm:
+        llm_result = _infer_discipline_with_llm(text)
+        if llm_result and llm_result != "Unknown":
+            return llm_result
+
+    # 4. Regex Fallback
+    # First check non-engineering kill list
+    for non_eng_kw in NON_ENGINEERING_DEGREE_KEYWORDS:
+        if re.search(r'\b' + re.escape(non_eng_kw) + r'\b', text_lower):
+            if non_eng_kw == "biology" and ("computational biology" in text_lower or "bioinformatics" in text_lower):
+                continue
+            return "Other"
+
+    # Search for all approved disciplines
+    matches = []
+    for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
+        # Safety Check: Business/Sculpture + Materials Science safeguard
+        if current_priority == 'degree' and discipline_name == "Materials Science & Manufacturing":
+            if any(kw in text_lower for kw in ["business", "sculpture"]) and "engineering" not in text_lower:
+                continue
+
+        for keyword in keywords:
+            if len(keyword) <= 2:
+                if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
+                    matches.append((len(keyword), cat_index, discipline_name))
+            else:
+                if keyword in text_lower:
+                    matches.append((len(keyword), cat_index, discipline_name))
+
+    if matches:
+        matches.sort(key=lambda x: (-x[0], x[1]))
+        return matches[0][2]
+
+    return "Other"
 
 
 def infer_discipline(degree: str, job_title: str, headline: str, use_llm: bool = True) -> str:
     """
     Infer engineering discipline from degree, job title, and headline.
-    
-    Rule 1: Priority -> Degree > Job Title > Headline. (Checked in sequence).
-    Rule 3: LLM goes first.
-    Rule 5: Fallback regex keyword match.
+    Follows hierarchy: UNT Degree -> Job Title -> Headline.
     """
-    # 1. Use the LLM (Groq API) as the first classification step
-    if use_llm:
-        llm_result = _infer_discipline_with_llm(degree, job_title, headline)
-        if llm_result:
-            return llm_result
-    
-    # 2. Keyword fallback - execute only if LLM was disabled or errored
-    degree_lower = degree.lower() if degree else ""
-    job_title_lower = job_title.lower() if job_title else ""
-    headline_lower = headline.lower() if headline else ""
+    # 1. Check Degree
+    result = _classify_text(degree, 'degree', use_llm)
+    if result != "Other":
+        return result
 
-    # Rule 1 & Rule 2 explicit enforcement for regex:
-    # If degree has obvious non-engineering terms, map to "Other" UNLESS 
-    # the job title clearly matches an engineering field.
-    if degree_lower:
-        for non_eng_kw in NON_ENGINEERING_DEGREE_KEYWORDS:
-            if re.search(r'\b' + re.escape(non_eng_kw) + r'\b', degree_lower):
-                if non_eng_kw == "biology" and ("computational biology" in degree_lower or "bioinformatics" in degree_lower):
-                    continue
-                
-                # Check if job title or headline has an engineering keyword to override the kill
-                has_eng_override = False
-                
-                # Try job title first
-                if job_title_lower:
-                    for _, keywords in DISCIPLINES:
-                        for kw in keywords:
-                            if len(kw) <= 2:
-                                if re.search(r'\b' + re.escape(kw) + r'\b', job_title_lower):
-                                    has_eng_override = True; break
-                            else:
-                                if kw in job_title_lower:
-                                    has_eng_override = True; break
-                        if has_eng_override: break
-                
-                # Fall back to headline if job title didn't override
-                if not has_eng_override and headline_lower:
-                    for _, keywords in DISCIPLINES:
-                        for kw in keywords:
-                            if len(kw) <= 2:
-                                if re.search(r'\b' + re.escape(kw) + r'\b', headline_lower):
-                                    has_eng_override = True; break
-                            else:
-                                if kw in headline_lower:
-                                    has_eng_override = True; break
-                        if has_eng_override: break
-                
-                if not has_eng_override:
-                    return "Other"
+    # 2. Check Job Title
+    result = _classify_text(job_title, 'job', use_llm)
+    if result != "Other":
+        return result
 
-    # Enforce priority sequence: Degree -> Job -> Headline
-    sources = [
-        degree_lower,
-        job_title_lower,
-        headline_lower
-    ]
-
-    for text_lower in sources:
-        if not text_lower:
-            continue
-
-        matches = []  # (keyword_length, category_index, discipline_name)
-        for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
-            for keyword in keywords:
-                if len(keyword) <= 2:
-                    if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
-                        matches.append((len(keyword), cat_index, discipline_name))
-                else:
-                    if keyword in text_lower:
-                        matches.append((len(keyword), cat_index, discipline_name))
-
-        if matches:
-            # Longest keyword matched first, then category ordering (lower = higher priority)
-            matches.sort(key=lambda x: (-x[0], x[1]))
-            # Return strict approved match
-            return matches[0][2]
-
-    # Rule 4: Return one of the approved disciplines string
-    return "Other"
+    # 3. Check Headline
+    result = _classify_text(headline, 'headline', use_llm)
+    return result

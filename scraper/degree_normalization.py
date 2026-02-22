@@ -16,6 +16,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Official UNT College of Engineering (CENG) Degrees for standardization
+OFFICIAL_UNT_DEGREES = [
+    "B.S. Biomedical Engineering",
+    "B.A. Information Technology",
+    "B.S. Computer Engineering",
+    "B.S. Computer Science",
+    "B.S. Cybersecurity",
+    "B.S. Electrical Engineering",
+    "B.S. Materials Science and Engineering",
+    "B.S. Construction Management",
+    "B.S. Mechanical and Energy Engineering",
+    "B.S.E.T. Mechanical Engineering Technology",
+    "M.S. Biomedical Engineering",
+    "M.S. Computer Engineering",
+    "M.S. Computer Science",
+    "M.S. Cybersecurity",
+    "M.S. Data Engineering",
+    "M.S. Electrical Engineering",
+    "M.S. Materials Science and Engineering",
+    "M.S. Mechanical and Energy Engineering",
+    "M.S. Engineering Management",
+    "M.S. Engineering Technology",
+    "Ph.D. Biomedical Engineering",
+    "Ph.D. Computer Science and Engineering",
+    "Ph.D. Electrical Engineering",
+    "Ph.D. Materials Science and Engineering",
+    "Ph.D. Mechanical and Energy Engineering"
+]
+
 # ── Canonical degree mapping ──────────────────────────────────────────────
 # Keys are lowercase patterns; values are canonical display strings.
 DEGREE_MAP = {
@@ -87,6 +116,8 @@ DEGREE_MAP = {
     "bsce": "Bachelor of Science in Civil Engineering",
     "bscs": "Bachelor of Science in Computer Science",
     "bsie": "Bachelor of Science in Industrial Engineering",
+    "bachelor of science in engineering technology": "Bachelor of Science",
+    "bset": "Bachelor of Science",
 
     # Master of Science variants
     "master of science": "Master of Science",
@@ -354,27 +385,37 @@ _GROUP_KEYWORDS = [
     (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
     (re.compile(r'\b(masters?|m\.?s\.?c?|m\.?eng|mba|m\.?b\.?a|m\.?p\.?a|m\.?f\.?a)\b', re.I), "Masters"),
     (re.compile(r'(?<![a-z])m\.?a\.?(?![a-z])', re.I), "Masters"),
-    (re.compile(r'\b(bachelors?|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?|b\.?tech|b\.?f\.?a)\b', re.I), "Bachelors"),
+    (re.compile(r'\b(bachelors?|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?|b\.?tech|b\.?f\.?a|b\.?s\.?e\.?t)\b', re.I), "Bachelors"),
     (re.compile(r'\b(associates?|a\.?s\.?|a\.?a\.?|a\.?a\.?s)\b', re.I), "Associate"),
 ]
 
 
 def standardize_degree(raw_degree: str) -> str:
     """
-    Map a raw degree string to a simple group label.
+    Map a raw degree string to a simple group label or an official UNT degree.
 
-    Returns one of: Bachelors, Masters, Doctorate, Associate, Certificate, Other.
+    Returns one of: Official UNT Name, Bachelors, Masters, Doctorate, Associate, Unknown.
     """
     if not raw_degree or not raw_degree.strip():
         return "Other"
 
-    # Early exit: high school / diploma / GED are always "Other"
-    # Must check before normalize_degree_deterministic to prevent
-    # short DEGREE_MAP keys (e.g. "ma") false-matching inside "diploma".
-    if re.search(r'\b(high\s*school|diploma|ged)\b', raw_degree, re.I):
-        return "Other"
+    lower = raw_degree.lower()
+    
+    # 1. Try mapping to Official UNT Degree first
+    for official in OFFICIAL_UNT_DEGREES:
+        # Clean both for fuzzy match
+        official_clean = re.sub(r'[^\w\s]', '', official.lower())
+        raw_clean = re.sub(r'[^\w\s]', '', lower)
+        
+        # Exact match of cleaned strings or presence of full official name
+        if official_clean == raw_clean or official_clean in raw_clean:
+            return official
 
-    # First: try canonical resolution via existing DEGREE_MAP
+    # Early exit: high school / diploma / GED are always "Unknown"
+    if re.search(r'\b(high\s*school|diploma|ged)\b', lower, re.I):
+        return "Unknown"
+
+    # 2. Try canonical resolution via existing DEGREE_MAP
     canonical = normalize_degree_deterministic(raw_degree)
 
     # If canonical matched in our group map, we're done
@@ -382,8 +423,7 @@ def standardize_degree(raw_degree: str) -> str:
         result = _DEGREE_GROUP_MAP[canonical]
     else:
         # Keyword fallback on the raw string
-        result = "Other"
-        lower = raw_degree.lower()
+        result = "Unknown"
         for pattern, group in _GROUP_KEYWORDS:
             if pattern.search(lower):
                 result = group
@@ -391,6 +431,10 @@ def standardize_degree(raw_degree: str) -> str:
 
     # Sanity check: "diploma" never belongs to Masters
     if result == "Masters" and re.search(r'\bdiploma\b', raw_degree, re.I):
+        return "Other"
+        
+    # User requested fallback to Other
+    if result == "Other":
         return "Other"
 
     return result

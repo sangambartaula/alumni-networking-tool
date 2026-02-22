@@ -819,8 +819,17 @@ class LinkedInScraper:
                 
                 # This could be "Company · Part-time" format
                 if text and not utils.DATE_RANGE_RE.search(text):
-                    # Clean up employment type suffix and doubled text
-                    company = _clean_doubled(self._clean_company(text))
+                    candidate_company = _clean_doubled(self._clean_company(text))
+                    from entity_classifier import is_location
+                    if is_location(candidate_company):
+                        parent_ul = container.find_parent('ul')
+                        if parent_ul:
+                            outer_container = parent_ul.find_parent('div', attrs={'data-view-name': 'profile-component-entity'})
+                            if outer_container:
+                                outer_title_elem = outer_container.select_one('.t-bold span[aria-hidden="true"]') or outer_container.select_one('.t-bold')
+                                if outer_title_elem:
+                                    candidate_company = _clean_doubled(self._clean_company(outer_title_elem.get_text(strip=True)))
+                    company = candidate_company
                     break
             
             # Dates: Look for pvs-entity__caption-wrapper or t-black--light

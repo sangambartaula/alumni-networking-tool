@@ -150,7 +150,7 @@ def standardize_major(raw_major: str, job_title: str = "") -> str:
             if canonical not in ("Other", "Other Engineering"):
                 if canonical != text:
                     logger.debug(f"Major standardized: \"{text}\" → \"{canonical}\"")
-                return canonical
+                return canonical.title()
             # Matched catch-all "engineering" — try LLM below
             break
             
@@ -160,12 +160,12 @@ def standardize_major(raw_major: str, job_title: str = "") -> str:
         llm_result = _standardize_major_with_llm(text, job_title)
         if llm_result in CANONICAL_MAJORS:
             logger.debug(f"Major standardized (LLM): \"{text}\" → \"{llm_result}\"")
-            return llm_result
+            return llm_result.title()
 
     # 3. No match — preserve raw value exactly as-is.
     #    Non-engineering fields (Business, General Studies, etc.)
     #    must not be silently mutated.
-    return text
+    return text.title()
 
 
 def _standardize_major_with_llm(raw_major: str, job_title: str) -> str:

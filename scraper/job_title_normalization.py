@@ -35,6 +35,7 @@ TITLE_MAP = {
     # ── Software Engineering (all variants → "Software Engineer") ──
     "software developer": "Software Engineer",
     "software dev": "Software Engineer",
+    "sde": "Software Engineer",
     "software engineer": "Software Engineer",
     "software engineer ii": "Software Engineer",
     "software engineer iii": "Software Engineer",
@@ -79,18 +80,18 @@ TITLE_MAP = {
     "scientific programmer": "Software Engineer",
 
     # ── Full Stack ──
-    "full stack developer": "Full Stack Engineer",
-    "full-stack developer": "Full Stack Engineer",
-    "fullstack developer": "Full Stack Engineer",
-    "full stack engineer": "Full Stack Engineer",
-    "full-stack engineer": "Full Stack Engineer",
-    "fullstack engineer": "Full Stack Engineer",
-    "full stack web developer": "Full Stack Engineer",
-    "full stack .net developer": "Full Stack Engineer",
-    "java full stack developer": "Full Stack Engineer",
-    "java fullstack developer": "Full Stack Engineer",
-    "sr. full stack java developer": "Full Stack Engineer",
-    "sr .net developer": "Full Stack Engineer",
+    "full stack developer": "Software Engineer",
+    "full-stack developer": "Software Engineer",
+    "fullstack developer": "Software Engineer",
+    "full stack engineer": "Software Engineer",
+    "full-stack engineer": "Software Engineer",
+    "fullstack engineer": "Software Engineer",
+    "full stack web developer": "Software Engineer",
+    "full stack .net developer": "Software Engineer",
+    "java full stack developer": "Software Engineer",
+    "java fullstack developer": "Software Engineer",
+    "sr. full stack java developer": "Software Engineer",
+    "sr .net developer": "Software Engineer",
 
     # ── Frontend / Backend / Web ──
     "frontend developer": "Frontend Engineer",
@@ -419,6 +420,16 @@ _SENIORITY_SUFFIX = re.compile(
     re.IGNORECASE,
 )
 
+# Rule 1: Remove Locations and Regional Markers
+_LOCATION_MARKERS = re.compile(
+    r'\s*[-–]\s*(?:Austin|Dallas|Fort Worth|Houston|San Antonio|Denton|Plano|Frisco|Irving|Arlington|Garland|Mesquite|Grand Prairie|McKinney|Carrollton|Richardson|Lewisville|Allen|Flower Mound|Little Elm|The Colony|Southlake)\s*$', 
+    re.IGNORECASE
+)
+_REGIONAL_MARKERS = re.compile(
+    r'\b(?:LATAM|Southwest Region|North America|EMEA|APAC|US|USA|Global|Regional|Midwest|Northeast|Southeast|West Coast|Central)\b',
+    re.IGNORECASE
+)
+
 
 def _cleanup_title(raw: str) -> str:
     """
@@ -426,15 +437,27 @@ def _cleanup_title(raw: str) -> str:
       - strip whitespace
       - collapse multiple spaces
       - remove trailing punctuation variants
+      - remove locations and regional markers
     Returns cleaned string (preserves original case for display).
     """
     if not raw:
         return ""
     t = raw.strip()
     t = re.sub(r'\s+', ' ', t)
-    # Remove trailing period, comma, dash
+    
+    # Remove locations (e.g., " - Austin")
+    t = _LOCATION_MARKERS.sub('', t).strip()
+    
+    # Remove regional markers (e.g., "LATAM")
+    t = _REGIONAL_MARKERS.sub('', t).strip()
+    
+    # Remove trailing punctuation variants
     t = re.sub(r'[.,\-]+$', '', t).strip()
-    return t
+    
+    # More aggressive location removal (e.g., "Director Operations - Austin")
+    t = re.sub(r'\s+[-–]\s+(?:Austin|Dallas|Fort Worth|Houston|San Antonio|Denton|Plano|Frisco|Irving|Arlington|Garland|Mesquite|Grand Prairie|McKinney|Carrollton|Richardson|Lewisville|Allen|Flower Mound|Little Elm|The Colony|Southlake)$', '', t, flags=re.IGNORECASE)
+    
+    return t.strip()
 
 
 def normalize_title_deterministic(raw_title: str) -> str:
