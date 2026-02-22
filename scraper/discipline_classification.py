@@ -12,7 +12,7 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Biomedical Engineering',
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
-    'Unknown'
+    'Other'
 ]
 
 # UNT College of Engineering (CENG) Official Major Mapping (Reference for classification)
