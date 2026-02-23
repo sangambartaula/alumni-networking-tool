@@ -461,11 +461,11 @@ class LinkedInScraper:
                         if best_wws == "currently":
                             break  # Can't get higher
 
-                # Fallback: TA/RA at own school implies working while studying
-                if best_wws in ("", "no"):
-                    if self._is_student_worker_at_school(all_experiences, data.get("school", "")):
-                        logger.debug("TA/RA heuristic: working while studying (student-worker at own school)")
-                        best_wws = "yes"
+                best_wws = self._apply_missing_dates_unt_ga_fallback(
+                    best_wws=best_wws,
+                    all_experiences=all_experiences,
+                    edu_entries=edu_entries,
+                )
 
                 data["working_while_studying"] = best_wws
             else:
@@ -501,12 +501,14 @@ class LinkedInScraper:
                                     if best_wws == "currently":
                                         break
 
-                            # Fallback: TA/RA at own school implies working while studying
-                            if best_wws in ("", "no"):
-                                school_name = unt_details.get("education", "")
-                                if self._is_student_worker_at_school(all_experiences, school_name):
-                                    logger.debug("TA/RA heuristic: working while studying (student-worker at own school)")
-                                    best_wws = "yes"
+                            fallback_edu_entries = list(edu_entries)
+                            if unt_details.get("education"):
+                                fallback_edu_entries.append({"school": unt_details.get("education", "")})
+                            best_wws = self._apply_missing_dates_unt_ga_fallback(
+                                best_wws=best_wws,
+                                all_experiences=all_experiences,
+                                edu_entries=fallback_edu_entries,
+                            )
 
                             data["working_while_studying"] = best_wws
                     else:
@@ -612,51 +614,90 @@ class LinkedInScraper:
             return None
 
     # ============================================================
-    # Student-Worker Heuristic
+    # Missing-date fallback (strict UNT + Graduate Assistant)
     # ============================================================
-    _STUDENT_WORKER_PATTERNS = re.compile(
-        r'\b('
-        r'teaching\s+assistant|research\s+assistant|graduate\s+assistant|'
-        r'graduate\s+research|graduate\s+teaching|'
-        r'lab\s+assistant|student\s+worker|student\s+assistant|'
-        r'student\s+employee|tutor|grader|'
-        r'resident\s+assistant|resident\s+advisor|'
-        r'\bta\b|\bra\b|\bga\b'
-        r')\b', re.IGNORECASE
-    )
+    _UNT_FULL_NAME_RE = re.compile(r'university\s+of\s+north\s+texas', re.IGNORECASE)
+    _UNT_TOKEN_RE = re.compile(r'\bunt\b', re.IGNORECASE)
 
-    def _is_student_worker_at_school(self, all_experiences, school_name):
-        """
-        Check if any experience is a student-worker role at the given school.
-        TA/RA/GA roles (Teaching/Research/Graduate Assistant) at one's own 
-        university imply that the individual was working while studying, 
-        even if the dates perfectly overlap with their education.
-        """
-        if not school_name or not all_experiences:
+    def _is_unt_school_name(self, name: str) -> bool:
+        if not name:
+            return False
+        return bool(self._UNT_FULL_NAME_RE.search(name) or self._UNT_TOKEN_RE.search(name))
+
+    def _is_unt_employer(self, raw_company: str) -> bool:
+        if not raw_company or not raw_company.strip():
             return False
 
-        school_lower = school_name.lower()
-        # Build flexible school matching tokens (e.g. "university of north texas" → match "north texas")
-        school_tokens = [t for t in school_lower.split() if t not in ('of', 'the', 'and', 'at', 'in')]
+        company = " ".join(raw_company.split())
+        if self._UNT_FULL_NAME_RE.search(company):
+            return True
+        if re.search(r'^\s*unt\s+', company, re.IGNORECASE):
+            return True
+        return bool(self._UNT_TOKEN_RE.search(company))
+
+    def _has_unt_education(self, edu_entries) -> bool:
+        if not edu_entries:
+            return False
+        for entry in edu_entries:
+            school_name = (entry or {}).get("school") or (entry or {}).get("education") or ""
+            if self._is_unt_school_name(school_name):
+                return True
+        return False
+
+    def _get_standardized_title(self, exp: dict) -> str:
+        standardized_title = (exp.get("standardized_title") or exp.get("normalized_title") or "").strip()
+        if standardized_title:
+            return standardized_title
+
+        if not _NORM_AVAILABLE:
+            return ""
+
+        raw_title = (exp.get("raw_title") or exp.get("title") or "").strip()
+        if not raw_title:
+            return ""
+
+        try:
+            return normalize_title_deterministic(raw_title) or ""
+        except Exception:
+            return ""
+
+    def _has_unt_graduate_assistant_experience(self, all_experiences) -> bool:
+        if not all_experiences:
+            return False
 
         for exp in all_experiences:
-            title = (exp.get("title") or "").lower()
-            company = (exp.get("company") or "").lower()
-
-            # Check if job title matches student-worker patterns
-            if not self._STUDENT_WORKER_PATTERNS.search(title):
+            standardized_title = self._get_standardized_title(exp)
+            if standardized_title != "Graduate Assistant":
                 continue
 
-            # Check if company matches the school
-            if school_lower in company or company in school_lower:
+            raw_company = exp.get("raw_company")
+            if raw_company is None:
+                raw_company = exp.get("company")
+            if not raw_company or not str(raw_company).strip():
+                continue
+
+            if self._is_unt_employer(str(raw_company)):
                 return True
-            # Fuzzy: check if most school name tokens appear in the company
-            if len(school_tokens) >= 2:
-                matching = sum(1 for t in school_tokens if t in company)
-                if matching >= len(school_tokens) * 0.6:
-                    return True
 
         return False
+
+    def _apply_missing_dates_unt_ga_fallback(self, best_wws: str, all_experiences, edu_entries) -> str:
+        """
+        Preserve all computable date-based outcomes.
+        Only when status is unknown ("") do we apply a strict fallback:
+        UNT education + Graduate Assistant (standardized) + UNT raw employer.
+        """
+        if best_wws != "":
+            return best_wws
+
+        if not self._has_unt_education(edu_entries):
+            return "no"
+
+        if self._has_unt_graduate_assistant_experience(all_experiences):
+            logger.debug("Missing-date fallback: UNT Graduate Assistant role detected")
+            return "yes"
+
+        return "no"
 
     # ============================================================
     # Parsing Methods
