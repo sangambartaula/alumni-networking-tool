@@ -1,10 +1,15 @@
 // heatmap_dual.js - Dual map system with both 2D Leaflet and 3D Cesium
 
 // Set Cesium Ion access token
-Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzciLCJpZCI6NTc3MzMsImlhdCI6MTYyNzg0NTE4Mn0.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk';
+if (window.Cesium && Cesium.Ion) {
+  Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzciLCJpZCI6NTc3MzMsImlhdCI6MTYyNzg0NTE4Mn0.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk';
+}
 
 let map2D;
 let map3D;
+let map3DInitialized = false;
+let map3DFailureNotified = false;
+window.map3DAvailable = true;
 let locationClusters = [];
 let currentMode = '2d'; // Start with 2D
 let markers2D = [];
@@ -18,6 +23,122 @@ let hiddenCompanies = new Set();
 // Track all available locations and companies for autocomplete
 let allLocations = new Set();
 let allCompanies = new Set();
+
+function showNotification(message, type = 'warning', timeout = 5000) {
+  const heatmapSection = document.querySelector('.heatmap-section') || document.body;
+  let container = document.querySelector('.map-notification-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'map-notification-container';
+    heatmapSection.appendChild(container);
+  }
+
+  const notice = document.createElement('div');
+  notice.className = `map-notification map-notification-${type}`;
+  notice.innerHTML = `
+    <span>${message}</span>
+    <button type="button" class="map-notification-close" aria-label="Close notification">&times;</button>
+  `;
+
+  const closeNotice = () => {
+    notice.classList.add('hiding');
+    setTimeout(() => {
+      if (notice.parentNode) notice.parentNode.removeChild(notice);
+    }, 160);
+  };
+
+  notice.querySelector('.map-notification-close')?.addEventListener('click', closeNotice);
+  container.appendChild(notice);
+  setTimeout(closeNotice, timeout);
+}
+
+function updateToggleActiveButton() {
+  const buttons = document.querySelectorAll('.view-mode-toggle .toggle-btn');
+  buttons.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === currentMode);
+  });
+}
+
+function update3DToggleAvailability() {
+  const button3D = document.querySelector('.view-mode-toggle [data-mode="3d"]');
+  if (!button3D) return;
+
+  if (!window.map3DAvailable) {
+    button3D.classList.add('unavailable');
+    button3D.setAttribute('aria-disabled', 'true');
+    button3D.title = '3D view not available (WebGL initialization failed).';
+  } else {
+    button3D.classList.remove('unavailable');
+    button3D.removeAttribute('aria-disabled');
+    button3D.title = 'Switch to 3D globe view';
+  }
+}
+
+function mark3DUnavailable(error, notifyUser = true) {
+  if (error) {
+    console.error('3D map initialization failed:', error);
+  }
+
+  if (map3D && typeof map3D.destroy === 'function') {
+    try {
+      if (!map3D.isDestroyed || !map3D.isDestroyed()) {
+        map3D.destroy();
+      }
+    } catch (destroyError) {
+      console.error('Error destroying failed 3D viewer instance:', destroyError);
+    }
+  }
+
+  map3D = null;
+  map3DInitialized = false;
+  window.map3DAvailable = false;
+  currentMode = '2d';
+
+  const map2DContainer = document.getElementById('map2DContainer');
+  const map3DContainer = document.getElementById('map3DContainer');
+  if (map2DContainer) map2DContainer.style.display = 'block';
+  if (map3DContainer) map3DContainer.style.display = 'none';
+
+  update3DToggleAvailability();
+  updateToggleActiveButton();
+
+  if (notifyUser && !map3DFailureNotified) {
+    showNotification('3D visualization unavailable. Using 2D map instead.', 'warning');
+    map3DFailureNotified = true;
+  }
+}
+
+function ensure3DMapInitialized() {
+  if (!window.map3DAvailable) return false;
+  if (map3DInitialized && map3D) return true;
+
+  if (!window.Cesium) {
+    mark3DUnavailable(new Error('Cesium failed to load.'));
+    return false;
+  }
+
+  const map3DContainer = document.getElementById('map3DContainer');
+  if (!map3DContainer) {
+    mark3DUnavailable(new Error('3D map container not found.'));
+    return false;
+  }
+
+  try {
+    initialize3DMap();
+    map3DInitialized = true;
+    window.map3DAvailable = true;
+    update3DToggleAvailability();
+
+    if (locationClusters.length > 0) {
+      reloadMapData();
+    }
+
+    return true;
+  } catch (error) {
+    mark3DUnavailable(error);
+    return false;
+  }
+}
 
 // localStorage helper functions
 function saveHiddenFiltersToStorage() {
@@ -178,10 +299,14 @@ function setupMapViewport() {
 document.addEventListener('DOMContentLoaded', () => {
   setupMapViewport();
   initialize2DMap();
-  initialize3DMap();
   add2D3DToggle();
   addLayerControls();
   addCustomFullscreenButton();
+
+  if (!window.Cesium) {
+    mark3DUnavailable(new Error('Cesium library not available.'));
+  }
+
   loadHeatmapData(); // Load data first, which will initialize filters
 });
 
@@ -384,30 +509,63 @@ function add2D3DToggle() {
   document.querySelector('.heatmap-section').appendChild(toggleDiv);
 
   const buttons = toggleDiv.querySelectorAll('.toggle-btn');
+  update3DToggleAvailability();
+  updateToggleActiveButton();
+
   buttons.forEach(btn => {
     btn.addEventListener('click', () => {
       const mode = btn.dataset.mode;
-
-      // Update active state
-      buttons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
       switchMapMode(mode);
+      updateToggleActiveButton();
     });
   });
 }
 
 // Switch between 2D and 3D maps
 function switchMapMode(mode) {
-  currentMode = mode;
-
   const map2DContainer = document.getElementById('map2DContainer');
   const map3DContainer = document.getElementById('map3DContainer');
   const cesiumToolbar = document.querySelector('.cesium-viewer-toolbar');
 
+  if (mode === '3d') {
+    if (!window.map3DAvailable) {
+      showNotification('3D view not supported on this browser. Staying on 2D map.', 'warning');
+      currentMode = '2d';
+      if (map2DContainer) map2DContainer.style.display = 'block';
+      if (map3DContainer) map3DContainer.style.display = 'none';
+      return false;
+    }
+
+    if (map2DContainer) map2DContainer.style.display = 'none';
+    if (map3DContainer) map3DContainer.style.display = 'block';
+
+    if (!ensure3DMapInitialized()) {
+      if (map2DContainer) map2DContainer.style.display = 'block';
+      if (map3DContainer) map3DContainer.style.display = 'none';
+      currentMode = '2d';
+      return false;
+    }
+
+    currentMode = '3d';
+
+    if (cesiumToolbar) {
+      cesiumToolbar.style.display = 'block';
+    }
+
+    setTimeout(() => {
+      if (map3D) {
+        map3D.resize();
+      }
+    }, 100);
+
+    return true;
+  }
+
+  currentMode = '2d';
+
   if (mode === '2d') {
-    map2DContainer.style.display = 'block';
-    map3DContainer.style.display = 'none';
+    if (map2DContainer) map2DContainer.style.display = 'block';
+    if (map3DContainer) map3DContainer.style.display = 'none';
 
     // Show Cesium fullscreen button for 2D mode too
     if (cesiumToolbar) {
@@ -416,24 +574,13 @@ function switchMapMode(mode) {
 
     // Refresh Leaflet map
     setTimeout(() => {
-      map2D.invalidateSize();
-    }, 100);
-  } else {
-    map2DContainer.style.display = 'none';
-    map3DContainer.style.display = 'block';
-
-    // Show Cesium fullscreen button for 3D mode
-    if (cesiumToolbar) {
-      cesiumToolbar.style.display = 'block';
-    }
-
-    // Refresh Cesium viewer
-    setTimeout(() => {
-      if (map3D) {
-        map3D.resize();
+      if (map2D) {
+        map2D.invalidateSize();
       }
     }, 100);
   }
+
+  return true;
 }
 
 // Toggle fullscreen for the entire heatmap section
@@ -517,6 +664,13 @@ function addLayerControls() {
         markers2D.forEach(marker => map2D.addLayer(marker));
 
       } else {
+        if (!map3DInitialized || !map3D) {
+          showNotification('3D layer controls are unavailable until 3D view initializes.', 'warning');
+          switchMapMode('2d');
+          updateToggleActiveButton();
+          return;
+        }
+
         // Switch 3D Cesium imagery
         map3D.imageryLayers.removeAll();
 
@@ -572,13 +726,17 @@ async function loadHeatmapData(url = '/api/heatmap') {
       map2D.removeLayer(heatLayer2D);
       heatLayer2D = null;
     }
-    entities3D.forEach(e => map3D.entities.remove(e));
+    if (window.map3DAvailable && map3D) {
+      entities3D.forEach(e => map3D.entities.remove(e));
+    }
     entities3D = [];
 
     // Add markers to both maps
     locationClusters.forEach(location => {
       add2DMarker(location);
-      add3DMarker(location);
+      if (window.map3DAvailable && map3D) {
+        add3DMarker(location);
+      }
     });
 
     // NEW: build 2D heatmap layer (weather-style)
@@ -636,6 +794,8 @@ function add2DMarker(location) {
 
 // Add marker to 3D Cesium map
 function add3DMarker(location) {
+  if (!window.map3DAvailable || !map3D) return;
+
   const entity = map3D.entities.add({
     name: location.location || 'Unknown Location',
     position: Cesium.Cartesian3.fromDegrees(location.longitude, location.latitude, 0),
@@ -783,19 +943,21 @@ function resetContinent() {
   if (currentMode === '2d') {
     // Reset 2D map
     map2D.setView([20, 0], 2);
-  } else {
+  } else if (map3DInitialized && map3D) {
     // Return to default Earth view in 3D
-    if (map3D) {
-      map3D.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
-        orientation: {
-          heading: 0.0,
-          pitch: Cesium.Math.toRadians(-90),
-          roll: 0.0
-        },
-        duration: 2
-      });
-    }
+    map3D.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
+      orientation: {
+        heading: 0.0,
+        pitch: Cesium.Math.toRadians(-90),
+        roll: 0.0
+      },
+      duration: 2
+    });
+  } else {
+    showNotification('3D view is unavailable. Showing 2D map.', 'warning');
+    switchMapMode('2d');
+    updateToggleActiveButton();
   }
 }
 
@@ -813,7 +975,7 @@ function filterByContinent(continentName) {
 
   if (currentMode === '2d' && bounds[continentName]) {
     map2D.fitBounds(bounds[continentName]);
-  } else if (currentMode === '3d' && bounds[continentName]) {
+  } else if (currentMode === '3d' && bounds[continentName] && map3DInitialized && map3D) {
     const [[minLat, minLng], [maxLat, maxLng]] = bounds[continentName];
     const centerLat = (minLat + maxLat) / 2;
     const centerLng = (minLng + maxLng) / 2;
@@ -822,6 +984,10 @@ function filterByContinent(continentName) {
       destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat, 5000000),
       duration: 2
     });
+  } else if (currentMode === '3d') {
+    showNotification('3D view is unavailable. Showing 2D map.', 'warning');
+    switchMapMode('2d');
+    updateToggleActiveButton();
   }
 }
 
@@ -972,11 +1138,16 @@ function addCustomFullscreenButton() {
 function zoomToLocation(loc) {
   if (currentMode === '2d') {
     map2D.setView([loc.latitude, loc.longitude], 8);
-  } else {
+  } else if (map3DInitialized && map3D) {
     map3D.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(loc.longitude, loc.latitude, 2000000),
       duration: 2
     });
+  } else {
+    showNotification('3D view is unavailable. Showing 2D map.', 'warning');
+    switchMapMode('2d');
+    updateToggleActiveButton();
+    map2D.setView([loc.latitude, loc.longitude], 8);
   }
 }
 
@@ -987,11 +1158,16 @@ function zoomToSearchLocation(item) {
 
   if (currentMode === '2d') {
     map2D.setView([lat, lon], 8);
-  } else {
+  } else if (map3DInitialized && map3D) {
     map3D.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(lon, lat, 2000000),
       duration: 2
     });
+  } else {
+    showNotification('3D view is unavailable. Showing 2D map.', 'warning');
+    switchMapMode('2d');
+    updateToggleActiveButton();
+    map2D.setView([lat, lon], 8);
   }
 }
 
@@ -1492,10 +1668,12 @@ function reloadMapData() {
     }
 
     entities3D.forEach(e => {
-      try {
-        map3D.entities.remove(e);
-      } catch (e) {
-        console.error('Error removing 3D entity:', e);
+      if (window.map3DAvailable && map3D) {
+        try {
+          map3D.entities.remove(e);
+        } catch (e) {
+          console.error('Error removing 3D entity:', e);
+        }
       }
     });
     entities3D = [];
@@ -1517,7 +1695,9 @@ function reloadMapData() {
     filteredLocations.forEach(location => {
       try {
         add2DMarker(location);
-        add3DMarker(location);
+        if (window.map3DAvailable && map3D) {
+          add3DMarker(location);
+        }
       } catch (e) {
         console.error('Error adding marker:', e);
       }
