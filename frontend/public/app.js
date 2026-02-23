@@ -17,14 +17,11 @@ const fakeAlumni = [
   { id: 5, name: "Abishek Lamichhane", role: "Cloud Architect", company: "Global Cloud Services", class: 2022, location: "Remote", linkedin: "https://www.linkedin.com/in/abishek-lamichhane-b21ab6330/" },
 ];
 
-// Store user interactions in memory
+// State and configuration
 let userInteractions = {};
-
-// Pagination state
 let currentPage = 1;
 const itemsPerPage = 20;
 
-// DOM references
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
@@ -66,7 +63,12 @@ function updateBookmarkCount() {
   if (bookmarkedCountEl) bookmarkedCountEl.textContent = bookmarkedCount;
 }
 
-// ===== NOTES MODAL CLASS =====
+/**
+ * Modal for managing alumni notes.
+ * Uses an optimistic UI pattern: updates local cache (notesStatusCache) 
+ * immediately upon successful save to ensure responsive UI feeding back
+ * into the main list's note indicators.
+ */
 class NotesModal {
   constructor() {
     this.modal = null;
@@ -172,7 +174,6 @@ class NotesModal {
   }
 }
 
-// Initialize notes modal
 const notesModal = new NotesModal();
 
 // ===== NOTES CACHING & OPTIMIZATION =====
@@ -201,6 +202,11 @@ async function fetchNoteStatus(id, btn) {
   }
 }
 
+/**
+ * Lazy-loads note status as list items enter the viewport.
+ * This prevents firing hundreds of API calls for the entire alumni list at once,
+ * significantly improving initial load performance and reducing server load.
+ */
 const notesObserver = new IntersectionObserver((entries, observer) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
@@ -212,7 +218,6 @@ const notesObserver = new IntersectionObserver((entries, observer) => {
   });
 });
 
-// Load user interactions from backend
 async function loadUserInteractions() {
   try {
     const response = await fetch('/api/user-interactions');
@@ -233,7 +238,6 @@ async function loadUserInteractions() {
   }
 }
 
-// Save interaction to backend
 async function saveInteraction(alumniId, interactionType, notes = '') {
   try {
     const response = await fetch('/api/interaction', {
@@ -264,7 +268,6 @@ async function saveInteraction(alumniId, interactionType, notes = '') {
   }
 }
 
-// Remove interaction from backend
 async function removeInteraction(alumniId, interactionType) {
   try {
     const response = await fetch('/api/interaction', {
@@ -388,7 +391,6 @@ function createListItem(p) {
   return item;
 }
 
-// Render list to grid
 function renderProfiles(list) {
   // Get paginated subset
   const paginatedList = getPaginated(list);
@@ -508,7 +510,11 @@ function createPageButton(pageNum, fullList) {
   return btn;
 }
 
-// Populate filters (location, role, company, major, graduation, degree)
+/**
+ * Dynamically builds the multi-select filter UI based on the actual 
+ * data returned from the API. This ensures that only relevant options 
+ * (e.g., existing companies or locations) are shown to the user.
+ */
 function populateFilters(list) {
   // Helper to filter out bad values
   const isValid = val => val && !['Unknown', 'Not Found', 'N/A'].includes(val);
@@ -701,6 +707,14 @@ function setupFiltering(list) {
     return name;
   }
 
+  /**
+   * The core search/filter engine.
+   * Logic:
+   * 1. Collects state from all checkboxes, inputs, and sort toggles.
+   * 2. Filters the master list based on combined criteria (AND logic).
+   * 3. Sorts the result.
+   * 4. Triggers re-render of paginated cards.
+   */
   function apply() {
     const f = getFilters();
     const filtered = list.filter(a => {

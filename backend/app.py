@@ -10,7 +10,6 @@ from geocoding import geocode_location
 
 load_dotenv()
 
-#app = Flask(__name__)
 app = Flask(
     __name__,
     static_folder="../frontend/public",
@@ -20,14 +19,17 @@ app = Flask(
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
 
 # Development toggle: set DISABLE_DB=1 in .env to skip all DB work (useful when RDS is down)
+# This allows the backend to serve the frontend and static assets even without a database.
 DISABLE_DB = os.getenv("DISABLE_DB", "0") == "1"
 app.logger.info(f"DISABLE_DB = {DISABLE_DB}")
 
 # SQLite fallback toggle: set USE_SQLITE_FALLBACK=1 to enable local SQLite backup
+# This enables a "hybrid" mode where the app uses a local SQLite database if the
+# remote MySQL database is unreachable.
 USE_SQLITE_FALLBACK = os.getenv('USE_SQLITE_FALLBACK', '1') == '1'
 app.logger.info(f"USE_SQLITE_FALLBACK = {USE_SQLITE_FALLBACK}")
 
-# MySQL credentials (kept for reference; connections use get_connection())
+# MySQL configuration (connections use get_connection())
 mysql_host = os.getenv('MYSQLHOST')
 mysql_user = os.getenv('MYSQLUSER')
 mysql_pass = os.getenv('MYSQLPASSWORD')
@@ -41,7 +43,9 @@ REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
 
 # ---------------------- Access Control Configuration ----------------------
 
-# Authorized email domains (faculty only - NOT @my.unt.edu students)
+# Authorized email domains (faculty only)
+# We restrict access to official faculty/staff emails to ensure ONLY authorized
+# university personnel can view the networking tool's data.
 AUTHORIZED_DOMAINS = ['@unt.edu']
 
 def is_authorized_user(email):
@@ -102,7 +106,9 @@ APPROVED_ENGINEERING_DISCIPLINES = [
 def classify_degree(degree_field, headline=''):
     """
     Classify degree into Undergraduate / Graduate / PhD.
-    Checks degree field first, falls back to headline keywords.
+    Checks degree field first, then falls back to headline keywords.
+    This is necessary because LinkedIn data is often unstructured; some users
+    put their degree in their headline rather than the education section.
     Returns the level string or None if unclassifiable.
     """
     degree_lower = (degree_field or '').lower()
@@ -126,15 +132,18 @@ def classify_degree(degree_field, headline=''):
     return None
 
 
-# ---- Heatmap cache ----
+# =============================================================================
+# HEATMAP CACHE
+# =============================================================================
 import time as _time
 _heatmap_cache = {}  # key: continent_filter -> {"data": ..., "ts": ...}
 _HEATMAP_CACHE_TTL = 60  # seconds
 
 
 def get_current_user_id():
-    """Get the current logged-in user's DB id from LinkedIn profile.
-       In dev (DISABLE_DB=1), return a stable placeholder id from session.
+    """
+    Get the current logged-in user's database ID.
+    In development mode (DISABLE_DB=1), returns a stable placeholder ID.
     """
     if 'linkedin_profile' not in session:
         return None
@@ -223,13 +232,15 @@ def login_linkedin():
     state = secrets.token_urlsafe(16)  # random string for CSRF protection
     session['oauth_state'] = state
 
-    # Use OpenID Connect scopes to get profile and email
+    # Use OpenID Connect scopes to get profile and email.
+    # 'openid' is required for the OIDC flow, and 'profile'/'email' grant
+    # access to the user's basic identification and contact info.
     scope = 'openid profile email'
 
     auth_url = (
         f"https://www.linkedin.com/oauth/v2/authorization?"
         f"response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-        f"&scope={scope}&state={state}&prompt=login"  # force login each time for demonstration
+        f"&scope={scope}&state={state}&prompt=login"
     )
     return redirect(auth_url)
 
@@ -239,7 +250,9 @@ def linkedin_callback():
     code = request.args.get('code')
     state = request.args.get('state')
 
-    # Verify state to prevent CSRF
+    # Verify state to prevent CSRF (Cross-Site Request Forgery).
+    # We compare the 'state' returned by LinkedIn with the one we stored
+    # in the session before the redirect.
     if state != session.get('oauth_state'):
         return "Error: State mismatch. Potential CSRF attack.", 400
 
@@ -272,16 +285,16 @@ def linkedin_callback():
     session['linkedin_profile'] = linkedin_profile
 
     # ---- ACCESS CONTROL: Check if user is authorized ----
+    # After obtaining the email from LinkedIn, we verify it against our
+    # domain and whitelist rules before allowing a session to be established.
     user_email = linkedin_profile.get('email')
     if not is_authorized_user(user_email):
-        app.logger.warning(f"Unauthorized access attempt by: {user_email}")
+        app.logger.warning(f"⚠️ Unauthorized access attempt by: {user_email}")
         session.clear()  # Clear session to prevent any access
         return redirect('/access-denied')
     # ------------------------------------------------------
 
-    # ---- DEV BYPASS: skip DB completely if disabled ----
     if DISABLE_DB:
-        app.logger.info("DB BYPASS active; redirecting to /alumni")
         return redirect('/alumni')
 
     # ----------------------------------------------------
@@ -307,7 +320,7 @@ def linkedin_callback():
             ))
             conn.commit()
     except Exception as e:
-        app.logger.error(f"Error saving user to database: {e}")
+        app.logger.error(f"❌ Error saving user to database: {e}")
         # Let user proceed even if DB write failed
     finally:
         if conn:
@@ -348,7 +361,9 @@ def serve_heatmap_css():
 @api_login_required
 def add_interaction():
     """
-    Add or update a user interaction (bookmarked, connected)
+    Add or update a user interaction (bookmarked, connected).
+    This tracks which alumni a user has engaged with, allowing for
+    personalized relationship management within the tool.
     Body:
     { "alumni_id": 123, "interaction_type": "bookmarked"|"connected", "notes": "..." }
     """
@@ -404,14 +419,17 @@ def add_interaction():
                 conn.rollback()
             except Exception:
                 pass
+            app.logger.error(f"❌ Database error adding interaction: {err}")
             return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     except Exception as e:
+        app.logger.error(f"❌ Server error adding interaction: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
@@ -466,14 +484,17 @@ def remove_interaction():
                 conn.rollback()
             except Exception:
                 pass
+            app.logger.error(f"❌ Database error removing interaction: {err}")
             return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     except Exception as e:
+        app.logger.error(f"❌ Server error removing interaction: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
@@ -528,13 +549,18 @@ def get_user_interactions():
                     interaction['updated_at'] = updated_at.isoformat()
 
             return jsonify({"success": True, "interactions": interactions}), 200
+        except Exception as err:
+            app.logger.error(f"❌ Database error getting user interactions: {err}")
+            return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     except Exception as e:
+        app.logger.error(f"❌ Server error getting user interactions: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
@@ -542,9 +568,7 @@ def get_user_interactions():
 @app.route('/api/alumni', methods=['GET'])
 def api_get_alumni():
     """
-    Return a list of alumni from the database.
-    Query params: limit (default: all records), offset (default 0)
-    NOTE: Public endpoint - no authentication required
+    Fetch all alumni from the database with pagination support.
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
@@ -618,17 +642,21 @@ def api_get_alumni():
                 })
 
             return jsonify({"success": True, "alumni": alumni}), 200
+        except Exception as err:
+            app.logger.error(f"❌ Database error fetching alumni: {err}")
+            return jsonify({"error": f"Database error: {str(err)}"}), 500
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     except mysql.connector.Error as err:
-        app.logger.error(f"MySQL error fetching alumni: {err}")
+        app.logger.error(f"❌ MySQL error fetching alumni: {err}")
         return jsonify({"error": f"Database error: {str(err)}"}), 500
     except Exception as e:
-        app.logger.error(f"Error fetching alumni: {e}")
+        app.logger.error(f"❌ Error fetching alumni: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
@@ -691,14 +719,18 @@ def get_notes(alumni_id):
                 }), 200
             else:
                 return jsonify({"success": True, "note": None}), 200
+        except Exception as err:
+            app.logger.error(f"❌ Database error getting notes for alumni {alumni_id}: {err}")
+            return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         
     except Exception as e:
-        app.logger.error(f"Error getting notes: {e}")
+        app.logger.error(f"❌ Error getting notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -764,14 +796,18 @@ def get_all_notes():
                 "notes": notes_by_alumni,
                 "count": len(notes_by_alumni)
             }), 200
+        except Exception as err:
+            app.logger.error(f"❌ Database error getting all notes: {err}")
+            return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         
     except Exception as e:
-        app.logger.error(f"Error getting all notes: {e}")
+        app.logger.error(f"❌ Error getting all notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -843,15 +879,17 @@ def save_notes(alumni_id):
                 conn.rollback()
             except Exception:
                 pass
+            app.logger.error(f"❌ Database error saving notes for alumni {alumni_id}: {err}")
             return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         
     except Exception as e:
-        app.logger.error(f"Error saving notes: {e}")
+        app.logger.error(f"❌ Error saving notes: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

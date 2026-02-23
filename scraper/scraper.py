@@ -24,7 +24,6 @@ from groq_extractor_education import extract_education_with_groq
 from groq_client import is_groq_available, parse_groq_date, _clean_doubled
 from utils import determine_work_study_status
 
-# Normalization imports (now local to scraper)
 try:
     from job_title_normalization import normalize_title_deterministic, normalize_title_with_groq
     from company_normalization import normalize_company_deterministic, normalize_company_with_groq
@@ -66,6 +65,16 @@ def normalize_scraped_data(data):
     return data
 
 class LinkedInScraper:
+    """
+    Core scraper class for navigating LinkedIn and extracting alumni data.
+    
+    Design Strategy:
+    1. Persistent Sessions: Uses cookie-based login to avoid frequent auth hurdles.
+    2. Resilience: Implements multiple fallbacks (Groq LLM -> CSS Selectors -> Top Card)
+       to handle LinkedIn's frequent UI A/B testing and layout shifts.
+    3. Performance: Uses headless mode and minimal waits where safe, but prioritizes
+       human-like behavior (random delays, scrolling) to avoid rate limits.
+    """
     def __init__(self):
         self.driver = None
         self.wait = None
@@ -83,11 +92,11 @@ class LinkedInScraper:
         chrome_options.add_argument("--start-maximized")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        # Blocks some automated detection
+        # Blocks some automated detection by disabling the 'navigator.webdriver' flag.
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 
         self.driver = webdriver.Chrome(options=chrome_options)
-        self.wait = WebDriverWait(self.driver, 10) # Reduced global wait
+        self.wait = WebDriverWait(self.driver, 10)
         logger.info("✓ WebDriver initialized")
 
     def _load_cookies(self):
@@ -166,7 +175,9 @@ class LinkedInScraper:
     # ============================================================
     def scroll_full_page(self):
         """
-        Updated to be faster and more reliable using window.scrollBy
+        Faster and more reliable scroll using window.scrollBy.
+        This is critical for LinkedIn because many profile sections (like Education
+        and Experience) are lazy-loaded and only appear in the DOM when scrolled into view.
         """
         logger.debug("Scrolling page...")
         try:
@@ -232,10 +243,7 @@ class LinkedInScraper:
         return False
 
     def _wait_for_education_ready(self, timeout=15):
-        """
-        Wait for Education section. 
-        Reduced timeout to 15s to fail faster if missing.
-        """
+        """Wait for the Education section to become available."""
         end = time.time() + timeout
         while time.time() < end:
             try:
@@ -313,10 +321,12 @@ class LinkedInScraper:
 
             # Check if page/profile no longer exists
             if self._page_not_found():
-                logger.warning(f"⚠️ PAGE NOT FOUND: {profile_url} — this profile may have been removed or the URL changed.")
+                logger.warning(f"⚠️ PAGE NOT FOUND: {profile_url}")
                 return "PAGE_NOT_FOUND"
 
-            # Capture canonical URL (LinkedIn may redirect vanity → generated or vice versa)
+            # Capture canonical URL (LinkedIn may redirect vanity → generated or vice versa).
+            # We track redirects to ensure that we don't treat identical profiles
+            # with different URL formats as separate entities in our database.
             canonical_url = self.driver.current_url.split("?")[0].rstrip("/")
             if canonical_url != profile_url.rstrip("/"):
                 logger.info(f"URL redirect: {profile_url} → {canonical_url}")
@@ -375,7 +385,10 @@ class LinkedInScraper:
                     data[f"exp{i}_company"] = ""
                     data[f"exp{i}_dates"] = ""
 
-            # 5. Education — Try Groq first, CSS fallback
+            # 5. Education — Try Groq first, CSS fallback.
+            # We prioritize Groq for education because it can intelligently separate
+            # degree from major and parse inconsistent date formats that CSS alone 
+            # often misses or mangles.
             edu_entries = []
 
             if is_groq_available():
@@ -547,7 +560,7 @@ class LinkedInScraper:
                         if extracted_deg:
                             raw_deg = extracted_deg
                             raw_maj = cleaned_maj
-                            logger.info(f"    ✓ Extracted hidden degree '{extracted_deg}' from major field.")
+                            logger.info(f"✓ Extracted hidden degree '{extracted_deg}' from major field.")
 
                     if raw_deg:
                         std_deg = standardize_degree(raw_deg)
@@ -614,7 +627,9 @@ class LinkedInScraper:
     def _is_student_worker_at_school(self, all_experiences, school_name):
         """
         Check if any experience is a student-worker role at the given school.
-        TA/RA/GA roles at one's own university imply working while studying.
+        TA/RA/GA roles (Teaching/Research/Graduate Assistant) at one's own 
+        university imply that the individual was working while studying, 
+        even if the dates perfectly overlap with their education.
         """
         if not school_name or not all_experiences:
             return False
@@ -781,7 +796,7 @@ class LinkedInScraper:
                         return parsed[:max_entries]
                         
             except Exception as e:
-                logger.warning(f"    ⚠️ Groq extraction failed: {e}, falling back to CSS extraction")
+                logger.warning(f"Groq extraction failed: {e}")
         
         # ============================================================
         # APPROACH 1: Direct CSS selector extraction (LinkedIn's structure)

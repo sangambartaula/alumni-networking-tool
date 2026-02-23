@@ -3,8 +3,10 @@ import os
 import json
 from typing import Optional, List, Tuple
 
-# Approved engineering disciplines (only these will appear in the filter)
-# Rule 2: "Unknown" is the catch-all.
+# Approved engineering disciplines (only these will appear in the filter).
+# Rule: Any profile that doesn't fit these categories or is identified as 
+# non-engineering is mapped to 'Other' to maintain a clean, professional filter list
+# while ensuring no alumni are excluded from the database entirely.
 APPROVED_ENGINEERING_DISCIPLINES = [
     'Software, Data & AI Engineering',
     'Embedded, Electrical & Hardware Engineering',
@@ -12,7 +14,7 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Biomedical Engineering',
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
-    'Unknown'
+    'Other'
 ]
 
 # UNT College of Engineering (CENG) Official Major Mapping (Reference for classification)
@@ -166,7 +168,7 @@ def _infer_discipline_with_llm(text: str, job_title_unused: str = "", headline_u
         
         CRITICAL RULES:
         1. "Major-priority": Use the UNT CENG major mapping above as the PRIMARY source of truth. 
-        2. If the info is blank or non-engineering (e.g., Business, Arts, Political Science, Biology, Chemistry), YOU MUST pick "Unknown".
+        2. If the info is blank or non-engineering (e.g., Business, Arts, Political Science, Biology, Chemistry), YOU MUST pick "Other".
         4. "Systems" rule: Only map "Systems" to "Software, Data & AI Engineering" if it is "Information Systems", "Computer Systems", or "Cybersecurity Systems". "Engineering Systems" usually maps to "Mechanical & Energy Engineering" if it relates to Manufacturing/Industrial.
         
         Current Data Piece to Classify:

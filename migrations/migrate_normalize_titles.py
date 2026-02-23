@@ -51,7 +51,7 @@ def run_migration():
     try:
         with conn.cursor(dictionary=True) as cur:
             # Step 1: Get all distinct raw titles
-            logger.info("\n📋 Step 1: Fetching distinct job titles...")
+            logger.info("\nStep 1: Fetching distinct job titles...")
             cur.execute("""
                 SELECT DISTINCT current_job_title
                 FROM alumni
@@ -63,7 +63,7 @@ def run_migration():
             logger.info(f"   Found {len(raw_titles)} distinct raw titles")
 
             # Step 2: Normalize each title and insert into lookup table
-            logger.info("\n🔄 Step 2: Normalizing titles...")
+            logger.info("\nStep 2: Normalizing titles...")
             norm_map = {}  # raw -> normalized
             inserted = 0
             for raw in raw_titles:
@@ -97,7 +97,7 @@ def run_migration():
             logger.info(f"   {inserted} new normalized titles inserted")
 
             # Step 3: Fetch all normalized title IDs
-            logger.info("\n🔗 Step 3: Linking alumni to normalized titles...")
+            logger.info("\nStep 3: Linking alumni to normalized titles...")
             cur.execute("SELECT id, normalized_title FROM normalized_job_titles")
             norm_rows = cur.fetchall()
             title_to_id = {r['normalized_title']: r['id'] for r in norm_rows}
@@ -131,7 +131,7 @@ def run_migration():
                 logger.info(f"   Skipped {skipped} titles (no normalized mapping)")
 
             # Step 5: Report coverage
-            logger.info("\n📊 Step 5: Coverage report...")
+            logger.info("\nStep 5: Coverage report...")
             cur.execute("SELECT COUNT(*) as total FROM alumni")
             total = cur.fetchone()['total']
             cur.execute("SELECT COUNT(*) as linked FROM alumni WHERE normalized_job_title_id IS NOT NULL")

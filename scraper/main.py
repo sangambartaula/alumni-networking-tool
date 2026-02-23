@@ -30,6 +30,11 @@ from defense.navigator import SafeNavigator
 # Resume / Scrape State
 # ============================================================
 def load_scrape_state():
+    """
+    Load the last known scrape position (search URL and page number).
+    This allows the scraper to resume from where it left off after an
+    intentional exit or a crash, preventing redundant scraping of early pages.
+    """
     manager = get_connection_manager()
     conn = manager.get_sqlite_connection()
     try:
@@ -128,10 +133,11 @@ def _save_and_track(data, input_url, history_mgr):
     """
     Save profile to CSV, handling canonical URL dedup.
     
-    If LinkedIn redirected input_url → canonical_url:
-      - Mark both URLs in history so neither is re-visited
-      - The CSV's drop_duplicates(subset=['linkedin_url'], keep='last')
-        naturally replaces any older entry with the same canonical URL
+    LinkedIn often uses multiple URLs for the same profile (vanity vs ID-based).
+    If redirected input_url → canonical_url:
+      - We mark both URLs in history so neither is re-visited.
+      - The CSV utility uses drop_duplicates to replace older entries 
+        sharing the same canonical URL with the latest data.
     """
     if not data or data == "PAGE_NOT_FOUND":
         return False
@@ -179,7 +185,7 @@ def run_names_mode(scraper, nav, history_mgr):
 
         ok = nav.get(search_url)
         if not ok:
-            logger.warning("⚠️ Search page unhealthy. Skipping this name and continuing.")
+            logger.warning("⚠️ Search page unhealthy. Skipping this name.")
             continue
 
         time.sleep(5)
@@ -196,8 +202,7 @@ def run_names_mode(scraper, nav, history_mgr):
             if history_mgr.should_skip(url):
                 continue
 
-            # NOTE: We are NOT changing core logic.
-            # scrape_profile_page likely handles its own navigation.
+            # NOTE: scrape_profile_page likely handles its own navigation.
             data = scraper.scrape_profile_page(url)
 
             if data == "PAGE_NOT_FOUND":
@@ -228,7 +233,7 @@ def run_search_mode(scraper, nav, history_mgr):
 
         ok = nav.get(url)
         if not ok:
-            logger.warning("⚠️ Search page unhealthy. Stopping search loop to avoid repeated failures.")
+            logger.warning("Search page unhealthy. Stopping search loop.")
             break
 
         time.sleep(5)
@@ -248,8 +253,7 @@ def run_search_mode(scraper, nav, history_mgr):
             if history_mgr.should_skip(profile_url):
                 continue
 
-            # NOTE: We are NOT changing core logic.
-            # scrape_profile_page likely handles its own navigation.
+            # NOTE: scrape_profile_page likely handles its own navigation.
             data = scraper.scrape_profile_page(profile_url)
 
             if data == "PAGE_NOT_FOUND":
