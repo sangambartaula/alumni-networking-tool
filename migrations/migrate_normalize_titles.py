@@ -19,15 +19,18 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent / 'backend'
 sys.path.insert(0, str(BACKEND_DIR))
 
-from dotenv import load_dotenv
-
-# Load .env from project root
-env_path = Path(__file__).resolve().parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)
-
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+try:
+    from dotenv import load_dotenv
+    # Load .env from project root
+    env_path = Path(__file__).resolve().parent.parent / '.env'
+    load_dotenv(dotenv_path=env_path)
+except ImportError:
+    logger.warning("dotenv not installed - skipping .env load (assuming environments are already set)")
+
 
 from database import get_connection, init_db, ensure_normalized_job_title_column
 from job_title_normalization import normalize_title_deterministic
