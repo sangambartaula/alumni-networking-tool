@@ -1138,90 +1138,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const alumni = sourceData.find(a => String(a.id) === alumniId);
 
         if (alumni) {
-          showProfileModal(alumni);
+          // Use the reusable profile detail modal instead of old inline modal
+          if (typeof profileDetailModal !== 'undefined') {
+            profileDetailModal.open(alumni, btn);
+          }
         }
       }
     });
   }
 });
 
-// Show full profile modal
-// Show full profile modal with EDIT capability
+// Show full profile modal — delegates to the reusable ProfileDetailModal
 function showProfileModal(alumni) {
-  // Check if profile modal exists, if not create it
-  let profileModal = document.getElementById('profileModal');
-  if (!profileModal) {
-    profileModal = document.createElement('div');
-    profileModal.id = 'profileModal';
-    profileModal.className = 'modal profile-modal';
-    profileModal.innerHTML = `
-      <div class="modal-overlay"></div>
-      <div class="modal-content modal-large">
-        <div class="modal-header">
-          <h2 id="profileModalTitle">Alumni Profile</h2>
-          <button id="closeProfileModalBtn" class="close-modal-btn">✕</button>
-        </div>
-        <div class="modal-body" id="profileModalBody"></div>
-        <div class="modal-footer">
-          <a id="profileLinkedInBtn" class="btn primary" href="#" target="_blank" rel="noopener noreferrer">
-            View on LinkedIn
-          </a>
-          <button id="closeProfileBtn" class="btn secondary">Close</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(profileModal);
-
-    // Add event listeners
-    profileModal.querySelector('.modal-overlay').addEventListener('click', closeProfileModal);
-    profileModal.querySelector('#closeProfileModalBtn').addEventListener('click', closeProfileModal);
-    profileModal.querySelector('#closeProfileBtn').addEventListener('click', closeProfileModal);
+  if (typeof profileDetailModal !== 'undefined') {
+    profileDetailModal.open(alumni, null);
   }
-
-  const body = profileModal.querySelector('#profileModalBody');
-  const linkedinBtn = profileModal.querySelector('#profileLinkedInBtn');
-
-  // Update LinkedIn button
-  const linkedinUrl = alumni.linkedin || alumni.linkedin_url;
-  if (linkedinUrl) {
-    linkedinBtn.href = linkedinUrl;
-    linkedinBtn.style.display = 'inline-flex';
-  } else {
-    linkedinBtn.style.display = 'none';
-  }
-
-  // Render content
-  body.innerHTML = `
-    <div class="profile-grid">
-      <div class="profile-section">
-        <h3>📋 Basic Information</h3>
-        <div class="profile-field"><span class="label">Name:</span> <span class="value">${alumni.name || 'N/A'}</span></div>
-        <div class="profile-field"><span class="label">Headline:</span> <span class="value">${alumni.headline || 'N/A'}</span></div>
-        <div class="profile-field"><span class="label">Location:</span> <span class="value">${alumni.location || 'N/A'}</span></div>
-      </div>
-      
-      <div class="profile-section">
-        <h3>🎓 Education</h3>
-        <div class="profile-field"><span class="label">Education:</span> <span class="value">${alumni.education || 'University of North Texas'}</span></div>
-        <div class="profile-field"><span class="label">Major:</span> <span class="value">${alumni.major || 'N/A'}</span></div>
-        <div class="profile-field"><span class="label">Grad Year:</span> <span class="value">${alumni.grad_year || 'N/A'}</span></div>
-      </div>
-
-      <div class="profile-section">
-        <h3>💼 Current Position</h3>
-        <div class="profile-field"><span class="label">Job Title:</span> <span class="value">${alumni.current_job_title || 'N/A'}</span></div>
-        <div class="profile-field"><span class="label">Company:</span> <span class="value">${alumni.company || 'N/A'}</span></div>
-      </div>
-    </div>
-  `;
-
-  profileModal.classList.add('show');
 }
 
 function closeProfileModal() {
-  const modal = document.getElementById('profileModal');
-  if (modal) {
-    modal.classList.remove('show');
+  if (typeof profileDetailModal !== 'undefined') {
+    profileDetailModal.close();
   }
 }
 
