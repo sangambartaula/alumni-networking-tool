@@ -204,3 +204,56 @@ def strip_noise_elements(soup):
         c in x for c in ['visually-hidden', 'inline-show-more-text', 'artdeco-button__icon']
     )):
         tag.decompose()
+
+
+def verify_location(text: str) -> bool:
+    """
+    Use Groq to verify if a string is a valid geographic location.
+    
+    Returns:
+        True if it's a location, False otherwise.
+    """
+    client = _get_client()
+    if not client:
+        return False
+    
+    prompt = f"""
+    Determine if the following text is a valid geographic location (e.g., City, State, Country, or a Metro Area).
+    
+    Rules:
+    - Company names, university names, or job titles are NOT locations.
+    - If the text looks like a person's name or a fragment of a profile, it is NOT a location.
+    - Locations usually have the format "City, State, Country" or "Region Area".
+    
+    Text to evaluate: "{text}"
+    
+    Respond ONLY with a JSON object:
+    {{
+        "is_location": true or false,
+        "reason": "short explanation"
+    }}
+    """
+    
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a specialized geographic validation assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0
+        )
+        data = parse_groq_json_response(response.choices[0].message.content)
+        if data and isinstance(data, dict):
+            is_loc = data.get("is_location", False)
+            reason = data.get("reason", "")
+            if is_loc:
+                logger.debug(f"✅ Groq verified location: {text}")
+            else:
+                logger.debug(f"❌ Groq rejected location: {text} ({reason})")
+            return is_loc
+        return False
+    except Exception as e:
+        logger.warning(f"⚠️ Groq location verification failed: {e}")
+        return False

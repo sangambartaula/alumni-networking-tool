@@ -103,9 +103,12 @@ class EntityClassifier:
         
         # Company suffix pattern - these are NOT locations
         self.company_suffix_pattern = re.compile(
-            r',\s*(LLC|Inc\.?|Corp\.?|Ltd\.?|Co\.?|Company)$',
+            r',\s*(LLC|Inc\.?|Corp\.?|Ltd\.?|Co\.?|Company|Foundation|Institute|Solutions)$',
             re.I
         )
+        
+        # Location character blacklist (requested by user)
+        self.location_char_blacklist = re.compile(r"['\(\)]")
     
     def _load_company_database(self):
         """Load curated company database from JSON file."""
@@ -329,19 +332,43 @@ class EntityClassifier:
         return ("unknown", 0.3)
     
     def is_location(self, text: str) -> bool:
-        """Quick check if text looks like a location."""
+        """
+        Quick check if text looks like a location.
+        Stricter rules applied as per user request.
+        """
         if not text:
             return False
         
         text_clean = text.strip()
+        text_lower = text_clean.lower()
         
-        # "City, State/Country" pattern
+        # 1. Reject if contains blacklisted characters: () or '
+        if self.location_char_blacklist.search(text_clean):
+            return False
+            
+        # 2. Reject if contains university/foundation keywords (unless it's a known location name like "University Park" - rare for alumni)
+        location_keyword_blacklist = ["university", "college", "foundation", "institute", "school", "solutions", "technologies"]
+        if any(kw in text_lower for kw in location_keyword_blacklist):
+            # Exception for specific metroplex areas if needed
+            return False
+
+        # 3. Comma check (LinkedIn format: 0 commas or 2 commas usually)
+        # 0 commas: "United States", "India", "Remote"
+        # 2 commas: "Denton, Texas, United States"
+        # Others (like 1 comma "Denton, Texas") are also common in some views but less so in profile top card
+        comma_count = text_clean.count(',')
+        
+        # 4. Check against "City, State, Country" or "City, Country"
+        # We'll allow 0, 1, or 2 commas but reject > 2 as likely a company/title string
+        if comma_count > 2:
+            return False
+
+        # 5. "City, State/Country" pattern
         if self.city_state_pattern.match(text_clean):
             return True
         
-        # Check location keywords with high specificity
-        # Only return True if the ENTIRE text is a location, not just contains location words
-        text_lower = text_clean.lower()
+        # 6. Check location keywords with high specificity
+        # Only return True if the ENTIRE text is a location
         pure_locations = [
             "remote", "hybrid", "on-site", "onsite",
             "united states", "usa", "india", "canada", "uk", "germany", "australia",
@@ -349,20 +376,26 @@ class EntityClassifier:
         ]
         if text_lower in pure_locations:
             return True
-        
-        # spaCy check - DISABLED
-        # "Accela" was being classified as location by spaCy
-        # relying on explicit patterns is safer for scraper
-        # nlp = _get_nlp()
-        # if nlp:
-        #     doc = nlp(text_clean)
-        #     # If the entire text is recognized as a single GPE/LOC entity
-        #     for ent in doc.ents:
-        #         if ent.label_ in ("GPE", "LOC") and len(ent.text) >= len(text_clean) * 0.8:
-        #             return True
-        
+            
+        # 7. Check if it matches US States or common cities exactly
+        if self.location_patterns.fullmatch(text_clean):
+            return True
+
         return False
-        
+
+    def validate_location(self, text: str, use_groq: bool = False) -> bool:
+        """
+        Comprehensive location validation.
+        Uses heuristics first, then optionally Groq for unknown strings.
+        """
+        if self.is_location(text):
+            return True
+            
+        if not use_groq:
+            return False
+            
+        # Groq validation logic would go here or be called from scraper.py
+        # For now, we return result of heuristics
         return False
     
     def is_university(self, text: str) -> bool:

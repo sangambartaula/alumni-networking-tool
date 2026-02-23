@@ -18,7 +18,8 @@ import html
 import utils
 import config
 from config import logger, print_profile_summary
-from entity_classifier import classify_entity, is_location, is_university
+from entity_classifier import classify_entity, is_location, is_university, get_classifier
+from groq_client import is_groq_available, verify_location
 from groq_extractor_experience import extract_experiences_with_groq
 from groq_extractor_education import extract_education_with_groq
 from groq_client import is_groq_available, parse_groq_date, _clean_doubled
@@ -735,8 +736,17 @@ class LinkedInScraper:
             has_location_keyword = any(x in text_lower for x in ["metroplex", "area", "metro"])
             has_country = any(x in text_lower for x in ["united states", "india", "canada", "uk", "germany", "australia"])
             
-            if is_location_styled or has_comma or has_location_keyword or has_country:
-                if has_comma or has_location_keyword or has_country:  # Must still match a location pattern
+            # Use EntityClassifier for more robust check
+            classifier = get_classifier()
+            
+            if classifier.is_location(text):
+                location = text
+                break
+            
+            # If not obvious from heuristics, use Groq if available
+            if (is_location_styled or has_comma or has_country) and is_groq_available():
+                # Potential location, verify with Groq
+                if verify_location(text):
                     location = text
                     break
         
