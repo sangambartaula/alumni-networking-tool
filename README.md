@@ -46,6 +46,32 @@ A web-based application designed to help the College of Engineering connect with
 
 ---
 
+## Working While Studying Logic
+
+`working_while_studying` is computed with this order:
+
+1. Date-based logic first (existing behavior): compare graduation year/date context with job start/end context.
+2. Missing-date fallback (strict): only used when date-based status is not computable.
+3. Fallback returns `yes` only when all are true:
+   - At least one UNT education entry exists (`University of North Texas` or `UNT`)
+   - At least one experience normalizes to `Graduate Assistant`
+   - That experience employer is UNT (`University of North Texas`, `UNT Libraries`, etc.; `HUNT` does not match)
+4. Otherwise fallback returns `no`.
+
+### Retroactive backfill for existing records
+
+If you already have rows in the database from older logic, run:
+
+```bash
+python migrations/migrate_working_while_studying.py
+```
+
+This recomputes both:
+- `alumni.working_while_studying_status`
+- `alumni.working_while_studying`
+
+---
+
 ## Engineering Discipline Classification
 
 The system automatically classifies alumni into one of 7 categories.
@@ -321,7 +347,7 @@ This script:
 | major | Degree/field of study |
 | school_start_date | When they started school |
 | graduation_year | Expected or actual graduation |
-| working_while_studying | "yes" or "no" |
+| working_while_studying | "yes", "currently", or "no" (stored status + boolean flag in DB) |
 | profile_url | LinkedIn profile URL |
 | scraped_at | Timestamp of scrape |
 
@@ -370,7 +396,8 @@ alumni-networking-tool/
 │
 ├── migrations/
 │   ├── migrate_normalize_titles.py   # Retroactive job title normalization
-│   └── migrate_normalize_degrees.py  # Retroactive degree normalization
+│   ├── migrate_normalize_degrees.py  # Retroactive degree normalization
+│   └── migrate_working_while_studying.py  # Retroactive working-while-studying recompute
 │
 ├── tests/
 │   ├── test_degree_normalization.py  # Degree normalization tests
@@ -407,6 +434,7 @@ Tests cover:
 - Degree normalization (exact matches, abbreviations, prefixes, edge cases)
 - Entity classification (job titles, companies, locations, universities)
 - Text normalization (newlines, special characters)
+- Working-while-studying fallback and UNT matching rules
 
 ---
 
