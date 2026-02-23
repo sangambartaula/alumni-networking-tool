@@ -660,6 +660,115 @@ def api_get_alumni():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
+@app.route('/api/alumni/<int:alumni_id>', methods=['GET'])
+def api_get_alumni_detail(alumni_id):
+    """
+    Fetch full detail for a single alumni by ID.
+    Returns all raw education/experience fields (up to 3 each),
+    headline, and updated_at for the detailed profile view.
+    """
+    if DISABLE_DB:
+        if not USE_SQLITE_FALLBACK:
+            return jsonify({"error": "Alumni not found"}), 404
+
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
+                           a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
+                           a.updated_at,
+                           a.school, a.school2, a.school3,
+                           a.degree AS degree_raw, a.degree2, a.degree3,
+                           a.major AS major_raw, a.major2, a.major3,
+                           a.school_start_date, a.job_start_date, a.job_end_date,
+                           a.exp2_title, a.exp2_company, a.exp2_dates,
+                           a.exp3_title, a.exp3_company, a.exp3_dates
+                    FROM alumni a
+                    WHERE a.id = %s
+                    LIMIT 1
+                """, (alumni_id,))
+                r = cur.fetchone()
+
+            if not r:
+                return jsonify({"error": "Alumni not found"}), 404
+
+            # Format updated_at for JSON
+            updated_at = r.get('updated_at')
+            if hasattr(updated_at, 'isoformat'):
+                updated_at = updated_at.isoformat()
+
+            detail = {
+                "id": r.get('id'),
+                "name": f"{(r.get('first_name') or '').strip()} {(r.get('last_name') or '').strip()}".strip(),
+                "headline": r.get('headline'),
+                "location": r.get('location'),
+                "linkedin": r.get('linkedin_url'),
+                "updated_at": updated_at,
+
+                # Education 1 (UNT primary)
+                "school": r.get('school') or 'University of North Texas',
+                "degree": r.get('degree_raw'),
+                "major": r.get('major_raw'),
+                "grad_year": r.get('grad_year'),
+                "school_start_date": r.get('school_start_date'),
+
+                # Education 2
+                "school2": r.get('school2'),
+                "degree2": r.get('degree2'),
+                "major2": r.get('major2'),
+
+                # Education 3
+                "school3": r.get('school3'),
+                "degree3": r.get('degree3'),
+                "major3": r.get('major3'),
+
+                # Experience 1
+                "current_job_title": r.get('current_job_title'),
+                "company": r.get('company'),
+                "job_start_date": r.get('job_start_date'),
+                "job_end_date": r.get('job_end_date'),
+
+                # Experience 2
+                "exp2_title": r.get('exp2_title'),
+                "exp2_company": r.get('exp2_company'),
+                "exp2_dates": r.get('exp2_dates'),
+
+                # Experience 3
+                "exp3_title": r.get('exp3_title'),
+                "exp3_company": r.get('exp3_company'),
+                "exp3_dates": r.get('exp3_dates'),
+            }
+
+            return jsonify({"success": True, "alumni": detail}), 200
+        except Exception as err:
+            app.logger.error(f"❌ Database error fetching alumni detail {alumni_id}: {err}")
+            return jsonify({"error": f"Database error: {str(err)}"}), 500
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    except Exception as e:
+        app.logger.error(f"❌ Error fetching alumni detail: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@app.route('/profile_modal.js')
+def serve_profile_modal_js():
+    return send_from_directory('../frontend/public', 'profile_modal.js')
+
+@app.route('/profile_modal.css')
+def serve_profile_modal_css():
+    return send_from_directory('../frontend/public', 'profile_modal.css')
+
+@app.route('/profile_modal_test.js')
+def serve_profile_modal_test_js():
+    return send_from_directory('../frontend/public', 'profile_modal_test.js')
+
 
 # ===== NOTES API ENDPOINTS =====
 
