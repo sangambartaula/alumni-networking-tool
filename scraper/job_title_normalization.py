@@ -5,8 +5,10 @@ Maps semantically equivalent job titles to a single standardized category.
 Preserves all original raw job title values — only the normalized mapping is stored.
 
 Two strategies:
-  1. Deterministic: cleanup + dictionary lookup (fast, offline, no API cost)
-  2. Groq-based:    LLM classification against existing normalized titles (used during scraping)
+  1. Deterministic: cleanup + dictionary lookup (fast, offline, no API cost).
+     Preferred for known, common titles to ensure 100% latency-free matching.
+  2. Groq-based:    LLM classification against existing normalized titles.
+     Used for "long-tail" titles to find semantic matches that the map might miss.
 
 Usage:
     from job_title_normalization import get_or_create_normalized_title

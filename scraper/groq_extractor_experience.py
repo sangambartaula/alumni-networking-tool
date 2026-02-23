@@ -177,10 +177,6 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
         logger.warning("⚠️ Groq not available, skipping LLM extraction")
         return []
     
-    # Fix #1: Convert HTML to structured text instead of sending markup
-    structured_text = _html_to_structured_text(experience_html, profile_name)
-    original_len = len(experience_html)
-    text_len = len(structured_text)
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
     logger.debug(f"Experience HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
     
@@ -220,7 +216,6 @@ Data:
 """
 
     try:
-        # Fix #3: Use system message for higher obedience
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
@@ -236,7 +231,6 @@ Data:
             ],
             temperature=0,
             max_tokens=1024,
-            # Fix #2: Enforce JSON output at API level
             response_format={"type": "json_object"}
         )
         
@@ -263,12 +257,12 @@ Data:
                     logger.debug("Groq returned single job object, wrapping in array")
                     jobs = [parsed]
                 else:
-                    logger.warning("⚠️ Groq returned JSON object with no job data")
+                    logger.warning("Groq returned JSON object with no job data")
                     return []
         elif isinstance(parsed, list):
             jobs = parsed
         else:
-            logger.warning("⚠️ Groq returned unexpected JSON type")
+            logger.warning("Groq returned unexpected JSON type")
             return []
         
         valid_jobs = []

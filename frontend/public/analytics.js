@@ -5,13 +5,11 @@ let alumniData = [];
 let charts = {};
 let currentFilter = null;
 
-// Filter state
 let hiddenLocations = new Set();
 let hiddenCompanies = new Set();
 let allLocations = new Set();
 let allCompanies = new Set();
 
-// Initialize analytics on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadHiddenFiltersFromStorage();
   initializeAnalyticsFilterUI();
@@ -38,12 +36,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// Filter Management Functions
 function saveHiddenFiltersToStorage() {
   localStorage.setItem('analyticsHiddenLocations', JSON.stringify(Array.from(hiddenLocations)));
   localStorage.setItem('analyticsHiddenCompanies', JSON.stringify(Array.from(hiddenCompanies)));
 }
 
+/**
+ * Persists hidden locations/companies to localStorage.
+ * This ensures that if a user intentionally filters out "noise" (e.g. 
+ * 'Unknown' companies), their preference is remembered in future sessions.
+ */
 function loadHiddenFiltersFromStorage() {
   try {
     const savedLocations = localStorage.getItem('analyticsHiddenLocations');
@@ -520,6 +522,11 @@ function buildAnalyticsAutocomplete(data) {
   });
 }
 
+/**
+ * Core data transformation layer for analytics.
+ * All charts reference the output of this function to ensure they stay
+ * synchronized when the user hides specific locations or companies.
+ */
 function filterAlumniData(data) {
   return data.filter(alumni => {
     // Filter by location - check against the actual location field
@@ -536,7 +543,6 @@ function filterAlumniData(data) {
   });
 }
 
-// Load all alumni data for analytics
 async function loadAnalyticsData() {
   try {
     const response = await fetch('/api/alumni');
@@ -555,7 +561,6 @@ async function loadAnalyticsData() {
   }
 }
 
-// Render all analytics components
 function renderAnalytics() {
   const filteredData = filterAlumniData(alumniData);
   updateStatistics(filteredData);
@@ -569,7 +574,6 @@ function renderAnalytics() {
   renderTopLocationsTable(filteredData);
 }
 
-// Update summary statistics
 function updateStatistics(data = alumniData) {
   const totalAlumni = data.length;
   const uniqueCompanies = new Set(data.map(a => a.company).filter(c => c)).size;
@@ -631,7 +635,6 @@ function renderTopJobs(data = alumniData) {
   });
 }
 
-// Generate color palette
 function generateColors(count) {
   const colors = [
     '#667eea', '#764ba2', '#f093fb', '#4facfe', '#ffa400',
@@ -695,6 +698,8 @@ function renderJobPieChart(data = alumniData) {
         }
       },
       onClick: (event, elements) => {
+        // Enables "Drill-down": Clicking a chart segment filters the 
+        // alumni list modal to show the specific people in that category.
         if (elements.length > 0) {
           const index = elements[0].index;
           const jobTitle = labels[index];

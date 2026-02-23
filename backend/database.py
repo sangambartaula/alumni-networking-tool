@@ -8,7 +8,12 @@ from pathlib import Path
 load_dotenv()
 
 def _get_or_create_normalized_entity(cur, table, column, value):
-    """Inline helper to insert normalized strings and return their DB ID."""
+    """
+    Inline helper to insert normalized strings and return their DB ID.
+    We normalize job titles and company names to a separate lookup table
+    to ensure consistency and save disk space by avoiding redundant strings
+    in the main 'alumni' table.
+    """
     if not value or str(value).strip() == '': return None
     value = str(value).strip()
     try:
@@ -54,7 +59,9 @@ def get_connection():
     """
     Get a database connection.
     If USE_SQLITE_FALLBACK is enabled, routes to MySQL or SQLite based on availability.
-    Otherwise, returns a direct MySQL connection.
+    This "smart routing" allows the application to remain functional in local
+    dev environments or during remote database outages by falling back to a 
+    local .db file.
     """
     # Check if DB is explicitly disabled (dev mode)
     # in this mode, we force SQLite if fallback is enabled, regardless of cloud availability
@@ -73,7 +80,7 @@ def get_connection():
         except ImportError:
             logger.warning("sqlite_fallback module not found, falling back to direct MySQL")
     
-    # Direct MySQL connection (original behavior)
+    # MySQL connection
     return mysql.connector.connect(
         host=MYSQL_HOST,
         user=MYSQL_USER,
@@ -137,11 +144,6 @@ def init_db():
 
 
             # Create alumni table
-            # Added columns:
-            # - school_start_date (TEXT) : store "YYYY" or "Mon YYYY"
-            # - job_start_date, job_end_date (TEXT) : store "YYYY" or "Mon YYYY" or "Present" (end only)
-            # - working_while_studying (BOOLEAN)
-            # - major (VARCHAR) : engineering discipline
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS alumni (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -149,6 +151,8 @@ def init_db():
                     last_name VARCHAR(100),
                     grad_year INT,
                     degree VARCHAR(255),
+                    # 'major' stores the Engineering Discipline (e.g., Computer Science, Electrical)
+                    # used for high-level filtering on the dashboard.
                     major VARCHAR(255) DEFAULT NULL,
                     linkedin_url VARCHAR(500) NOT NULL,
                     current_job_title VARCHAR(255),
@@ -175,6 +179,8 @@ def init_db():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS visited_profiles (
                     id INT AUTO_INCREMENT PRIMARY KEY,
+                    # We normalize the URL to ensure 'linkedin.com/in/user/' 
+                    # matches 'linkedin.com/in/user' without a slash.
                     linkedin_url VARCHAR(500) NOT NULL UNIQUE,
                     is_unt_alum BOOLEAN DEFAULT FALSE,
                     visited_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -273,7 +279,12 @@ def init_db():
 # ============================================================
 
 def ensure_normalized_job_title_column():
-    """Ensure normalized_job_title_id column exists in alumni table."""
+    """
+    Ensure normalized_job_title_id column exists in alumni table.
+    This is part of our retroactive normalization strategy: first we add
+    the ID column, then we run a migration script to populate it based on 
+    raw text titles.
+    """
     conn = None
     try:
         conn = get_connection()
@@ -418,13 +429,7 @@ def ensure_alumni_timestamp_columns():
 
 
 def ensure_alumni_work_school_date_columns():
-    """
-    Ensure new columns exist for:
-      - school_start_date
-      - job_start_date
-      - job_end_date
-      - working_while_studying
-    """
+    """Ensure columns for school and job dates exist in the alumni table."""
     conn = None
     try:
         conn = get_connection()
@@ -583,7 +588,7 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
             """, (normalize_url(linkedin_url), is_unt_alum, notes))
             conn.commit()
 
-        logger.debug(f"💾 Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
+        logger.debug(f"Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
         return True
 
     except mysql.connector.Error as err:
@@ -612,7 +617,7 @@ def get_all_visited_profiles():
             """)
             profiles = cur.fetchall()
 
-        logger.info(f"✓ Retrieved {len(profiles)} visited profiles from database")
+        logger.info(f"Retrieved {len(profiles)} visited profiles from database")
         return profiles
 
     except mysql.connector.Error as err:
@@ -674,7 +679,7 @@ def sync_alumni_to_visited_profiles():
             synced = cur.rowcount
             conn.commit()
 
-        logger.info(f"✓ Synced {synced} alumni to visited_profiles table")
+        logger.info(f"Synced {synced} alumni to visited_profiles table")
         return synced
 
     except mysql.connector.Error as err:
@@ -738,7 +743,7 @@ def migrate_visited_history_csv_to_db():
 
             conn.commit()
 
-        logger.info(f"✅ Migrated {migrated} profiles from CSV to database")
+        logger.info(f"Migrated {migrated} profiles from CSV to database")
         return migrated
 
     except Exception as e:
@@ -1217,7 +1222,7 @@ def seed_alumni_data():
                 pass
 
     except Exception as e:
-        logger.error(f"Error importing alumni data: {e}")
+        logger.error(f"❌ Critical setup failed: {e}")
         raise
 
 
@@ -1241,7 +1246,7 @@ def truncate_dot_fields():
             conn.commit()
             logger.info("✅ Truncated '·' fields in alumni table")
     except mysql.connector.Error as err:
-        logger.error(f"Error truncating dot fields: {err}")
+        logger.error(f"❌ Error truncating dot fields: {err}")
         raise
     finally:
         if conn:
@@ -1289,13 +1294,13 @@ def cleanup_trailing_slashes():
                             cur.execute(f"DELETE FROM {table} WHERE id = %s", (row_id,))
                             deleted += 1
                         else:
-                            logger.error(f"Failed to fix {url}: {err}")
+                            logger.error(f"❌ Failed to fix {url}: {err}")
                 
                 conn.commit()
                 logger.info(f"✨ Fixed {fixed} URLs, Deleted {deleted} duplicates in {table}")
                 
     except Exception as e:
-        logger.error(f"Error during cleanup: {e}")
+        logger.error(f"❌ Error during cleanup: {e}")
     finally:
         if conn: conn.close()
 
@@ -1308,9 +1313,9 @@ if __name__ == "__main__":
         if missing:
             raise ValueError(f"Missing environment variables: {', '.join(missing)}")
 
-        logger.info("All required environment variables validated")
-        logger.info("Starting database initialization...")
-        logger.info(f"Database '{MYSQL_DATABASE}' ensured")
+        logger.info("✅ All required environment variables validated")
+        logger.info("🚀 Starting database initialization...")
+        logger.info(f"📦 Database '{MYSQL_DATABASE}' ensured")
 
         # Initialize tables
         init_db()
@@ -1326,7 +1331,7 @@ if __name__ == "__main__":
 
         # Migrate visited_history.csv to database (one-time)
         logger.info("\n" + "="*60)
-        logger.info("MIGRATING VISITED HISTORY TO DATABASE")
+        logger.info("📦 MIGRATING VISITED HISTORY TO DATABASE")
         logger.info("="*60)
         migrate_visited_history_csv_to_db()
 
@@ -1377,10 +1382,10 @@ if __name__ == "__main__":
 
         conn.close()
 
-        logger.info("\n" + "="*60)
-        logger.info("✅ DATABASE INITIALIZATION COMPLETE")
-        logger.info("="*60)
+        logger.info("=" * 60)
+        logger.info("✓ ALUMNI NETWORKING TOOL - BACKEND")
+        logger.info("=" * 60)
 
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.error(f"❌ Database initialization failed: {e}")
         exit(1)

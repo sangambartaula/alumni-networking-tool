@@ -37,7 +37,9 @@ GROQ_ENABLED = os.getenv("USE_GROQ", "true").lower() == "true"
 # Model choice: "llama-3.1-8b-instant" (14.4K RPD) or "llama-3.3-70b-versatile" (1K RPD, better quality)
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
-# Debug HTML saving — supports both new and legacy env var names
+# Debug toggle: saves raw HTML/text sent to Groq. 
+# This is crucial for prompt engineering and auditing why the LLM might have
+# missed specific data points (e.g., if LinkedIn changed a CSS class).
 SCRAPER_DEBUG_HTML = (
     os.getenv("SCRAPER_DEBUG_HTML", "").lower() == "true"
     or os.getenv("DEBUG_SAVE_HTML", "false").lower() == "true"
@@ -56,7 +58,7 @@ def _get_client():
             _client = Groq(api_key=GROQ_API_KEY)
             logger.debug(f"Groq API initialized (model: {GROQ_MODEL})")
         except Exception as e:
-            logger.error(f"Failed to initialize Groq: {e}")
+            logger.error(f"❌ Failed to initialize Groq: {e}")
     return _client
 
 
@@ -99,7 +101,14 @@ def parse_groq_json_response(result_text: str) -> dict | list | None:
     try:
         return json.loads(result_text)
     except json.JSONDecodeError:
-        # Fallback: try to find a JSON array in the text
+        # Fallback: try to find a JSON array/object in the text.
+        # This handles cases where the LLM includes preamble/postamble text
+        # despite being instructed to return ONLY JSON.
+        # 1. Try standard cleaning (removes noise).
+        # 2. Check if we lost the target university (UNT) keywords found in raw HTML.
+        # 3. If lost, retry with relaxed cleaning.
+        # This ensures we don't accidentally "clean away" the very data we need
+        # due to overly aggressive noise removal heuristics.
         match = re.search(r'\[.*\]', result_text, re.DOTALL)
         if match:
             try:
@@ -113,7 +122,8 @@ def parse_groq_json_response(result_text: str) -> dict | list | None:
                 return json.loads(match.group(0))
             except json.JSONDecodeError:
                 pass
-        logger.warning(f"⚠️ Groq returned invalid JSON: {result_text[:100]}...")
+        msg = result_text[:100] + "..." if len(result_text) > 100 else result_text
+        logger.warning(f"⚠️ Groq returned invalid JSON: {msg}")
         return None
 
 
