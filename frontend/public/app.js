@@ -317,6 +317,13 @@ function createListItem(p) {
         </div>
         <div class="list-actions">
 
+          <button class="btn profile-view" type="button" title="View full profile" data-alumni-id="${p.id}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+
           <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener" title="View LinkedIn Profile">
             <img src="/assets/linkedin.svg" alt="LinkedIn" class="linkedin-icon" />
           </a>
@@ -376,6 +383,16 @@ function createListItem(p) {
       }
     }
   });
+
+  // Profile view button action - OPEN PROFILE DETAIL MODAL
+  const profileViewBtn = item.querySelector('.btn.profile-view');
+  if (profileViewBtn) {
+    profileViewBtn.addEventListener('click', () => {
+      if (typeof profileDetailModal !== 'undefined') {
+        profileDetailModal.open(p, profileViewBtn);
+      }
+    });
+  }
 
   // Notes button action - OPEN MODAL
   const notesBtn = item.querySelector('.btn.notes');
