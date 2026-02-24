@@ -60,6 +60,14 @@ TITLE_MAP = {
     "senior software developer": "Software Engineer",
     "sr. software developer": "Software Engineer",
     "sr software developer": "Software Engineer",
+    "software": "Software Engineer",
+    "software engineering student": "Software Engineer",
+    "software development engineer": "Software Engineer",
+    "software development engineer ii": "Software Engineer",
+    "software development analyst": "Software Engineer",
+    "software development analyst i": "Software Engineer",
+    "software development analyst level 2": "Software Engineer",
+    "software developer & consultant": "Software Engineer",
     "junior software engineer": "Software Engineer",
     "jr. software engineer": "Software Engineer",
     "jr software engineer": "Software Engineer",
@@ -108,9 +116,9 @@ TITLE_MAP = {
     "backend engineer": "Backend Engineer",
     "back-end engineer": "Backend Engineer",
     "back end engineer": "Backend Engineer",
-    "web developer": "Web Developer",
-    "web dev": "Web Developer",
-    "web application developer": "Web Developer",
+    "web developer": "Software Engineer",
+    "web dev": "Software Engineer",
+    "web application developer": "Software Engineer",
 
     # ── Java / Python / ServiceNow specific ──
     "java developer": "Software Engineer",
@@ -133,6 +141,7 @@ TITLE_MAP = {
     "senior data science consultant": "Data Scientist",
     "data analyst": "Data Analyst",
     "data engineer": "Data Engineer",
+    "data engineer associate": "Data Engineer",
     "cloud data engineer": "Data Engineer",
     "databricks data engineer": "Data Engineer",
     "data architect": "Data Architect",
@@ -256,6 +265,8 @@ TITLE_MAP = {
     "executive vice president of operations": "Operations",
     "director of southwest region": "Director",
     "director of strategic initiatives": "Director",
+    "director of engineering": "Director",
+    "director of employee experience": "Director",
     "senior director, assurance & enterprise risk management": "Director",
     "partner and executive director": "Director",
     "founder and director": "Director",
@@ -302,8 +313,8 @@ TITLE_MAP = {
     "researcher": "Graduate Assistant",
     "research technician": "Graduate Assistant",
     "research and development chemist": "Research Scientist",
-    "postdoctoral researcher": "Postdoctoral Researcher",
-    "postdoc": "Postdoctoral Researcher",
+    "postdoctoral researcher": "Graduate Assistant",
+    "postdoc": "Graduate Assistant",
     "research assistant/ teaching fellow": "Graduate Assistant",
 
     # ── Teaching & Graduate Assistants ──
@@ -313,6 +324,8 @@ TITLE_MAP = {
     "graduate research assistant": "Graduate Assistant",
     "graduate research and teaching assistant": "Graduate Assistant",
     "graduate student assistant": "Graduate Assistant",
+    "student assistant": "Graduate Assistant",
+    "student assistant for ms analytics": "Graduate Assistant",
     "graduate student at university of north texas": "Graduate Student",
     "enterprise data warehousing teaching assistant": "Graduate Assistant",
     "instructional assistant": "Graduate Assistant",
@@ -325,8 +338,6 @@ TITLE_MAP = {
 
     # ── Student Roles ──
     "student": "Student",
-    "student assistant": "Student Worker",
-    "student assistant for ms analytics": "Student Worker",
     "student ambassador": "Student Worker",
     "student laboratory technician": "Student Worker",
     "athletic and fitness center student worker": "Student Worker",
@@ -414,7 +425,7 @@ _LEVEL_SUFFIXES = re.compile(
 )
 _PAREN_QUALIFIER = re.compile(r'\s*\(.*?\)\s*$')
 _SENIORITY_PREFIX = re.compile(
-    r'^(?:senior|sr\.?|junior|jr\.?|lead|staff|principal|chief|associate|vice president|vp of|vp)\s+',
+    r'^(?:senior|sr\.?|junior|jr\.?|lead|staff|principal|chief|associate|vice president|vp of|vp|assistant vice president|avp|assistant)\s+',
     re.IGNORECASE,
 )
 _SENIORITY_SUFFIX = re.compile(
@@ -481,6 +492,10 @@ def normalize_title_deterministic(raw_title: str) -> str:
     # Pass 1: exact match
     if key in TITLE_MAP:
         return TITLE_MAP[key]
+
+    # Special heuristic: force "soft" roles to Software Engineer
+    if key.startswith('soft'):
+        return "Software Engineer"
 
     # Pass 2: strip level suffixes (e.g. "Engineer II" → "Engineer")
     stripped = _LEVEL_SUFFIXES.sub('', key).strip()
@@ -570,10 +585,13 @@ Given a raw job title and a list of existing normalized titles, do ONE of:
 2. If no match exists, return a NEW concise standardized title.
 
 Rules:
-- REMOVE all seniority titles, modifiers, and levels (e.g., Lead, Senior, Junior, Intern, Staff, Principal, Associate, VP, Chief). Return the base job function only (e.g., 'Software Engineer' instead of 'Senior Software Engineer Intern').
+- STRIP all seniority titles, modifiers, levels, and ranks (e.g., Senior, Junior, Intern, Lead, Staff, Principal, Associate, VP, Chief, II, III). 
+- STRIP university-specific markers and departments (e.g., "at University of North Texas", "in the College of Engineering").
+- Return ONLY the base job function (e.g., 'Software Engineer' instead of 'Senior Software Engineer Intern').
 - Use common industry terminology (e.g. "Software Engineer" not "Software Developer").
+- Map "Student Assistant" or "Assistant" roles at a university to "Graduate Assistant" unless they are clearly undergraduate/clerical roles.
 - Keep it concise: 1-4 words max.
-- Return ONLY the normalized title string. No explanation.
+- Return ONLY the normalized title string. No explanation or punctuation.
 
 Existing normalized titles:
 {titles_list}

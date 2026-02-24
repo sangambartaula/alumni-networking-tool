@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import mysql.connector
+import re
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -205,6 +206,52 @@ def normalize_text(text):
     
     return text.strip()
 
+
+def normalize_grad_year(value):
+    """
+    Convert graduation year to int when possible, otherwise return None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if pd.isna(value):
+        return None
+
+    def _in_range(year):
+        return 1900 <= year <= 2100
+
+    if isinstance(value, int):
+        return value if _in_range(value) else None
+
+    if isinstance(value, float):
+        if value.is_integer():
+            year = int(value)
+            return year if _in_range(year) else None
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+
+    try:
+        numeric = float(text)
+        if numeric.is_integer():
+            year = int(numeric)
+            return year if _in_range(year) else None
+    except ValueError:
+        pass
+
+    matches = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
+    if not matches:
+        return None
+
+    year = int(matches[-1])
+    return year if _in_range(year) else None
+
+
 def flag_profile_for_review(profile_data):
     """
     Flag profiles with incomplete data for manual review.
@@ -317,6 +364,10 @@ def save_profile_to_csv(profile_data):
                 existing_df = pd.DataFrame(columns=CSV_COLUMNS)
         else:
             existing_df = pd.DataFrame(columns=CSV_COLUMNS)
+
+        # Retroactive cleanup for existing CSV content.
+        if 'grad_year' in existing_df.columns:
+            existing_df['grad_year'] = existing_df['grad_year'].apply(normalize_grad_year)
         
         # Transform data to new schema
         name = str(profile_data.get('name', '')).strip()
@@ -333,7 +384,7 @@ def save_profile_to_csv(profile_data):
             'degree': profile_data.get('degree', ''),
             'major': profile_data.get('major', ''),
             'school_start': profile_data.get('school_start_date'),
-            'grad_year': profile_data.get('graduation_year'),
+            'grad_year': normalize_grad_year(profile_data.get('graduation_year')),
             # Education 2 and 3
             'school2': profile_data.get('school2', ''),
             'degree2': profile_data.get('degree2', ''),
@@ -384,6 +435,10 @@ def save_profile_to_csv(profile_data):
         new_row = pd.DataFrame([save_data])[CSV_COLUMNS]
         combined_df = pd.concat([existing_df, new_row], ignore_index=True)
         combined_df = combined_df.drop_duplicates(subset=['linkedin_url'], keep='last')
+
+        if 'grad_year' in combined_df.columns:
+            combined_df['grad_year'] = combined_df['grad_year'].apply(normalize_grad_year)
+            combined_df['grad_year'] = combined_df['grad_year'].apply(lambda y: '' if y is None else int(y))
         
         combined_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')
         

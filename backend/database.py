@@ -2,6 +2,7 @@ import mysql.connector
 import pandas as pd
 import os
 import logging
+import re
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -52,6 +53,52 @@ def normalize_url(url):
     s = str(url).strip()
     if not s or s.lower() == 'nan': return None
     return s.rstrip('/')
+
+
+def _coerce_grad_year(value):
+    """
+    Convert a grad year value into an integer when possible.
+    Returns None when parsing fails or the year is out of a reasonable range.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if pd.isna(value):
+        return None
+
+    def _in_range(year):
+        return 1900 <= year <= 2100
+
+    if isinstance(value, int):
+        return value if _in_range(value) else None
+
+    if isinstance(value, float):
+        if value.is_integer():
+            year = int(value)
+            return year if _in_range(year) else None
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+
+    try:
+        numeric = float(text)
+        if numeric.is_integer():
+            year = int(numeric)
+            return year if _in_range(year) else None
+    except ValueError:
+        pass
+
+    matches = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
+    if not matches:
+        return None
+
+    year = int(matches[-1])
+    return year if _in_range(year) else None
 
 
 
@@ -1019,11 +1066,9 @@ def seed_alumni_data():
                         major = saved_discipline
                     
                     # grad_year (new) vs graduation_year (old)
-                    grad_year = None
-                    if pd.notna(row.get('grad_year')):
-                        grad_year = int(row['grad_year'])
-                    elif pd.notna(row.get('graduation_year')):
-                        grad_year = int(row['graduation_year'])
+                    grad_year = _coerce_grad_year(row.get('grad_year'))
+                    if grad_year is None:
+                        grad_year = _coerce_grad_year(row.get('graduation_year'))
 
                     # linkedin_url (new) vs profile_url (old)
                     raw_url = row.get('linkedin_url') if pd.notna(row.get('linkedin_url')) else row.get('profile_url')
@@ -1305,6 +1350,51 @@ def cleanup_trailing_slashes():
         if conn: conn.close()
 
 
+def normalize_existing_grad_years():
+    """
+    Retroactively normalize alumni.grad_year to integer values where possible.
+    Leaves unparseable values unchanged.
+    """
+    conn = None
+    normalized = 0
+    scanned = 0
+
+    try:
+        conn = get_connection()
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute("SELECT id, grad_year FROM alumni WHERE grad_year IS NOT NULL")
+            rows = cur.fetchall() or []
+            scanned = len(rows)
+
+            for row in rows:
+                row_id = row.get("id")
+                raw_year = row.get("grad_year")
+                parsed_year = _coerce_grad_year(raw_year)
+
+                if parsed_year is None:
+                    continue
+
+                if isinstance(raw_year, int) and not isinstance(raw_year, bool) and raw_year == parsed_year:
+                    continue
+
+                cur.execute(
+                    "UPDATE alumni SET grad_year = %s WHERE id = %s",
+                    (parsed_year, row_id)
+                )
+                normalized += 1
+
+        conn.commit()
+        logger.info(f"✅ Grad year normalization complete: updated {normalized} of {scanned} rows")
+    except Exception as e:
+        logger.error(f"❌ Error normalizing grad years: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 if __name__ == "__main__":
     try:
         # Validate environment variables
@@ -1326,6 +1416,7 @@ if __name__ == "__main__":
 
         # Seed alumni data
         seed_alumni_data()
+        normalize_existing_grad_years()
         truncate_dot_fields()
         cleanup_trailing_slashes()
 

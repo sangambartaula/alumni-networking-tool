@@ -1,6 +1,7 @@
 from flask import Flask, redirect, request, url_for, session, send_from_directory, jsonify
 from dotenv import load_dotenv
 from functools import wraps
+from collections import Counter
 import os
 import requests  # for OAuth token exchange
 import mysql.connector  # for MySQL connection
@@ -130,6 +131,36 @@ def classify_degree(degree_field, headline=''):
             return 'PhD'
 
     return None
+
+
+def _rank_filter_option_counts(counts, query='', limit=15):
+    """
+    Rank filter options similar to analytics autocomplete behavior.
+    - Empty query: popular entries first (count desc), then alphabetical.
+    - With query: exact match, then starts-with, then contains; ties by popularity.
+    """
+    q = (query or '').strip().lower()
+    entries = [(value, count) for value, count in counts.items() if value]
+
+    if q:
+        entries = [item for item in entries if q in item[0].lower()]
+
+        def sort_key(item):
+            value, count = item
+            value_lower = value.lower()
+            if value_lower == q:
+                rank = 0
+            elif value_lower.startswith(q):
+                rank = 1
+            else:
+                rank = 2
+            return (rank, -count, value_lower)
+
+        entries.sort(key=sort_key)
+    else:
+        entries.sort(key=lambda item: (-item[1], item[0].lower()))
+
+    return [{"value": value, "count": count} for value, count in entries[:limit]]
 
 
 # =============================================================================
@@ -1335,6 +1366,89 @@ def api_get_majors():
     return resp, 200
 
 
+@app.route('/api/alumni/filter-options', methods=['GET'])
+def api_alumni_filter_options():
+    """
+    Return backend-ranked filter options for analytics-style autocomplete.
+
+    Query params:
+      - field: location | company (default: location)
+      - q: optional query string
+      - limit: max results (default: 15, max: 100)
+      - exclude: optional, repeated or comma-separated values to omit
+    """
+    if DISABLE_DB and not USE_SQLITE_FALLBACK:
+        return jsonify({"success": True, "field": "location", "query": "", "options": [], "count": 0}), 200
+
+    field = (request.args.get('field', 'location') or 'location').strip().lower()
+    q = (request.args.get('q', '') or '').strip()
+    try:
+        limit = int(request.args.get('limit', 15))
+    except Exception:
+        limit = 15
+    limit = max(1, min(100, limit))
+
+    field_map = {
+        'location': 'location',
+        'company': 'company'
+    }
+    column = field_map.get(field)
+    if not column:
+        return jsonify({"success": False, "error": "Invalid field. Use 'location' or 'company'."}), 400
+
+    excludes = set()
+    for raw in request.args.getlist('exclude'):
+        for part in (raw or '').split(','):
+            cleaned = part.strip()
+            if cleaned:
+                excludes.add(cleaned.lower())
+
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(dictionary=True) as cur:
+            sql = f"""
+                SELECT a.{column} AS option_value
+                FROM alumni a
+                WHERE a.{column} IS NOT NULL
+                  AND TRIM(a.{column}) <> ''
+            """
+            params = []
+            if q:
+                sql += f" AND LOWER(a.{column}) LIKE %s"
+                params.append(f"%{q.lower()}%")
+
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall() or []
+
+        counts = Counter()
+        for row in rows:
+            value = (row.get('option_value') or '').strip()
+            if not value:
+                continue
+            if value.lower() in excludes:
+                continue
+            counts[value] += 1
+
+        options = _rank_filter_option_counts(counts, query=q, limit=limit)
+        return jsonify({
+            "success": True,
+            "field": field,
+            "query": q,
+            "options": options,
+            "count": len(options)
+        }), 200
+    except Exception as e:
+        app.logger.error(f"Error loading filter options for field={field}: {e}")
+        return jsonify({"success": False, "error": f"Server error: {str(e)}"}), 500
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 @app.route('/api/alumni/filter', methods=['GET'])
 def api_filter_alumni():
     """
@@ -1478,7 +1592,14 @@ if __name__ == "__main__":
             app.logger.info("Continuing with direct database connection...")
 
     # Initialize database (but skip re-seeding if data exists)
-    from database import init_db, seed_alumni_data, ensure_normalized_job_title_column, ensure_normalized_degree_column, ensure_normalized_company_column
+    from database import (
+        init_db,
+        seed_alumni_data,
+        normalize_existing_grad_years,
+        ensure_normalized_job_title_column,
+        ensure_normalized_degree_column,
+        ensure_normalized_company_column
+    )
     if not DISABLE_DB:
         try:
             init_db()
@@ -1487,6 +1608,7 @@ if __name__ == "__main__":
             ensure_normalized_degree_column()
             ensure_normalized_company_column()
             seed_alumni_data()
+            normalize_existing_grad_years()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
             if not USE_SQLITE_FALLBACK:
