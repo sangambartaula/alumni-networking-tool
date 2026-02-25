@@ -159,7 +159,7 @@ SCRAPER_MODE=search
 Searches for specific people from an input CSV file.
 ```
 SCRAPER_MODE=names
-INPUT_CSV=backend/engineering_graduate.csv
+INPUT_CSV=engineering_graduates.csv
 ```
 
 ### Connections Mode

@@ -7,6 +7,7 @@ from pathlib import Path
 # Add scraper to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / 'scraper'))
+sys.modules.pop('scraper', None)
 os.chdir(project_root)
 
 from scraper import LinkedInScraper

@@ -12,6 +12,7 @@ import time
 import random
 import urllib.parse
 import threading
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 # Local Modules
@@ -38,14 +39,34 @@ def load_scrape_state():
     manager = get_connection_manager()
     conn = manager.get_sqlite_connection()
     try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scrape_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                mode TEXT,
+                search_url TEXT,
+                page INTEGER DEFAULT 1,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO scrape_state (id, mode, search_url, page, updated_at)
+            VALUES (1, NULL, NULL, 1, datetime('now'))
+            """
+        )
+        conn.commit()
+
         row = conn.execute(
-            "SELECT mode, search_url, page FROM scrape_state WHERE id = 1"
+            "SELECT mode, search_url, page, updated_at FROM scrape_state WHERE id = 1"
         ).fetchone()
         if row:
             return {
                 "mode": row["mode"],
                 "search_url": row["search_url"],
-                "page": row["page"] or 1
+                "page": row["page"] or 1,
+                "updated_at": row["updated_at"],
             }
     finally:
         conn.close()
@@ -58,6 +79,23 @@ def save_scrape_state(mode, search_url, page):
     try:
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS scrape_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                mode TEXT,
+                search_url TEXT,
+                page INTEGER DEFAULT 1,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO scrape_state (id, mode, search_url, page, updated_at)
+            VALUES (1, NULL, NULL, 1, datetime('now'))
+            """
+        )
+        conn.execute(
+            """
             UPDATE scrape_state
             SET mode = ?, search_url = ?, page = ?, updated_at = datetime('now')
             WHERE id = 1
@@ -67,6 +105,34 @@ def save_scrape_state(mode, search_url, page):
         conn.commit()
     finally:
         conn.close()
+
+
+def _parse_state_timestamp(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
+def _is_recent_state(updated_at, max_age_days):
+    state_time = _parse_state_timestamp(updated_at)
+    if not state_time:
+        return False
+    if state_time.tzinfo is not None:
+        now = datetime.now(state_time.tzinfo)
+    else:
+        # sqlite datetime('now') values are UTC strings without tz info.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+    return (now - state_time) <= timedelta(days=max_age_days)
 
 
 # ============================================================
@@ -147,7 +213,7 @@ def _save_and_track(data, input_url, history_mgr):
     
     # Check if canonical URL was already saved in this session under a different input URL
     if original_url and history_mgr.should_skip(canonical_url):
-        logger.info(f"Skipping duplicate (already saved via canonical URL): {canonical_url}")
+        logger.info(f"  ↩️  Profile Already Visited, Skipping: {canonical_url}")
         # Still mark the input URL so we don't try it again
         history_mgr.mark_as_visited(input_url, saved=True)
         return False
@@ -166,7 +232,7 @@ def _save_and_track(data, input_url, history_mgr):
 # MODES
 # ============================================================
 def run_names_mode(scraper, nav, history_mgr):
-    input_csv = os.getenv("INPUT_CSV", os.path.join("backend", "engineering_graduate.csv"))
+    input_csv = os.getenv("INPUT_CSV", "engineering_graduates.csv")
     csv_path = PROJECT_ROOT / input_csv
 
     logger.info(f"--- MODE: Names ({csv_path}) ---")
@@ -200,6 +266,7 @@ def run_names_mode(scraper, nav, history_mgr):
                 continue
 
             if history_mgr.should_skip(url):
+                logger.info(f"  ↩️  Profile Already Visited, Skipping: {url}")
                 continue
 
             # NOTE: scrape_profile_page likely handles its own navigation.
@@ -225,11 +292,32 @@ def run_search_mode(scraper, nav, history_mgr):
     )
 
     page = 1
+    state = load_scrape_state()
+    if (
+        state
+        and state.get("mode") == "search"
+        and state.get("search_url") == base_url
+        and _is_recent_state(state.get("updated_at"), config.SCRAPE_RESUME_MAX_AGE_DAYS)
+    ):
+        try:
+            saved_page = int(state.get("page") or 1)
+        except (TypeError, ValueError):
+            saved_page = 1
+        page = saved_page if saved_page >= 1 else 1
+        logger.info(
+            f"↪ Resuming search mode from page {page} "
+            f"(state age <= {config.SCRAPE_RESUME_MAX_AGE_DAYS} days)"
+        )
+    else:
+        logger.info("↪ Starting search mode from page 1")
+
     while True:
         if should_stop():
             break
 
         url = base_url if page == 1 else f"{base_url}&page={page}"
+        save_scrape_state("search", base_url, page)
+        logger.info(f"📄 Search page {page}")
 
         ok = nav.get(url)
         if not ok:
@@ -241,6 +329,8 @@ def run_search_mode(scraper, nav, history_mgr):
 
         urls = scraper.extract_profile_urls_from_page()
         if not urls:
+            # Reached the end of results; restart from page 1 next run.
+            save_scrape_state("search", base_url, 1)
             break
 
         for profile_url in urls:
@@ -251,6 +341,7 @@ def run_search_mode(scraper, nav, history_mgr):
                 continue
 
             if history_mgr.should_skip(profile_url):
+                logger.info(f"  ↩️  Profile Already Visited, Skipping: {profile_url}")
                 continue
 
             # NOTE: scrape_profile_page likely handles its own navigation.
@@ -269,6 +360,7 @@ def run_search_mode(scraper, nav, history_mgr):
             wait_between_profiles()
 
         page += 1
+        save_scrape_state("search", base_url, page)
 
 
 def run_review_mode(scraper, nav, history_mgr):
@@ -385,7 +477,14 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
         conn = get_connection()
         cur = conn.cursor()
         for url in dead_urls:
-            cur.execute("DELETE FROM alumni WHERE linkedin_url LIKE ?".replace("?", "%s"), (f"%{url.rstrip('/').split('/')[-1]}",))
+            normalized = (url or "").strip().rstrip("/")
+            if not normalized:
+                continue
+            # Delete only exact profile URL rows (with or without trailing slash).
+            cur.execute(
+                "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s",
+                (normalized, f"{normalized}/"),
+            )
         conn.commit()
         logger.info(f"🗑️  Removed {len(dead_urls)} dead profiles from database")
         try:

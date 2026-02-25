@@ -1,8 +1,8 @@
 """
 Unit tests for discipline classification logic.
 
-Tests the infer_discipline function from backfill_disciplines.py
-to ensure correct keyword matching and ordering.
+These tests exercise scraper/discipline_classification.py using deterministic
+keyword rules only (LLM disabled) to avoid flaky network/model behavior.
 
 Run: python -m pytest backend/tests/test_discipline_classification.py -v
 """
@@ -10,10 +10,15 @@ import pytest
 import sys
 from pathlib import Path
 
-# Add the backend directory to the path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root / "scraper"))
 
-from backfill_disciplines import infer_discipline
+from discipline_classification import infer_discipline as _infer_discipline
+
+
+def infer_discipline(degree, job_title, headline):
+    """Deterministic wrapper used by all tests in this file."""
+    return _infer_discipline(degree, job_title, headline, use_llm=False)
 
 
 class TestDisciplineClassification:
@@ -162,8 +167,8 @@ class TestDisciplineClassification:
         # Note: plain "project manager" doesn't match anything in our list
         # because we removed generic IT terms from Construction
         result = infer_discipline(None, "Project Manager", None)
-        # Should be Unknown since "project manager" alone is too generic
-        assert result == "Unknown"
+        # Should map to Other since "project manager" alone is too generic
+        assert result == "Other"
     
     def test_order_software_before_construction_for_it_project_manager(self):
         """IT Project Manager should match Software (checked first)."""
@@ -176,22 +181,22 @@ class TestDisciplineClassification:
         assert result == "Construction & Engineering Management"
     
     # ==========================================================================
-    # PRIORITY TESTS (Job Title > Degree > Headline)
+    # PRIORITY TESTS (Degree > Job Title > Headline)
     # ==========================================================================
     
-    def test_job_priority_over_degree(self):
-        """Job title should take priority over degree (Changed based on user feedback)."""
-        # Job: Construction Manager (Construction)
+    def test_degree_priority_over_job(self):
+        """Degree should take priority over job title."""
         # Degree: Computer Science (Software)
-        # Should be Construction (Job wins)
+        # Job: Construction Manager (Construction)
+        # Should be Software (Degree wins)
         result = infer_discipline("Computer Science", "Construction Manager", None)
-        assert result == "Construction & Engineering Management"
+        assert result == "Software, Data & AI Engineering"
 
     def test_job_priority_over_degree_user_case(self):
-        """User Case: Lead Software Engineer (Software) vs Computer Engineering (Embedded)."""
+        """User case where both signals map to Software."""
         # Job: Lead Software Engineer (Software)
-        # Degree: Computer Engineering (Embedded)
-        # Should be Software (Job wins)
+        # Degree: Computer Engineering (Software in current taxonomy)
+        # Should be Software
         result = infer_discipline("Computer Engineering", "Lead Software Engineer", None)
         assert result == "Software, Data & AI Engineering"
     
@@ -206,23 +211,23 @@ class TestDisciplineClassification:
         assert result == "Software, Data & AI Engineering"
     
     # ==========================================================================
-    # UNKNOWN TESTS
+    # OTHER TESTS
     # ==========================================================================
     
-    def test_unknown_for_no_match(self):
-        """Should return Unknown when no keywords match."""
+    def test_other_for_no_match(self):
+        """Should return Other when no keywords match."""
         result = infer_discipline(None, "Sales Manager", None)
-        assert result == "Unknown"
+        assert result == "Other"
     
-    def test_unknown_for_empty_input(self):
-        """Should return Unknown for empty input."""
+    def test_other_for_empty_input(self):
+        """Should return Other for empty input."""
         result = infer_discipline(None, None, None)
-        assert result == "Unknown"
+        assert result == "Other"
     
-    def test_unknown_for_generic_title(self):
-        """Should return Unknown for generic titles."""
+    def test_other_for_generic_title(self):
+        """Should return Other for generic titles."""
         result = infer_discipline(None, "Manager", None)
-        assert result == "Unknown"
+        assert result == "Other"
 
 
 class TestCaseInsensitivity:

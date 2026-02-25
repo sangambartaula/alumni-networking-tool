@@ -438,7 +438,9 @@ def save_profile_to_csv(profile_data):
 
         if 'grad_year' in combined_df.columns:
             combined_df['grad_year'] = combined_df['grad_year'].apply(normalize_grad_year)
-            combined_df['grad_year'] = combined_df['grad_year'].apply(lambda y: '' if y is None else int(y))
+            combined_df['grad_year'] = combined_df['grad_year'].apply(
+                lambda y: '' if y is None or pd.isna(y) else int(y)
+            )
         
         combined_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')
         

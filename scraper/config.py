@@ -188,6 +188,7 @@ TESTING = os.getenv("TESTING", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
 SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()
+SCRAPE_RESUME_MAX_AGE_DAYS = int(os.getenv("SCRAPE_RESUME_MAX_AGE_DAYS", "7"))
 OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
 UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
 CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "connections.csv")

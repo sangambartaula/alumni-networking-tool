@@ -164,7 +164,10 @@ class ConnectionManager:
     
     def _cleanup(self):
         """Clean up resources on shutdown."""
-        logger.info("🛑 Shutting down SQLite fallback system...")
+        try:
+            logger.info("🛑 Shutting down SQLite fallback system...")
+        except Exception:
+            pass
         self._shutting_down = True
         
         # Stop retry thread
@@ -174,7 +177,10 @@ class ConnectionManager:
             if self._retry_thread.is_alive():
                 logger.warning("⚠️ Retry thread did not stop cleanly")
         
-        logger.info("✅ SQLite fallback system shut down")
+        try:
+            logger.info("✅ SQLite fallback system shut down")
+        except Exception:
+            pass
     
     def _init_sqlite(self):
         """Initialize SQLite database with required tables and optimizations."""

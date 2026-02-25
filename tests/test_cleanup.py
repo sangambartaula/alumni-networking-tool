@@ -7,6 +7,7 @@ import unittest
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root / 'backend'))
 sys.path.insert(0, str(project_root / 'scraper'))
+sys.modules.pop('scraper', None)
 
 from database import normalize_url
 from scraper import normalize_scraped_data
