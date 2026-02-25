@@ -9,6 +9,7 @@ A web-based application designed to help the College of Engineering connect with
 ### LinkedIn Alumni Scraper
 - **Automated Profile Scraping** — Selenium-based scraper with anti-bot defense layer
 - **Groq AI Extraction** — LLM-powered extraction for experience and education data
+- **Search Resume Checkpointing** — Search mode resumes from the last saved page (fresh for up to 7 days by default)
 - **Multiple Scraping Modes:**
   - **Search Mode** — Iterates through UNT alumni search results
   - **Names Mode** — Searches specific names from a CSV file
@@ -127,17 +128,15 @@ python backend/backfill_disciplines.py
    pip install -r requirements.txt
    ```
 
+4. **Configure environment variables:**
+   Create a `.env` file in the project root. See the [Setup Guide](SETUP_GUIDE.md) for a full template and instructions on getting API keys.
+
+5. **Run the application:**
+   ```bash
+   python backend/app.py
    ```
-   
-   4. **Configure environment variables:**
-      Create a `.env` file in the project root. See the [Setup Guide](SETUP_GUIDE.md) for a full template and instructions on getting API keys.
-   
-   5. **Run the application:**
-      ```bash
-      python backend/app.py
-      ```
-   
-   For a complete walkthrough including LinkedIn API setup, see [SETUP_GUIDE.md](SETUP_GUIDE.md).
+
+For a complete walkthrough including LinkedIn API setup, see [SETUP_GUIDE.md](SETUP_GUIDE.md).
 
 ---
 
@@ -149,11 +148,19 @@ For LinkedIn login to work, you must create your own LinkedIn App on the [Linked
 
 ## Scraper Modes
 
-### Search Mode (Default)
+### Search Mode
 Iterates through LinkedIn's UNT alumni search results.
 ```
 SCRAPER_MODE=search
 ```
+
+Search mode automatically checkpoints the current results page in local SQLite state and resumes from that page on the next run when the checkpoint is still recent.
+
+```
+SCRAPE_RESUME_MAX_AGE_DAYS=7
+```
+
+If no results are found on a page, the checkpoint resets to page `1` for the next run.
 
 ### Names Mode
 Searches for specific people from an input CSV file.
@@ -223,7 +230,7 @@ The scraper uses [Groq](https://console.groq.com/) LLM to extract structured dat
 
 ### How It Works
 1. LinkedIn profile HTML is cleaned and structured
-2. Sent to Groq's `llama-3.3-70b-versatile` model with a specialized prompt
+2. Sent to Groq (default model: `llama-3.1-8b-instant`, configurable via `GROQ_MODEL`)
 3. Response is parsed as JSON and validated
 4. Falls back to CSS selectors if Groq is unavailable or returns invalid data
 
@@ -239,6 +246,7 @@ The scraper uses [Groq](https://console.groq.com/) LLM to extract structured dat
 # .env
 GROQ_API_KEY=gsk_...         # Get from https://console.groq.com/keys
 USE_GROQ=true                # Enable/disable Groq (falls back to CSS)
+GROQ_MODEL=llama-3.1-8b-instant
 SCRAPER_DEBUG_HTML=true      # Save raw HTML for debugging
 ```
 
@@ -418,22 +426,22 @@ alumni-networking-tool/
 
 Run the test suite:
 ```bash
-# Run all tests
-pytest tests/ -v
+# Run full suite (root + backend tests)
+./venv/bin/pytest -q
 
 # Run entity classifier tests specifically
-pytest tests/test_entity_classifier.py -v
+./venv/bin/pytest -q tests/test_entity_classifier.py
 ```
 
 Tests cover:
-- LinkedIn OAuth login flow (mocked)
-- API route validation
-- Database connectivity
+- API route validation (including alumni filters)
+- Database + SQLite fallback behavior
 - Scraper data extraction logic
 - Groq module imports and refactoring validation
 - Degree normalization (exact matches, abbreviations, prefixes, edge cases)
 - Entity classification (job titles, companies, locations, universities)
 - Text normalization (newlines, special characters)
+- Search resume state and dead URL cleanup safety
 - Working-while-studying fallback and UNT matching rules
 
 ---
@@ -529,14 +537,17 @@ Returns:
 |----------|-------------|---------|
 | LINKEDIN_EMAIL | LinkedIn login email | Required |
 | LINKEDIN_PASSWORD | LinkedIn login password | Required |
-| SCRAPER_MODE | search, names, connections, review | search |
+| SCRAPER_MODE | search, names, connections, review | names |
+| SCRAPE_RESUME_MAX_AGE_DAYS | Max age (days) for search page checkpoint resume | 7 |
 | UPDATE_FREQUENCY | How often to re-scrape profiles | 6 months |
 | HEADLESS | Run Chrome without UI | false |
 | TESTING | Enable shorter delays for testing | false |
-| INPUT_CSV | CSV file with names (names mode) | — |
+| USE_COOKIES | Reuse cached LinkedIn cookies before credential login | false |
+| INPUT_CSV | CSV file with names (names mode) | engineering_graduates.csv |
 | CONNECTIONS_CSV | CSV of connections (connections mode) | connections.csv |
 | GROQ_API_KEY | Groq API key for AI extraction | — |
 | USE_GROQ | Enable Groq LLM extraction | true |
+| GROQ_MODEL | Groq model used for LLM extraction/classification | llama-3.1-8b-instant |
 | SCRAPER_DEBUG_HTML | Save raw HTML for debugging | false |
 | USE_SQLITE_FALLBACK | Enable local SQLite backup | 1 (enabled) |
 | DISABLE_DB | Disable all database operations | 0 (disabled) |
