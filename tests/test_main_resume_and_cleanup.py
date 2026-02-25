@@ -142,3 +142,80 @@ def test_remove_dead_urls_uses_exact_delete_query(monkeypatch, tmp_path):
     assert "LIKE" not in delete_query.upper()
     assert delete_query == "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s"
     assert params == ("https://www.linkedin.com/in/john", "https://www.linkedin.com/in/john/")
+
+
+def test_remove_dead_urls_cleans_slash_variants_from_files(monkeypatch, tmp_path):
+    class _FakeCursor:
+        def execute(self, _query, _params):
+            return None
+
+    class _FakeConn:
+        def __init__(self):
+            self._cursor = _FakeCursor()
+
+        def cursor(self):
+            return self._cursor
+
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_db_module = types.SimpleNamespace(get_connection=lambda: _FakeConn())
+    monkeypatch.setitem(sys.modules, "database", fake_db_module)
+    monkeypatch.setattr(scraper_main, "PROJECT_ROOT", tmp_path)
+
+    out_dir = tmp_path / "scraper" / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    flagged = out_dir / "flagged_for_review.txt"
+    flagged.write_text(
+        "\n".join(
+            [
+                "https://www.linkedin.com/in/remove-me # flagged",
+                "https://www.linkedin.com/in/remove-me/",
+                "https://www.linkedin.com/in/keep-me",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    (out_dir / "visited_history.csv").write_text(
+        "\n".join(
+            [
+                "profile_url,saved,visited_at,update_needed,last_db_update",
+                "https://www.linkedin.com/in/remove-me,yes,2025-01-01,no,2025-01-01",
+                "https://www.linkedin.com/in/keep-me,yes,2025-01-01,no,2025-01-01",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    (out_dir / "UNT_Alumni_Data.csv").write_text(
+        "\n".join(
+            [
+                "linkedin_url",
+                "https://www.linkedin.com/in/remove-me/",
+                "https://www.linkedin.com/in/keep-me",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    scraper_main._remove_dead_urls(["https://www.linkedin.com/in/remove-me"], flagged, _DummyHistory())
+
+    flagged_after = flagged.read_text(encoding="utf-8")
+    assert "remove-me" not in flagged_after
+    assert "keep-me" in flagged_after
+
+    visited_after = (out_dir / "visited_history.csv").read_text(encoding="utf-8")
+    assert "remove-me" not in visited_after
+    assert "keep-me" in visited_after
+
+    alumni_after = (out_dir / "UNT_Alumni_Data.csv").read_text(encoding="utf-8")
+    assert "remove-me" not in alumni_after
+    assert "keep-me" in alumni_after

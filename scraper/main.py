@@ -13,7 +13,6 @@ import random
 import urllib.parse
 import threading
 from datetime import datetime, timedelta, timezone
-import pandas as pd
 
 # Local Modules
 import config
@@ -433,7 +432,7 @@ def run_review_mode(scraper, nav, history_mgr):
                     elif data and data != "PAGE_NOT_FOUND":
                         _save_and_track(data, profile_url, history_mgr)
                 except Exception as retry_e:
-                     logger.error(f"❌ Retry failed: {retry_e}")
+                    logger.error(f"❌ Retry failed: {retry_e}")
             else:
                 logger.error(f"❌ Error processing {profile_url}: {e}")
         
@@ -468,6 +467,7 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
     """Remove dead/changed URLs from database, CSV, flagged file, and visited history."""
     import csv
     dead_set = set(dead_urls)
+    normalized_dead = {u.rstrip('/') for u in dead_set if u}
     
     # 1. Remove from SQLite / cloud DB
     try:
@@ -499,7 +499,7 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
         if flagged_file.exists():
             with open(flagged_file, 'r') as f:
                 lines = f.readlines()
-            kept = [l for l in lines if l.split('#')[0].strip().rstrip('/') not in {u.rstrip('/') for u in dead_set}]
+            kept = [l for l in lines if l.split('#')[0].strip().rstrip('/') not in normalized_dead]
             with open(flagged_file, 'w') as f:
                 f.writelines(kept)
             logger.info(f"🗑️  Removed {len(lines) - len(kept)} entries from flagged_for_review.txt")
@@ -517,7 +517,7 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
                 fieldnames = reader.fieldnames
                 for row in reader:
                     profile_url = row.get('profile_url', '').rstrip('/')
-                    if profile_url in {u.rstrip('/') for u in dead_set}:
+                    if profile_url in normalized_dead:
                         removed += 1
                     else:
                         rows.append(row)
@@ -541,7 +541,7 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
                 fieldnames = reader.fieldnames
                 for row in reader:
                     url = (row.get('linkedin_url', '') or row.get('profile_url', '')).rstrip('/')
-                    if url in {u.rstrip('/') for u in dead_set}:
+                    if url in normalized_dead:
                         removed += 1
                     else:
                         rows.append(row)
