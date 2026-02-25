@@ -278,6 +278,28 @@ def _get_groq_client():
         return None
 
 
+def _coerce_existing_company_choice(candidate: str, existing_companies: list[str]) -> str:
+    """
+    Normalize an LLM company output and restore exact existing company casing when possible.
+    """
+    if not candidate or not isinstance(candidate, str):
+        return ""
+
+    cleaned = re.sub(r"\s+", " ", candidate).strip().strip('"\'')
+    cleaned = re.sub(r"\s*[|:;,.!?]+\s*$", "", cleaned).strip()
+
+    if not cleaned:
+        return ""
+
+    existing_map = {}
+    for company in existing_companies or []:
+        if isinstance(company, str) and company.strip():
+            existing_map[company.strip().casefold()] = company.strip()
+
+    match = existing_map.get(cleaned.casefold())
+    return match if match else cleaned
+
+
 def normalize_company_with_groq(raw_company: str, existing_companies: list) -> str:
     """
     Use Groq LLM to classify a raw company name.
@@ -296,26 +318,29 @@ def normalize_company_with_groq(raw_company: str, existing_companies: list) -> s
         return normalize_company_deterministic(raw_company)
 
     # Build prompt
-    companies_list = "\n".join(f"- {c}" for c in existing_companies[:300])
+    companies_list = "\n".join(f"- {c}" for c in existing_companies[:220])
+    raw_text = (raw_company or "").strip()[:200]
 
     prompt = f"""You are a company-name normalization engine.
 
-Given a raw company name and a list of existing normalized company names, do ONE of:
-1. Return an EXACT match from the existing list if it is the same company (different spelling, abbreviation, or legal suffix).
-2. If no match exists, return a NEW clean standardized company name.
+Task:
+Given a raw company name and existing normalized company names, return one normalized company.
 
 Rules:
-- Remove legal suffixes (Inc., LLC, Ltd., Corp., etc.) unless they are part of the brand.
-- Use the most commonly known name (e.g. "Google" not "Alphabet Inc.").
-- Keep the name concise but recognizable.
-- Return ONLY the normalized company name string. No explanation.
+1. If an existing company is the same entity, return that EXACT existing string.
+2. Otherwise return a clean new company name.
+3. Remove legal suffixes when they are not brand-essential (Inc, LLC, Ltd, Corp).
+4. Collapse variants/abbreviations to common brand name when obvious.
+5. For placeholders (self-employed, stealth startup, confidential), return a concise normalized placeholder.
+6. If raw input is empty/noise, return an empty string.
 
 Existing normalized companies:
 {companies_list}
 
-Raw company name: {raw_company}
+Raw company name: "{raw_text}"
 
-Normalized company name:"""
+Return JSON only:
+{{"normalized_company":"<string>", "match_type":"existing|new|placeholder|empty"}}"""
 
     try:
         response = client.chat.completions.create(
@@ -323,21 +348,23 @@ Normalized company name:"""
             messages=[
                 {
                     "role": "system",
-                    "content": "You output exactly one company name string. No explanation, no quotes, no punctuation beyond what's in the name."
+                    "content": "Output strictly valid JSON with normalized_company and match_type only."
                 },
                 {"role": "user", "content": prompt}
             ],
+            response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=50
+            max_tokens=48
         )
-        result = response.choices[0].message.content.strip()
-        # Sanity: strip quotes
-        result = result.strip('"\'')
+        payload = json.loads(response.choices[0].message.content)
+        result = _coerce_existing_company_choice(payload.get("normalized_company", ""), existing_companies)
+        if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:
+            logger.warning(f"Groq returned non-company value for {raw_company!r}: {result!r}")
+            return normalize_company_deterministic(raw_company)
         if result and len(result) < 150:
             return result
-        else:
-            logger.warning(f"Groq returned suspicious result: {result!r}")
-            return normalize_company_deterministic(raw_company)
+        logger.warning(f"Groq returned suspicious company result: {result!r}")
+        return normalize_company_deterministic(raw_company)
     except Exception as e:
         logger.error(f"Groq company normalization failed: {e}")
         return normalize_company_deterministic(raw_company)

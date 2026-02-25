@@ -558,6 +558,28 @@ def _get_groq_client():
         return None
 
 
+def _coerce_existing_title_choice(candidate: str, existing_titles: list[str]) -> str:
+    """
+    Normalize an LLM title output and restore exact existing title casing when possible.
+    """
+    if not candidate or not isinstance(candidate, str):
+        return ""
+
+    cleaned = re.sub(r"\s+", " ", candidate).strip().strip('"\'')
+    cleaned = re.sub(r"\s*[|:;,.!?]+\s*$", "", cleaned).strip()
+
+    if not cleaned:
+        return ""
+
+    existing_map = {}
+    for title in existing_titles or []:
+        if isinstance(title, str) and title.strip():
+            existing_map[title.strip().casefold()] = title.strip()
+
+    match = existing_map.get(cleaned.casefold())
+    return match if match else cleaned
+
+
 def normalize_title_with_groq(raw_title: str, existing_titles: list) -> str:
     """
     Use Groq LLM to classify a raw job title.
@@ -576,51 +598,53 @@ def normalize_title_with_groq(raw_title: str, existing_titles: list) -> str:
         return normalize_title_deterministic(raw_title)
 
     # Build prompt
-    titles_list = "\n".join(f"- {t}" for t in existing_titles[:200])  # cap list size
+    titles_list = "\n".join(f"- {t}" for t in existing_titles[:180])  # keep prompt lean
+    raw_text = (raw_title or "").strip()[:180]
 
     prompt = f"""You are a job-title normalization engine.
 
-Given a raw job title and a list of existing normalized titles, do ONE of:
-1. Return an EXACT match from the existing list if it is semantically equivalent.
-2. If no match exists, return a NEW concise standardized title.
+Task:
+Given a raw job title and existing normalized titles, produce one normalized title.
 
 Rules:
-- STRIP all seniority titles, modifiers, levels, and ranks (e.g., Senior, Junior, Intern, Lead, Staff, Principal, Associate, VP, Chief, II, III). 
-- STRIP university-specific markers and departments (e.g., "at University of North Texas", "in the College of Engineering").
-- Return ONLY the base job function (e.g., 'Software Engineer' instead of 'Senior Software Engineer Intern').
-- Use common industry terminology (e.g. "Software Engineer" not "Software Developer").
-- Map "Student Assistant" or "Assistant" roles at a university to "Graduate Assistant" unless they are clearly undergraduate/clerical roles.
-- Keep it concise: 1-4 words max.
-- Return ONLY the normalized title string. No explanation or punctuation.
+1. If an existing title is semantically equivalent, return that EXACT existing string.
+2. Otherwise return a new concise base function title (1-4 words).
+3. Remove seniority/level modifiers (Senior, Junior, II, III, Intern, Lead, etc.).
+4. Remove org-specific fragments (department names, "at <university/company>").
+5. Keep common technical acronyms when core to the role (QA, SRE, DevOps, UI/UX).
+6. If raw title is empty/noise (N/A, unknown), return an empty string.
 
 Existing normalized titles:
 {titles_list}
 
-Raw title: {raw_title}
+Raw title: "{raw_text}"
 
-Normalized title:"""
+Return JSON only:
+{{"normalized_title":"<string>", "match_type":"existing|new|empty"}}"""
 
     try:
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
                 {
-                    "role": "System",
-                    "content": "You output exactly one job title string. No explanation, no quotes, no punctuation."
+                    "role": "system",
+                    "content": "Output strictly valid JSON with normalized_title and match_type only."
                 },
-                {"role": "User", "content": prompt}
+                {"role": "user", "content": prompt}
             ],
+            response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=50
+            max_tokens=40
         )
-        result = response.choices[0].message.content.strip()
-        # Sanity: strip quotes
-        result = result.strip('"\'')
+        payload = json.loads(response.choices[0].message.content)
+        result = _coerce_existing_title_choice(payload.get("normalized_title", ""), existing_titles)
+        if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:
+            logger.warning(f"Groq returned non-title value for {raw_title!r}: {result!r}")
+            return normalize_title_deterministic(raw_title)
         if result and len(result) < 100:
             return result
-        else:
-            logger.warning(f"Groq returned suspicious result: {result!r}")
-            return normalize_title_deterministic(raw_title)
+        logger.warning(f"Groq returned suspicious title result: {result!r}")
+        return normalize_title_deterministic(raw_title)
     except Exception as e:
         logger.error(f"Groq normalization failed: {e}")
         return normalize_title_deterministic(raw_title)
