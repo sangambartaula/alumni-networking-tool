@@ -1015,6 +1015,10 @@ def seed_alumni_data():
         added = 0
         updated = 0
         processed = 0
+        try:
+            commit_every = max(1, int(os.getenv("SEED_COMMIT_EVERY", "50")))
+        except Exception:
+            commit_every = 50
 
         try:
             with conn.cursor() as cur:
@@ -1248,11 +1252,11 @@ def seed_alumni_data():
                             break
                         continue
 
-                    # Incremental commit every 5 rows to prevent total data loss on timeout
-                    if processed % 5 == 0:
+                    # Incremental commit protects progress if a long import is interrupted.
+                    if processed % commit_every == 0:
                         try:
                             conn.commit()
-                            logger.info(f"💾 Auto-committed batch at record {processed}")
+                            logger.debug(f"Auto-committed batch at record {processed}")
                         except Exception as commit_err:
                             logger.error(f"❌ Auto-commit failed: {commit_err}")
 
@@ -1269,6 +1273,32 @@ def seed_alumni_data():
     except Exception as e:
         logger.error(f"❌ Critical setup failed: {e}")
         raise
+
+
+def has_alumni_records():
+    """Return True when the alumni table already has at least one record."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM alumni")
+            row = cur.fetchone()
+            if isinstance(row, dict):
+                count = next(iter(row.values()), 0)
+            elif isinstance(row, (tuple, list)):
+                count = row[0]
+            else:
+                count = int(row or 0)
+            return int(count) > 0
+    except Exception as e:
+        logger.warning(f"Could not determine alumni table size: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def truncate_dot_fields():

@@ -1612,6 +1612,7 @@ if __name__ == "__main__":
     from database import (
         init_db,
         seed_alumni_data,
+        has_alumni_records,
         normalize_existing_grad_years,
         ensure_normalized_job_title_column,
         ensure_normalized_degree_column,
@@ -1624,8 +1625,24 @@ if __name__ == "__main__":
             ensure_normalized_job_title_column()
             ensure_normalized_degree_column()
             ensure_normalized_company_column()
-            seed_alumni_data()
-            normalize_existing_grad_years()
+            # Startup seed strategy:
+            # - Default ("auto"): seed only when alumni table is empty.
+            # - Force seed with SEED_ON_STARTUP=1.
+            # - Explicitly skip with SEED_ON_STARTUP=0.
+            seed_mode = os.getenv("SEED_ON_STARTUP", "auto").strip().lower()
+            if seed_mode in {"1", "true", "yes"}:
+                app.logger.info("Seeding alumni on startup (SEED_ON_STARTUP=1)")
+                seed_alumni_data()
+                normalize_existing_grad_years()
+            elif seed_mode in {"0", "false", "no"}:
+                app.logger.info("Skipping alumni seed on startup (SEED_ON_STARTUP=0)")
+            else:
+                if has_alumni_records():
+                    app.logger.info("Skipping alumni seed on startup (alumni table already populated)")
+                else:
+                    app.logger.info("Seeding alumni on startup (alumni table is empty)")
+                    seed_alumni_data()
+                    normalize_existing_grad_years()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
             if not USE_SQLITE_FALLBACK:
