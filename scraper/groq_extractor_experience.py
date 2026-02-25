@@ -175,7 +175,15 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
     client = _get_client()
     if not client:
         logger.warning("⚠️ Groq not available, skipping LLM extraction")
-        return []
+        return [], 0
+
+    original_len = len(experience_html or "")
+    structured_text = _html_to_structured_text(experience_html or "", profile_name)
+    if not structured_text:
+        logger.warning("⚠️ Experience section text is empty after cleaning; skipping Groq extraction")
+        return [], 0
+
+    text_len = len(structured_text)
     
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
     logger.debug(f"Experience HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
