@@ -507,10 +507,10 @@ class LinkedInScraper:
 
             self._apply_education_and_discipline_normalization(data)
             self._apply_experience_display_normalization(data)
-            self._log_missing_data_warnings(data, all_experiences, edu_entries)
 
             # --- Clean summary block ---
             print_profile_summary(data, token_count=_total_tokens, status="Saved")
+            self._log_missing_data_warnings(data, all_experiences, edu_entries)
 
             # Normalize all fields before returning
             return normalize_scraped_data(data)
