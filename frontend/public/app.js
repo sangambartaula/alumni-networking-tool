@@ -303,8 +303,52 @@ function hasInteraction(alumniId, interactionType) {
   return key in userInteractions;
 }
 
+function _isMeaningfulEducationValue(value) {
+  if (!value) return false;
+  const trimmed = String(value).trim();
+  if (!trimmed) return false;
+
+  const lowered = trimmed.toLowerCase();
+  if (['unknown', 'not found', 'n/a', 'na', 'none', 'null', 'nan', 'other'].includes(lowered)) {
+    return false;
+  }
+  if (lowered === 'university of north texas' || lowered === 'unt') {
+    return false;
+  }
+  return true;
+}
+
+function _buildEducationLine(profile) {
+  const fullDegree = _isMeaningfulEducationValue(profile.full_degree) ? String(profile.full_degree).trim() : '';
+  const fullMajor = _isMeaningfulEducationValue(profile.full_major) ? String(profile.full_major).trim() : '';
+
+  if (!fullDegree && !fullMajor) return '';
+  if (fullDegree && fullMajor) {
+    if (fullDegree.toLowerCase().includes(fullMajor.toLowerCase())) {
+      return fullDegree;
+    }
+    return `${fullDegree} - ${fullMajor}`;
+  }
+  return fullDegree || fullMajor;
+}
+
+function _buildClassLocationLine(profile) {
+  const gradYearRaw = profile.class ? String(profile.class).trim() : '';
+  const gradYear = gradYearRaw.replace(/\b(19\d{2}|20\d{2}|2100)\.0\b/g, '$1');
+  const location = profile.location ? String(profile.location).trim() : '';
+
+  if (gradYear) {
+    return `Class of ${gradYear}${location ? ' · ' + location : ''}`;
+  }
+  return location;
+}
+
 // Create profile list item element (horizontal row)
 function createListItem(p) {
+  const educationLine = _buildEducationLine(p);
+  const roleLine = p.role || p.headline || '';
+  const classLocationLine = _buildClassLocationLine(p);
+
   const item = document.createElement('div');
   item.className = 'list-item';
   item.setAttribute('data-id', p.id);
@@ -312,8 +356,9 @@ function createListItem(p) {
       <div class="list-main">
         <div class="list-details">
           <h3 class="name">${p.name}</h3>
-          <p class="role">${p.role || p.headline || ''}</p>
-          <div class="class">Class of ${p.class}${p.location ? ' · ' + p.location : ''}</div>
+          ${educationLine ? `<p class="education">${educationLine}</p>` : ''}
+          ${roleLine ? `<p class="role">${roleLine}</p>` : ''}
+          ${classLocationLine ? `<div class="class">${classLocationLine}</div>` : ''}
         </div>
         <div class="list-actions">
 
@@ -823,6 +868,8 @@ function setupFiltering(list) {
         headline: a.headline || '',
         linkedin: a.linkedin || '',
         degree: a.degree || '',
+        full_degree: a.full_degree || '',
+        full_major: a.full_major || '',
         major: a.major || '',
         updated_at: a.updated_at || '',
         working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null
@@ -863,4 +910,3 @@ function setupFiltering(list) {
   // Manually trigger initial rendering
   if (typeof renderProfiles === 'function') renderProfiles(alumniData);
 })();
-

@@ -620,7 +620,7 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.standardized_major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at, njt.normalized_title, nc.normalized_company,
                            a.working_while_studying
@@ -636,6 +636,11 @@ def api_get_alumni():
             for r in rows:
                 full_degree = r.get('degree') or ''
                 degree_level = classify_degree(full_degree, r.get('headline', ''))
+                full_major = (r.get('standardized_major') or '').strip()
+                if not full_major:
+                    raw_major = (r.get('major') or '').strip()
+                    if raw_major and raw_major not in APPROVED_ENGINEERING_DISCIPLINES:
+                        full_major = raw_major
 
                 # Read discipline from DB — set at scrape time by Groq, not computed here
                 discipline = r.get('major') or 'Other'
@@ -660,6 +665,7 @@ def api_get_alumni():
                     "linkedin": r.get('linkedin_url'),
                     "degree": degree_level,
                     "full_degree": full_degree,
+                    "full_major": full_major,
                     "updated_at": r.get('updated_at'),
                     "normalized_title": r.get('normalized_title'),
                     "normalized_company": r.get('normalized_company'),
@@ -1523,7 +1529,7 @@ def api_filter_alumni():
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
                 query = f"""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.linkedin_url,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.standardized_major, a.linkedin_url,
                            a.current_job_title, a.company, a.location, a.headline,
                            njt.normalized_title, nc.normalized_company
                     FROM alumni a
@@ -1539,6 +1545,11 @@ def api_filter_alumni():
                 for r in rows:
                     full_degree = r.get('degree') or ''
                     degree_level = classify_degree(full_degree, r.get('headline', ''))
+                    full_major = (r.get('standardized_major') or '').strip()
+                    if not full_major:
+                        raw_major = (r.get('major') or '').strip()
+                        if raw_major and raw_major not in APPROVED_ENGINEERING_DISCIPLINES:
+                            full_major = raw_major
 
                     # Read discipline from DB — set at scrape time by Groq
                     discipline = r.get('major') or 'Other'
@@ -1561,6 +1572,7 @@ def api_filter_alumni():
                         "linkedin": r.get('linkedin_url'),
                         "degree": degree_level,
                         "full_degree": full_degree,
+                        "full_major": full_major,
                         "normalized_title": r.get('normalized_title'),
                         "normalized_company": r.get('normalized_company')
                     })

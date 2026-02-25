@@ -712,6 +712,13 @@ select:focus {
   margin: 0 0 6px 0;
 }
 
+.list-details .education {
+  font-size: 14px;
+  color: #334155;
+  margin: 0 0 4px 0;
+  line-height: 1.35;
+}
+
 .list-details .role {
   font-size: 15px;
   color: #475569;
