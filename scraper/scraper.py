@@ -295,8 +295,9 @@ class LinkedInScraper:
     # ============================================================
     # Core Scraping Logic
     # ============================================================
-    def scrape_profile_page(self, profile_url):
-        data = {
+    def _initialize_profile_data(self, profile_url):
+        """Return the normalized data envelope used for every profile scrape."""
+        return {
             "name": "", "headline": "", "location": "",
             "job_title": "", "company": "", "job_start_date": "", "job_end_date": "",
             "education": "", "major": "", "school_start_date": "", "graduation_year": "",
@@ -305,6 +306,9 @@ class LinkedInScraper:
             "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "all_education": []
         }
+
+    def scrape_profile_page(self, profile_url):
+        data = self._initialize_profile_data(profile_url)
 
         try:
             logger.debug(f"Opening profile: {profile_url}")
@@ -358,32 +362,7 @@ class LinkedInScraper:
             # 4. Experience - Get up to 3 entries
             all_experiences = self._extract_all_experiences(soup, max_entries=3, profile_name=name)
             _total_tokens = getattr(self, '_last_exp_tokens', 0)  # From Groq experience extraction
-            
-            # Primary experience (most recent)
-            if all_experiences:
-                best_exp = all_experiences[0]
-                data["job_title"] = best_exp["title"]
-                data["company"] = best_exp["company"]
-                data["job_start_date"] = utils.format_date_for_storage(best_exp["start"])
-                data["job_end_date"] = utils.format_date_for_storage(best_exp["end"])
-            else:
-                data["job_title"] = ""
-                data["company"] = ""
-                data["job_start_date"] = ""
-                data["job_end_date"] = ""
-            
-            # Additional experiences (exp2, exp3)
-            for i, exp in enumerate(all_experiences[1:3], start=2):
-                data[f"exp{i}_title"] = exp["title"]
-                data[f"exp{i}_company"] = exp["company"]
-                data[f"exp{i}_dates"] = f"{utils.format_date_for_storage(exp['start'])} - {utils.format_date_for_storage(exp['end'])}"
-            
-            # Fill empty slots
-            for i in range(2, 4):
-                if f"exp{i}_title" not in data:
-                    data[f"exp{i}_title"] = ""
-                    data[f"exp{i}_company"] = ""
-                    data[f"exp{i}_dates"] = ""
+            self._apply_experience_entries(data, all_experiences)
 
             # 5. Education — Try Groq first, CSS fallback.
             # We prioritize Groq for education because it can intelligently separate
@@ -523,84 +502,9 @@ class LinkedInScraper:
                 data[f"degree{i}"] = entry.get("degree", "").strip()
                 data[f"major{i}"] = entry.get("major", "").strip()
 
-            # --- Apply normalization for standardized_* fields ---
-            try:
-
-                # --- Discipline Classification (LLM Fallback) ---
-                # Only run for the primary entry to save time/cost, or could run for all if needed.
-                # App uses: degree, job_title, headline.
-                # We use the primary extracted degree + major for better context.
-                data["discipline"] = infer_discipline(
-                    f"{data.get('degree', '')} {data.get('major', '')}",
-                    data.get("job_title", ""),
-                    data.get("headline", ""),
-                    use_llm=True
-                )
-                
-                # Helper to log standardization for review
-                def _log_std(filename, raw, std):
-                    if raw and std and raw != std:
-                        try:
-                            with open(f"scraper/output/{filename}", "a") as f:
-                                f.write(f"{raw} -> {std}\n")
-                        except Exception:
-                            pass
-
-                for suffix in ("", "2", "3"):
-                    deg_key = f"degree{suffix}" if suffix else "degree"
-                    maj_key = f"major{suffix}" if suffix else "major"
-                    std_deg_key = f"standardized_degree{suffix}" if suffix else "standardized_degree"
-                    std_maj_key = f"standardized_major{suffix}" if suffix else "standardized_major"
-
-                    raw_deg = data.get(deg_key, "")
-                    raw_maj = data.get(maj_key, "")
-                    
-                    # NEW: Fallback for hidden degrees in the major field
-                    if not raw_deg and raw_maj:
-                        from degree_normalization import extract_hidden_degree # delayed import
-                        extracted_deg, cleaned_maj = extract_hidden_degree(raw_maj)
-                        if extracted_deg:
-                            raw_deg = extracted_deg
-                            raw_maj = cleaned_maj
-                            logger.info(f"✓ Extracted hidden degree '{extracted_deg}' from major field.")
-
-                    if raw_deg:
-                        std_deg = standardize_degree(raw_deg)
-                        data[std_deg_key] = std_deg
-                        _log_std("standardized_degree.txt", raw_deg, std_deg)
-                        
-                    if raw_maj:
-                        std_maj = standardize_major(raw_maj, data.get("job_title", ""))
-                        data[std_maj_key] = std_maj
-                        _log_std("standardized_major.txt", raw_maj, std_maj)
-                        
-                # Log inferred discipline
-                if data.get("discipline") and data.get("discipline") != "Unknown":
-                    with open("scraper/output/inferred_disciplines.txt", "a") as f:
-                         f.write(f"{data.get('name')} | {data.get('degree')} | {data.get('job_title')} -> {data['discipline']}\n")
-
-            except Exception as norm_err:
-                logger.debug(f"    ⚠️ Education normalization/discipline failed: {norm_err}")
-
-            # --- Add normalized experience titles/companies for display ---
-            if _NORM_AVAILABLE:
-                for idx, suffix in enumerate(["", "2", "3"], start=1):
-                    title_key = "job_title" if not suffix else f"exp{idx}_title"
-                    comp_key = "company" if not suffix else f"exp{idx}_company"
-                    raw_title = data.get(title_key, "")
-                    raw_comp = data.get(comp_key, "")
-                    if raw_title:
-                        data[f"normalized_job_title" if not suffix else f"normalized_exp{idx}_title"] = normalize_title_deterministic(raw_title)
-                    if raw_comp:
-                        data[f"normalized_company" if not suffix else f"normalized_exp{idx}_company"] = normalize_company_deterministic(raw_comp)
-
-            # --- Warnings for missing data ---
-            if not all_experiences:
-                logger.warning(f"No experience found for {data.get('name', 'Unknown')}")
-            if not edu_entries:
-                logger.warning(f"No education found for {data.get('name', 'Unknown')}")
-            if not data.get("graduation_year"):
-                logger.warning(f"No graduation year for {data.get('name', 'Unknown')}")
+            self._apply_education_and_discipline_normalization(data)
+            self._apply_experience_display_normalization(data)
+            self._log_missing_data_warnings(data, all_experiences, edu_entries)
 
             # --- Clean summary block ---
             print_profile_summary(data, token_count=_total_tokens, status="Saved")
@@ -611,6 +515,122 @@ class LinkedInScraper:
         except Exception as e:
             logger.error(f"Error scraping profile {profile_url}: {e}")
             return None
+
+    def _apply_experience_entries(self, data, all_experiences):
+        """
+        Populate primary + secondary experience slots.
+        Keep this isolated so scrape_profile_page stays readable during handoffs.
+        """
+        if all_experiences:
+            best_exp = all_experiences[0]
+            data["job_title"] = best_exp["title"]
+            data["company"] = best_exp["company"]
+            data["job_start_date"] = utils.format_date_for_storage(best_exp["start"])
+            data["job_end_date"] = utils.format_date_for_storage(best_exp["end"])
+        else:
+            data["job_title"] = ""
+            data["company"] = ""
+            data["job_start_date"] = ""
+            data["job_end_date"] = ""
+
+        for i, exp in enumerate(all_experiences[1:3], start=2):
+            data[f"exp{i}_title"] = exp["title"]
+            data[f"exp{i}_company"] = exp["company"]
+            data[f"exp{i}_dates"] = (
+                f"{utils.format_date_for_storage(exp['start'])} - "
+                f"{utils.format_date_for_storage(exp['end'])}"
+            )
+
+        for i in range(2, 4):
+            if f"exp{i}_title" not in data:
+                data[f"exp{i}_title"] = ""
+                data[f"exp{i}_company"] = ""
+                data[f"exp{i}_dates"] = ""
+
+    @staticmethod
+    def _append_standardization_log(filename, raw, standardized):
+        if raw and standardized and raw != standardized:
+            try:
+                with open(f"scraper/output/{filename}", "a") as f:
+                    f.write(f"{raw} -> {standardized}\n")
+            except Exception:
+                pass
+
+    def _apply_education_and_discipline_normalization(self, data):
+        """
+        Apply degree/major normalization and infer discipline once education is set.
+        """
+        try:
+            data["discipline"] = infer_discipline(
+                f"{data.get('degree', '')} {data.get('major', '')}",
+                data.get("job_title", ""),
+                data.get("headline", ""),
+                use_llm=True
+            )
+
+            for suffix in ("", "2", "3"):
+                deg_key = f"degree{suffix}" if suffix else "degree"
+                maj_key = f"major{suffix}" if suffix else "major"
+                std_deg_key = f"standardized_degree{suffix}" if suffix else "standardized_degree"
+                std_maj_key = f"standardized_major{suffix}" if suffix else "standardized_major"
+
+                raw_deg = data.get(deg_key, "")
+                raw_maj = data.get(maj_key, "")
+
+                # Some profiles hide degree tokens in major text (e.g. "B.S. Computer Science").
+                if not raw_deg and raw_maj:
+                    from degree_normalization import extract_hidden_degree
+                    extracted_deg, cleaned_maj = extract_hidden_degree(raw_maj)
+                    if extracted_deg:
+                        raw_deg = extracted_deg
+                        raw_maj = cleaned_maj
+                        logger.info(f"✓ Extracted hidden degree '{extracted_deg}' from major field.")
+
+                if raw_deg:
+                    std_deg = standardize_degree(raw_deg)
+                    data[std_deg_key] = std_deg
+                    self._append_standardization_log("standardized_degree.txt", raw_deg, std_deg)
+
+                if raw_maj:
+                    std_maj = standardize_major(raw_maj, data.get("job_title", ""))
+                    data[std_maj_key] = std_maj
+                    self._append_standardization_log("standardized_major.txt", raw_maj, std_maj)
+
+            if data.get("discipline") and data.get("discipline") != "Unknown":
+                with open("scraper/output/inferred_disciplines.txt", "a") as f:
+                    f.write(
+                        f"{data.get('name')} | {data.get('degree')} | "
+                        f"{data.get('job_title')} -> {data['discipline']}\n"
+                    )
+        except Exception as norm_err:
+            logger.debug(f"    ⚠️ Education normalization/discipline failed: {norm_err}")
+
+    def _apply_experience_display_normalization(self, data):
+        """Populate normalized experience fields used by summary output and downstream UI."""
+        if not _NORM_AVAILABLE:
+            return
+        for idx, suffix in enumerate(["", "2", "3"], start=1):
+            title_key = "job_title" if not suffix else f"exp{idx}_title"
+            comp_key = "company" if not suffix else f"exp{idx}_company"
+            raw_title = data.get(title_key, "")
+            raw_comp = data.get(comp_key, "")
+            if raw_title:
+                data[f"normalized_job_title" if not suffix else f"normalized_exp{idx}_title"] = (
+                    normalize_title_deterministic(raw_title)
+                )
+            if raw_comp:
+                data[f"normalized_company" if not suffix else f"normalized_exp{idx}_company"] = (
+                    normalize_company_deterministic(raw_comp)
+                )
+
+    @staticmethod
+    def _log_missing_data_warnings(data, all_experiences, edu_entries):
+        if not all_experiences:
+            logger.warning(f"No experience found for {data.get('name', 'Unknown')}")
+        if not edu_entries:
+            logger.warning(f"No education found for {data.get('name', 'Unknown')}")
+        if not data.get("graduation_year"):
+            logger.warning(f"No graduation year for {data.get('name', 'Unknown')}")
 
     # ============================================================
     # Missing-date fallback (strict UNT + Graduate Assistant)
