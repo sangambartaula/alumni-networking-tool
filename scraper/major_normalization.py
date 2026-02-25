@@ -97,6 +97,9 @@ _MAJOR_PATTERNS = [
      
     (re.compile(r'\b(manufacturing\s*engineering)\b', re.I),
      "Manufacturing Engineering"),
+    
+    (re.compile(r'\b(industrial\s*management|engineering\s*/\s*industrial\s*management)\b', re.I),
+     "Engineering Management"),
 
     # --- Other Specific Engineering Disciplines ---
     (re.compile(r'\b(projects?\s*engineering)\b', re.I), "Project Engineering"),

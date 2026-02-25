@@ -1,7 +1,10 @@
 import re
 import os
 import json
+import logging
 from typing import Optional, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Approved engineering disciplines (only these will appear in the filter).
 # Rule: Any profile that doesn't fit these categories or is identified as 
@@ -151,6 +154,24 @@ _DISCIPLINE_ID_MAP = {
     idx: name for idx, name in enumerate(APPROVED_ENGINEERING_DISCIPLINES, start=1)
 }
 _DISCIPLINE_BY_LOWER = {name.lower(): name for name in APPROVED_ENGINEERING_DISCIPLINES}
+_GENERIC_DEGREE_MARKERS = {
+    "bachelor's degree",
+    "bachelors degree",
+    "master's degree",
+    "masters degree",
+    "doctorate",
+    "doctor of philosophy",
+    "master of science",
+    "bachelor of science",
+}
+_ENGINEERING_SIGNAL_KEYWORDS = sorted(
+    {
+        kw
+        for _, keywords in DISCIPLINES
+        for kw in keywords
+        if len(kw) > 2
+    }
+)
 
 
 def _coerce_llm_discipline_choice(payload: dict | None) -> str:
@@ -178,6 +199,17 @@ def _coerce_llm_discipline_choice(payload: dict | None) -> str:
         return _DISCIPLINE_BY_LOWER.get(cleaned.lower(), "Unknown")
 
     return "Unknown"
+
+
+def _has_engineering_signal(text_lower: str) -> bool:
+    """
+    Return True if text contains concrete engineering/technical signals.
+    """
+    if not text_lower:
+        return False
+    if " engineering" in f" {text_lower}" or "engineer" in text_lower:
+        return True
+    return any(kw in text_lower for kw in _ENGINEERING_SIGNAL_KEYWORDS)
 
 
 def _infer_discipline_with_llm(text: str, job_title_unused: str = "", headline_unused: str = "") -> str:
@@ -243,7 +275,7 @@ Return JSON only:
         return "Unknown"
 
     except Exception as e:
-        print(f"⚠️ LLM discipline inference failed: {e}")
+        logger.warning(f"LLM discipline inference failed: {e}")
         return "Unknown"
 
 
@@ -253,6 +285,10 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
         return "Other"
 
     text_lower = text.lower()
+
+    # Generic degree labels without specialization should not trigger LLM guesses.
+    if current_priority == "degree" and text_lower.strip() in _GENERIC_DEGREE_MARKERS:
+        return "Other"
 
     # 1. Deterministic UNT Major Match (Only relevant if current_priority is 'degree')
     if current_priority == 'degree':
@@ -269,19 +305,18 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
     if "systems" in text_lower and any(kw in text_lower for kw in ["computer", "management", "information"]):
         return "Software, Data & AI Engineering"
 
-    # 3. LLM Inference
-    if use_llm:
-        llm_result = _infer_discipline_with_llm(text)
-        if llm_result and llm_result != "Unknown":
-            return llm_result
-
-    # 4. Regex Fallback
-    # First check non-engineering kill list
+    # 3. Non-engineering kill list (before LLM to avoid false positive guesses)
     for non_eng_kw in NON_ENGINEERING_DEGREE_KEYWORDS:
         if re.search(r'\b' + re.escape(non_eng_kw) + r'\b', text_lower):
             if non_eng_kw == "biology" and ("computational biology" in text_lower or "bioinformatics" in text_lower):
                 continue
             return "Other"
+
+    # 4. LLM Inference (only when the text actually contains engineering signals)
+    if use_llm and _has_engineering_signal(text_lower):
+        llm_result = _infer_discipline_with_llm(text)
+        if llm_result and llm_result != "Unknown":
+            return llm_result
 
     # Search for all approved disciplines
     matches = []
