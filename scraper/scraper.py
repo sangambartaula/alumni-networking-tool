@@ -490,7 +490,10 @@ class LinkedInScraper:
 
                             data["working_while_studying"] = best_wws
                     else:
-                        return None # No UNT found at all
+                        # This pipeline intentionally stores UNT alumni only.
+                        # If neither inline extraction nor expanded education view finds UNT,
+                        # skip persisting this profile.
+                        return None
 
             # --- Store up to 3 education entries (school2/degree2/major2, etc.) ---
             # Trust the extraction layer (Groq/CSS) to return clean entries.
@@ -1339,6 +1342,10 @@ class LinkedInScraper:
         return unique_entries
 
     def scrape_all_education(self, profile_url):
+        """
+        Open LinkedIn's "Show all education" page and scrape extra education records.
+        This is only used when the main profile card cannot confidently identify UNT.
+        """
         all_edus = []
         unt_details = None
         
@@ -1420,6 +1427,10 @@ class LinkedInScraper:
     # Parsing Helpers
     # ============================================================
     def _find_section_root(self, soup, heading_text):
+        """
+        Resolve a section container by heading text.
+        LinkedIn markup changes often, so we probe multiple heading patterns.
+        """
         norm = heading_text.lower()
         
         # Try h2, h3 tags
