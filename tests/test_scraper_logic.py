@@ -51,5 +51,24 @@ class TestScraperLogic:
         parts2 = scraper._split_context_line(text2)
         assert "Microsoft" in parts2
 
+    def test_extract_education_top_card_handles_non_string_button_text(self):
+        scraper = LinkedInScraper()
+
+        class _BadButton:
+            def get(self, _key, default=""):
+                return default
+
+            def get_text(self, *_args, **_kwargs):
+                return None
+
+        class _FakeSoup:
+            def find_all(self, tag):
+                if tag == "button":
+                    return [_BadButton()]
+                return []
+
+        entries = scraper._extract_education_from_top_card(_FakeSoup())
+        assert entries == []
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

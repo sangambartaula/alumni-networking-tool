@@ -1279,7 +1279,8 @@ class LinkedInScraper:
                 
                 # Also try to get text from nested span/div
                 school_text = btn.get_text(" ", strip=True)
-                if school_text and 'university' in school_text.lower() or 'college' in school_text.lower():
+                school_text_lower = school_text.lower() if isinstance(school_text, str) else ""
+                if school_text and ('university' in school_text_lower or 'college' in school_text_lower):
                     entries.append({
                         "school": school_text,
                         "degree": "",
