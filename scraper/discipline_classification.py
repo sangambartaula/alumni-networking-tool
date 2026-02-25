@@ -147,6 +147,39 @@ DISCIPLINES = [
 ]
 
 
+_DISCIPLINE_ID_MAP = {
+    idx: name for idx, name in enumerate(APPROVED_ENGINEERING_DISCIPLINES, start=1)
+}
+_DISCIPLINE_BY_LOWER = {name.lower(): name for name in APPROVED_ENGINEERING_DISCIPLINES}
+
+
+def _coerce_llm_discipline_choice(payload: dict | None) -> str:
+    """
+    Parse Groq JSON payload into an approved discipline label.
+    Accepts either:
+      - {"discipline_id": <1-based index>}
+      - {"discipline": "<exact label>"}
+    Returns "Unknown" when payload is invalid.
+    """
+    if not isinstance(payload, dict):
+        return "Unknown"
+
+    discipline_id = payload.get("discipline_id")
+    if isinstance(discipline_id, str):
+        text = discipline_id.strip()
+        if text.isdigit():
+            discipline_id = int(text)
+    if isinstance(discipline_id, int) and discipline_id in _DISCIPLINE_ID_MAP:
+        return _DISCIPLINE_ID_MAP[discipline_id]
+
+    discipline_name = payload.get("discipline")
+    if isinstance(discipline_name, str):
+        cleaned = discipline_name.strip().strip('"\'')
+        return _DISCIPLINE_BY_LOWER.get(cleaned.lower(), "Unknown")
+
+    return "Unknown"
+
+
 def _infer_discipline_with_llm(text: str, job_title_unused: str = "", headline_unused: str = "") -> str:
     """
     Uses Groq LLM to classify discipline for a specific piece of text.
@@ -156,40 +189,54 @@ def _infer_discipline_with_llm(text: str, job_title_unused: str = "", headline_u
         return "Unknown"
 
     try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
+        from groq_client import _get_client, GROQ_MODEL
+        client = _get_client()
+        if not client:
+            return "Unknown"
+
+        text_value = (text or "").strip()[:240]
+        categories = "\n".join(
+            f"{idx}. {name}" for idx, name in _DISCIPLINE_ID_MAP.items()
+        )
+        major_hints = "\n".join(
+            f"- {discipline}: {', '.join(majors[:3])}"
+            for discipline, majors in UNT_CENG_MAJORS.items()
+        )
 
         prompt = f"""
-        Classify this alumni into ONE of these EXACT engineering disciplines:
-        {json.dumps(APPROVED_ENGINEERING_DISCIPLINES, indent=2)}
-        
-        REFERENCE: Use these official UNT CENG major mappings to guide your decision:
-        {json.dumps(UNT_CENG_MAJORS, indent=2)}
-        
-        CRITICAL RULES:
-        1. "Major-priority": Use the UNT CENG major mapping above as the PRIMARY source of truth. 
-        2. If the info is blank or non-engineering (e.g., Business, Arts, Political Science, Biology, Chemistry), YOU MUST pick "Other".
-        4. "Systems" rule: Only map "Systems" to "Software, Data & AI Engineering" if it is "Information Systems", "Computer Systems", or "Cybersecurity Systems". "Engineering Systems" usually maps to "Mechanical & Energy Engineering" if it relates to Manufacturing/Industrial.
-        
-        Current Data Piece to Classify:
-        - Text: {text}
-        
-        Return ONLY JSON: {{ "discipline": "<Exact Name From List>" }}. No explanations.
-        """
+Classify this single text into one discipline ID.
+
+Text: "{text_value}"
+
+Discipline IDs:
+{categories}
+
+Reference hints from UNT engineering majors:
+{major_hints}
+
+Rules:
+1. If text is generic/non-engineering (e.g. manager, sales, business, arts), choose Other.
+2. Use specific engineering signals over generic words.
+3. If uncertain, choose Other.
+4. Do not output explanations.
+
+Return JSON only:
+{{ "discipline_id": <integer 1-{len(_DISCIPLINE_ID_MAP)}> }}
+"""
         
         completion = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "You are an automated engineering degree classifier. You must output strictly valid JSON."},
+                {"role": "system", "content": "You are an automated engineering discipline classifier. Output strictly valid JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama-3.1-8b-instant",
+            model=GROQ_MODEL,
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=64
+            max_tokens=24
         )
         
-        result = json.loads(completion.choices[0].message.content)
-        discipline = result.get("discipline", "Unknown")
+        payload = json.loads(completion.choices[0].message.content)
+        discipline = _coerce_llm_discipline_choice(payload)
         
         if discipline in APPROVED_ENGINEERING_DISCIPLINES:
             return discipline

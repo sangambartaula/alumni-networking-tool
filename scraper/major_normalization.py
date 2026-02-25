@@ -120,6 +120,34 @@ _MAJOR_PATTERNS = [
 
 # Unique set of canonical major names for LLM validation
 CANONICAL_MAJORS = sorted(list({c for _, c in _MAJOR_PATTERNS if c not in ["Other", "Other Engineering"]}))
+_CANONICAL_MAJOR_BY_LOWER = {m.lower(): m for m in CANONICAL_MAJORS}
+
+
+def _coerce_llm_major_choice(payload: dict | None) -> str:
+    """
+    Parse Groq JSON payload and coerce it to a canonical major.
+    Accepts either:
+      - {"major_id": <1-based index>}
+      - {"major": "<canonical major name>"}
+    Returns "Other" when parsing fails.
+    """
+    if not isinstance(payload, dict):
+        return "Other"
+
+    major_id = payload.get("major_id")
+    if isinstance(major_id, str):
+        major_id = major_id.strip()
+        if major_id.isdigit():
+            major_id = int(major_id)
+    if isinstance(major_id, int) and 1 <= major_id <= len(CANONICAL_MAJORS):
+        return CANONICAL_MAJORS[major_id - 1]
+
+    major_name = payload.get("major")
+    if isinstance(major_name, str):
+        cleaned = major_name.strip().strip('"\'')
+        return _CANONICAL_MAJOR_BY_LOWER.get(cleaned.lower(), "Other")
+
+    return "Other"
 
 
 def standardize_major(raw_major: str, job_title: str = "") -> str:
@@ -171,24 +199,33 @@ def standardize_major(raw_major: str, job_title: str = "") -> str:
 def _standardize_major_with_llm(raw_major: str, job_title: str) -> str:
     """Use Groq to map raw major to one of the CANONICAL_MAJORS."""
     try:
-        from groq import Groq
-        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        from groq_client import _get_client, GROQ_MODEL
+        client = _get_client()
+        if not client:
+            return "Other"
+
+        canonical_list = "\n".join(
+            f"{idx}. {name}" for idx, name in enumerate(CANONICAL_MAJORS, start=1)
+        )
+        major_text = (raw_major or "").strip()[:200]
+        job_text = (job_title or "").strip()[:120]
         
         prompt = f"""
-        Map this raw major to EXACTLY one of the canonical majors in the list below.
-        
-        Raw Major: "{raw_major}"
-        Context (Job Title): "{job_title}"
-        
-        Canonical Majors:
-        {json.dumps(CANONICAL_MAJORS)}
-        
-        Instructions:
-        1. If the major clearly maps to one of the canonical names, return that name.
-        2. Use the job title ONLY to disambiguate (e.g. "Health Data" + "Software Eng" -> "Data Science").
-        3. If it does not clearly match any, return "Other".
-        
-        Return JSON: {{ "major": "Exact Name" }}
+Map this raw major to one canonical major ID.
+
+Raw Major: "{major_text}"
+Job Title Context (weak hint only): "{job_text}"
+
+Canonical Majors (ID -> name):
+{canonical_list}
+
+Rules:
+1. Use job title ONLY as a tiebreaker for ambiguous engineering majors.
+2. If uncertain or non-engineering, return major_id as 0.
+3. Do not invent majors.
+
+Return JSON only:
+{{ "major_id": <integer 0-{len(CANONICAL_MAJORS)}> }}
         """
         
         completion = client.chat.completions.create(
@@ -196,13 +233,14 @@ def _standardize_major_with_llm(raw_major: str, job_title: str) -> str:
                 {"role": "system", "content": "You are a data cleaning assistant. Output valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama-3.1-8b-instant",
+            model=GROQ_MODEL,
             response_format={"type": "json_object"},
-            temperature=0
+            temperature=0,
+            max_tokens=24
         )
         
-        result = json.loads(completion.choices[0].message.content)
-        return result.get("major", "Other")
+        payload = json.loads(completion.choices[0].message.content)
+        return _coerce_llm_major_choice(payload)
         
     except Exception as e:
         logger.warning(f"LLM major standardization failed for '{raw_major}': {e}")
