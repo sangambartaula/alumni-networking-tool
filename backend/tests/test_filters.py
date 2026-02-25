@@ -1,5 +1,5 @@
-import pytest
 from flask import json
+import app as backend_app
 
 mock_alumni_data = [
     {"id": 1, "name": "Alice Johnson", "year": 2020, "role": "Software Engineer", "company": "Google", "location": "Austin"},
@@ -66,9 +66,51 @@ def test_invalid_filter_returns_empty():
     result = apply_filters(mock_alumni_data, company="Nonexistent")
     assert result == []
 
-@pytest.mark.skip(reason="Enable after /api/alumni implemented")
-def test_api_filter_endpoint(client):
-    response = client.get("/api/alumni?year=2020")
+def test_api_filter_endpoint(client, monkeypatch):
+    class _FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _query, _params):
+            return None
+
+        def fetchall(self):
+            return [
+                {
+                    "id": 1,
+                    "first_name": "Alice",
+                    "last_name": "Johnson",
+                    "grad_year": 2020,
+                    "degree": "Bachelor of Science",
+                    "major": "Software, Data & AI Engineering",
+                    "linkedin_url": "https://www.linkedin.com/in/alice",
+                    "current_job_title": "Software Engineer",
+                    "company": "Google",
+                    "location": "Austin",
+                    "headline": "Software Engineer",
+                    "updated_at": None,
+                    "normalized_title": "Software Engineer",
+                    "normalized_company": "Google",
+                    "working_while_studying": None,
+                    "working_while_studying_status": None,
+                }
+            ]
+
+    class _FakeConn:
+        def cursor(self, dictionary=False):
+            return _FakeCursor()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(backend_app, "get_connection", lambda: _FakeConn())
+
+    response = client.get("/api/alumni?limit=1&offset=0")
     assert response.status_code == 200
     data = json.loads(response.data)
-    assert all(a["year"] == 2020 for a in data)
+    assert data["success"] is True
+    assert len(data["alumni"]) == 1
+    assert data["alumni"][0]["grad_year"] == 2020
