@@ -67,9 +67,21 @@ The project uses a `.env` file to store sensitive credentials.
    LINKEDIN_PASSWORD=your_password
    
    # --- Scraper Settings ---
+   # names | search | connections | review
+   # If omitted, code default is "names"
    SCRAPER_MODE=search
+   INPUT_CSV=engineering_graduates.csv
+   CONNECTIONS_CSV=connections.csv
+   SCRAPE_RESUME_MAX_AGE_DAYS=7
    UPDATE_FREQUENCY=6 months
    HEADLESS=false
+   USE_COOKIES=true
+
+   # --- Groq AI Extraction (optional but recommended) ---
+   USE_GROQ=true
+   GROQ_API_KEY=gsk_your_key_here
+   GROQ_MODEL=llama-3.1-8b-instant
+   SCRAPER_DEBUG_HTML=false
    
    # --- Web App Login (OAuth) ---
    # See "How to Get LinkedIn API Keys" below
@@ -151,6 +163,17 @@ To verify users and allow them to "Sign in with LinkedIn", you need to create an
    ```bash
    cd scraper
    python main.py
+   ```
+
+   Notes:
+   - Search mode resumes from the last saved page if the checkpoint is recent (`SCRAPE_RESUME_MAX_AGE_DAYS`).
+   - Review mode re-scrapes URLs from `scraper/output/flagged_for_review.txt`.
+   - The scraper skips already visited profiles and logs `Profile Already Visited, Skipping`.
+
+4. **Run tests (recommended after setup):**
+   ```bash
+   # From project root
+   ./venv/bin/pytest -q
    ```
 
 ---
