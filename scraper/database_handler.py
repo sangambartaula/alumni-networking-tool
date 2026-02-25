@@ -433,7 +433,9 @@ def save_profile_to_csv(profile_data):
             save_data.setdefault(col, "")
             
         new_row = pd.DataFrame([save_data])[CSV_COLUMNS]
-        combined_df = pd.concat([existing_df, new_row], ignore_index=True)
+        # Avoid pandas concat FutureWarning for empty/all-NA frames by appending via loc.
+        combined_df = existing_df.reindex(columns=CSV_COLUMNS).copy()
+        combined_df.loc[len(combined_df)] = new_row.iloc[0].tolist()
         combined_df = combined_df.drop_duplicates(subset=['linkedin_url'], keep='last')
 
         if 'grad_year' in combined_df.columns:
