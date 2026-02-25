@@ -19,10 +19,9 @@ import utils
 import config
 from config import logger, print_profile_summary
 from entity_classifier import classify_entity, is_location, is_university, get_classifier
-from groq_client import is_groq_available, verify_location
+from groq_client import is_groq_available, verify_location, parse_groq_date, _clean_doubled
 from groq_extractor_experience import extract_experiences_with_groq
 from groq_extractor_education import extract_education_with_groq
-from groq_client import is_groq_available, parse_groq_date, _clean_doubled
 from utils import determine_work_study_status
 
 try:
