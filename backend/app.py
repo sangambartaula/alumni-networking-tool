@@ -1470,7 +1470,12 @@ def api_filter_alumni():
         location = request.args.get('location', '').strip()
         company = request.args.get('company', '').strip()
         job_title = request.args.get('job_title', '').strip()
-        grad_year = request.args.get('grad_year', '').strip()
+        grad_year_raw = request.args.get('grad_year', '').strip()
+        grad_year = None
+        if grad_year_raw:
+            if not (grad_year_raw.isdigit() and len(grad_year_raw) == 4):
+                return jsonify({"error": "Invalid grad_year. Use a 4-digit year."}), 400
+            grad_year = int(grad_year_raw)
         degree_filter = request.args.get('degree', '').strip()
 
         # Validate major parameter
@@ -1504,9 +1509,9 @@ def api_filter_alumni():
                     where_clauses.append("(a.current_job_title LIKE %s OR njt.normalized_title LIKE %s)")
                     params.append(f"%{job_title}%")
                     params.append(f"%{job_title}%")
-                if grad_year:
+                if grad_year is not None:
                     where_clauses.append("a.grad_year = %s")
-                    params.append(int(grad_year))
+                    params.append(grad_year)
                 if degree_filter:
                     if degree_filter.lower() == 'undergraduate':
                         where_clauses.append("(a.degree LIKE '%Bachelor%' OR a.degree LIKE '%B.S.%' OR a.degree LIKE '%B.A.%')")
@@ -1518,7 +1523,7 @@ def api_filter_alumni():
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
                 query = f"""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.linkedin_url,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.linkedin_url,
                            a.current_job_title, a.company, a.location, a.headline,
                            njt.normalized_title, nc.normalized_company
                     FROM alumni a
