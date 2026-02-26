@@ -1640,6 +1640,11 @@ function shouldHideLocationAlumni(location) {
   return shouldHide;
 }
 
+function getVisibleAlumniForLocation(location) {
+  const alumni = Array.isArray(location?.sample_alumni) ? location.sample_alumni : [];
+  return alumni.filter(a => !isCompanyHidden(a));
+}
+
 function reloadMapData() {
   console.log('=== Reloading Map Data ===');
   console.log('Total locations before filter:', locationClusters.length);
@@ -1680,11 +1685,29 @@ function reloadMapData() {
 
     // Filter and re-add markers
     console.log('Filtering locations...');
-    const filteredLocations = locationClusters.filter(loc => {
-      const shouldHide = shouldHideLocationAlumni(loc);
-      console.log(`Location: ${loc.location}, Hide: ${shouldHide}, Alumni count: ${loc.count}`);
-      return !shouldHide;
-    });
+    const filteredLocations = locationClusters
+      .map(loc => {
+        if (isLocationHidden(loc.location)) {
+          console.log(`Location: ${loc.location}, Hide: true (location filter), Alumni count: ${loc.count}`);
+          return null;
+        }
+
+        const visibleAlumni = getVisibleAlumniForLocation(loc);
+        const visibleCount = visibleAlumni.length;
+        const shouldHide = visibleCount === 0;
+        console.log(`Location: ${loc.location}, Hide: ${shouldHide}, Alumni count: ${loc.count}, Visible: ${visibleCount}`);
+        if (shouldHide) {
+          return null;
+        }
+
+        // IMPORTANT: use visible alumni/count for rendering and stats.
+        return {
+          ...loc,
+          sample_alumni: visibleAlumni,
+          count: visibleCount
+        };
+      })
+      .filter(Boolean);
 
     console.log('Filtered locations count:', filteredLocations.length);
 
