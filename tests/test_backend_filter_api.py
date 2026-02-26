@@ -55,6 +55,20 @@ def test_filter_api_rejects_invalid_grad_year(monkeypatch):
     assert payload["error"] == "Invalid grad_year. Use a 4-digit year."
 
 
+def test_filter_api_rejects_invalid_unt_alumni_status(monkeypatch):
+    def _unexpected_get_connection():
+        raise AssertionError("Database should not be hit for invalid unt_alumni_status")
+
+    monkeypatch.setattr(backend_app, "get_connection", _unexpected_get_connection)
+    client = backend_app.app.test_client()
+
+    resp = client.get("/api/alumni/filter?unt_alumni_status=maybe")
+    payload = resp.get_json()
+
+    assert resp.status_code == 400
+    assert payload["error"] == "Invalid unt_alumni_status. Use yes, no, or unknown."
+
+
 def test_filter_api_selects_major_and_returns_it(monkeypatch):
     executed = {}
     rows = [
@@ -72,6 +86,13 @@ def test_filter_api_selects_major_and_returns_it(monkeypatch):
             "headline": "Software Engineer",
             "normalized_title": "Software Engineer",
             "normalized_company": "University of North Texas",
+            "school": "University of North Texas",
+            "school2": None,
+            "school3": None,
+            "degree2": None,
+            "degree3": None,
+            "major2": None,
+            "major3": None,
         }
     ]
 
@@ -89,3 +110,71 @@ def test_filter_api_selects_major_and_returns_it(monkeypatch):
     assert "a.major" in executed["query"]
     assert executed["params"] == [2022]
     assert payload["alumni"][0]["major"] == "Software, Data & AI Engineering"
+
+
+def test_filter_api_combines_location_and_unt_alumni_status(monkeypatch):
+    rows = [
+        {
+            "id": 1,
+            "first_name": "Past",
+            "last_name": "Grad",
+            "grad_year": 2020,
+            "degree": "Bachelor of Science",
+            "major": "Software, Data & AI Engineering",
+            "discipline": "Software, Data & AI Engineering",
+            "standardized_major": "Computer Science",
+            "linkedin_url": "https://www.linkedin.com/in/past",
+            "current_job_title": "Engineer",
+            "company": "Acme",
+            "location": "Austin, TX",
+            "headline": "Engineer",
+            "normalized_title": "Engineer",
+            "normalized_company": "Acme",
+            "school": "University of North Texas",
+            "school2": None,
+            "school3": None,
+            "degree2": None,
+            "degree3": None,
+            "major2": None,
+            "major3": None,
+        },
+        {
+            "id": 2,
+            "first_name": "Future",
+            "last_name": "Grad",
+            "grad_year": 2028,
+            "degree": "Bachelor of Science",
+            "major": "Software, Data & AI Engineering",
+            "discipline": "Software, Data & AI Engineering",
+            "standardized_major": "Computer Science",
+            "linkedin_url": "https://www.linkedin.com/in/future",
+            "current_job_title": "Engineer",
+            "company": "Acme",
+            "location": "Austin, TX",
+            "headline": "Engineer",
+            "normalized_title": "Engineer",
+            "normalized_company": "Acme",
+            "school": "University of North Texas",
+            "school2": None,
+            "school3": None,
+            "degree2": None,
+            "degree3": None,
+            "major2": None,
+            "major3": None,
+        },
+    ]
+
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(rows=rows, sink={}),
+    )
+    client = backend_app.app.test_client()
+
+    resp = client.get("/api/alumni/filter?location=Austin&unt_alumni_status=yes")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["count"] == 1
+    assert payload["alumni"][0]["id"] == 1
+    assert payload["alumni"][0]["unt_alumni_status"] == "yes"

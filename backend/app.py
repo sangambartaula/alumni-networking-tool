@@ -8,6 +8,10 @@ import mysql.connector  # for MySQL connection
 import secrets
 from database import get_connection
 from geocoding import geocode_location
+from unt_alumni_status import (
+    UNT_ALUMNI_STATUS_VALUES,
+    compute_unt_alumni_status_from_row,
+)
 
 load_dotenv()
 
@@ -177,6 +181,15 @@ def _rank_filter_option_counts(counts, query='', limit=15):
         entries.sort(key=lambda item: (-item[1], item[0].lower()))
 
     return [{"value": value, "count": count} for value, count in entries[:limit]]
+
+
+def _parse_unt_alumni_status_filter(raw_value):
+    value = (raw_value or '').strip().lower()
+    if not value:
+        return ''
+    if value not in UNT_ALUMNI_STATUS_VALUES:
+        raise ValueError("Invalid unt_alumni_status. Use yes, no, or unknown.")
+    return value
 
 
 # =============================================================================
@@ -631,25 +644,44 @@ def api_get_alumni():
             offset = int(request.args.get('offset', 0))
         except Exception:
             offset = 0
+        location_filter = request.args.get('location', '').strip()
+        try:
+            unt_alumni_status_filter = _parse_unt_alumni_status_filter(request.args.get('unt_alumni_status', ''))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
+                where_clauses = []
+                params = []
+                if location_filter:
+                    where_clauses.append("a.location LIKE %s")
+                    params.append(f"%{location_filter}%")
+                where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+                cur.execute(f"""
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at, njt.normalized_title, nc.normalized_company,
-                           a.working_while_studying
+                           a.working_while_studying, a.working_while_studying_status,
+                           a.school, a.school2, a.school3,
+                           a.degree2, a.degree3, a.major2, a.major3
                     FROM alumni a
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
+                    WHERE {where_clause}
                     ORDER BY a.last_name ASC, a.first_name ASC
                     LIMIT %s OFFSET %s
-                """, (limit, offset))
+                """, tuple(params + [limit, offset]))
                 rows = cur.fetchall()
 
             alumni = []
             for r in rows:
+                unt_alumni_status = compute_unt_alumni_status_from_row(r)
+                if unt_alumni_status_filter and unt_alumni_status != unt_alumni_status_filter:
+                    continue
+
                 full_degree = r.get('degree') or ''
                 degree_level = classify_degree(full_degree, r.get('headline', ''))
                 full_major = (r.get('standardized_major') or '').strip()
@@ -684,6 +716,7 @@ def api_get_alumni():
                     "updated_at": r.get('updated_at'),
                     "normalized_title": r.get('normalized_title'),
                     "normalized_company": r.get('normalized_company'),
+                    "unt_alumni_status": unt_alumni_status,
                     # Prefer the fine-grained status string ("yes"/"no"/"currently");
                     # fall back to deriving from the boolean if status not yet stored.
                     "working_while_studying": (
@@ -1205,13 +1238,17 @@ def get_heatmap_data():
     - Uses a 60-second in-memory cache to avoid redundant DB queries
     """
     continent_filter = request.args.get("continent") or None
+    try:
+        unt_alumni_status_filter = _parse_unt_alumni_status_filter(request.args.get("unt_alumni_status", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
             return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
     # --- Check cache ---
-    cache_key = continent_filter or "__all__"
+    cache_key = f"{continent_filter or '__all__'}|{unt_alumni_status_filter or '__all__'}"
     cached = _heatmap_cache.get(cache_key)
     if cached and (_time.time() - cached["ts"]) < _HEATMAP_CACHE_TTL:
         return jsonify(cached["data"]), 200
@@ -1231,7 +1268,17 @@ def get_heatmap_data():
                            headline,
                            company,
                            linkedin_url,
-                           created_at
+                           created_at,
+                           grad_year,
+                           school,
+                           school2,
+                           school3,
+                           degree,
+                           degree2,
+                           degree3,
+                           major,
+                           major2,
+                           major3
                     FROM alumni
                     WHERE latitude IS NOT NULL
                       AND longitude IS NOT NULL
@@ -1242,9 +1289,13 @@ def get_heatmap_data():
             # ----- city-level clustering -----
             location_clusters = {}
             location_details = {}
-            total_alumni = len(rows)
+            total_alumni = 0
 
             for row in rows:
+                unt_alumni_status = compute_unt_alumni_status_from_row(row)
+                if unt_alumni_status_filter and unt_alumni_status != unt_alumni_status_filter:
+                    continue
+
                 lat = row["latitude"]
                 lon = row["longitude"]
 
@@ -1252,6 +1303,7 @@ def get_heatmap_data():
                 if continent_filter and continent != continent_filter:
                     continue
 
+                total_alumni += 1
                 cluster_key = (round(lat, 3), round(lon, 3))
 
                 if cluster_key not in location_clusters:
@@ -1272,7 +1324,8 @@ def get_heatmap_data():
                     "role": row["current_job_title"] or row["headline"] or "Alumni",
                     "company": row["company"],
                     "linkedin": row["linkedin_url"],
-                    "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), 'isoformat') else row.get("created_at")
+                    "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), 'isoformat') else row.get("created_at"),
+                    "unt_alumni_status": unt_alumni_status
                 })
 
                 if "location_counts" not in location_details[cluster_key]:
@@ -1498,6 +1551,10 @@ def api_filter_alumni():
                 return jsonify({"error": "Invalid grad_year. Use a 4-digit year."}), 400
             grad_year = int(grad_year_raw)
         degree_filter = request.args.get('degree', '').strip()
+        try:
+            unt_alumni_status_filter = _parse_unt_alumni_status_filter(request.args.get('unt_alumni_status', ''))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
         # Validate major parameter
         if major and major not in APPROVED_ENGINEERING_DISCIPLINES:
@@ -1546,7 +1603,9 @@ def api_filter_alumni():
                 query = f"""
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major, a.linkedin_url,
                            a.current_job_title, a.company, a.location, a.headline,
-                           njt.normalized_title, nc.normalized_company
+                           njt.normalized_title, nc.normalized_company,
+                           a.school, a.school2, a.school3,
+                           a.degree2, a.degree3, a.major2, a.major3
                     FROM alumni a
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
@@ -1558,6 +1617,10 @@ def api_filter_alumni():
 
                 alumni = []
                 for r in rows:
+                    unt_alumni_status = compute_unt_alumni_status_from_row(r)
+                    if unt_alumni_status_filter and unt_alumni_status != unt_alumni_status_filter:
+                        continue
+
                     full_degree = r.get('degree') or ''
                     degree_level = classify_degree(full_degree, r.get('headline', ''))
                     full_major = (r.get('standardized_major') or '').strip()
@@ -1588,7 +1651,8 @@ def api_filter_alumni():
                         "full_degree": full_degree,
                         "full_major": full_major,
                         "normalized_title": r.get('normalized_title'),
-                        "normalized_company": r.get('normalized_company')
+                        "normalized_company": r.get('normalized_company'),
+                        "unt_alumni_status": unt_alumni_status
                     })
 
                 # Apply offset/limit after Python-side filtering
