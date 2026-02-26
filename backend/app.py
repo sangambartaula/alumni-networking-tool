@@ -104,6 +104,22 @@ APPROVED_ENGINEERING_DISCIPLINES = [
 ]
 
 
+def _resolve_discipline(row):
+    """
+    Resolve engineering discipline from dedicated column first.
+    Fallback to legacy storage where discipline was incorrectly kept in major.
+    """
+    discipline = (row.get('discipline') or '').strip()
+    if discipline in APPROVED_ENGINEERING_DISCIPLINES:
+        return discipline
+
+    legacy_major = (row.get('major') or '').strip()
+    if legacy_major in APPROVED_ENGINEERING_DISCIPLINES:
+        return legacy_major
+
+    return 'Other'
+
+
 def classify_degree(degree_field, headline=''):
     """
     Classify degree into Undergraduate / Graduate / PhD.
@@ -620,7 +636,7 @@ def api_get_alumni():
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.standardized_major,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at, njt.normalized_title, nc.normalized_company,
                            a.working_while_studying
@@ -642,8 +658,7 @@ def api_get_alumni():
                     if raw_major and raw_major not in APPROVED_ENGINEERING_DISCIPLINES:
                         full_major = raw_major
 
-                # Read discipline from DB — set at scrape time by Groq, not computed here
-                discipline = r.get('major') or 'Other'
+                discipline = _resolve_discipline(r)
                 
                 alumni.append({
                     "id": r.get('id'),
@@ -1529,7 +1544,7 @@ def api_filter_alumni():
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
                 query = f"""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.standardized_major, a.linkedin_url,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major, a.linkedin_url,
                            a.current_job_title, a.company, a.location, a.headline,
                            njt.normalized_title, nc.normalized_company
                     FROM alumni a
@@ -1551,8 +1566,7 @@ def api_filter_alumni():
                         if raw_major and raw_major not in APPROVED_ENGINEERING_DISCIPLINES:
                             full_major = raw_major
 
-                    # Read discipline from DB — set at scrape time by Groq
-                    discipline = r.get('major') or 'Other'
+                    discipline = _resolve_discipline(r)
 
                     # Apply discipline filter in Python (not SQL)
                     if major and discipline != major:

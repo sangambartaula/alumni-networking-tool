@@ -10,6 +10,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 import os
 import time
 import random
+import csv
 import urllib.parse
 import threading
 from datetime import datetime, timedelta, timezone
@@ -194,6 +195,95 @@ def wait_between_profiles():
         time.sleep(delay / 10)
 
 
+def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
+    """
+    When LinkedIn redirects old URL -> canonical URL, keep canonical and remove old URL
+    from persisted data sources to prevent duplicate profile records.
+    """
+    old = (original_url or "").strip().rstrip("/")
+    new = (canonical_url or "").strip().rstrip("/")
+    if not old or not new or old == new:
+        return
+
+    # 1) Remove stale old URL rows from DB tables.
+    try:
+        from backend.database import get_connection
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s",
+                    (old, f"{old}/"),
+                )
+                removed_alumni = cur.rowcount
+                cur.execute(
+                    "DELETE FROM visited_profiles WHERE linkedin_url = %s OR linkedin_url = %s",
+                    (old, f"{old}/"),
+                )
+                removed_visited = cur.rowcount
+            conn.commit()
+            if removed_alumni or removed_visited:
+                logger.info(
+                    f"🔁 Canonicalized redirect URL: removed old URL rows "
+                    f"(alumni={removed_alumni}, visited={removed_visited})"
+                )
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"⚠️ Could not remove old redirected URL from DB ({old}): {e}")
+
+    # 2) Remove old URL from UNT alumni CSV.
+    try:
+        alumni_csv = PROJECT_ROOT / "scraper" / "output" / "UNT_Alumni_Data.csv"
+        if alumni_csv.exists():
+            rows = []
+            removed = 0
+            with open(alumni_csv, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames or []
+                for row in reader:
+                    url = (row.get("linkedin_url", "") or row.get("profile_url", "")).strip().rstrip("/")
+                    if url == old:
+                        removed += 1
+                        continue
+                    rows.append(row)
+            with open(alumni_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            if removed:
+                logger.info(f"🔁 Canonicalized redirect URL: removed {removed} old row(s) from UNT_Alumni_Data.csv")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not clean old redirected URL from UNT_Alumni_Data.csv ({old}): {e}")
+
+    # 3) Remove old URL from flagged_for_review.txt.
+    try:
+        flagged_file = PROJECT_ROOT / "scraper" / "output" / "flagged_for_review.txt"
+        if flagged_file.exists():
+            with open(flagged_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            kept = [line for line in lines if line.split("#")[0].strip().rstrip("/") != old]
+            if len(kept) != len(lines):
+                with open(flagged_file, "w", encoding="utf-8") as f:
+                    f.writelines(kept)
+                logger.info(f"🔁 Canonicalized redirect URL: removed {len(lines) - len(kept)} old row(s) from flagged_for_review.txt")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not clean old redirected URL from flagged_for_review.txt ({old}): {e}")
+
+    # 4) Remove old URL from in-memory history + visited_history.csv.
+    try:
+        if old in history_mgr.visited_history:
+            del history_mgr.visited_history[old]
+            history_mgr.save_history_csv()
+            logger.info("🔁 Canonicalized redirect URL: removed old row from visited history")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not clean old redirected URL from visited history ({old}): {e}")
+
+
 def _save_and_track(data, input_url, history_mgr):
     """
     Save profile to CSV, handling canonical URL dedup.
@@ -213,16 +303,16 @@ def _save_and_track(data, input_url, history_mgr):
     # Check if canonical URL was already saved in this session under a different input URL
     if original_url and history_mgr.should_skip(canonical_url):
         logger.info(f"  ↩️  Profile Already Visited, Skipping: {canonical_url}")
-        # Still mark the input URL so we don't try it again
-        history_mgr.mark_as_visited(input_url, saved=True)
+        # Canonical URL is authoritative; clean stale source URL records.
+        _canonicalize_redirect_url(original_url, canonical_url, history_mgr)
         return False
     
     if database_handler.save_profile_to_csv(data):
         # Mark canonical URL as visited
         history_mgr.mark_as_visited(canonical_url, saved=True)
-        # Also mark the original input URL so it's not re-visited
+        # If we came through a redirect, remove the old URL from persisted data sources.
         if original_url and original_url.rstrip('/') != canonical_url.rstrip('/'):
-            history_mgr.mark_as_visited(original_url, saved=True)
+            _canonicalize_redirect_url(original_url, canonical_url, history_mgr)
         return True
     return False
 

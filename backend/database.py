@@ -1064,10 +1064,8 @@ def seed_alumni_data():
                     major2 = str(row.get('major2', '')).strip() if pd.notna(row.get('major2')) else None
                     major3 = str(row.get('major3', '')).strip() if pd.notna(row.get('major3')) else None
 
-                    # Use discipline already computed by scraper at scrape time.
+                    # Preserve raw major from CSV; discipline is stored separately.
                     saved_discipline = str(row.get('discipline', '')).strip() if pd.notna(row.get('discipline')) else ''
-                    if saved_discipline:
-                        major = saved_discipline
                     
                     # grad_year (new) vs graduation_year (old)
                     grad_year = _coerce_grad_year(row.get('grad_year'))
@@ -1149,14 +1147,14 @@ def seed_alumni_data():
 
                         cur.execute("""
                             INSERT INTO alumni 
-                            (first_name, last_name, grad_year, degree, major, linkedin_url, current_job_title, company, location, headline, 
+                            (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status,
                              exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
                              school, school2, school3, degree2, degree3, major2, major3,
                              standardized_degree, standardized_degree2, standardized_degree3,
                              standardized_major, standardized_major2, standardized_major3,
                              scraped_at, last_updated, normalized_job_title_id, normalized_company_id)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s,
@@ -1169,6 +1167,7 @@ def seed_alumni_data():
                                 grad_year=VALUES(grad_year),
                                 degree=VALUES(degree),
                                 major=VALUES(major),
+                                discipline=COALESCE(NULLIF(VALUES(discipline), ''), discipline),
                                 current_job_title=VALUES(current_job_title),
                                 company=VALUES(company),
                                 location=VALUES(location),
@@ -1206,6 +1205,7 @@ def seed_alumni_data():
                             grad_year,
                             degree,
                             major,
+                            saved_discipline,
                             profile_url,
                             job_title,
                             company,
