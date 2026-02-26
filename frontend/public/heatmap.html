@@ -129,6 +129,20 @@
             <div id="companySuggestionsDropdown" class="suggestions-dropdown analytics-suggestions-dropdown"></div>
           </div>
 
+          <div class="filter-group analytics-filter-group">
+            <label for="heatmapUntAlumniStatusSelect">
+              <i class="fas fa-user-graduate"></i> UNT Alumni Status
+            </label>
+            <div class="filter-input-container analytics-filter-input-container">
+              <select id="heatmapUntAlumniStatusSelect" class="filter-input analytics-filter-input">
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+                <option value="unknown">Unknown</option>
+              </select>
+            </div>
+          </div>
+
           <button id="clearAllFiltersBtn" class="filter-clear-btn analytics-filter-clear-btn">
             <i class="fas fa-times-circle"></i> Clear All Filters
           </button>
@@ -147,6 +161,14 @@
               <i class="fas fa-building"></i> Hidden Companies (<span id="companyFilterCount">0</span>)
             </span>
             <div class="filter-tags analytics-filter-tags" id="companyFilterTags"></div>
+          </div>
+          <div style="margin-top: 16px;">
+            <span class="filter-tags-label analytics-filter-tags-label">
+              <i class="fas fa-user-graduate"></i> UNT Alumni Status
+            </span>
+            <div class="filter-tags analytics-filter-tags" id="heatmapUntAlumniStatusTag">
+              <span class="empty-analytics-filters-message">All statuses</span>
+            </div>
           </div>
         </div>
       </div>

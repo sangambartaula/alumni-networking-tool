@@ -100,6 +100,20 @@
           <div id="analyticsCompanySuggestionsDropdown" class="analytics-suggestions-dropdown"></div>
         </div>
 
+        <div class="analytics-filter-group">
+          <label for="analyticsUntAlumniStatusSelect">
+            <i class="fas fa-user-graduate"></i> UNT Alumni Status
+          </label>
+          <div class="analytics-filter-input-container">
+            <select id="analyticsUntAlumniStatusSelect" class="analytics-filter-input">
+              <option value="">All</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </div>
+        </div>
+
         <button id="analyticsClearAllFiltersBtn" class="analytics-filter-clear-btn">
           <i class="fas fa-times-circle"></i> Clear All Filters
         </button>
@@ -121,6 +135,14 @@
           </span>
           <div class="analytics-filter-tags" id="analyticsCompanyFilterTags">
             <span class="empty-analytics-filters-message">No companies hidden</span>
+          </div>
+        </div>
+        <div style="margin-top: 16px;">
+          <span class="analytics-filter-tags-label">
+            <i class="fas fa-user-graduate"></i> UNT Alumni Status
+          </span>
+          <div class="analytics-filter-tags" id="analyticsUntAlumniStatusTag">
+            <span class="empty-analytics-filters-message">All statuses</span>
           </div>
         </div>
       </div>

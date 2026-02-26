@@ -7,6 +7,7 @@ let currentFilter = null;
 
 let hiddenLocations = new Set();
 let hiddenCompanies = new Set();
+let selectedUntAlumniStatus = '';
 let allLocations = new Set();
 let allCompanies = new Set();
 let filteredTableRenderToken = 0;
@@ -59,6 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function saveHiddenFiltersToStorage() {
   localStorage.setItem('analyticsHiddenLocations', JSON.stringify(Array.from(hiddenLocations)));
   localStorage.setItem('analyticsHiddenCompanies', JSON.stringify(Array.from(hiddenCompanies)));
+  localStorage.setItem('analyticsUntAlumniStatus', selectedUntAlumniStatus || '');
 }
 
 /**
@@ -70,6 +72,7 @@ function loadHiddenFiltersFromStorage() {
   try {
     const savedLocations = localStorage.getItem('analyticsHiddenLocations');
     const savedCompanies = localStorage.getItem('analyticsHiddenCompanies');
+    const savedUntAlumniStatus = localStorage.getItem('analyticsUntAlumniStatus');
 
     if (savedLocations) {
       hiddenLocations = new Set(JSON.parse(savedLocations));
@@ -77,10 +80,14 @@ function loadHiddenFiltersFromStorage() {
     if (savedCompanies) {
       hiddenCompanies = new Set(JSON.parse(savedCompanies));
     }
+    if (savedUntAlumniStatus) {
+      selectedUntAlumniStatus = savedUntAlumniStatus;
+    }
   } catch (error) {
     console.error('Error loading filters from storage:', error);
     hiddenLocations = new Set();
     hiddenCompanies = new Set();
+    selectedUntAlumniStatus = '';
   }
 }
 
@@ -97,6 +104,17 @@ function initializeAnalyticsFilterUI() {
   const companySuggestions = document.getElementById('analyticsCompanySuggestionsDropdown');
   const addLocationBtn = document.getElementById('analyticsAddLocationFilterBtn');
   const addCompanyBtn = document.getElementById('analyticsAddCompanyFilterBtn');
+  const untAlumniStatusSelect = document.getElementById('analyticsUntAlumniStatusSelect');
+
+  if (untAlumniStatusSelect) {
+    untAlumniStatusSelect.value = selectedUntAlumniStatus || '';
+    untAlumniStatusSelect.addEventListener('change', (e) => {
+      selectedUntAlumniStatus = (e.target.value || '').trim().toLowerCase();
+      saveHiddenFiltersToStorage();
+      updateAnalyticsFilterUI();
+      renderAnalytics();
+    });
+  }
 
   // Toggle filter panel
   toggleBtn?.addEventListener('click', () => {
@@ -126,6 +144,8 @@ function initializeAnalyticsFilterUI() {
   clearBtn?.addEventListener('click', () => {
     hiddenLocations.clear();
     hiddenCompanies.clear();
+    selectedUntAlumniStatus = '';
+    if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
     saveHiddenFiltersToStorage();
     updateAnalyticsFilterUI();
     renderAnalytics();
@@ -473,11 +493,12 @@ function updateAnalyticsFilterUI() {
   const companyTagsContainer = document.getElementById('analyticsCompanyFilterTags');
   const locationCountSpan = document.getElementById('analyticsLocationFilterCount');
   const companyCountSpan = document.getElementById('analyticsCompanyFilterCount');
+  const untAlumniStatusTag = document.getElementById('analyticsUntAlumniStatusTag');
   const badge = document.getElementById('analyticsFilterBadge');
   const clearBtn = document.getElementById('analyticsClearAllFiltersBtn');
 
   // Update badge count
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size;
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0);
   if (badge) {
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'inline-block' : 'none';
@@ -525,6 +546,29 @@ function updateAnalyticsFilterUI() {
         `).join('');
     }
   }
+
+  if (untAlumniStatusTag) {
+    if (!selectedUntAlumniStatus) {
+      untAlumniStatusTag.innerHTML = '<span class="empty-analytics-filters-message">All statuses</span>';
+    } else {
+      const label = selectedUntAlumniStatus.charAt(0).toUpperCase() + selectedUntAlumniStatus.slice(1);
+      untAlumniStatusTag.innerHTML = `
+        <span class="analytics-filter-tag">
+          <span>${label}</span>
+          <button class="analytics-filter-tag-remove" onclick="clearUntAlumniStatusFilter()">×</button>
+        </span>
+      `;
+    }
+  }
+}
+
+function clearUntAlumniStatusFilter() {
+  selectedUntAlumniStatus = '';
+  const untAlumniStatusSelect = document.getElementById('analyticsUntAlumniStatusSelect');
+  if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
 }
 
 function buildAnalyticsAutocomplete(data) {
@@ -556,6 +600,9 @@ function filterAlumniData(data) {
 
     // Filter by company
     if (alumni.company && hiddenCompanies.has(alumni.company)) {
+      return false;
+    }
+    if (selectedUntAlumniStatus && (alumni.unt_alumni_status || 'unknown') !== selectedUntAlumniStatus) {
       return false;
     }
 
@@ -1057,35 +1104,36 @@ function renderTopLocationsTable(data = alumniData) {
 
 // Filter alumni based on chart clicks
 function filterAlumni(filterType, filterValue) {
+  const baseData = filterAlumniData(alumniData);
   let filtered = [];
   let filterTitle = '';
   let filterDesc = '';
 
   switch (filterType) {
     case 'job':
-      filtered = alumniData.filter(
+      filtered = baseData.filter(
         a => getCanonicalRoleTitle(a.normalized_title || a.current_job_title) === filterValue
       );
       filterTitle = `Alumni with Job Title: ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni working as ${filterValue}`;
       break;
     case 'company':
-      filtered = alumniData.filter(a => a.company === filterValue);
+      filtered = baseData.filter(a => a.company === filterValue);
       filterTitle = `Alumni at ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni working at ${filterValue}`;
       break;
     case 'location':
-      filtered = alumniData.filter(a => a.location === filterValue);
+      filtered = baseData.filter(a => a.location === filterValue);
       filterTitle = `Alumni in ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni located in ${filterValue}`;
       break;
     case 'industry':
-      filtered = alumniData.filter(a => extractIndustry(a) === filterValue);
+      filtered = baseData.filter(a => extractIndustry(a) === filterValue);
       filterTitle = `Alumni in ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni working in ${filterValue}`;
       break;
     case 'year':
-      filtered = alumniData.filter(a => a.grad_year == filterValue);
+      filtered = baseData.filter(a => a.grad_year == filterValue);
       filterTitle = `Class of ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni who graduated in ${filterValue}`;
       break;

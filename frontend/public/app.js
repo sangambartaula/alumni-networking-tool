@@ -727,6 +727,8 @@ function setupFiltering(list) {
       // Reset working while studying radio to 'All'
       const wwsAll = document.querySelector('input[name="workingWhileStudying"][value=""]');
       if (wwsAll) wwsAll.checked = true;
+      const untStatusAll = document.querySelector('input[name="untAlumniStatus"][value=""]');
+      if (untStatusAll) untStatusAll.checked = true;
       currentPage = 1; // Reset to page 1 when clearing filters
       apply();
     });
@@ -742,7 +744,9 @@ function setupFiltering(list) {
     const year = gradSelect ? gradSelect.value : '';
     const wwsRadio = document.querySelector('input[name="workingWhileStudying"]:checked');
     const wws = wwsRadio ? wwsRadio.value : '';
-    return { term, loc, role, company, major, degree, year, wws };
+    const untAlumniStatusRadio = document.querySelector('input[name="untAlumniStatus"]:checked');
+    const untAlumniStatus = untAlumniStatusRadio ? untAlumniStatusRadio.value : '';
+    return { term, loc, role, company, major, degree, year, wws, untAlumniStatus };
   }
 
   function getSorted(listToSort) {
@@ -830,7 +834,8 @@ function setupFiltering(list) {
       let matchWws = true;
       if (f.wws === 'yes') matchWws = a.working_while_studying === true;
       else if (f.wws === 'no') matchWws = a.working_while_studying === false || a.working_while_studying === null;
-      return matchTerm && matchLoc && matchRole && matchCompany && matchMajor && matchDegree && matchYear && matchWws;
+      const matchUntAlumniStatus = !f.untAlumniStatus || a.unt_alumni_status === f.untAlumniStatus;
+      return matchTerm && matchLoc && matchRole && matchCompany && matchMajor && matchDegree && matchYear && matchWws && matchUntAlumniStatus;
     });
     const sortedFiltered = getSorted(filtered);
     const paginated = getPaginated(sortedFiltered);
@@ -852,7 +857,7 @@ function setupFiltering(list) {
     apply();
   });
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"]')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"]')) {
       currentPage = 1; // Reset to page 1 on filter change
       apply();
     }
@@ -906,7 +911,8 @@ function setupFiltering(list) {
         full_major: a.full_major || '',
         major: a.major || '',
         updated_at: a.updated_at || '',
-        working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null
+        working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
+        unt_alumni_status: a.unt_alumni_status || 'unknown'
       }));
       console.log('Loaded alumni from API, count=', alumniData.length);
     } else {

@@ -19,6 +19,7 @@ let heatLayer2D = null; // New 2D heatmap layer
 // Filter state
 let hiddenLocations = new Set();
 let hiddenCompanies = new Set();
+let selectedUntAlumniStatus = '';
 
 // Track all available locations and companies for autocomplete
 let allLocations = new Set();
@@ -144,25 +145,30 @@ function ensure3DMapInitialized() {
 function saveHiddenFiltersToStorage() {
   localStorage.setItem('hiddenLocations', JSON.stringify(Array.from(hiddenLocations)));
   localStorage.setItem('hiddenCompanies', JSON.stringify(Array.from(hiddenCompanies)));
+  localStorage.setItem('heatmapUntAlumniStatus', selectedUntAlumniStatus || '');
 }
 
 function loadHiddenFiltersFromStorage() {
   try {
     const savedLocations = JSON.parse(localStorage.getItem('hiddenLocations') || '[]');
     const savedCompanies = JSON.parse(localStorage.getItem('hiddenCompanies') || '[]');
+    const savedUntAlumniStatus = localStorage.getItem('heatmapUntAlumniStatus') || '';
 
     hiddenLocations = new Set(savedLocations);
     hiddenCompanies = new Set(savedCompanies);
+    selectedUntAlumniStatus = savedUntAlumniStatus;
   } catch (e) {
     console.error('Error loading hidden filters from storage:', e);
     hiddenLocations = new Set();
     hiddenCompanies = new Set();
+    selectedUntAlumniStatus = '';
   }
 }
 
 function clearHiddenFiltersFromStorage() {
   localStorage.removeItem('hiddenLocations');
   localStorage.removeItem('hiddenCompanies');
+  localStorage.removeItem('heatmapUntAlumniStatus');
 }
 
 function escapeAttribute(value) {
@@ -1384,6 +1390,7 @@ if (searchButton && searchInput) {
 function initializeFilterUI() {
   const locationInput = document.getElementById('filterLocationInput');
   const companyInput = document.getElementById('filterCompanyInput');
+  const untAlumniStatusSelect = document.getElementById('heatmapUntAlumniStatusSelect');
   const addLocationBtn = document.getElementById('addLocationFilterBtn');
   const addCompanyBtn = document.getElementById('addCompanyFilterBtn');
   const clearAllBtn = document.getElementById('clearAllFiltersBtn');
@@ -1394,6 +1401,16 @@ function initializeFilterUI() {
 
   // Load saved filters from localStorage
   loadHiddenFiltersFromStorage();
+  if (untAlumniStatusSelect) {
+    untAlumniStatusSelect.value = selectedUntAlumniStatus || '';
+    untAlumniStatusSelect.addEventListener('change', (e) => {
+      selectedUntAlumniStatus = (e.target.value || '').trim().toLowerCase();
+      saveHiddenFiltersToStorage();
+      updateFilterUI();
+      updateFilterBadge();
+      reloadMapData();
+    });
+  }
 
   // Set up autocomplete suggestions on click/focus
   if (locationInput) {
@@ -1524,6 +1541,8 @@ function initializeFilterUI() {
       console.log('Clear all filters clicked');
       hiddenLocations.clear();
       hiddenCompanies.clear();
+      selectedUntAlumniStatus = '';
+      if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
       clearHiddenFiltersFromStorage();
       updateFilterUI();
       updateFilterBadge();
@@ -1554,7 +1573,7 @@ function initializeFilterUI() {
   updateFilterBadge();
 
   // Apply saved filters if any were loaded
-  if (hiddenLocations.size > 0 || hiddenCompanies.size > 0) {
+  if (hiddenLocations.size > 0 || hiddenCompanies.size > 0 || selectedUntAlumniStatus) {
     console.log('Applying saved filters from localStorage');
     reloadMapData();
   }
@@ -1605,14 +1624,14 @@ function removeCompanyFilter(company) {
 function updateFilterBadge() {
   const badge = document.getElementById('filterBadge');
   if (badge) {
-    const totalFilters = hiddenLocations.size + hiddenCompanies.size;
+    const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0);
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'flex' : 'none';
   }
 }
 
 function updateFilterUI() {
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size;
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0);
   const clearAllBtn = document.getElementById('clearAllFiltersBtn');
   if (clearAllBtn) {
     clearAllBtn.disabled = totalFilters === 0;
@@ -1657,6 +1676,31 @@ function updateFilterUI() {
   if (companyCount) {
     companyCount.textContent = hiddenCompanies.size;
   }
+
+  const untAlumniStatusTag = document.getElementById('heatmapUntAlumniStatusTag');
+  if (untAlumniStatusTag) {
+    if (!selectedUntAlumniStatus) {
+      untAlumniStatusTag.innerHTML = '<span class="empty-analytics-filters-message">All statuses</span>';
+    } else {
+      const label = selectedUntAlumniStatus.charAt(0).toUpperCase() + selectedUntAlumniStatus.slice(1);
+      untAlumniStatusTag.innerHTML = `
+        <span class="analytics-filter-tag">
+          <span>${escapeHtml(label)}</span>
+          <button class="analytics-filter-tag-remove" onclick="clearHeatmapUntAlumniStatusFilter()">×</button>
+        </span>
+      `;
+    }
+  }
+}
+
+function clearHeatmapUntAlumniStatusFilter() {
+  selectedUntAlumniStatus = '';
+  const untAlumniStatusSelect = document.getElementById('heatmapUntAlumniStatusSelect');
+  if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
+  saveHiddenFiltersToStorage();
+  updateFilterUI();
+  updateFilterBadge();
+  reloadMapData();
 }
 
 function isLocationHidden(location) {
@@ -1693,6 +1737,12 @@ function isCompanyHidden(alumni) {
   return isHidden;
 }
 
+function matchesUntAlumniStatus(alumni) {
+  if (!selectedUntAlumniStatus) return true;
+  const status = (alumni?.unt_alumni_status || 'unknown').toLowerCase();
+  return status === selectedUntAlumniStatus;
+}
+
 function shouldHideLocation(location) {
   return isLocationHidden(location.location);
 }
@@ -1720,7 +1770,7 @@ function shouldHideLocationAlumni(location) {
 
 function getVisibleAlumniForLocation(location) {
   const alumni = Array.isArray(location?.sample_alumni) ? location.sample_alumni : [];
-  return alumni.filter(a => !isCompanyHidden(a));
+  return alumni.filter(a => !isCompanyHidden(a) && matchesUntAlumniStatus(a));
 }
 
 function reloadMapData() {
