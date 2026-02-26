@@ -491,6 +491,7 @@ _COMPACT_TITLE_MAP = {
 
     # AI/ML
     "ai data engineer": "AI / ML Engineer",
+    "ai / ml engineer": "AI / ML Engineer",
     "ai/ml engineer": "AI / ML Engineer",
     "product analyst intern – ai / machine learning": "AI / ML Engineer",
     "product analyst intern - ai / machine learning": "AI / ML Engineer",
@@ -509,7 +510,7 @@ _COMPACT_TITLE_MAP = {
     "advanced manufacturing engineer senior": "Manufacturing Engineer",
     "general manager / manufacturing engineer": "Manufacturing Engineer",
     "intermediate professional, electrical engineering": "Electrical Engineer",
-    "application engineer ii": "Design Engineer",
+    "application engineer ii": "Application Engineer",
     "engineer": "General Engineer",
     "engineering": "General Engineer",
     "assistant engineer": "General Engineer",
@@ -541,16 +542,17 @@ _COMPACT_TITLE_MAP = {
 
     # Management
     "project manager ii": "Project Manager",
+    "project manager": "Project Manager",
     "project engineer": "Project Manager",
     "project coordinator": "Project Manager",
     "managing director": "Director",
-    "team lead of consulting practices": "Director",
-    "team leader of software development": "Director",
+    "team lead of consulting practices": "Team Lead",
+    "team leader of software development": "Team Lead",
     "president": "Executive",
     "executive vice president of operations and human resources": "Executive",
     "technology officer": "Executive",
     "town manager": "Executive",
-    "assistant vice president - financial solutions advisor": "Executive",
+    "assistant vice president - financial solutions advisor": "Financial Advisor",
     "leader": "Director",
 
     # Student buckets

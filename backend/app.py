@@ -670,8 +670,8 @@ def api_get_alumni():
                     "grad_year": r.get('grad_year'),
                     "major": discipline,
 
-                    # Prefer normalized title for filter consistency.
-                    "role": r.get('normalized_title') or r.get('current_job_title'),
+                    # Keep raw role text for card display.
+                    "role": r.get('current_job_title'),
 
                     # Existing fields
                     "headline": r.get('headline'),
@@ -1579,7 +1579,7 @@ def api_filter_alumni():
                         "company": r.get('company'),
                         "grad_year": r.get('grad_year'),
                         "major": discipline,
-                        "role": r.get('normalized_title') or r.get('current_job_title'),
+                        "role": r.get('current_job_title'),
                         "headline": r.get('headline'),
                         "class": r.get('grad_year'),
                         "location": r.get('location'),

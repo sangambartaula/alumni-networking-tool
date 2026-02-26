@@ -315,8 +315,8 @@ class ProfileDetailModal {
     }
 
     // Dates
-    const start = this._safe(startDate);
-    const end = this._safe(endDate);
+    const start = this._normalizeYearTokens(this._safe(startDate));
+    const end = this._normalizeYearTokens(this._safe(endDate));
     if (start || end) {
       const datePart = start && end ? `${start} - ${end}` : (start || end);
       line += ` (${datePart})`;
@@ -378,8 +378,8 @@ class ProfileDetailModal {
       line = c || t;
     }
 
-    const start = this._safe(startDate);
-    let end = this._safe(endDate);
+    const start = this._normalizeYearTokens(this._safe(startDate));
+    let end = this._normalizeYearTokens(this._safe(endDate));
 
     // Detect "Present" / "current" markers
     if (end) {
@@ -410,7 +410,7 @@ class ProfileDetailModal {
       line = c || t;
     }
 
-    const dates = this._safe(datesStr);
+    const dates = this._normalizeYearTokens(this._safe(datesStr));
     if (dates) {
       line += ` (${dates})`;
     }
@@ -433,6 +433,11 @@ class ProfileDetailModal {
       return '';
     }
     return s;
+  }
+
+  _normalizeYearTokens(text) {
+    if (!text) return '';
+    return String(text).replace(/\b(19\d{2}|20\d{2}|2100)\.0\b/g, '$1');
   }
 
   _esc(str) {
