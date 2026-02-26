@@ -1815,22 +1815,52 @@ footer {
 }
 
 /* Heatmap filter UI aligned with analytics filter UI */
+#continentFilters.continent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#continentFilters .continent-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+#continentFilters .continent-buttons .continent-btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  background: #f3f3f3;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#continentFilters .continent-buttons .continent-btn:hover {
+  background: #ececec;
+}
+
 #continentFilters .filter-btn-icon {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   position: relative;
-  margin-left: auto;
+  margin-left: 12px;
+  flex-shrink: 0;
+  align-self: flex-start;
   padding: 10px 18px;
-  background: rgba(255, 255, 255, 0.18) !important;
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
   color: white !important;
-  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  border: none !important;
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 10px rgba(5, 150, 105, 0.28);
 }
 
 #continentFilters .filter-btn-icon:hover {
@@ -1839,18 +1869,21 @@ footer {
 }
 
 #continentFilters .filter-btn-icon .filter-badge {
-  background: rgba(255, 255, 255, 0.3);
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ef4444;
   color: white;
-  border-radius: 12px;
-  padding: 2px 8px;
-  font-size: 12px;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
   font-weight: 700;
-  min-width: 20px;
-  text-align: center;
-  border: none;
-  width: auto;
-  height: auto;
-  position: static;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid white;
+  line-height: 1;
 }
 
 #filterBackdrop.filter-backdrop {
@@ -2192,6 +2225,16 @@ footer {
 }
 
 @media (max-width: 768px) {
+  #continentFilters.continent-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #continentFilters .filter-btn-icon {
+    align-self: flex-end;
+    margin-left: 0;
+  }
+
   #filterPanel.filter-panel {
     width: 100%;
     right: -100%;

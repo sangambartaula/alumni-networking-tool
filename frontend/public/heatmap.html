@@ -73,14 +73,16 @@
 
       <!-- CONTINENT FILTERS & FILTER BUTTON -->
       <div id="continentFilters" class="continent-row">
-        <button class="continent-btn" onclick="filterByContinent('North America')">North America</button>
-        <button class="continent-btn" onclick="filterByContinent('Europe')">Europe</button>
-        <button class="continent-btn" onclick="filterByContinent('Asia')">Asia</button>
-        <button class="continent-btn" onclick="filterByContinent('Africa')">Africa</button>
-        <button class="continent-btn" onclick="filterByContinent('Oceania')">Oceania</button>
-        <button class="continent-btn" onclick="filterByContinent('South America')">South America</button>
-        <button class="continent-btn" onclick="filterByContinent('Antarctica')">Antarctica</button>
-        <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
+        <div class="continent-buttons">
+          <button class="continent-btn" onclick="filterByContinent('North America')">North America</button>
+          <button class="continent-btn" onclick="filterByContinent('Europe')">Europe</button>
+          <button class="continent-btn" onclick="filterByContinent('Asia')">Asia</button>
+          <button class="continent-btn" onclick="filterByContinent('Africa')">Africa</button>
+          <button class="continent-btn" onclick="filterByContinent('Oceania')">Oceania</button>
+          <button class="continent-btn" onclick="filterByContinent('South America')">South America</button>
+          <button class="continent-btn" onclick="filterByContinent('Antarctica')">Antarctica</button>
+          <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
+        </div>
         <button id="filterToggleBtn" class="continent-btn filter-btn-icon" title="Open Filters">
           <i class="fas fa-filter"></i>
           <span class="filter-label">Filters</span>

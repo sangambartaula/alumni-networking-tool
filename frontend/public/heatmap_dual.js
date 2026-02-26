@@ -1551,6 +1551,7 @@ function initializeFilterUI() {
   }
 
   updateFilterUI();
+  updateFilterBadge();
 
   // Apply saved filters if any were loaded
   if (hiddenLocations.size > 0 || hiddenCompanies.size > 0) {
@@ -1606,7 +1607,7 @@ function updateFilterBadge() {
   if (badge) {
     const totalFilters = hiddenLocations.size + hiddenCompanies.size;
     badge.textContent = totalFilters;
-    badge.style.display = totalFilters > 0 ? 'inline-block' : 'none';
+    badge.style.display = totalFilters > 0 ? 'flex' : 'none';
   }
 }
 
