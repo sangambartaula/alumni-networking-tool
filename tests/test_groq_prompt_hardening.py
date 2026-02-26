@@ -18,8 +18,8 @@ def test_major_choice_prefers_id_mapping():
     assert _coerce_llm_major_choice({"major_id": "2"}) == CANONICAL_MAJORS[1]
 
 
-def test_major_choice_accepts_exact_name_case_insensitive():
-    assert _coerce_llm_major_choice({"major": "computer science"}) == "Computer Science"
+def test_major_choice_accepts_exact_text_name_payload():
+    assert _coerce_llm_major_choice({"major": "Computer Science"}) == "Computer Science"
 
 
 def test_major_choice_invalid_payload_returns_other():

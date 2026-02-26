@@ -448,7 +448,7 @@ class LinkedInScraper:
                 data["working_while_studying"] = best_wws
             else:
                 # If we have NO education entries, or just no UNT, try expanding
-                if not edu_entries or "unt" not in str(edu_entries).lower():
+                if not edu_entries or not self._has_unt_education(edu_entries):
                     logger.debug("No UNT education found in main profile. Expanding...")
                     expanded_edus, unt_details = self.scrape_all_education(profile_url)
                     
@@ -1244,8 +1244,8 @@ class LinkedInScraper:
         best_score = -1
 
         for e in entries:
-            school_lower = (e.get("school") or "").lower()
-            if not any(k in school_lower for k in utils.UNT_KEYWORDS):
+            school_name = (e.get("school") or "")
+            if not self._is_unt_school_name(school_name):
                 continue
             
             score = 0
@@ -1385,7 +1385,7 @@ class LinkedInScraper:
                 logger.debug(f"Found: {school} | {degree}")
                 
                 # Capture UNT details if found
-                if unt_details is None and any(k in school.lower() for k in utils.UNT_KEYWORDS):
+                if unt_details is None and self._is_unt_school_name(school):
                     unt_details = {
                         "education": school,
                         "major": degree,

@@ -123,3 +123,7 @@ out/
 # Temporary test/diagnostic scripts
 test_api.py
 check_db.py
+
+# Local generated artifacts
+reports/
+backups/

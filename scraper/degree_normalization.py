@@ -339,6 +339,8 @@ def get_all_normalized_degrees(conn) -> dict:
 
 
 # ── Simple grouping labels (for standardized_degree column) ───────────────
+# Final allowed values:
+#   Associate, Bachelors, Masters, Doctorate, Other
 # Maps canonical display strings → group labels
 _DEGREE_GROUP_MAP = {
     # Bachelors
@@ -378,8 +380,6 @@ _DEGREE_GROUP_MAP = {
 # Keyword fallbacks for strings that don't match DEGREE_MAP exactly
 _GROUP_KEYWORDS = [
     # Order matters — check most specific first
-    # IMPORTANT: high school / diploma MUST come before Masters,
-    # because "diploma" contains "ma" which can match m.a. regex
     (re.compile(r'\b(high\s*school|diploma|ged)\b', re.I), "Other"),
     (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Other"),
     (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
@@ -392,52 +392,42 @@ _GROUP_KEYWORDS = [
 
 def standardize_degree(raw_degree: str) -> str:
     """
-    Map a raw degree string to a simple group label or an official UNT degree.
-
-    Returns one of: Official UNT Name, Bachelors, Masters, Doctorate, Associate, Unknown.
+    Map a raw degree string to a strict label set:
+    Associate, Bachelors, Masters, Doctorate, Other.
     """
     if not raw_degree or not raw_degree.strip():
         return "Other"
 
-    lower = raw_degree.lower()
-    
-    # 1. Try mapping to Official UNT Degree first
-    for official in OFFICIAL_UNT_DEGREES:
-        # Clean both for fuzzy match
-        official_clean = re.sub(r'[^\w\s]', '', official.lower())
-        raw_clean = re.sub(r'[^\w\s]', '', lower)
-        
-        # Exact match of cleaned strings or presence of full official name
-        if official_clean == raw_clean or official_clean in raw_clean:
-            return official
+    lower = raw_degree.lower().strip()
+    if lower in {"unknown", "n/a", "na", "none", "null"}:
+        return "Other"
 
-    # Early exit: high school / diploma / GED are always "Unknown"
-    if re.search(r'\b(high\s*school|diploma|ged)\b', lower, re.I):
-        return "Unknown"
-
-    # 2. Try canonical resolution via existing DEGREE_MAP
+    # 1. Canonical resolution via existing DEGREE_MAP
     canonical = normalize_degree_deterministic(raw_degree)
-
-    # If canonical matched in our group map, we're done
     if canonical in _DEGREE_GROUP_MAP:
-        result = _DEGREE_GROUP_MAP[canonical]
-    else:
-        # Keyword fallback on the raw string
-        result = "Unknown"
-        for pattern, group in _GROUP_KEYWORDS:
-            if pattern.search(lower):
-                result = group
-                break
+        return _DEGREE_GROUP_MAP[canonical]
 
-    # Sanity check: "diploma" never belongs to Masters
-    if result == "Masters" and re.search(r'\bdiploma\b', raw_degree, re.I):
-        return "Other"
-        
-    # User requested fallback to Other
-    if result == "Other":
-        return "Other"
+    # 2. Keyword fallback on raw string
+    for pattern, group in _GROUP_KEYWORDS:
+        if pattern.search(lower):
+            return group
 
-    return result
+    # 3. UNT data heuristic: degree fields sometimes contain only major text.
+    #    For this dataset, treat major-like degree text as Bachelors.
+    if re.search(
+        r'\b('
+        r'computer\s+science|computer\s+engineering|electrical\s+engineering|'
+        r'biomedical\s+engineering|materials?\s+science|'
+        r'mechanical\s+(?:and|&)\s+energy\s+engineering|'
+        r'construction\s+management|cybersecurity|information\s+technology|'
+        r'data\s+engineering|machine\s+learning|engineering'
+        r')\b',
+        lower,
+        re.I
+    ):
+        return "Bachelors"
+
+    return "Other"
 
 def extract_hidden_degree(raw_major: str) -> tuple[str, str]:
     """

@@ -35,7 +35,7 @@ function updateStatsBanner(alumniData) {
   const totalAlumni = alumniData.length;
 
   // Calculate unique locations
-  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(loc => loc));
+  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(_isMeaningfulLocationValue));
   const locationsCount = uniqueLocations.size;
 
   // Calculate bookmarked alumni - check interaction_type === 'bookmarked'
@@ -318,6 +318,14 @@ function _isMeaningfulEducationValue(value) {
   return true;
 }
 
+function _isMeaningfulLocationValue(value) {
+  if (!value) return false;
+  const trimmed = String(value).trim();
+  if (!trimmed) return false;
+  const lowered = trimmed.toLowerCase();
+  return !['unknown', 'not found', 'n/a', 'na', 'none', 'null', 'nan'].includes(lowered);
+}
+
 function _buildEducationLine(profile) {
   const fullDegree = _isMeaningfulEducationValue(profile.full_degree) ? String(profile.full_degree).trim() : '';
   const fullMajor = _isMeaningfulEducationValue(profile.full_major) ? String(profile.full_major).trim() : '';
@@ -335,7 +343,7 @@ function _buildEducationLine(profile) {
 function _buildClassLocationLine(profile) {
   const gradYearRaw = profile.class ? String(profile.class).trim() : '';
   const gradYear = gradYearRaw.replace(/\b(19\d{2}|20\d{2}|2100)\.0\b/g, '$1');
-  const location = profile.location ? String(profile.location).trim() : '';
+  const location = _isMeaningfulLocationValue(profile.location) ? String(profile.location).trim() : '';
 
   if (gradYear) {
     return `Class of ${gradYear}${location ? ' · ' + location : ''}`;

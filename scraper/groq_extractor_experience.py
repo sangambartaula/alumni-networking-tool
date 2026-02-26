@@ -16,6 +16,41 @@ if BS4_AVAILABLE:
     from bs4 import BeautifulSoup
 
 
+def _looks_like_location_fragment(fragment: str) -> bool:
+    """Heuristic for trailing location fragments like ', Hyderabad' or ' - Austin'."""
+    if not fragment:
+        return False
+    frag = fragment.strip()
+    if not frag:
+        return False
+    if re.search(r"\d", frag):
+        return False
+
+    low = frag.lower()
+    if re.search(
+        r"\b(inc|llc|ltd|corp|company|co|technologies|technology|systems|solutions|group|university|college|school)\b",
+        low,
+        re.I,
+    ):
+        return False
+
+    words = re.findall(r"[A-Za-z][A-Za-z'.&-]*", frag)
+    return 1 <= len(words) <= 4
+
+
+def _strip_trailing_location_fragment(text: str) -> str:
+    """Strip trailing location suffix when separated by comma/dash."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    for sep in [",", " - ", " – ", " — "]:
+        if sep in t:
+            head, tail = t.rsplit(sep, 1)
+            if _looks_like_location_fragment(tail):
+                return head.strip()
+    return t
+
+
 def _html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
     """
     Convert experience section HTML into clean structured text for the LLM.
@@ -211,6 +246,8 @@ Rules:
 - If a sub-role only says "Internship" or "Full-time" but has a parent title, append "Intern" to the parent title (e.g. "Assistant Project Manager Intern")
 - DO NOT invent role names. Never output "Role 1", "Role 2", etc.
 - DO NOT return bare employment types (Internship, Part-time, Full-time) as the job_title
+- Remove trailing location fragments from company/job_title when present after comma or dash
+  (e.g. "Avinash Enterprises, Hyderabad" -> "Avinash Enterprises")
 - IGNORE skill tags, metadata, and duration strings like "1 yr 5 mos"
 - Order by most recent first
 
@@ -249,7 +286,7 @@ Data:
         # Parse JSON response
         parsed = parse_groq_json_response(result_text)
         if parsed is None:
-            return []
+            return [], 0
         
         # Handle json_object mode wrapping (Groq may return {"jobs": [...]} instead of [...])
         if isinstance(parsed, dict):
@@ -266,12 +303,12 @@ Data:
                     jobs = [parsed]
                 else:
                     logger.warning("Groq returned JSON object with no job data")
-                    return []
+                    return [], 0
         elif isinstance(parsed, list):
             jobs = parsed
         else:
             logger.warning("Groq returned unexpected JSON type")
-            return []
+            return [], 0
         
         valid_jobs = []
         skill_pattern = re.compile(r'.*and \+\d+ skills?$', re.IGNORECASE)
@@ -308,6 +345,8 @@ Data:
             # Clean up doubled text (e.g. "EngineerEngineer" -> "Engineer")
             title = _clean_doubled(title)
             company = _clean_doubled(company)
+            title = _strip_trailing_location_fragment(title)
+            company = _strip_trailing_location_fragment(company)
                     
             # Filter out duration strings in Company field
             duration_pattern = re.compile(r'\b(\d+\s+yrs?|\d+\s+mos?|Full-time|Part-time|Contract|Internship)\b', re.IGNORECASE)

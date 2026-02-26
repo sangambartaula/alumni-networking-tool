@@ -68,9 +68,9 @@ COMPANY_MAP = {
     "microsoft corp.": "Microsoft",
     "amazon": "Amazon",
     "amazon.com": "Amazon",
-    "amazon web services": "Amazon Web Services",
-    "aws": "Amazon Web Services",
-    "amazon web services (aws)": "Amazon Web Services",
+    "amazon web services": "Amazon",
+    "aws": "Amazon",
+    "amazon web services (aws)": "Amazon",
     "meta": "Meta",
     "meta platforms": "Meta",
     "meta platforms inc": "Meta",
@@ -147,6 +147,10 @@ COMPANY_MAP = {
 
     # ── Finance ──
     "jpmorgan chase": "JPMorgan Chase",
+    "jpmorgan chase & co": "JPMorgan Chase",
+    "jpmorgan chase & co.": "JPMorgan Chase",
+    "jpmorgan chase &": "JPMorgan Chase",
+    "jpmorganchase": "JPMorgan Chase",
     "jp morgan chase": "JPMorgan Chase",
     "jpmorgan": "JPMorgan Chase",
     "jp morgan": "JPMorgan Chase",
@@ -158,6 +162,11 @@ COMPANY_MAP = {
     "citigroup": "Citigroup",
     "citi": "Citigroup",
     "capital one": "Capital One",
+    "cvs": "CVS",
+    "cvs health": "CVS",
+    "cvs pharmacy": "CVS",
+    "walmart": "Walmart",
+    "walmart global tech": "Walmart",
 
     # ── Telecom ──
     "at&t": "AT&T",
@@ -214,10 +223,52 @@ def _cleanup_company(raw: str) -> str:
         return ""
     t = raw.strip()
     t = re.sub(r'\s+', ' ', t)
+    t = _strip_trailing_location_fragment(t)
     # Remove trailing period, comma, dash
     t = re.sub(r'[.,\-]+$', '', t).strip()
     # Strip legal suffixes
     t = _SUFFIX_PATTERN.sub('', t).strip()
+    # Remove dangling ampersand left by patterns like "& Co."
+    t = re.sub(r'\s*&\s*$', '', t).strip()
+    return t
+
+
+def _looks_like_location_fragment(fragment: str) -> bool:
+    """Heuristic to detect trailing location chunks like ', Hyderabad' or ' - Austin'."""
+    if not fragment:
+        return False
+    frag = fragment.strip()
+    if not frag:
+        return False
+
+    low = frag.lower()
+    # If this fragment looks like company descriptors, keep it.
+    if re.search(
+        r'\b(inc|llc|ltd|corp|company|co|technologies|technology|systems|solutions|'
+        r'group|university|college|school|health|pharmacy|labs?|studio|restaurant)\b',
+        low,
+        re.I
+    ):
+        return False
+
+    if re.search(r'\d', frag):
+        return False
+
+    words = re.findall(r"[A-Za-z][A-Za-z'.&-]*", frag)
+    return 1 <= len(words) <= 4
+
+
+def _strip_trailing_location_fragment(text: str) -> str:
+    """Strip trailing location suffix when separated by comma/dash."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+
+    for sep in [",", " - ", " – ", " — "]:
+        if sep in t:
+            head, tail = t.rsplit(sep, 1)
+            if _looks_like_location_fragment(tail):
+                return head.strip()
     return t
 
 
@@ -331,8 +382,10 @@ Rules:
 2. Otherwise return a clean new company name.
 3. Remove legal suffixes when they are not brand-essential (Inc, LLC, Ltd, Corp).
 4. Collapse variants/abbreviations to common brand name when obvious.
-5. For placeholders (self-employed, stealth startup, confidential), return a concise normalized placeholder.
-6. If raw input is empty/noise, return an empty string.
+5. Remove trailing location fragments from company names when present
+   (e.g., "Avinash Enterprises, Hyderabad" -> "Avinash Enterprises").
+6. For placeholders (self-employed, stealth startup, confidential), return a concise normalized placeholder.
+7. If raw input is empty/noise, return an empty string.
 
 Existing normalized companies:
 {companies_list}
@@ -358,6 +411,7 @@ Return JSON only:
         )
         payload = json.loads(response.choices[0].message.content)
         result = _coerce_existing_company_choice(payload.get("normalized_company", ""), existing_companies)
+        result = _strip_trailing_location_fragment(result)
         if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:
             logger.warning(f"Groq returned non-company value for {raw_company!r}: {result!r}")
             return normalize_company_deterministic(raw_company)

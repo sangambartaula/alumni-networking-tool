@@ -1,138 +1,118 @@
 """
 Major Normalization Module
 
-Maps raw major/field-of-study strings to canonical UNT College of Engineering program names.
-
-Example:
-    "CS" → "Computer Science"
-    "Comp Eng" → "Computer Engineering"
-    "EE" → "Electrical Engineering"
+Strictly maps raw major text to an approved UNT major list or "Other".
 """
 
-import re
+import json
 import logging
 import os
-import json
+import re
 
 logger = logging.getLogger(__name__)
 
-# ── Canonical majors (UNT College of Engineering) ─────────────────────────
-# Each entry: (compiled regex pattern, canonical name)
-# Order matters — more specific patterns first to avoid false positives.
-_MAJOR_PATTERNS = [
-    # --- Computer Science & Engineering Department ---
-    (re.compile(r'\b(computer\s*science|comp\.?sci|c\.?s\.?|software\s*engineering|swe)\b', re.I),
-     "Computer Science"),
-    
-    (re.compile(r'\b(computer\s*engineering|comp\.?eng|c\.?e\.?)\b', re.I),
-     "Computer Engineering"),
-    
-    (re.compile(r'\b(information\s*technology|i\.?t\.?)\b', re.I),
-     "Information Technology"),
-    
-    (re.compile(r'\b(cyber\s*security|computer\s*security|infosec)\b', re.I),
-     "Cybersecurity"),
-    
-    (re.compile(r'\b(data\s*engineering)\b', re.I),
-     "Data Science"),
-
-    (re.compile(r'\b(data\s*science|data\s*analytics)\b', re.I),
-     "Data Science"),
-     
-    (re.compile(r'\b(artificial\s*intelligence|a\.?i\.?|machine\s*learning)\b', re.I),
-     "Artificial Intelligence"),
-
-    # --- Biomedical ---
-    (re.compile(r'\b(biomedical\s*engineering|bmen|bio\.?med|tissue\s*engineering)\b', re.I),
-     "Biomedical Engineering"),
-
-    # --- Electrical ---
-    (re.compile(r'\b(electrical\s*engineering|e\.?e\.?)\b', re.I),
-     "Electrical Engineering"),
-
-    # --- Materials Science ---
-    (re.compile(r'\b(materials?\s*science|materials?\s*engineering|mtse|metallurgy)\b', re.I),
-     "Materials Science and Engineering"),
-
-    # --- Mechanical & Energy ---
-    (re.compile(r'\b(mechanical\s*(?:and|&)\s*energy\s*engineering)\b', re.I),
-     "Mechanical and Energy Engineering"),
-
-    (re.compile(r'\b(mechanical\s*engineering|m\.?e\.?|mech\.?eng)\b', re.I),
-     "Mechanical Engineering"),
-
-    (re.compile(r'\b(mechanical\s*engineering\s*technology|m\.?e\.?t\.?)\b', re.I),
-     "Mechanical Engineering Technology"),
-     
-    (re.compile(r'\b(construction\s*management|construction\s*engineering|con\.?eng)\b', re.I),
-     "Construction Management"),
-     
-    (re.compile(r'\b(engineering\s*management)\b', re.I),
-     "Engineering Management"),
-
-    # --- Civil & Environmental ---
-    (re.compile(r'\b(civil\s*engineering|civil\s*eng|c\.?e\.?)\b', re.I),
-     "Civil Engineering"),
-     
-    (re.compile(r'\b(environmental\s*engineering|env\.?eng)\b', re.I),
-     "Environmental Engineering"),
-     
-    (re.compile(r'\b(structural\s*engineering)\b', re.I),
-     "Structural Engineering"),
-
-    # --- Chemical ---
-    (re.compile(r'\b(chemical\s*engineering|chem\.?eng)\b', re.I),
-     "Chemical Engineering"),
-
-    # --- Aerospace ---
-    (re.compile(r'\b(aerospace\s*engineering|aero\s*eng|aeronautical)\b', re.I),
-     "Aerospace Engineering"),
-
-    # --- Industrial & Systems ---
-    (re.compile(r'\b(industrial\s*engineering|i\.?e\.?)\b', re.I),
-     "Industrial Engineering"),
-     
-    (re.compile(r'\b(systems\s*engineering)\b', re.I),
-     "Systems Engineering"),
-     
-    (re.compile(r'\b(manufacturing\s*engineering)\b', re.I),
-     "Manufacturing Engineering"),
-    
-    (re.compile(r'\b(industrial\s*management|engineering\s*/\s*industrial\s*management)\b', re.I),
-     "Engineering Management"),
-
-    # --- Other Specific Engineering Disciplines ---
-    (re.compile(r'\b(projects?\s*engineering)\b', re.I), "Project Engineering"),
-    (re.compile(r'\b(petroleum\s*engineering)\b', re.I), "Petroleum Engineering"),
-    (re.compile(r'\b(nuclear\s*engineering)\b', re.I), "Nuclear Engineering"),
-    (re.compile(r'\b(marine\s*engineering|naval\s*architecture)\b', re.I), "Marine Engineering"),
-    (re.compile(r'\b(agricultural\s*engineering|biological\s*engineering)\b', re.I), "Agricultural Engineering"),
-    (re.compile(r'\b(mining\s*engineering)\b', re.I), "Mining Engineering"),
-    (re.compile(r'\b(geological\s*engineering)\b', re.I), "Geological Engineering"),
-    (re.compile(r'\b(robotics(\s*engineering)?)\b', re.I), "Robotics Engineering"),
-    (re.compile(r'\b(mechatronics)\b', re.I), "Mechatronics"),
-    (re.compile(r'\b(electronics(\s*engineering)?)\b', re.I), "Electronics Engineering"),
-    (re.compile(r'\b(telecommunications(\s*engineering)?)\b', re.I), "Telecommunications Engineering"),
-    (re.compile(r'\b(optical\s*engineering|optics)\b', re.I), "Optical Engineering"),
-    (re.compile(r'\b(automotive\s*engineering)\b', re.I), "Automotive Engineering"),
-
-    # --- Catch-all Engineering ---
-    (re.compile(r'\b(engineering|engr)\b', re.I),
-     "Other Engineering"),
+# Allowed UNT majors provided by product requirements.
+UNT_ALLOWED_MAJORS = [
+    "Autonomous Systems",
+    "Biomedical Engineering",
+    "Computer Engineering",
+    "Computer Science",
+    "Computer Science and Engineering",
+    "Construction Management",
+    "Cybersecurity",
+    "Data Engineering",
+    "Electrical Engineering",
+    "Engineering Management",
+    "Engineering Technology",
+    "Information Technology",
+    "Machine Learning",
+    "Materials Science",
+    "Materials Science and Engineering",
+    "Mechanical and Energy Engineering",
+    "Mechanical Engineering Technology",
+    "Other",
 ]
 
-# Unique set of canonical major names for LLM validation
-CANONICAL_MAJORS = sorted(list({c for _, c in _MAJOR_PATTERNS if c not in ["Other", "Other Engineering"]}))
+# For LLM ID mapping (exclude Other; 0 means Other).
+CANONICAL_MAJORS = [m for m in UNT_ALLOWED_MAJORS if m != "Other"]
 _CANONICAL_MAJOR_BY_LOWER = {m.lower(): m for m in CANONICAL_MAJORS}
+
+# High-signal exact aliases.
+_EXACT_MAJOR_MAP = {
+    "cse": "Computer Science and Engineering",
+    "ece": "Electrical Engineering",
+    "computer and information sciences": "Computer Science",
+    "computer and information sciences and support services": "Computer Science",
+    "computer and information sciences, general": "Computer Science",
+    "computer and information systems security/information assurance": "Computer Science",
+    "btech": "Other",
+    "student": "Other",
+    "other": "Other",
+}
+
+# Ordered regex mapping; first match wins.
+_MAJOR_PATTERNS = [
+    # Autonomous/robotics
+    (re.compile(r"\b(autonomous\s+systems?|robotics(\s+engineering)?)\b", re.I), "Autonomous Systems"),
+
+    # Computer stack
+    (re.compile(r"\b(computer\s+science\s+and\s+engineering|c\.?\s*s\.?\s*and\s*e\.?|cs\s*&\s*e)\b", re.I), "Computer Science and Engineering"),
+    (re.compile(r"\b(computer\s+engineering|comp\.?\s*eng|computer\s*hardware\s*engineering)\b", re.I), "Computer Engineering"),
+    (re.compile(r"\b(computer\s+science|computer\s+and\s+information\s+sciences?(?:\s+and\s+support\s+services)?(?:,\s*general)?|computer\s+programming(?:,\s*specific\s+applications)?|c\.?\s*s\.?\b)\b", re.I), "Computer Science"),
+
+    # Security / data / AI
+    (re.compile(r"\b(cyber\s*security|infosec)\b", re.I), "Cybersecurity"),
+    (re.compile(r"\b(data\s+engineering|data\s+science|visual\s+analytics|health\s+data)\b", re.I), "Data Engineering"),
+    (re.compile(r"\b(machine\s+learning|artificial\s+intelligence|ai)\b", re.I), "Machine Learning"),
+
+    # IT / info systems
+    (re.compile(r"\b(information\s+technology|information\s+systems?\s*(?:and|&)\s*technolog(?:y|ies)|information\s+systems?|information\s+science(?:\s*/\s*information\s+systems)?|information\s+science\/studies|informations\s+systems\s+and\s+technologies)\b", re.I), "Information Technology"),
+
+    # Core engineering
+    (re.compile(r"\b(biomedical\s+engineering|biomedical\s+sciences?)\b", re.I), "Biomedical Engineering"),
+    (re.compile(r"\b(electrical\s+engineering|electronics\s+engineering|microwaves?\s+and\s+communication)\b", re.I), "Electrical Engineering"),
+    (re.compile(r"\b(materials?\s+science\s+and\s+engineering)\b", re.I), "Materials Science and Engineering"),
+    (re.compile(r"\b(materials?\s+science)\b", re.I), "Materials Science"),
+    (re.compile(r"\b(mechanical\s*(?:and|&)\s*energy\s*engineering|mechanical\s+engineering)\b", re.I), "Mechanical and Energy Engineering"),
+    (re.compile(r"\b(mechanical\s+engineering\s+technology|engineering\s+technology)\b", re.I), "Mechanical Engineering Technology"),
+    (re.compile(r"\b(construction\s+management|construction\s+engineering\s+technology|building\s+construction\s+technology)\b", re.I), "Construction Management"),
+
+    # Management
+    (re.compile(r"\b(engineering\s+management|engineering\s*/\s*industrial\s*management|engineering\s*technology\s*&\s*management|industrial\s+management)\b", re.I), "Engineering Management"),
+]
+
+
+def _strip_minor_noise(text: str) -> str:
+    """Drop minor/concentration fragments and normalize separators."""
+    t = re.sub(r"\s+", " ", (text or "")).strip()
+    if not t:
+        return ""
+
+    t = re.sub(r"(?i)^double\s+major\s*:\s*", "", t).strip()
+    t = re.sub(r"(?i)^major\s*:\s*", "", t).strip()
+
+    # Remove parenthetical minor/concentration details.
+    t = re.sub(r"\(([^)]*(minor|concentration|track|certificate)[^)]*)\)", "", t, flags=re.I).strip()
+
+    # Remove trailing "with ... minor/concentration".
+    t = re.sub(r"(?i)\bwith\b[^,;|]*\b(minor|concentration|track|certificate)\b.*$", "", t).strip()
+
+    # Remove explicit minor suffix segments.
+    t = re.sub(r"(?i)[,;/|\-]\s*.*\b(minor|concentration|track|certificate)\b.*$", "", t).strip()
+
+    # Normalize ampersand spacing.
+    t = re.sub(r"\s*&\s*", " & ", t)
+    t = re.sub(r"\s+", " ", t).strip(" ,;|-")
+    return t
 
 
 def _coerce_llm_major_choice(payload: dict | None) -> str:
     """
-    Parse Groq JSON payload and coerce it to a canonical major.
-    Accepts either:
-      - {"major_id": <1-based index>}
-      - {"major": "<canonical major name>"}
-    Returns "Other" when parsing fails.
+    Parse Groq JSON payload and coerce it to an allowed major.
+    Priority:
+      1) major_id (strict numeric)
+      2) exact text match against approved majors (case-insensitive)
+    Any unknown value defaults to "Other".
     """
     if not isinstance(payload, dict):
         return "Other"
@@ -142,67 +122,80 @@ def _coerce_llm_major_choice(payload: dict | None) -> str:
         major_id = major_id.strip()
         if major_id.isdigit():
             major_id = int(major_id)
-    if isinstance(major_id, int) and 1 <= major_id <= len(CANONICAL_MAJORS):
-        return CANONICAL_MAJORS[major_id - 1]
 
-    major_name = payload.get("major")
-    if isinstance(major_name, str):
-        cleaned = major_name.strip().strip('"\'')
-        return _CANONICAL_MAJOR_BY_LOWER.get(cleaned.lower(), "Other")
+    if isinstance(major_id, int):
+        if major_id == 0:
+            return "Other"
+        if 1 <= major_id <= len(CANONICAL_MAJORS):
+            return CANONICAL_MAJORS[major_id - 1]
+
+    # Fallback: allow exact canonical major text from known keys.
+    for key in ("major", "major_name", "normalized_major", "major_label"):
+        value = payload.get(key)
+        if not isinstance(value, str):
+            continue
+        cleaned = re.sub(r"\s+", " ", value).strip().strip("\"'")
+        if not cleaned:
+            continue
+        if cleaned.lower() == "other":
+            return "Other"
+        exact = _CANONICAL_MAJOR_BY_LOWER.get(cleaned.lower())
+        if exact:
+            return exact
+
+    # Last-resort scan: if any string value exactly matches an approved major.
+    for value in payload.values():
+        if not isinstance(value, str):
+            continue
+        cleaned = re.sub(r"\s+", " ", value).strip().strip("\"'")
+        if not cleaned:
+            continue
+        exact = _CANONICAL_MAJOR_BY_LOWER.get(cleaned.lower())
+        if exact:
+            return exact
 
     return "Other"
 
 
 def standardize_major(raw_major: str, job_title: str = "") -> str:
     """
-    Map a raw major string to a canonical program name.
-    
-    Args:
-        raw_major: The major/degree string from LinkedIn
-        job_title: Optional job title for context (used by LLM fallback)
-
-    Returns the canonical name if matched by explicit regex, otherwise
-    preserves the raw major as-is.  LLM is only invoked when the text
-    contains 'engineering' but didn't match a specific pattern.
-
-    Logic:
-    1. Regex Match against explicit engineering taxonomy
-    2. LLM Fallback ONLY for ambiguous engineering strings
-    3. Preserve raw value for everything else (no silent mutation)
+    Map raw major to one of UNT_ALLOWED_MAJORS, else "Other".
     """
     if not raw_major or not raw_major.strip():
-        return ""
+        return "Other"
 
-    text = raw_major.strip()
-    
-    # 1. Regex Match against explicit engineering taxonomy
+    text = _strip_minor_noise(raw_major)
+    if not text:
+        return "Other"
+
+    exact = _EXACT_MAJOR_MAP.get(text.lower())
+    if exact:
+        return exact
+
+    direct = _CANONICAL_MAJOR_BY_LOWER.get(text.lower())
+    if direct:
+        return direct
+
     for pattern, canonical in _MAJOR_PATTERNS:
         if pattern.search(text):
-            if canonical not in ("Other", "Other Engineering"):
-                if canonical != text:
-                    logger.debug(f"Major standardized: \"{text}\" → \"{canonical}\"")
-                return canonical.title()
-            # Matched catch-all "engineering" — try LLM below
-            break
-            
-    # 2. LLM Fallback — ONLY for strings containing 'engineering'
-    #    that didn't match a specific pattern above.
-    if re.search(r'\bengineering\b', text, re.I) and os.getenv("GROQ_API_KEY"):
-        llm_result = _standardize_major_with_llm(text, job_title)
-        if llm_result in CANONICAL_MAJORS:
-            logger.debug(f"Major standardized (LLM): \"{text}\" → \"{llm_result}\"")
-            return llm_result.title()
+            return canonical
 
-    # 3. No match — preserve raw value exactly as-is.
-    #    Non-engineering fields (Business, General Studies, etc.)
-    #    must not be silently mutated.
-    return text.title()
+    # LLM fallback is strict (major_id only) and enabled by default.
+    # Any non-integer/invalid output still resolves to "Other".
+    use_llm_fallback = os.getenv("MAJOR_USE_GROQ_FALLBACK", "1") == "1"
+    if use_llm_fallback and os.getenv("GROQ_API_KEY"):
+        llm_result = _standardize_major_with_llm(text, job_title)
+        if llm_result in UNT_ALLOWED_MAJORS:
+            return llm_result
+
+    return "Other"
 
 
 def _standardize_major_with_llm(raw_major: str, job_title: str) -> str:
-    """Use Groq to map raw major to one of the CANONICAL_MAJORS."""
+    """Use Groq to map raw major to one of CANONICAL_MAJORS or Other."""
     try:
         from groq_client import _get_client, GROQ_MODEL
+
         client = _get_client()
         if not client:
             return "Other"
@@ -210,41 +203,42 @@ def _standardize_major_with_llm(raw_major: str, job_title: str) -> str:
         canonical_list = "\n".join(
             f"{idx}. {name}" for idx, name in enumerate(CANONICAL_MAJORS, start=1)
         )
-        major_text = (raw_major or "").strip()[:200]
-        job_text = (job_title or "").strip()[:120]
-        
+        major_text = (raw_major or "").strip()[:220]
+        job_text = (job_title or "").strip()[:140]
+
         prompt = f"""
-Map this raw major to one canonical major ID.
+Map this raw major to ONE approved UNT major ID.
 
 Raw Major: "{major_text}"
 Job Title Context (weak hint only): "{job_text}"
 
-Canonical Majors (ID -> name):
+Approved majors (ID -> name):
 {canonical_list}
 
 Rules:
-1. Use job title ONLY as a tiebreaker for ambiguous engineering majors.
-2. If uncertain or non-engineering, return major_id as 0.
-3. Do not invent majors.
+1. Output ONLY one major_id from 0-{len(CANONICAL_MAJORS)}.
+2. major_id=0 means Other.
+3. Ignore minors/concentrations/certificates and map the PRIMARY major.
+4. Do not invent labels outside the approved list.
 
 Return JSON only:
 {{ "major_id": <integer 0-{len(CANONICAL_MAJORS)}> }}
         """
-        
+
         completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a data cleaning assistant. Output valid JSON only."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             model=GROQ_MODEL,
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=24
+            max_tokens=24,
         )
-        
+
         payload = json.loads(completion.choices[0].message.content)
         return _coerce_llm_major_choice(payload)
-        
+
     except Exception as e:
         logger.warning(f"LLM major standardization failed for '{raw_major}': {e}")
         return "Other"

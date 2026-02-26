@@ -413,6 +413,278 @@ TITLE_MAP = {
     "crossvue": "Other",
 }
 
+# ---------------------------------------------------------------------------
+# USER-REQUESTED TITLE COMPACTION RULES
+# ---------------------------------------------------------------------------
+
+_PREFERRED_TITLE_BUCKETS = [
+    "Software Engineer",
+    "Infrastructure / Cloud Engineer",
+    "AI / ML Engineer",
+    "Data Engineer",
+    "Data Scientist",
+    "Data Analyst",
+    "Data Architect",
+    "Operations Analyst",
+    "Mechanical Engineer",
+    "Manufacturing Engineer",
+    "Industrial Engineer",
+    "Electrical Engineer",
+    "Design Engineer",
+    "Field Engineer",
+    "General Engineer",
+    "Engineering Technician",
+    "Construction / Architectural",
+    "Business Analyst",
+    "Financial Analyst",
+    "IT Analyst",
+    "Operations",
+    "Consultant",
+    "Marketing",
+    "Human Resources",
+    "Client / Customer Services",
+    "Professional",
+    "Project Manager",
+    "Director",
+    "Executive",
+    "Intern",
+    "Graduate Assistant",
+    "Researcher",
+    "Student Worker",
+    "Student",
+    "Retail Manager",
+    "Associate",
+    "Cashier",
+    "Clerk",
+    "Service Staff",
+]
+
+_COMPACT_TITLE_MAP = {
+    "director of": "Director",
+    "director of engineering": "Director",
+    # Software
+    "backend engineer": "Software Engineer",
+    "frontend engineer": "Software Engineer",
+    "senior backend engineer": "Software Engineer",
+    "software": "Software Engineer",
+    "software developer & consultant": "Software Engineer",
+    "software development analyst i": "Software Engineer",
+    "software development analyst level 2": "Software Engineer",
+    "software development engineer": "Software Engineer",
+    "software development engineer ii": "Software Engineer",
+    "software engineer – revenue management systems engineering": "Software Engineer",
+    "software engineer - revenue management systems engineering": "Software Engineer",
+    "senior web developer": "Software Engineer",
+    "mainframe developer": "Software Engineer",
+    "syteline developer": "Software Engineer",
+    "sdet/ automation tester": "Software Engineer",
+    "qa engineer": "Software Engineer",
+
+    # Cloud/infra
+    "cloud engineer": "Infrastructure / Cloud Engineer",
+    "devops engineer": "Infrastructure / Cloud Engineer",
+    "cloud/sre/devops engineer": "Infrastructure / Cloud Engineer",
+    "systems engineer": "Infrastructure / Cloud Engineer",
+    "systems administrator": "Infrastructure / Cloud Engineer",
+    "network engineer": "Infrastructure / Cloud Engineer",
+    "security engineer": "Infrastructure / Cloud Engineer",
+
+    # AI/ML
+    "ai data engineer": "AI / ML Engineer",
+    "ai/ml engineer": "AI / ML Engineer",
+    "product analyst intern – ai / machine learning": "AI / ML Engineer",
+    "product analyst intern - ai / machine learning": "AI / ML Engineer",
+    "consultant, data & ai": "AI / ML Engineer",
+
+    # Data
+    "operations & data engineer": "Data Engineer",
+    "operations analyst": "Operations Analyst",
+    "financial analyst": "Financial Analyst",
+    "it analyst": "IT Analyst",
+    "laboratory safety manager": "Manager",
+    "manager - innovation": "Manager",
+
+    # Engineering
+    "mechanical development engineer": "Mechanical Engineer",
+    "advanced manufacturing engineer senior": "Manufacturing Engineer",
+    "general manager / manufacturing engineer": "Manufacturing Engineer",
+    "intermediate professional, electrical engineering": "Electrical Engineer",
+    "application engineer ii": "Design Engineer",
+    "engineer": "General Engineer",
+    "engineering": "General Engineer",
+    "assistant engineer": "General Engineer",
+    "technician": "Engineering Technician",
+
+    # Construction/architectural
+    "bim coordinator": "Construction / Architectural",
+    "architectural designer": "Construction / Architectural",
+    "residential and commercial buildings": "Construction / Architectural",
+
+    # Business/analyst
+    "analyst": "Business Analyst",
+    "accountant": "Financial Analyst",
+    "itsm systems analyst": "IT Analyst",
+    "operations officer": "Operations",
+    "operations manager": "Operations",
+    "senior integration consultant": "Consultant",
+    "workday integrations consultant": "Consultant",
+    "marketing consultant": "Marketing",
+    "marketing manager": "Marketing",
+    "marketing specialist": "Marketing",
+    "human resources generalist": "Human Resources",
+    "recruiter": "Human Resources",
+    "technical bilingual recruiter": "Human Resources",
+    "client service specialist - employee benefits": "Client / Customer Services",
+    "customer support": "Client / Customer Services",
+    "patient access manager": "Client / Customer Services",
+    "pharmacy technician": "Client / Customer Services",
+
+    # Management
+    "project manager ii": "Project Manager",
+    "project engineer": "Project Manager",
+    "project coordinator": "Project Manager",
+    "managing director": "Director",
+    "team lead of consulting practices": "Director",
+    "team leader of software development": "Director",
+    "president": "Executive",
+    "executive vice president of operations and human resources": "Executive",
+    "technology officer": "Executive",
+    "town manager": "Executive",
+    "assistant vice president - financial solutions advisor": "Executive",
+    "leader": "Director",
+
+    # Student buckets
+    "engineering co-op": "Intern",
+    "summer": "Intern",
+    "graduate graduate assistant-deep six lab": "Graduate Assistant",
+    "graduate researcher": "Researcher",
+    "lab assistant": "Researcher",
+    "community assistant": "Student Worker",
+    "front desk staff": "Student Worker",
+    "supplementor instructor": "Student Worker",
+    "tutor": "Student Worker",
+    "graduate student": "Student",
+    "student leader": "Student",
+    "member": "Student",
+    "women in cybersecurity (wicys)": "Student",
+    "women in cybersecurity": "Student",
+    "wicys": "Student",
+
+    # Retail / service
+    "general manager": "Retail Manager",
+    "sales associate": "Associate",
+    "seasonal sales associate": "Associate",
+    "digital personal shopper": "Associate",
+    "team member": "Associate",
+    "title clerk": "Clerk",
+    "server trainer": "Service Staff",
+
+    # Misc guidance
+    "coach": "Professional",
+    "graphic designer": "Professional",
+    "product designer": "Professional",
+    "product specialist": "Professional",
+    "solutions architect": "Professional",
+    "solution advisor": "Professional",
+    "technical writer": "Professional",
+    "technical specialist": "Professional",
+    "account executive": "Professional",
+}
+
+
+def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
+    """Apply strict title buckets when known; otherwise preserve candidate."""
+    source = (candidate or "").strip()
+    raw = (raw_title or "").strip()
+    if not source and not raw:
+        return ""
+
+    for text in (source, raw):
+        t = (text or "").strip()
+        if not t:
+            continue
+        low = t.lower()
+
+        # Drop obvious non-title noise.
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}", low):
+            return ""
+        if low in {"yes", "no", "n/a", "na", "none", "null", "unknown"}:
+            return ""
+
+        mapped = _COMPACT_TITLE_MAP.get(low)
+        if mapped:
+            return mapped
+
+    low = (source or raw).lower()
+
+    # Regex-driven compaction for common families.
+    if re.search(r"\b(software|frontend|front-end|backend|web developer|mainframe|syteline|sdet|qa)\b", low):
+        return "Software Engineer"
+    if re.search(r"\b(cloud|devops|sre|infrastructure|systems administrator|sysadmin|network engineer|security engineer)\b", low):
+        return "Infrastructure / Cloud Engineer"
+    if re.search(r"\b(ai|machine learning|ml)\b", low):
+        return "AI / ML Engineer"
+    if re.search(r"\bdata engineer\b", low):
+        return "Data Engineer"
+    if re.search(r"\bdata scientist\b", low):
+        return "Data Scientist"
+    if re.search(r"\bdata analyst\b", low):
+        return "Data Analyst"
+    if re.search(r"\bdata architect\b", low):
+        return "Data Architect"
+    if re.search(r"\bfinancial analyst\b", low):
+        return "Financial Analyst"
+    if re.search(r"\bit analyst\b", low):
+        return "IT Analyst"
+    if re.search(r"\bmechanical\b", low):
+        return "Mechanical Engineer"
+    if re.search(r"\bmanufacturing\b", low):
+        return "Manufacturing Engineer"
+    if re.search(r"\bindustrial\b", low):
+        return "Industrial Engineer"
+    if re.search(r"\belectrical\b", low):
+        return "Electrical Engineer"
+    if re.search(r"\b(field engineer)\b", low):
+        return "Field Engineer"
+    if re.search(r"\b(engineering technician|technician)\b", low):
+        return "Engineering Technician"
+    if re.search(r"\b(architectural|bim|construction)\b", low):
+        return "Construction / Architectural"
+    if re.search(r"\b(analyst)\b", low):
+        return "Business Analyst"
+    if re.search(r"\b(operations manager|operations officer)\b", low):
+        return "Operations"
+    if re.search(r"\b(consultant)\b", low):
+        return "Consultant"
+    if re.search(r"\b(marketing)\b", low):
+        return "Marketing"
+    if re.search(r"\b(recruiter|human resources)\b", low):
+        return "Human Resources"
+    if re.search(r"\b(project manager|project engineer|project coordinator)\b", low):
+        return "Project Manager"
+    if re.search(r"\b(intern|co-op)\b", low):
+        return "Intern"
+    if re.search(r"\b(graduate assistant)\b", low):
+        return "Graduate Assistant"
+    if re.search(r"\b(graduate researcher|lab assistant)\b", low):
+        return "Researcher"
+    if re.search(r"\b(student worker|community assistant|front desk|tutor)\b", low):
+        return "Student Worker"
+    if re.search(r"\b(student|graduate student)\b", low):
+        return "Student"
+    if re.search(r"\b(cashier)\b", low):
+        return "Cashier"
+    if re.search(r"^director\b", low):
+        return "Director"
+    if re.search(r"\blaboratory safety manager\b", low):
+        return "Manager"
+    if re.search(r"^manager\b", low):
+        return "Manager"
+    if re.search(r"\b(president|vice president|executive|officer)\b", low):
+        return "Executive"
+
+    return source or raw
+
 
 # ---------------------------------------------------------------------------
 # PATTERN-BASED NORMALIZATION
@@ -444,6 +716,37 @@ _REGIONAL_MARKERS = re.compile(
 )
 
 
+def _looks_like_location_fragment(fragment: str) -> bool:
+    """Heuristic for trailing location fragments like ', Hyderabad' or ' - Austin'."""
+    if not fragment:
+        return False
+    frag = fragment.strip()
+    if not frag:
+        return False
+    if re.search(r"\d", frag):
+        return False
+
+    low = frag.lower()
+    if re.search(r"\b(engineer|manager|analyst|developer|consultant|director|intern|assistant|officer)\b", low):
+        return False
+
+    words = re.findall(r"[A-Za-z][A-Za-z'.&-]*", frag)
+    return 1 <= len(words) <= 4
+
+
+def _strip_trailing_location_fragment(text: str) -> str:
+    """Strip location suffix when separated by comma/dash."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    for sep in [",", " - ", " – ", " — "]:
+        if sep in t:
+            head, tail = t.rsplit(sep, 1)
+            if _looks_like_location_fragment(tail):
+                return head.strip()
+    return t
+
+
 def _cleanup_title(raw: str) -> str:
     """
     Basic cleanup without mapping:
@@ -457,6 +760,7 @@ def _cleanup_title(raw: str) -> str:
         return ""
     t = raw.strip()
     t = re.sub(r'\s+', ' ', t)
+    t = _strip_trailing_location_fragment(t)
     
     # Remove locations (e.g., " - Austin")
     t = _LOCATION_MARKERS.sub('', t).strip()
@@ -489,44 +793,50 @@ def normalize_title_deterministic(raw_title: str) -> str:
         return ""
     key = cleaned.lower()
 
+    candidate = None
+
     # Pass 1: exact match
     if key in TITLE_MAP:
-        return TITLE_MAP[key]
+        candidate = TITLE_MAP[key]
 
     # Special heuristic: force "soft" roles to Software Engineer
-    if key.startswith('soft'):
-        return "Software Engineer"
+    if candidate is None and key.startswith('soft'):
+        candidate = "Software Engineer"
 
     # Pass 2: strip level suffixes (e.g. "Engineer II" → "Engineer")
-    stripped = _LEVEL_SUFFIXES.sub('', key).strip()
-    if stripped != key and stripped in TITLE_MAP:
-        return TITLE_MAP[stripped]
+    if candidate is None:
+        stripped = _LEVEL_SUFFIXES.sub('', key).strip()
+        if stripped != key and stripped in TITLE_MAP:
+            candidate = TITLE_MAP[stripped]
 
     # Pass 3: strip parenthetical qualifiers (e.g. "Analyst (Contract)" → "Analyst")
-    stripped = _PAREN_QUALIFIER.sub('', key).strip()
-    if stripped != key and stripped in TITLE_MAP:
-        return TITLE_MAP[stripped]
+    if candidate is None:
+        stripped = _PAREN_QUALIFIER.sub('', key).strip()
+        if stripped != key and stripped in TITLE_MAP:
+            candidate = TITLE_MAP[stripped]
 
     # Pass 4: strip both level suffixes and parens
-    stripped = _PAREN_QUALIFIER.sub('', _LEVEL_SUFFIXES.sub('', key)).strip()
-    if stripped != key and stripped in TITLE_MAP:
-        return TITLE_MAP[stripped]
+    if candidate is None:
+        stripped = _PAREN_QUALIFIER.sub('', _LEVEL_SUFFIXES.sub('', key)).strip()
+        if stripped != key and stripped in TITLE_MAP:
+            candidate = TITLE_MAP[stripped]
 
     # Pass 5: strip seniority (Senior, Intern, etc) on top of suffixes and parens
-    stripped_all = _SENIORITY_PREFIX.sub('', _PAREN_QUALIFIER.sub('', _LEVEL_SUFFIXES.sub('', key)))
-    stripped_all = _SENIORITY_SUFFIX.sub('', stripped_all).strip()
-    if stripped_all != key and stripped_all in TITLE_MAP:
-        return TITLE_MAP[stripped_all]
+    if candidate is None:
+        stripped_all = _SENIORITY_PREFIX.sub('', _PAREN_QUALIFIER.sub('', _LEVEL_SUFFIXES.sub('', key)))
+        stripped_all = _SENIORITY_SUFFIX.sub('', stripped_all).strip()
+        if stripped_all != key and stripped_all in TITLE_MAP:
+            candidate = TITLE_MAP[stripped_all]
 
-    # No match — return cleaned title as its own category, but with seniority stripped
-    final_clean = _SENIORITY_PREFIX.sub('', cleaned)
-    final_clean = _SENIORITY_SUFFIX.sub('', final_clean).strip()
-    
-    if final_clean:
-        # Title-case roughly to fix lowercase first letter if prefix was removed
-        final_clean = final_clean[0].upper() + final_clean[1:]
-        
-    return final_clean or cleaned
+    if candidate is None:
+        # No deterministic match — keep cleaned title as category with seniority stripped.
+        final_clean = _SENIORITY_PREFIX.sub('', cleaned)
+        final_clean = _SENIORITY_SUFFIX.sub('', final_clean).strip()
+        if final_clean:
+            final_clean = final_clean[0].upper() + final_clean[1:]
+        candidate = final_clean or cleaned
+
+    return _compact_normalized_title(candidate, raw_title=cleaned)
 
 
 # ---------------------------------------------------------------------------
@@ -601,6 +911,8 @@ def normalize_title_with_groq(raw_title: str, existing_titles: list) -> str:
     titles_list = "\n".join(f"- {t}" for t in existing_titles[:180])  # keep prompt lean
     raw_text = (raw_title or "").strip()[:180]
 
+    preferred_list = "\n".join(f"- {t}" for t in _PREFERRED_TITLE_BUCKETS)
+
     prompt = f"""You are a job-title normalization engine.
 
 Task:
@@ -608,11 +920,14 @@ Given a raw job title and existing normalized titles, produce one normalized tit
 
 Rules:
 1. If an existing title is semantically equivalent, return that EXACT existing string.
-2. Otherwise return a new concise base function title (1-4 words).
-3. Remove seniority/level modifiers (Senior, Junior, II, III, Intern, Lead, etc.).
-4. Remove org-specific fragments (department names, "at <university/company>").
-5. Keep common technical acronyms when core to the role (QA, SRE, DevOps, UI/UX).
-6. If raw title is empty/noise (N/A, unknown), return an empty string.
+2. Prefer one of these canonical buckets when semantically equivalent:
+{preferred_list}
+3. Otherwise return a new concise base function title (1-4 words).
+4. Remove seniority/level modifiers (Senior, Junior, II, III, Intern, Lead, etc.).
+5. Remove org-specific fragments (department names, "at <university/company>").
+6. Keep common technical acronyms when core to the role (QA, SRE, DevOps, UI/UX).
+7. If raw title is empty/noise (N/A, unknown), return an empty string.
+8. For memberships/officer roles in student clubs/orgs (e.g., WiCyS), normalize to "Student".
 
 Existing normalized titles:
 {titles_list}
@@ -638,6 +953,7 @@ Return JSON only:
         )
         payload = json.loads(response.choices[0].message.content)
         result = _coerce_existing_title_choice(payload.get("normalized_title", ""), existing_titles)
+        result = _compact_normalized_title(result, raw_title=raw_title)
         if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:
             logger.warning(f"Groq returned non-title value for {raw_title!r}: {result!r}")
             return normalize_title_deterministic(raw_title)
@@ -734,3 +1050,7 @@ def get_or_create_normalized_title(conn, raw_title: str, use_groq: bool = False)
     except Exception as e:
         logger.error(f"Error in get_or_create_normalized_title: {e}")
         return None
+    if re.search(r"\bfinancial analyst\b", low):
+        return "Financial Analyst"
+    if re.search(r"\bit analyst\b", low):
+        return "IT Analyst"

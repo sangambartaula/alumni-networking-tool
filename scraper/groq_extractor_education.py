@@ -54,6 +54,14 @@ def _same_degree_level(deg1: str, deg2: str) -> bool:
     return k1 != "" and k1 == k2
 
 
+def _is_unt_school(school_name: str) -> bool:
+    """Return True when the school string refers to UNT."""
+    if not school_name:
+        return False
+    s = school_name.lower()
+    return ("university of north texas" in s) or re.search(r"\bunt\b", s) is not None
+
+
 def _education_html_to_structured_text(html: str, profile_name: str = "unknown", relaxed: bool = False) -> str:
     """
     Convert education section HTML into clean structured text for the LLM.
@@ -255,12 +263,14 @@ Rules:
 - If the major field is missing or blank, set major_raw to ""
 - If start_year or end_year are missing, set them to ""
 - DO NOT invent data — if something is not present in the text, leave it blank
+- For major_raw, exclude minors/concentrations/certificates (keep the primary major only)
 - IGNORE activity/society lists, grades, and descriptions
 - IMPORTANT: LinkedIn education entries are NEVER nested. Unlike jobs which can be grouped under a company, each education entry is independent with its own school name. Each entry = one school + one degree.
 - DO NOT extract degree information from descriptions or activity lines below the main entry. Only use the structured degree/major fields.
 - Each entry should represent ONE school attendance
 - If a single entry mentions a degree and then repeats it or a similar one in the description (e.g. "Masters in X" ... "MS in Y"), treat it as ONE degree. DO NOT split into two entries unless the SCHOOL NAME is different.
 - If duplicate information appears (e.g. parent item + child detail item), merge them into one entry.
+- PRIORITY: If any entry is for University of North Texas (or UNT), list those entries FIRST in the returned array.
 
 Return ONLY a JSON object with an "education" key:
 {{"education": [{{"school":"...","degree_raw":"...","major_raw":"...","start_year":"...","end_year":"..."}}]}}
@@ -296,7 +306,7 @@ Data:
 
         parsed = parse_groq_json_response(result_text)
         if parsed is None:
-            return []
+            return [], 0
 
         # Extract education array from response
         if isinstance(parsed, dict):
@@ -369,6 +379,8 @@ Data:
             })
 
         if valid_entries:
+            # Enforce UNT-first ordering locally regardless of model ordering.
+            valid_entries.sort(key=lambda e: (0 if _is_unt_school(e.get("school", "")) else 1))
             logger.debug(f"Groq extracted {len(valid_entries)} education entry/entries")
             for i, e in enumerate(valid_entries):
                 logger.debug(f"  Edu {i+1}: {e['school']} — {e['degree_raw']} / {e['major_raw']} ({e['start_date']}–{e['end_date']})")
