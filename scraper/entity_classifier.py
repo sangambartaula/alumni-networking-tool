@@ -163,6 +163,15 @@ class EntityClassifier:
         # "City, State" or "City, Country" pattern
         if self.city_state_pattern.match(text):
             return True
+
+        # Also support common "City, State, Country" style values.
+        # Example: "Denton, Texas, United States".
+        parts = [p.strip() for p in text.split(',') if p.strip()]
+        if len(parts) == 3:
+            state_or_region = parts[1]
+            country = parts[2]
+            if self.location_patterns.search(state_or_region) and self.location_patterns.search(country):
+                return True
         return False
     
     def _tier1_database_lookup(self, text: str) -> Optional[Tuple[str, float]]:
