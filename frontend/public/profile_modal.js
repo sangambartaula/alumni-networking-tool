@@ -263,13 +263,13 @@ class ProfileDetailModal {
     if (edu1) entries.push({ label: 'Education', value: edu1 });
 
     // Education 2
-    if (this._safe(data.school2) || this._safe(data.degree2)) {
+    if (this._safeEdu(data.school2) || this._safeEdu(data.degree2) || this._safeEdu(data.major2)) {
       const edu2 = this._formatEducation(data.school2, data.degree2, data.major2);
       if (edu2) entries.push({ label: 'Education 2', value: edu2 });
     }
 
     // Education 3
-    if (this._safe(data.school3) || this._safe(data.degree3)) {
+    if (this._safeEdu(data.school3) || this._safeEdu(data.degree3) || this._safeEdu(data.major3)) {
       const edu3 = this._formatEducation(data.school3, data.degree3, data.major3);
       if (edu3) entries.push({ label: 'Education 3', value: edu3 });
     }
@@ -290,9 +290,9 @@ class ProfileDetailModal {
   }
 
   _formatEducation(school, degree, major, startDate, endDate) {
-    const s = this._safe(school);
-    const d = this._safe(degree);
-    const m = this._safe(major);
+    const s = this._safeEdu(school);
+    const d = this._safeEdu(degree);
+    const m = this._safeEdu(major);
 
     if (!s && !d && !m) return '';
 
@@ -423,6 +423,16 @@ class ProfileDetailModal {
     if (val === null || val === undefined) return '';
     const s = String(val).trim();
     return s === 'null' || s === 'undefined' || s === 'None' ? '' : s;
+  }
+
+  _safeEdu(val) {
+    const s = this._safe(val);
+    if (!s) return '';
+    const lowered = s.toLowerCase();
+    if (['other', 'unknown', 'not found', 'n/a', 'na', 'none', 'null', 'nan'].includes(lowered)) {
+      return '';
+    }
+    return s;
   }
 
   _esc(str) {
