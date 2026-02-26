@@ -1640,24 +1640,25 @@ if __name__ == "__main__":
             ensure_normalized_degree_column()
             ensure_normalized_company_column()
             # Startup seed strategy:
-            # - Default ("sync"): always upsert CSV into DB (CSV wins on URL conflicts).
+            # - Default ("0"): skip CSV sync in app startup for faster boot.
             # - "auto": seed only when alumni table is empty.
-            # - Force seed with SEED_ON_STARTUP=1/true/yes.
-            # - Explicitly skip with SEED_ON_STARTUP=0/false/no.
-            seed_mode = os.getenv("SEED_ON_STARTUP", "sync").strip().lower()
+            # - Force sync with SEED_ON_STARTUP=1/true/yes/sync.
+            seed_mode = os.getenv("SEED_ON_STARTUP", "0").strip().lower()
             if seed_mode in {"1", "true", "yes", "sync", "force"}:
-                app.logger.info("Seeding alumni on startup (CSV sync enabled)")
+                app.logger.info("Seeding alumni on startup (CSV sync explicitly enabled)")
                 seed_alumni_data()
                 normalize_existing_grad_years()
-            elif seed_mode in {"0", "false", "no"}:
+            elif seed_mode in {"0", "false", "no", "off", "skip"}:
                 app.logger.info("Skipping alumni seed on startup (SEED_ON_STARTUP=0)")
-            else:
+            elif seed_mode == "auto":
                 if has_alumni_records():
                     app.logger.info("Skipping alumni seed on startup (alumni table already populated)")
                 else:
                     app.logger.info("Seeding alumni on startup (alumni table is empty)")
                     seed_alumni_data()
                     normalize_existing_grad_years()
+            else:
+                app.logger.info(f"Skipping alumni seed on startup (unknown SEED_ON_STARTUP={seed_mode})")
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
             if not USE_SQLITE_FALLBACK:
