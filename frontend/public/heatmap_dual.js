@@ -165,47 +165,84 @@ function clearHiddenFiltersFromStorage() {
   localStorage.removeItem('hiddenCompanies');
 }
 
+function escapeAttribute(value) {
+  return String(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function highlightSuggestionMatch(text, search) {
+  if (!search) return escapeHtml(text);
+  const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escapedSearch})`, 'gi');
+  return escapeHtml(text).replace(regex, '<strong>$1</strong>');
+}
+
 // Show autocomplete suggestions for location input
 function showLocationSuggestions() {
   const input = document.getElementById('filterLocationInput');
   const suggestionBox = document.getElementById('locationSuggestionsDropdown');
 
-  if (!suggestionBox) return;
+  if (!input || !suggestionBox) return;
 
-  const suggestions = Array.from(allLocations)
-    .filter(loc => loc.toLowerCase().includes(input.value.toLowerCase()))
+  const query = input.value.trim();
+
+  if (query) {
+    const valueLower = query.toLowerCase();
+    const suggestions = Array.from(allLocations)
+      .filter((loc) => loc.toLowerCase().includes(valueLower))
+      .sort((a, b) => {
+        const aLower = a.toLowerCase();
+        const bLower = b.toLowerCase();
+        if (aLower === valueLower) return -1;
+        if (bLower === valueLower) return 1;
+        if (aLower.startsWith(valueLower) && !bLower.startsWith(valueLower)) return -1;
+        if (!aLower.startsWith(valueLower) && bLower.startsWith(valueLower)) return 1;
+        return a.localeCompare(b);
+      })
+      .slice(0, 15);
+
+    suggestionBox.innerHTML = suggestions.length > 0
+      ? suggestions
+          .map((loc) => `<div class="analytics-suggestion-item" data-value="${escapeAttribute(loc)}"><span class="analytics-suggestion-text">${highlightSuggestionMatch(loc, query)}</span></div>`)
+          .join('')
+      : '<div class="analytics-suggestion-no-results">No matching locations found</div>';
+    suggestionBox.style.display = 'block';
+    return;
+  }
+
+  const locationCounts = {};
+  locationClusters.forEach((location) => {
+    if (!location?.location) return;
+    const visibleCount = getVisibleAlumniForLocation(location).length;
+    if (visibleCount > 0) {
+      locationCounts[location.location] = (locationCounts[location.location] || 0) + visibleCount;
+    }
+  });
+
+  const topLocations = Object.entries(locationCounts)
+    .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
 
-  suggestionBox.innerHTML = '';
-
-  if (suggestions.length > 0) {
-    suggestions.forEach(suggestion => {
-      const div = document.createElement('div');
-      div.className = 'suggestion-item';
-      div.textContent = suggestion;
-      div.onclick = () => {
-        input.value = suggestion;
-        suggestionBox.style.display = 'none';
-      };
-      suggestionBox.appendChild(div);
-    });
+  if (topLocations.length === 0) {
+    suggestionBox.innerHTML = '<div class="analytics-suggestion-no-results">No locations available</div>';
     suggestionBox.style.display = 'block';
-  } else if (input.value.trim() === '') {
-    // Show all if input is empty
-    Array.from(allLocations).slice(0, 10).forEach(suggestion => {
-      const div = document.createElement('div');
-      div.className = 'suggestion-item';
-      div.textContent = suggestion;
-      div.onclick = () => {
-        input.value = suggestion;
-        suggestionBox.style.display = 'none';
-      };
-      suggestionBox.appendChild(div);
-    });
-    suggestionBox.style.display = 'block';
-  } else {
-    suggestionBox.style.display = 'none';
+    return;
   }
+
+  suggestionBox.innerHTML =
+    '<div class="analytics-suggestion-header">Popular Locations (click to hide)</div>' +
+    topLocations
+      .map(([location, count]) => `<div class="analytics-suggestion-item" data-value="${escapeAttribute(location)}"><span class="analytics-suggestion-text">${escapeHtml(location)}</span><span class="analytics-suggestion-count">(${count})</span></div>`)
+      .join('');
+  suggestionBox.style.display = 'block';
 }
 
 // Show autocomplete suggestions for company input
@@ -213,42 +250,58 @@ function showCompanySuggestions() {
   const input = document.getElementById('filterCompanyInput');
   const suggestionBox = document.getElementById('companySuggestionsDropdown');
 
-  if (!suggestionBox) return;
+  if (!input || !suggestionBox) return;
 
-  const suggestions = Array.from(allCompanies)
-    .filter(comp => comp.toLowerCase().includes(input.value.toLowerCase()))
+  const query = input.value.trim();
+
+  if (query) {
+    const valueLower = query.toLowerCase();
+    const suggestions = Array.from(allCompanies)
+      .filter((company) => company.toLowerCase().includes(valueLower))
+      .sort((a, b) => {
+        const aLower = a.toLowerCase();
+        const bLower = b.toLowerCase();
+        if (aLower === valueLower) return -1;
+        if (bLower === valueLower) return 1;
+        if (aLower.startsWith(valueLower) && !bLower.startsWith(valueLower)) return -1;
+        if (!aLower.startsWith(valueLower) && bLower.startsWith(valueLower)) return 1;
+        return a.localeCompare(b);
+      })
+      .slice(0, 15);
+
+    suggestionBox.innerHTML = suggestions.length > 0
+      ? suggestions
+          .map((company) => `<div class="analytics-suggestion-item" data-value="${escapeAttribute(company)}"><span class="analytics-suggestion-text">${highlightSuggestionMatch(company, query)}</span></div>`)
+          .join('')
+      : '<div class="analytics-suggestion-no-results">No matching companies found</div>';
+    suggestionBox.style.display = 'block';
+    return;
+  }
+
+  const companyCounts = {};
+  locationClusters.forEach((location) => {
+    (location?.sample_alumni || []).forEach((alumni) => {
+      if (!alumni?.company || isCompanyHidden(alumni)) return;
+      companyCounts[alumni.company] = (companyCounts[alumni.company] || 0) + 1;
+    });
+  });
+
+  const topCompanies = Object.entries(companyCounts)
+    .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
 
-  suggestionBox.innerHTML = '';
-
-  if (suggestions.length > 0) {
-    suggestions.forEach(suggestion => {
-      const div = document.createElement('div');
-      div.className = 'suggestion-item';
-      div.textContent = suggestion;
-      div.onclick = () => {
-        input.value = suggestion;
-        suggestionBox.style.display = 'none';
-      };
-      suggestionBox.appendChild(div);
-    });
+  if (topCompanies.length === 0) {
+    suggestionBox.innerHTML = '<div class="analytics-suggestion-no-results">No companies available</div>';
     suggestionBox.style.display = 'block';
-  } else if (input.value.trim() === '') {
-    // Show all if input is empty
-    Array.from(allCompanies).slice(0, 10).forEach(suggestion => {
-      const div = document.createElement('div');
-      div.className = 'suggestion-item';
-      div.textContent = suggestion;
-      div.onclick = () => {
-        input.value = suggestion;
-        suggestionBox.style.display = 'none';
-      };
-      suggestionBox.appendChild(div);
-    });
-    suggestionBox.style.display = 'block';
-  } else {
-    suggestionBox.style.display = 'none';
+    return;
   }
+
+  suggestionBox.innerHTML =
+    '<div class="analytics-suggestion-header">Popular Companies (click to hide)</div>' +
+    topCompanies
+      .map(([company, count]) => `<div class="analytics-suggestion-item" data-value="${escapeAttribute(company)}"><span class="analytics-suggestion-text">${escapeHtml(company)}</span><span class="analytics-suggestion-count">(${count})</span></div>`)
+      .join('');
+  suggestionBox.style.display = 'block';
 }
 
 // Extract all locations and companies from alumni data for autocomplete
@@ -1337,7 +1390,7 @@ function initializeFilterUI() {
   const filterToggleBtn = document.getElementById('filterToggleBtn');
   const filterPanel = document.getElementById('filterPanel');
   const filterBackdrop = document.getElementById('filterBackdrop');
-  const filterCloseBtn = document.querySelector('.filter-close-btn');
+  const filterCloseBtn = document.getElementById('filterCloseBtn');
 
   // Load saved filters from localStorage
   loadHiddenFiltersFromStorage();
@@ -1354,10 +1407,36 @@ function initializeFilterUI() {
     companyInput.addEventListener('input', showCompanySuggestions);
   }
 
+  const locDropdown = document.getElementById('locationSuggestionsDropdown');
+  const comDropdown = document.getElementById('companySuggestionsDropdown');
+
+  locDropdown?.addEventListener('mousedown', (e) => e.preventDefault());
+  comDropdown?.addEventListener('mousedown', (e) => e.preventDefault());
+
+  locDropdown?.addEventListener('click', (e) => {
+    const item = e.target.closest('.analytics-suggestion-item');
+    if (!item) return;
+    const location = item.getAttribute('data-value');
+    if (!location) return;
+    addLocationFilter(location);
+    locationInput.value = '';
+    locationInput.focus();
+    showLocationSuggestions();
+  });
+
+  comDropdown?.addEventListener('click', (e) => {
+    const item = e.target.closest('.analytics-suggestion-item');
+    if (!item) return;
+    const company = item.getAttribute('data-value');
+    if (!company) return;
+    addCompanyFilter(company);
+    companyInput.value = '';
+    companyInput.focus();
+    showCompanySuggestions();
+  });
+
   // Hide suggestions when clicking outside
   document.addEventListener('click', (e) => {
-    const locDropdown = document.getElementById('locationSuggestionsDropdown');
-    const comDropdown = document.getElementById('companySuggestionsDropdown');
     if (locDropdown && !locDropdown.contains(e.target) && e.target !== locationInput) {
       locDropdown.style.display = 'none';
     }
@@ -1527,30 +1606,32 @@ function updateFilterBadge() {
   if (badge) {
     const totalFilters = hiddenLocations.size + hiddenCompanies.size;
     badge.textContent = totalFilters;
-    badge.style.display = totalFilters > 0 ? 'flex' : 'none';
+    badge.style.display = totalFilters > 0 ? 'inline-block' : 'none';
   }
 }
 
 function updateFilterUI() {
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size;
+  const clearAllBtn = document.getElementById('clearAllFiltersBtn');
+  if (clearAllBtn) {
+    clearAllBtn.disabled = totalFilters === 0;
+  }
+
   // Update location filter tags
   const locationTags = document.getElementById('locationFilterTags');
   const locationCount = document.getElementById('locationFilterCount');
 
   if (locationTags) {
-    locationTags.innerHTML = '';
-    if (hiddenLocations.size === 0) {
-      locationTags.innerHTML = '<span class="empty-filters-message">No locations hidden</span>';
-    } else {
-      hiddenLocations.forEach(location => {
-        const tag = document.createElement('div');
-        tag.className = 'filter-tag location-tag';
-        tag.innerHTML = `
-          <span>${location}</span>
-          <span class="filter-tag-remove" onclick="removeLocationFilter('${location.replace(/'/g, "\\'")}')">×</span>
-        `;
-        locationTags.appendChild(tag);
-      });
-    }
+    locationTags.innerHTML = hiddenLocations.size === 0
+      ? '<span class="empty-analytics-filters-message">No locations hidden</span>'
+      : Array.from(hiddenLocations)
+          .map((location) => `
+            <span class="analytics-filter-tag">
+              <span>${escapeHtml(location)}</span>
+              <button class="analytics-filter-tag-remove" onclick="removeLocationFilter('${location.replace(/'/g, "\\'")}')">×</button>
+            </span>
+          `)
+          .join('');
   }
   if (locationCount) {
     locationCount.textContent = hiddenLocations.size;
@@ -1561,20 +1642,16 @@ function updateFilterUI() {
   const companyCount = document.getElementById('companyFilterCount');
 
   if (companyTags) {
-    companyTags.innerHTML = '';
-    if (hiddenCompanies.size === 0) {
-      companyTags.innerHTML = '<span class="empty-filters-message">No companies hidden</span>';
-    } else {
-      hiddenCompanies.forEach(company => {
-        const tag = document.createElement('div');
-        tag.className = 'filter-tag company-tag';
-        tag.innerHTML = `
-          <span>${company}</span>
-          <span class="filter-tag-remove" onclick="removeCompanyFilter('${company.replace(/'/g, "\\'")}')">×</span>
-        `;
-        companyTags.appendChild(tag);
-      });
-    }
+    companyTags.innerHTML = hiddenCompanies.size === 0
+      ? '<span class="empty-analytics-filters-message">No companies hidden</span>'
+      : Array.from(hiddenCompanies)
+          .map((company) => `
+            <span class="analytics-filter-tag">
+              <span>${escapeHtml(company)}</span>
+              <button class="analytics-filter-tag-remove" onclick="removeCompanyFilter('${company.replace(/'/g, "\\'")}')">×</button>
+            </span>
+          `)
+          .join('');
   }
   if (companyCount) {
     companyCount.textContent = hiddenCompanies.size;

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="alumni_style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
   <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="stylesheet" href="heatmap_style.css" />
 </head>
 
@@ -81,53 +82,69 @@
         <button class="continent-btn" onclick="filterByContinent('Antarctica')">Antarctica</button>
         <button class="continent-btn" onclick="resetContinent()">🌍 Earth View</button>
         <button id="filterToggleBtn" class="continent-btn filter-btn-icon" title="Open Filters">
-          <span style="font-size: 16px;">⊙</span>
-          <span class="filter-label">Filter</span>
+          <i class="fas fa-filter"></i>
+          <span class="filter-label">Filters</span>
           <span id="filterBadge" class="filter-badge">0</span>
         </button>
       </div>
 
       <!-- FILTER MODAL BACKDROP -->
-      <div class="filter-backdrop" id="filterBackdrop"></div>
+      <div class="filter-backdrop analytics-filter-backdrop" id="filterBackdrop"></div>
 
       <!-- LOCATION & COMPANY FILTER PANEL (MODAL) -->
-      <div class="filter-panel" id="filterPanel">
-        <div class="filter-panel-header">
-          <h3>Filters</h3>
-          <button class="filter-close-btn" id="filterCloseBtn">&times;</button>
+      <div class="filter-panel analytics-filter-panel" id="filterPanel">
+        <div class="filter-panel-header analytics-filter-panel-header">
+          <h3>Data Filters</h3>
+          <button class="filter-close-btn analytics-filter-close-btn" id="filterCloseBtn">&times;</button>
         </div>
 
-        <div class="filter-controls">
-          <div class="filter-group">
-            <label for="filterLocationInput">Hide Location</label>
-            <div class="filter-input-container">
-              <input id="filterLocationInput" type="text" placeholder="Location name..." class="filter-input" />
-              <button id="addLocationFilterBtn" class="filter-action-btn">Add</button>
+        <div class="filter-controls analytics-filter-controls">
+          <div class="filter-group analytics-filter-group">
+            <label for="filterLocationInput">
+              <i class="fas fa-map-marker-alt"></i> Hide Location
+            </label>
+            <div class="filter-input-container analytics-filter-input-container">
+              <input id="filterLocationInput" type="text" placeholder="Type location name..."
+                class="filter-input analytics-filter-input" />
+              <button id="addLocationFilterBtn" class="filter-action-btn analytics-filter-action-btn">
+                <i class="fas fa-plus"></i> Add
+              </button>
             </div>
-            <div id="locationSuggestionsDropdown" class="suggestions-dropdown" style="display:none;"></div>
+            <div id="locationSuggestionsDropdown" class="suggestions-dropdown analytics-suggestions-dropdown"></div>
           </div>
 
-          <div class="filter-group">
-            <label for="filterCompanyInput">Hide Company</label>
-            <div class="filter-input-container">
-              <input id="filterCompanyInput" type="text" placeholder="Company name..." class="filter-input" />
-              <button id="addCompanyFilterBtn" class="filter-action-btn">Add</button>
+          <div class="filter-group analytics-filter-group">
+            <label for="filterCompanyInput">
+              <i class="fas fa-building"></i> Hide Company
+            </label>
+            <div class="filter-input-container analytics-filter-input-container">
+              <input id="filterCompanyInput" type="text" placeholder="Type company name..."
+                class="filter-input analytics-filter-input" />
+              <button id="addCompanyFilterBtn" class="filter-action-btn analytics-filter-action-btn">
+                <i class="fas fa-plus"></i> Add
+              </button>
             </div>
-            <div id="companySuggestionsDropdown" class="suggestions-dropdown" style="display:none;"></div>
+            <div id="companySuggestionsDropdown" class="suggestions-dropdown analytics-suggestions-dropdown"></div>
           </div>
 
-          <button id="clearAllFiltersBtn" class="filter-clear-btn">Clear All Filters</button>
+          <button id="clearAllFiltersBtn" class="filter-clear-btn analytics-filter-clear-btn">
+            <i class="fas fa-times-circle"></i> Clear All Filters
+          </button>
         </div>
 
         <!-- ACTIVE FILTERS DISPLAY -->
-        <div class="filter-content">
+        <div class="filter-content analytics-filter-content">
           <div>
-            <span class="filter-tags-label">Hidden Locations (<span id="locationFilterCount">0</span>)</span>
-            <div class="filter-tags" id="locationFilterTags"></div>
+            <span class="filter-tags-label analytics-filter-tags-label">
+              <i class="fas fa-map-marker-alt"></i> Hidden Locations (<span id="locationFilterCount">0</span>)
+            </span>
+            <div class="filter-tags analytics-filter-tags" id="locationFilterTags"></div>
           </div>
           <div style="margin-top: 16px;">
-            <span class="filter-tags-label">Hidden Companies (<span id="companyFilterCount">0</span>)</span>
-            <div class="filter-tags" id="companyFilterTags"></div>
+            <span class="filter-tags-label analytics-filter-tags-label">
+              <i class="fas fa-building"></i> Hidden Companies (<span id="companyFilterCount">0</span>)
+            </span>
+            <div class="filter-tags analytics-filter-tags" id="companyFilterTags"></div>
           </div>
         </div>
       </div>
