@@ -1444,20 +1444,30 @@ if __name__ == "__main__":
         ensure_alumni_major_column()
         ensure_education_columns()
 
-        # Seed alumni data
-        seed_alumni_data()
-        normalize_existing_grad_years()
-        truncate_dot_fields()
-        cleanup_trailing_slashes()
+        run_seed = os.getenv("DB_RUN_SEED", "0") == "1"
+        run_visited_migration = os.getenv("DB_RUN_VISITED_MIGRATION", "0") == "1"
+        run_maintenance = os.getenv("DB_RUN_MAINTENANCE", "0") == "1"
 
-        # Migrate visited_history.csv to database (one-time)
-        logger.info("\n" + "="*60)
-        logger.info("📦 MIGRATING VISITED HISTORY TO DATABASE")
-        logger.info("="*60)
-        migrate_visited_history_csv_to_db()
+        if run_seed:
+            seed_alumni_data()
+        else:
+            logger.info("⏭️  Skipping alumni seed (set DB_RUN_SEED=1 to run)")
 
-        # Sync alumni to visited_profiles
-        sync_alumni_to_visited_profiles()
+        if run_maintenance:
+            normalize_existing_grad_years()
+            truncate_dot_fields()
+            cleanup_trailing_slashes()
+            sync_alumni_to_visited_profiles()
+        else:
+            logger.info("⏭️  Skipping maintenance pass (set DB_RUN_MAINTENANCE=1 to run)")
+
+        if run_visited_migration:
+            logger.info("\n" + "=" * 60)
+            logger.info("📦 MIGRATING VISITED HISTORY TO DATABASE")
+            logger.info("=" * 60)
+            migrate_visited_history_csv_to_db()
+        else:
+            logger.info("⏭️  Skipping visited_history migration (set DB_RUN_VISITED_MIGRATION=1 to run)")
 
         # Show stats
         stats = get_visited_profiles_stats()
