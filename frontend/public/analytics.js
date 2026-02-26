@@ -9,6 +9,7 @@ let hiddenLocations = new Set();
 let hiddenCompanies = new Set();
 let allLocations = new Set();
 let allCompanies = new Set();
+let filteredTableRenderToken = 0;
 
 function getCanonicalRoleTitle(value) {
   const title = (value || '').trim();
@@ -1094,6 +1095,37 @@ function filterAlumni(filterType, filterValue) {
   renderFilteredAlumni(filtered, filterTitle, filterDesc);
 }
 
+function buildFilteredAlumniRow(alumni) {
+  const linkedinUrl = alumni.linkedin || alumni.linkedin_url || '';
+  const profileId = alumni.id || '';
+  return `
+    <tr data-alumni-id="${profileId}">
+      <td><strong>${alumni.name || 'N/A'}</strong></td>
+      <td>${alumni.current_job_title || 'N/A'}</td>
+      <td>${alumni.company || 'N/A'}</td>
+      <td>${alumni.location || 'N/A'}</td>
+      <td>${alumni.grad_year || 'N/A'}</td>
+      <td class="actions-cell">
+        <button class="btn-action view-profile" data-id="${profileId}" title="View full profile">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          Profile
+        </button>
+        ${linkedinUrl ? `
+        <a class="btn-action view-linkedin" href="${linkedinUrl}" target="_blank" rel="noopener noreferrer" title="View LinkedIn">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+          </svg>
+          LinkedIn
+        </a>
+        ` : ''}
+      </td>
+    </tr>
+  `;
+}
+
 // Render filtered alumni table
 // Render filtered alumni table
 function renderFilteredAlumni(filtered, title, description) {
@@ -1101,48 +1133,44 @@ function renderFilteredAlumni(filtered, title, description) {
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalDescription').textContent = description;
 
+  // Show modal immediately for snappier interaction.
+  openModal();
+
   // Render table
   const tbody = document.getElementById('filteredAlumniBody');
+  const renderToken = ++filteredTableRenderToken;
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem;">No alumni found</td></tr>';
-  } else {
-    tbody.innerHTML = filtered.map(alumni => {
-      // API returns 'linkedin', but check both just in case
-      const linkedinUrl = alumni.linkedin || alumni.linkedin_url || '';
-      const profileId = alumni.id || '';
-
-      return `
-      <tr data-alumni-id="${profileId}">
-        <td><strong>${alumni.name || 'N/A'}</strong></td>
-        <td>${alumni.current_job_title || 'N/A'}</td>
-        <td>${alumni.company || 'N/A'}</td>
-        <td>${alumni.location || 'N/A'}</td>
-        <td>${alumni.grad_year || 'N/A'}</td>
-        <td class="actions-cell">
-          <button class="btn-action view-profile" data-id="${profileId}" title="View full profile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
-            Profile
-          </button>
-          ${linkedinUrl ? `
-          <a class="btn-action view-linkedin" href="${linkedinUrl}" target="_blank" rel="noopener noreferrer" title="View LinkedIn">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-              <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-            </svg>
-            LinkedIn
-          </a>
-          ` : ''}
-        </td>
-      </tr>
-    `;
-    }).join('');
+    return;
   }
 
-  // Show modal
-  openModal();
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 1rem;">Loading results...</td></tr>';
+
+  // Chunked rendering prevents main-thread stalls on larger result sets.
+  requestAnimationFrame(() => {
+    if (renderToken !== filteredTableRenderToken) return;
+
+    tbody.innerHTML = '';
+    const chunkSize = 40;
+    let index = 0;
+
+    const appendChunk = () => {
+      if (renderToken !== filteredTableRenderToken) return;
+      const end = Math.min(index + chunkSize, filtered.length);
+      let rows = '';
+      for (; index < end; index++) {
+        rows += buildFilteredAlumniRow(filtered[index]);
+      }
+      tbody.insertAdjacentHTML('beforeend', rows);
+
+      if (index < filtered.length) {
+        requestAnimationFrame(appendChunk);
+      }
+    };
+
+    appendChunk();
+  });
 }
 
 // Add event delegation for the filtered table
