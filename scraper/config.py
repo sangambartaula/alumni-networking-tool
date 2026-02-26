@@ -261,6 +261,7 @@ BLOCKED_PROFILE_SLUGS = {
     "jessicawilliams",
     "johnsmith",
     "lisaanderson",
+    "moparthisaiashritha",
     "michaelchen",
     "roberttaylor",
     "sarahjohnson",

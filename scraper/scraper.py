@@ -564,13 +564,6 @@ class LinkedInScraper:
         Apply degree/major normalization and infer discipline once education is set.
         """
         try:
-            data["discipline"] = infer_discipline(
-                f"{data.get('degree', '')} {data.get('major', '')}",
-                data.get("job_title", ""),
-                data.get("headline", ""),
-                use_llm=True
-            )
-
             for suffix in ("", "2", "3"):
                 deg_key = f"degree{suffix}" if suffix else "degree"
                 maj_key = f"major{suffix}" if suffix else "major"
@@ -598,6 +591,40 @@ class LinkedInScraper:
                     std_maj = standardize_major(raw_maj, data.get("job_title", ""))
                     data[std_maj_key] = std_maj
                     self._append_standardization_log("standardized_major.txt", raw_maj, std_maj)
+
+            education_entries = []
+            for suffix in ("", "2", "3"):
+                school_key = f"school{suffix}" if suffix else "school"
+                deg_key = f"degree{suffix}" if suffix else "degree"
+                maj_key = f"major{suffix}" if suffix else "major"
+                std_deg_key = f"standardized_degree{suffix}" if suffix else "standardized_degree"
+                std_maj_key = f"standardized_major{suffix}" if suffix else "standardized_major"
+
+                school = data.get(school_key, "")
+                degree = data.get(deg_key, "")
+                major = data.get(maj_key, "")
+                standardized_degree = data.get(std_deg_key, "")
+                standardized_major = data.get(std_maj_key, "")
+
+                if not any([school, degree, major, standardized_degree, standardized_major]):
+                    continue
+
+                education_entries.append({
+                    "school": school,
+                    "degree": degree,
+                    "major": major,
+                    "standardized_degree": standardized_degree,
+                    "standardized_major": standardized_major,
+                })
+
+            data["discipline"] = infer_discipline(
+                f"{data.get('degree', '')} {data.get('major', '')}",
+                data.get("job_title", ""),
+                data.get("headline", ""),
+                use_llm=True,
+                education_entries=education_entries,
+                older_job_titles=[data.get("exp2_title", ""), data.get("exp3_title", "")],
+            )
 
             if data.get("discipline") and data.get("discipline") != "Unknown":
                 with open("scraper/output/inferred_disciplines.txt", "a") as f:

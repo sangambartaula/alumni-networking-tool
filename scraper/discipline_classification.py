@@ -115,6 +115,9 @@ DISCIPLINES = [
         "bioengineering", "medical engineering", "medical devices",
         "medical device engineer", "clinical engineer", "clinical engineering",
         "healthcare engineering", "biotech", "biotechnology", "bioinformatics",
+        "health informatics", "clinical informatics", "medical informatics",
+        "pharmacy informatics", "drug safety", "pharmacovigilance",
+        "clinical pharmacist",
         "computational biology", "medical imaging", "imaging engineer",
         "mri", "ct scan", "ultrasound", "x-ray", "biosensors", "prosthetics",
         "implants", "rehabilitation engineering", "neural engineering",
@@ -300,7 +303,11 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
                     return disc_name
 
     # 2. Keyword Anchor Overrides
+    if any(kw in text_lower for kw in ["health informatics", "clinical informatics", "medical informatics", "drug safety", "pharmacovigilance"]):
+        return "Biomedical Engineering"
     if any(kw in text_lower for kw in ["information", "analytics"]):
+        if any(kw in text_lower for kw in ["health", "clinical", "medical", "bio", "pharma", "drug"]):
+            return "Biomedical Engineering"
         return "Software, Data & AI Engineering"
     if "systems" in text_lower and any(kw in text_lower for kw in ["computer", "management", "information"]):
         return "Software, Data & AI Engineering"
@@ -341,21 +348,144 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
     return "Other"
 
 
-def infer_discipline(degree: str, job_title: str, headline: str, use_llm: bool = True) -> str:
+def _is_unt_school_name(school_name: str) -> bool:
+    """Return True when school string appears to be UNT."""
+    text = (school_name or "").strip().lower()
+    if not text:
+        return False
+    return ("university of north texas" in text) or bool(re.search(r"\bunt\b", text))
+
+
+def _degree_rank(value: str) -> int:
     """
-    Infer engineering discipline from degree, job title, and headline.
-    Follows hierarchy: UNT Degree -> Job Title -> Headline.
+    Rank degree level for "highest UNT major" precedence.
+    Higher number = higher degree.
     """
-    # 1. Check Degree
-    result = _classify_text(degree, 'degree', use_llm)
+    text = (value or "").strip().lower()
+    if not text:
+        return 0
+    if any(token in text for token in ("ph.d", "phd", "doctor", "doctorate")):
+        return 4
+    if any(token in text for token in ("master", "m.s", "ms", "mba")):
+        return 3
+    if any(token in text for token in ("bachelor", "b.s", "bs", "b.a", "ba")):
+        return 2
+    if "associate" in text:
+        return 1
+    return 0
+
+
+def _combined_education_text(entry: dict) -> str:
+    """Build a robust degree+major text blob for discipline classification."""
+    degree_bits = [
+        (entry.get("standardized_degree") or "").strip(),
+        (entry.get("degree") or "").strip(),
+    ]
+    major_bits = [
+        (entry.get("standardized_major") or "").strip(),
+        (entry.get("major") or "").strip(),
+    ]
+    return " ".join(part for part in (*degree_bits, *major_bits) if part).strip()
+
+
+def _has_major_text(entry: dict) -> bool:
+    major = (entry.get("standardized_major") or "").strip() or (entry.get("major") or "").strip()
+    return bool(major)
+
+
+def infer_discipline(
+    degree: str,
+    job_title: str,
+    headline: str,
+    use_llm: bool = True,
+    education_entries: Optional[List[dict]] = None,
+    older_job_titles: Optional[List[str]] = None,
+) -> str:
+    """
+    Infer engineering discipline using the requested priority:
+      1) Highest UNT major
+      2) Other UNT majors
+      3) Non-UNT majors
+      4) Current job title
+      5) Older job titles
+      6) Headline
+    """
+    prepared = []
+    if education_entries:
+        for idx, entry in enumerate(education_entries):
+            if not isinstance(entry, dict):
+                continue
+            text = _combined_education_text(entry)
+            if not text:
+                continue
+            degree_text = " ".join(
+                part for part in (
+                    (entry.get("standardized_degree") or "").strip(),
+                    (entry.get("degree") or "").strip(),
+                ) if part
+            )
+            prepared.append({
+                "idx": idx,
+                "text": text,
+                "is_unt": _is_unt_school_name((entry.get("school") or "").strip()),
+                "rank": _degree_rank(degree_text),
+                "has_major": _has_major_text(entry),
+            })
+
+    # Backward-compatible fallback path for direct calls/tests that only pass degree text.
+    if not prepared and degree and str(degree).strip():
+        prepared.append({
+            "idx": 0,
+            "text": str(degree).strip(),
+            "is_unt": False,
+            "rank": _degree_rank(str(degree)),
+            "has_major": True,
+        })
+
+    def _pick(entries: List[dict]) -> str:
+        for e in entries:
+            result = _classify_text(e["text"], "degree", use_llm)
+            if result != "Other":
+                return result
+        return "Other"
+
+    unt_major_entries = [e for e in prepared if e["is_unt"] and e["has_major"]]
+    if unt_major_entries:
+        highest_rank = max(e["rank"] for e in unt_major_entries)
+        highest_unt = sorted(
+            [e for e in unt_major_entries if e["rank"] == highest_rank],
+            key=lambda x: x["idx"],
+        )
+        result = _pick(highest_unt)
+        if result != "Other":
+            return result
+
+        remaining_unt = sorted(
+            [e for e in unt_major_entries if e["rank"] != highest_rank],
+            key=lambda x: (-x["rank"], x["idx"]),
+        )
+        result = _pick(remaining_unt)
+        if result != "Other":
+            return result
+
+    non_unt_major_entries = sorted(
+        [e for e in prepared if (not e["is_unt"]) and e["has_major"]],
+        key=lambda x: (-x["rank"], x["idx"]),
+    )
+    result = _pick(non_unt_major_entries)
     if result != "Other":
         return result
 
-    # 2. Check Job Title
+    # 4) Current job title
     result = _classify_text(job_title, 'job', use_llm)
     if result != "Other":
         return result
 
-    # 3. Check Headline
-    result = _classify_text(headline, 'headline', use_llm)
-    return result
+    # 5) Older experience titles
+    for older_title in (older_job_titles or []):
+        result = _classify_text(older_title, "job", use_llm)
+        if result != "Other":
+            return result
+
+    # 6) Headline
+    return _classify_text(headline, 'headline', use_llm)

@@ -20,6 +20,23 @@ def infer_discipline(degree, job_title, headline):
     """Deterministic wrapper used by all tests in this file."""
     return _infer_discipline(degree, job_title, headline, use_llm=False)
 
+def infer_discipline_with_context(
+    degree=None,
+    job_title=None,
+    headline=None,
+    education_entries=None,
+    older_job_titles=None,
+):
+    """Wrapper that exercises the extended precedence inputs."""
+    return _infer_discipline(
+        degree,
+        job_title,
+        headline,
+        use_llm=False,
+        education_entries=education_entries,
+        older_job_titles=older_job_titles,
+    )
+
 
 class TestDisciplineClassification:
     """Test the discipline inference logic."""
@@ -209,6 +226,37 @@ class TestDisciplineClassification:
         """Headline should be used when no job title."""
         result = infer_discipline(None, None, "Experienced Software Developer")
         assert result == "Software, Data & AI Engineering"
+
+    def test_highest_unt_major_takes_priority(self):
+        """Highest UNT major should win over other UNT/non-UNT majors and jobs."""
+        result = infer_discipline_with_context(
+            degree=None,
+            job_title="Biomedical Engineer",
+            headline="Construction project lead",
+            education_entries=[
+                {"school": "University of North Texas", "degree": "Bachelor of Science", "major": "Mechanical Engineering"},
+                {"school": "University of North Texas", "degree": "Master of Science", "major": "Computer Science"},
+                {"school": "Other University", "degree": "Doctor of Pharmacy", "major": "Pharmacy"},
+            ],
+            older_job_titles=["Clinical Pharmacist"],
+        )
+        assert result == "Software, Data & AI Engineering"
+
+    def test_older_job_used_before_headline(self):
+        """Older experience should be used before headline when current job is absent."""
+        result = infer_discipline_with_context(
+            degree=None,
+            job_title=None,
+            headline="Software Developer",
+            education_entries=[],
+            older_job_titles=["Biomedical Engineer"],
+        )
+        assert result == "Biomedical Engineering"
+
+    def test_health_informatics_maps_to_biomedical(self):
+        """Health informatics should map to Biomedical Engineering."""
+        result = infer_discipline("Master of Science Health Informatics", "Drug Safety Associate", None)
+        assert result == "Biomedical Engineering"
     
     # ==========================================================================
     # OTHER TESTS
