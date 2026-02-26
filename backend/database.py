@@ -1444,14 +1444,15 @@ if __name__ == "__main__":
         ensure_alumni_major_column()
         ensure_education_columns()
 
-        run_seed = os.getenv("DB_RUN_SEED", "0") == "1"
+        run_seed_mode = os.getenv("DB_RUN_SEED", "1").strip().lower()
+        run_seed = run_seed_mode in {"1", "true", "yes", "sync", "force"}
         run_visited_migration = os.getenv("DB_RUN_VISITED_MIGRATION", "0") == "1"
         run_maintenance = os.getenv("DB_RUN_MAINTENANCE", "0") == "1"
 
         if run_seed:
             seed_alumni_data()
         else:
-            logger.info("⏭️  Skipping alumni seed (set DB_RUN_SEED=1 to run)")
+            logger.info("⏭️  Skipping alumni seed (set DB_RUN_SEED=1|sync to run)")
 
         if run_maintenance:
             normalize_existing_grad_years()

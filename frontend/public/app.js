@@ -580,6 +580,25 @@ function createPageButton(pageNum, fullList) {
   return btn;
 }
 
+function getCanonicalRoleTitle(value) {
+  const title = (value || '').trim();
+  if (!title) return '';
+  const low = title.toLowerCase().replace(/\s+/g, ' ');
+
+  if (low === 'director' || low === 'director of' || low === 'director of engineering') {
+    return 'Director';
+  }
+  if (
+    low === 'manager'
+    || low === 'manager - innovation'
+    || low === 'laboratory safety manager'
+    || low === 'senior manager - innovation'
+  ) {
+    return 'Manager';
+  }
+  return title;
+}
+
 /**
  * Dynamically builds the multi-select filter UI based on the actual 
  * data returned from the API. This ensures that only relevant options 
@@ -600,7 +619,13 @@ function populateFilters(list) {
   }
 
   const locations = Array.from(new Set(list.map(x => x.location).filter(isValid))).sort();
-  const roles = Array.from(new Set(list.map(x => x.normalized_title || x.role).filter(isValid))).sort();
+  const roles = Array.from(
+    new Set(
+      list
+        .map(x => getCanonicalRoleTitle(x.normalized_title || x.role || x.current_job_title))
+        .filter(isValid)
+    )
+  ).sort();
   // Normalize companies before creating the Set
   const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
   // Filter majors to only show approved engineering disciplines (which excludes Unknown now)
@@ -791,7 +816,8 @@ function setupFiltering(list) {
       const t = `${a.name} ${a.role} ${a.company} ${a.headline}`.toLowerCase();
       const matchTerm = !f.term || t.includes(f.term);
       const matchLoc = !f.loc.length || f.loc.includes(a.location);
-      const matchRole = !f.role.length || f.role.includes(a.normalized_title || a.role);
+      const roleValue = getCanonicalRoleTitle(a.normalized_title || a.role || a.current_job_title);
+      const matchRole = !f.role.length || f.role.includes(roleValue);
 
       // Normalize company for matching
       const normCompany = getNormalizedCompany(a.company);

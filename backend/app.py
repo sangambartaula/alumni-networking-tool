@@ -1640,12 +1640,13 @@ if __name__ == "__main__":
             ensure_normalized_degree_column()
             ensure_normalized_company_column()
             # Startup seed strategy:
-            # - Default ("auto"): seed only when alumni table is empty.
-            # - Force seed with SEED_ON_STARTUP=1.
-            # - Explicitly skip with SEED_ON_STARTUP=0.
-            seed_mode = os.getenv("SEED_ON_STARTUP", "auto").strip().lower()
-            if seed_mode in {"1", "true", "yes"}:
-                app.logger.info("Seeding alumni on startup (SEED_ON_STARTUP=1)")
+            # - Default ("sync"): always upsert CSV into DB (CSV wins on URL conflicts).
+            # - "auto": seed only when alumni table is empty.
+            # - Force seed with SEED_ON_STARTUP=1/true/yes.
+            # - Explicitly skip with SEED_ON_STARTUP=0/false/no.
+            seed_mode = os.getenv("SEED_ON_STARTUP", "sync").strip().lower()
+            if seed_mode in {"1", "true", "yes", "sync", "force"}:
+                app.logger.info("Seeding alumni on startup (CSV sync enabled)")
                 seed_alumni_data()
                 normalize_existing_grad_years()
             elif seed_mode in {"0", "false", "no"}:
