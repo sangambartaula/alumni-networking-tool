@@ -4,6 +4,7 @@ from functools import wraps
 from collections import Counter
 import os
 import logging
+import re
 from time import perf_counter
 import requests  # for OAuth token exchange
 import mysql.connector  # for MySQL connection
@@ -17,10 +18,26 @@ from unt_alumni_status import (
 
 load_dotenv()
 
-# Keep request logs readable during local development.
-# Set QUIET_HTTP_LOGS=0 to restore default per-request INFO lines.
+class _SuppressWerkzeugAccessLogFilter(logging.Filter):
+    """Hide noisy request access logs while preserving startup/warning lines."""
+    _access_log_pattern = re.compile(
+        r'"(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+[^"]+\s+HTTP/\d(?:\.\d)?"\s+\d{3}\s+-'
+    )
+
+    def filter(self, record):
+        message = record.getMessage()
+        return not bool(self._access_log_pattern.search(message))
+
+
+# Keep startup lines visible while suppressing per-request access log noise.
+# Set QUIET_HTTP_LOGS=0 to restore default request logging.
 if os.getenv("QUIET_HTTP_LOGS", "1") == "1":
-    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    werkzeug_logger = logging.getLogger("werkzeug")
+    werkzeug_logger.setLevel(logging.INFO)
+    if not any(getattr(f, "_quiet_http_filter", False) for f in werkzeug_logger.filters):
+        access_filter = _SuppressWerkzeugAccessLogFilter()
+        access_filter._quiet_http_filter = True
+        werkzeug_logger.addFilter(access_filter)
 
 app = Flask(
     __name__,
