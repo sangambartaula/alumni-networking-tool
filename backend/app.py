@@ -815,20 +815,24 @@ def api_get_alumni():
                     params.extend(location_filters)
 
                 if role_filters:
-                    placeholders = ",".join(["%s"] * len(role_filters))
-                    where_clauses.append(
-                        f"(a.current_job_title IN ({placeholders}) OR njt.normalized_title IN ({placeholders}))"
-                    )
-                    params.extend(role_filters)
-                    params.extend(role_filters)
+                    role_conditions = []
+                    for role_value in role_filters:
+                        role_conditions.append(
+                            "(LOWER(COALESCE(a.current_job_title,'')) LIKE %s OR LOWER(COALESCE(njt.normalized_title,'')) LIKE %s)"
+                        )
+                        role_like = f"%{role_value.lower()}%"
+                        params.extend([role_like, role_like])
+                    where_clauses.append("(" + " OR ".join(role_conditions) + ")")
 
                 if company_filters:
-                    placeholders = ",".join(["%s"] * len(company_filters))
-                    where_clauses.append(
-                        f"(a.company IN ({placeholders}) OR nc.normalized_company IN ({placeholders}))"
-                    )
-                    params.extend(company_filters)
-                    params.extend(company_filters)
+                    company_conditions = []
+                    for company_value in company_filters:
+                        company_conditions.append(
+                            "(LOWER(COALESCE(a.company,'')) LIKE %s OR LOWER(COALESCE(nc.normalized_company,'')) LIKE %s)"
+                        )
+                        company_like = f"%{company_value.lower()}%"
+                        params.extend([company_like, company_like])
+                    where_clauses.append("(" + " OR ".join(company_conditions) + ")")
 
                 if major_filters:
                     placeholders = ",".join(["%s"] * len(major_filters))
