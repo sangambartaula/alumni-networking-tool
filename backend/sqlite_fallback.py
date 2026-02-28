@@ -353,6 +353,11 @@ class ConnectionManager:
                 CREATE INDEX IF NOT EXISTS idx_normalized_title ON normalized_job_titles(normalized_title);
                 CREATE INDEX IF NOT EXISTS idx_normalized_degree ON normalized_degrees(normalized_degree);
                 CREATE INDEX IF NOT EXISTS idx_normalized_company ON normalized_companies(normalized_company);
+                CREATE INDEX IF NOT EXISTS idx_alumni_name_sort ON alumni(last_name, first_name, id);
+                CREATE INDEX IF NOT EXISTS idx_alumni_linkedin_url ON alumni(linkedin_url);
+                CREATE INDEX IF NOT EXISTS idx_notes_user_alumni_lookup ON notes(user_id, alumni_id);
+                CREATE INDEX IF NOT EXISTS idx_user_interactions_user_alumni ON user_interactions(user_id, alumni_id);
+                CREATE INDEX IF NOT EXISTS idx_user_interactions_user_updated ON user_interactions(user_id, updated_at);
             """)
         
         conn.close()

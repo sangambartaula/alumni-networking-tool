@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from functools import wraps
 from collections import Counter
 import os
+from time import perf_counter
 import requests  # for OAuth token exchange
 import mysql.connector  # for MySQL connection
 import secrets
@@ -190,6 +191,40 @@ def _parse_unt_alumni_status_filter(raw_value):
     if value not in UNT_ALUMNI_STATUS_VALUES:
         raise ValueError("Invalid unt_alumni_status. Use yes, no, or unknown.")
     return value
+
+
+def _parse_multi_value_param(param_name):
+    """
+    Parse repeated or comma-separated query params into a cleaned list.
+    Example:
+      ?location=Dallas&location=Austin
+      ?location=Dallas,Austin
+    """
+    values = []
+    for raw in request.args.getlist(param_name):
+        for part in (raw or "").split(","):
+            cleaned = part.strip()
+            if cleaned:
+                values.append(cleaned)
+    return values
+
+
+def _parse_int_list_param(param_name):
+    """
+    Parse repeated or comma-separated integer query params.
+    Invalid values are ignored.
+    """
+    values = []
+    for raw in request.args.getlist(param_name):
+        for part in (raw or "").split(","):
+            cleaned = part.strip()
+            if not cleaned:
+                continue
+            try:
+                values.append(int(cleaned))
+            except Exception:
+                continue
+    return values
 
 
 # =============================================================================
@@ -562,42 +597,95 @@ def remove_interaction():
 @api_login_required
 def get_user_interactions():
     """
-    Get all interactions for current user
+    Get interactions for current user.
+    Optional query param:
+      - alumni_ids: comma-separated list of IDs to limit payload to currently loaded rows
     """
     if DISABLE_DB:
         # Short-circuit in dev when DB is disabled unless fallback is enabled
         if not USE_SQLITE_FALLBACK:
-            return jsonify({"success": True, "interactions": []}), 200
+            return jsonify({"success": True, "interactions": [], "count": 0, "bookmarked_total": 0}), 200
 
     try:
         user_id = get_current_user_id()
         if not user_id:
             return jsonify({"error": "User not found"}), 401
 
+        alumni_ids = _parse_int_list_param('alumni_ids')
+        # Guardrail: do not allow extremely large IN lists from the client.
+        alumni_ids = alumni_ids[:1000]
+
         conn = get_connection()
         use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
-        
+
         try:
+            query_start = perf_counter()
+
+            interactions = []
+            bookmarked_total = 0
+
             if use_sqlite:
-                # SQLite mode - use dictionary cursor for dict results
+                # SQLite mode
                 with conn.cursor(dictionary=True) as cursor:
-                    cursor.execute("""
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*) AS bookmarked_total
+                        FROM user_interactions
+                        WHERE user_id = ? AND interaction_type = 'bookmarked'
+                        """,
+                        (user_id,),
+                    )
+                    count_row = cursor.fetchone() or {}
+                    bookmarked_total = count_row.get('bookmarked_total', 0) or 0
+
+                    sql = """
                         SELECT id, alumni_id, interaction_type, notes, created_at, updated_at
                         FROM user_interactions
                         WHERE user_id = ?
-                        ORDER BY updated_at DESC
-                    """, (user_id,))
-                    interactions = cursor.fetchall()
+                    """
+                    params = [user_id]
+                    if alumni_ids:
+                        placeholders = ",".join(["?"] * len(alumni_ids))
+                        sql += f" AND alumni_id IN ({placeholders})"
+                        params.extend(alumni_ids)
+                    sql += " ORDER BY updated_at DESC"
+                    cursor.execute(sql, tuple(params))
+                    interactions = cursor.fetchall() or []
             else:
-                # MySQL mode - use dictionary cursor
+                # MySQL mode
                 with conn.cursor(dictionary=True) as cur:
-                    cur.execute("""
+                    cur.execute(
+                        """
+                        SELECT COUNT(*) AS bookmarked_total
+                        FROM user_interactions
+                        WHERE user_id = %s AND interaction_type = 'bookmarked'
+                        """,
+                        (user_id,),
+                    )
+                    count_row = cur.fetchone() or {}
+                    bookmarked_total = count_row.get('bookmarked_total', 0) or 0
+
+                    sql = """
                         SELECT id, alumni_id, interaction_type, notes, created_at, updated_at
                         FROM user_interactions
                         WHERE user_id = %s
-                        ORDER BY updated_at DESC
-                    """, (user_id,))
-                    interactions = cur.fetchall()
+                    """
+                    params = [user_id]
+                    if alumni_ids:
+                        placeholders = ",".join(["%s"] * len(alumni_ids))
+                        sql += f" AND alumni_id IN ({placeholders})"
+                        params.extend(alumni_ids)
+                    sql += " ORDER BY updated_at DESC"
+                    cur.execute(sql, tuple(params))
+                    interactions = cur.fetchall() or []
+
+            query_ms = (perf_counter() - query_start) * 1000.0
+            app.logger.debug(
+                "api.user_interactions query_ms=%.2f returned=%d filtered_ids=%d",
+                query_ms,
+                len(interactions),
+                len(alumni_ids),
+            )
 
             # Convert datetime objects to strings for JSON serialization
             for interaction in interactions:
@@ -608,7 +696,12 @@ def get_user_interactions():
                 if hasattr(updated_at, 'isoformat'):
                     interaction['updated_at'] = updated_at.isoformat()
 
-            return jsonify({"success": True, "interactions": interactions}), 200
+            return jsonify({
+                "success": True,
+                "interactions": interactions,
+                "count": len(interactions),
+                "bookmarked_total": bookmarked_total,
+            }), 200
         except Exception as err:
             app.logger.error(f"❌ Database error getting user interactions: {err}")
             return jsonify({"error": f"Database error: {str(err)}"}), 500
@@ -628,39 +721,166 @@ def get_user_interactions():
 @app.route('/api/alumni', methods=['GET'])
 def api_get_alumni():
     """
-    Fetch all alumni from the database with pagination support.
+    Fetch alumni with server-side pagination.
+    Supports limit/offset and optional server-side filters for faster initial load.
     """
     # Short-circuit in dev when DB is disabled
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
-            return jsonify({"success": True, "alumni": []}), 200
+            return jsonify({
+                "success": True,
+                "items": [],
+                "alumni": [],
+                "total": 0,
+                "has_more": False,
+                "limit": 0,
+                "offset": 0,
+            }), 200
 
     try:
         try:
-            limit = int(request.args.get('limit', 10000))  # Default to large number to get all records
+            # Keep initial payload small to improve first paint time.
+            limit = int(request.args.get('limit', 250))
         except Exception:
-            limit = 10000
+            limit = 250
+        limit = max(1, min(limit, 500))
+
         try:
             offset = int(request.args.get('offset', 0))
         except Exception:
             offset = 0
-        location_filter = request.args.get('location', '').strip()
+        offset = max(0, offset)
+
+        search_term = (request.args.get('q', '') or '').strip().lower()
+        location_filters = _parse_multi_value_param('location')
+        role_filters = _parse_multi_value_param('role')
+        company_filters = _parse_multi_value_param('company')
+        major_filters = _parse_multi_value_param('major')
+        degree_filters = [d.lower() for d in _parse_multi_value_param('degree')]
+        grad_year_filters = _parse_int_list_param('grad_year')
+        working_while_studying_filter = (request.args.get('working_while_studying', '') or '').strip().lower()
+        sort_key = (request.args.get('sort', 'name') or 'name').strip().lower()
+        sort_direction = (request.args.get('direction', 'asc') or 'asc').strip().lower()
+        sort_direction = 'DESC' if sort_direction == 'desc' else 'ASC'
+        bookmarked_only = (request.args.get('bookmarked_only', '0') or '0').strip().lower() in {'1', 'true', 'yes'}
+
         try:
             unt_alumni_status_filter = _parse_unt_alumni_status_filter(request.args.get('unt_alumni_status', ''))
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
+        if major_filters:
+            invalid_majors = [m for m in major_filters if m not in APPROVED_ENGINEERING_DISCIPLINES]
+            if invalid_majors:
+                return jsonify({"error": f"Invalid engineering discipline: {invalid_majors[0]}"}), 400
+
+        user_id_for_bookmark_filter = None
+        if bookmarked_only:
+            user_id_for_bookmark_filter = get_current_user_id()
+            if not user_id_for_bookmark_filter:
+                return jsonify({"error": "User not found"}), 401
+
         conn = get_connection()
         try:
+            query_start = perf_counter()
             with conn.cursor(dictionary=True) as cur:
                 where_clauses = []
                 params = []
-                if location_filter:
-                    where_clauses.append("a.location LIKE %s")
-                    params.append(f"%{location_filter}%")
+
+                if search_term:
+                    where_clauses.append(
+                        """
+                        LOWER(CONCAT_WS(' ',
+                            COALESCE(a.first_name, ''),
+                            COALESCE(a.last_name, ''),
+                            COALESCE(a.current_job_title, ''),
+                            COALESCE(a.company, ''),
+                            COALESCE(a.headline, '')
+                        )) LIKE %s
+                        """
+                    )
+                    params.append(f"%{search_term}%")
+
+                if location_filters:
+                    placeholders = ",".join(["%s"] * len(location_filters))
+                    where_clauses.append(f"a.location IN ({placeholders})")
+                    params.extend(location_filters)
+
+                if role_filters:
+                    placeholders = ",".join(["%s"] * len(role_filters))
+                    where_clauses.append(
+                        f"(a.current_job_title IN ({placeholders}) OR njt.normalized_title IN ({placeholders}))"
+                    )
+                    params.extend(role_filters)
+                    params.extend(role_filters)
+
+                if company_filters:
+                    placeholders = ",".join(["%s"] * len(company_filters))
+                    where_clauses.append(
+                        f"(a.company IN ({placeholders}) OR nc.normalized_company IN ({placeholders}))"
+                    )
+                    params.extend(company_filters)
+                    params.extend(company_filters)
+
+                if major_filters:
+                    placeholders = ",".join(["%s"] * len(major_filters))
+                    where_clauses.append(
+                        f"(a.discipline IN ({placeholders}) OR a.major IN ({placeholders}))"
+                    )
+                    params.extend(major_filters)
+                    params.extend(major_filters)
+
+                if grad_year_filters:
+                    placeholders = ",".join(["%s"] * len(grad_year_filters))
+                    where_clauses.append(f"a.grad_year IN ({placeholders})")
+                    params.extend(grad_year_filters)
+
+                if degree_filters:
+                    degree_sql = []
+                    for degree_filter in degree_filters:
+                        if degree_filter == 'undergraduate':
+                            degree_sql.append(
+                                "(LOWER(COALESCE(a.degree,'')) LIKE %s OR LOWER(COALESCE(a.headline,'')) LIKE %s)"
+                            )
+                            params.extend(['%bachelor%', '%bachelor%'])
+                        elif degree_filter == 'graduate':
+                            degree_sql.append(
+                                "(LOWER(COALESCE(a.degree,'')) LIKE %s OR LOWER(COALESCE(a.headline,'')) LIKE %s OR LOWER(COALESCE(a.degree,'')) LIKE %s)"
+                            )
+                            params.extend(['%master%', '%master%', '%mba%'])
+                        elif degree_filter == 'phd':
+                            degree_sql.append(
+                                "(LOWER(COALESCE(a.degree,'')) LIKE %s OR LOWER(COALESCE(a.headline,'')) LIKE %s)"
+                            )
+                            params.extend(['%phd%', '%phd%'])
+                    if degree_sql:
+                        where_clauses.append("(" + " OR ".join(degree_sql) + ")")
+
+                if working_while_studying_filter == 'yes':
+                    where_clauses.append(
+                        "(a.working_while_studying = 1 OR LOWER(COALESCE(a.working_while_studying_status,'')) IN ('yes','currently'))"
+                    )
+                elif working_while_studying_filter == 'no':
+                    where_clauses.append(
+                        "(a.working_while_studying = 0 OR LOWER(COALESCE(a.working_while_studying_status,'')) = 'no')"
+                    )
+
+                if bookmarked_only:
+                    where_clauses.append(
+                        "EXISTS (SELECT 1 FROM user_interactions ui WHERE ui.user_id = %s AND ui.alumni_id = a.id AND ui.interaction_type = 'bookmarked')"
+                    )
+                    params.append(user_id_for_bookmark_filter)
+
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-                cur.execute(f"""
+                if sort_key == 'year':
+                    order_clause = f"a.grad_year {sort_direction}, a.last_name ASC, a.first_name ASC"
+                elif sort_key == 'updated':
+                    order_clause = f"a.updated_at {sort_direction}, a.last_name ASC, a.first_name ASC"
+                else:
+                    order_clause = f"a.last_name {sort_direction}, a.first_name {sort_direction}"
+
+                select_sql = f"""
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at, njt.normalized_title, nc.normalized_company,
@@ -671,16 +891,43 @@ def api_get_alumni():
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
                     WHERE {where_clause}
-                    ORDER BY a.last_name ASC, a.first_name ASC
-                    LIMIT %s OFFSET %s
-                """, tuple(params + [limit, offset]))
-                rows = cur.fetchall()
+                    ORDER BY {order_clause}
+                """
 
+                if unt_alumni_status_filter:
+                    # unt_alumni_status is derived from multiple school/date fields, so we filter in Python.
+                    cur.execute(select_sql, tuple(params))
+                    prefiltered_rows = cur.fetchall() or []
+                    filtered_rows = []
+                    for row in prefiltered_rows:
+                        status = compute_unt_alumni_status_from_row(row)
+                        if status == unt_alumni_status_filter:
+                            filtered_rows.append(row)
+                    total = len(filtered_rows)
+                    rows = filtered_rows[offset:offset + limit]
+                else:
+                    cur.execute(f"""
+                        SELECT COUNT(*) AS total
+                        FROM alumni a
+                        LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
+                        LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
+                        WHERE {where_clause}
+                    """, tuple(params))
+                    total_row = cur.fetchone() or {}
+                    total = int(total_row.get('total', 0) or 0)
+
+                    cur.execute(
+                        select_sql + " LIMIT %s OFFSET %s",
+                        tuple(params + [limit, offset]),
+                    )
+                    rows = cur.fetchall() or []
+
+            query_ms = (perf_counter() - query_start) * 1000.0
+
+            serialization_start = perf_counter()
             alumni = []
             for r in rows:
                 unt_alumni_status = compute_unt_alumni_status_from_row(r)
-                if unt_alumni_status_filter and unt_alumni_status != unt_alumni_status_filter:
-                    continue
 
                 full_degree = r.get('degree') or ''
                 degree_level = classify_degree(full_degree, r.get('headline', ''))
@@ -691,7 +938,10 @@ def api_get_alumni():
                         full_major = raw_major
 
                 discipline = _resolve_discipline(r)
-                
+                updated_at = r.get('updated_at')
+                if hasattr(updated_at, 'isoformat'):
+                    updated_at = updated_at.isoformat()
+
                 alumni.append({
                     "id": r.get('id'),
                     "name": f"{r.get('first_name','').strip()} {r.get('last_name','').strip()}".strip(),
@@ -713,7 +963,7 @@ def api_get_alumni():
                     "degree": degree_level,
                     "full_degree": full_degree,
                     "full_major": full_major,
-                    "updated_at": r.get('updated_at'),
+                    "updated_at": updated_at,
                     "normalized_title": r.get('normalized_title'),
                     "normalized_company": r.get('normalized_company'),
                     "unt_alumni_status": unt_alumni_status,
@@ -726,7 +976,29 @@ def api_get_alumni():
                     )
                 })
 
-            return jsonify({"success": True, "alumni": alumni}), 200
+            serialization_ms = (perf_counter() - serialization_start) * 1000.0
+            has_more = (offset + len(alumni)) < total
+
+            app.logger.debug(
+                "api.alumni query_ms=%.2f serialization_ms=%.2f rows=%d total=%d limit=%d offset=%d",
+                query_ms,
+                serialization_ms,
+                len(alumni),
+                total,
+                limit,
+                offset,
+            )
+
+            return jsonify({
+                "success": True,
+                "items": alumni,
+                # Backward compatibility for existing clients.
+                "alumni": alumni,
+                "total": total,
+                "has_more": has_more,
+                "limit": limit,
+                "offset": offset,
+            }), 200
         except Exception as err:
             app.logger.error(f"❌ Database error fetching alumni: {err}")
             return jsonify({"error": f"Database error: {str(err)}"}), 500
@@ -1002,6 +1274,89 @@ def get_all_notes():
         
     except Exception as e:
         app.logger.error(f"❌ Error getting all notes: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/notes/summary', methods=['GET'])
+@api_login_required
+def get_notes_summary():
+    """
+    Return note existence flags for a batch of alumni IDs.
+    This avoids N note-detail requests during list rendering.
+    Query params:
+      - ids: comma-separated alumni IDs (or repeated ids params)
+    """
+    try:
+        user_id = get_current_user_id()
+        if not user_id:
+            return jsonify({"success": False, "error": "User not found"}), 401
+
+        alumni_ids = _parse_int_list_param('ids')
+        alumni_ids = alumni_ids[:1000]
+
+        if not alumni_ids:
+            return jsonify({"success": True, "summary": {}, "count": 0}), 200
+
+        if DISABLE_DB and not USE_SQLITE_FALLBACK:
+            summary = {str(aid): False for aid in alumni_ids}
+            return jsonify({"success": True, "summary": summary, "count": 0}), 200
+
+        conn = get_connection()
+        use_sqlite = DISABLE_DB and USE_SQLITE_FALLBACK
+
+        try:
+            rows = []
+            if use_sqlite:
+                placeholders = ",".join(["?"] * len(alumni_ids))
+                sql = f"""
+                    SELECT alumni_id
+                    FROM notes
+                    WHERE user_id = ?
+                      AND alumni_id IN ({placeholders})
+                      AND note_content IS NOT NULL
+                      AND TRIM(note_content) <> ''
+                """
+                params = tuple([user_id] + alumni_ids)
+                with conn.cursor(dictionary=True) as cursor:
+                    cursor.execute(sql, params)
+                    rows = cursor.fetchall() or []
+            else:
+                placeholders = ",".join(["%s"] * len(alumni_ids))
+                sql = f"""
+                    SELECT alumni_id
+                    FROM notes
+                    WHERE user_id = %s
+                      AND alumni_id IN ({placeholders})
+                      AND note_content IS NOT NULL
+                      AND TRIM(note_content) <> ''
+                """
+                params = tuple([user_id] + alumni_ids)
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute(sql, params)
+                    rows = cur.fetchall() or []
+
+            summary = {str(aid): False for aid in alumni_ids}
+            for row in rows:
+                aid = row.get('alumni_id')
+                if aid is not None:
+                    summary[str(aid)] = True
+
+            return jsonify({
+                "success": True,
+                "summary": summary,
+                "count": sum(1 for has_note in summary.values() if has_note),
+            }), 200
+        except Exception as err:
+            app.logger.error(f"❌ Database error getting notes summary: {err}")
+            return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        app.logger.error(f"❌ Error getting notes summary: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

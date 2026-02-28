@@ -307,6 +307,21 @@ def init_db():
             """)
             logger.info("normalized_companies table created/verified")
 
+            # Performance indexes for common dashboard and notes queries.
+            index_statements = [
+                "CREATE INDEX IF NOT EXISTS idx_alumni_name_sort ON alumni(last_name, first_name, id)",
+                "CREATE INDEX IF NOT EXISTS idx_alumni_updated_sort ON alumni(updated_at, id)",
+                "CREATE INDEX IF NOT EXISTS idx_user_interactions_user_updated ON user_interactions(user_id, updated_at)",
+                "CREATE INDEX IF NOT EXISTS idx_user_interactions_user_alumni_type ON user_interactions(user_id, alumni_id, interaction_type)",
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_alumni_lookup ON notes(user_id, alumni_id)",
+            ]
+            for statement in index_statements:
+                try:
+                    cur.execute(statement)
+                except Exception as idx_err:
+                    # Keep initialization resilient across MySQL/SQLite differences.
+                    logger.warning(f"Index ensure skipped for statement '{statement}': {idx_err}")
+
             conn.commit()
             logger.info("All tables initialized successfully")
 
