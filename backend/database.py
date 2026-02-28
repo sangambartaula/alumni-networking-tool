@@ -308,19 +308,31 @@ def init_db():
             logger.info("normalized_companies table created/verified")
 
             # Performance indexes for common dashboard and notes queries.
-            index_statements = [
-                "CREATE INDEX IF NOT EXISTS idx_alumni_name_sort ON alumni(last_name, first_name, id)",
-                "CREATE INDEX IF NOT EXISTS idx_alumni_updated_sort ON alumni(updated_at, id)",
-                "CREATE INDEX IF NOT EXISTS idx_user_interactions_user_updated ON user_interactions(user_id, updated_at)",
-                "CREATE INDEX IF NOT EXISTS idx_user_interactions_user_alumni_type ON user_interactions(user_id, alumni_id, interaction_type)",
-                "CREATE INDEX IF NOT EXISTS idx_notes_user_alumni_lookup ON notes(user_id, alumni_id)",
+            # MySQL variants may not support "CREATE INDEX IF NOT EXISTS", so
+            # we create directly and ignore duplicate-index errors.
+            index_definitions = [
+                ("idx_alumni_name_sort", "alumni", "last_name, first_name, id"),
+                ("idx_alumni_updated_sort", "alumni", "updated_at, id"),
+                ("idx_user_interactions_user_updated", "user_interactions", "user_id, updated_at"),
+                ("idx_user_interactions_user_alumni_type", "user_interactions", "user_id, alumni_id, interaction_type"),
+                ("idx_notes_user_alumni_lookup", "notes", "user_id, alumni_id"),
             ]
-            for statement in index_statements:
+            for index_name, table_name, columns in index_definitions:
+                statement = f"CREATE INDEX {index_name} ON {table_name}({columns})"
                 try:
                     cur.execute(statement)
+                except mysql.connector.Error as idx_err:
+                    # MySQL duplicate index name.
+                    if getattr(idx_err, "errno", None) == 1061 or "Duplicate key name" in str(idx_err):
+                        logger.debug(f"Index already exists: {index_name}")
+                    else:
+                        logger.warning(f"Index ensure skipped for statement '{statement}': {idx_err}")
                 except Exception as idx_err:
-                    # Keep initialization resilient across MySQL/SQLite differences.
-                    logger.warning(f"Index ensure skipped for statement '{statement}': {idx_err}")
+                    # SQLite fallback / generic duplicate index phrasing.
+                    if "already exists" in str(idx_err).lower():
+                        logger.debug(f"Index already exists: {index_name}")
+                    else:
+                        logger.warning(f"Index ensure skipped for statement '{statement}': {idx_err}")
 
             conn.commit()
             logger.info("All tables initialized successfully")
