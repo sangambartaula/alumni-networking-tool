@@ -21,15 +21,14 @@ const fakeAlumni = [
 let userInteractions = {};
 let loadedAlumni = [];
 let totalAlumniCount = 0;
-let currentOffset = 0;
-let hasMoreAlumni = true;
 let isLoadingAlumni = false;
 let filtersInitialized = false;
 let bookmarkedTotalCount = 0;
 let sortDirection = 'desc';
 let activeQueryState = null;
-// Initial page size kept under 500 for fast first render.
-const initialPageSize = 250;
+let activeRequestToken = 0;
+// Backend currently caps alumni page size at 500.
+const alumniChunkSize = 500;
 
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
@@ -161,19 +160,10 @@ class NotesModal {
 
       if (data.success) {
         console.log('Note saved successfully');
-        // Update the button styling
-        const notesBtn = document.querySelector(`[data-alumni-id="${this.currentAlumniId}"]`);
-        // Update cache
+        // Update cache + rendered button styling for this alumni.
         const hasNote = !!noteContent.trim();
         notesStatusCache[this.currentAlumniId] = hasNote;
-
-        if (notesBtn) {
-          if (hasNote) {
-            notesBtn.classList.add('has-note');
-          } else {
-            notesBtn.classList.remove('has-note');
-          }
-        }
+        applyNoteIndicatorForId(this.currentAlumniId);
         this.close();
       } else {
         alert('Error saving note: ' + data.error);
@@ -189,6 +179,10 @@ const notesModal = new NotesModal();
 
 // ===== NOTES CACHING & OPTIMIZATION =====
 const notesStatusCache = {}; // { id: boolean }
+let notesVisibilityObserver = null;
+const pendingVisibleNoteIds = new Set();
+let visibleNotesFlushTimer = null;
+const visibleNotesBatchDelayMs = 140;
 
 async function loadNotesSummary(alumniIds) {
   const ids = Array.from(new Set((alumniIds || []).map(id => parseInt(id, 10)).filter(Number.isFinite)));
@@ -216,7 +210,91 @@ async function loadNotesSummary(alumniIds) {
   }
 }
 
-async function loadUserInteractions(alumniIds = [], reset = false) {
+function applyNoteIndicatorForId(alumniId) {
+  const hasNote = Boolean(notesStatusCache[alumniId]);
+  document.querySelectorAll(`.btn.notes[data-alumni-id="${alumniId}"]`).forEach(btn => {
+    if (hasNote) {
+      btn.classList.add('has-note');
+    } else {
+      btn.classList.remove('has-note');
+    }
+  });
+}
+
+async function flushVisibleNotesQueue() {
+  visibleNotesFlushTimer = null;
+  const ids = Array.from(pendingVisibleNoteIds);
+  pendingVisibleNoteIds.clear();
+  if (!ids.length) return;
+
+  await loadNotesSummary(ids);
+  ids.forEach(applyNoteIndicatorForId);
+}
+
+function queueVisibleNotesLoad(alumniId) {
+  if (!Number.isFinite(alumniId)) return;
+  if (notesStatusCache[alumniId] !== undefined) {
+    applyNoteIndicatorForId(alumniId);
+    return;
+  }
+
+  pendingVisibleNoteIds.add(alumniId);
+  if (visibleNotesFlushTimer) return;
+  visibleNotesFlushTimer = setTimeout(() => {
+    flushVisibleNotesQueue().catch(err => console.error('Error flushing visible notes queue:', err));
+  }, visibleNotesBatchDelayMs);
+}
+
+function setupVisibleNotesLoading() {
+  if (notesVisibilityObserver) {
+    notesVisibilityObserver.disconnect();
+  }
+  pendingVisibleNoteIds.clear();
+  if (visibleNotesFlushTimer) {
+    clearTimeout(visibleNotesFlushTimer);
+    visibleNotesFlushTimer = null;
+  }
+
+  const noteButtons = Array.from(document.querySelectorAll('.btn.notes[data-alumni-id]'));
+  if (!noteButtons.length) return;
+
+  // Fallback for browsers without IntersectionObserver.
+  if (typeof IntersectionObserver === 'undefined') {
+    const fallbackIds = noteButtons
+      .slice(0, 60)
+      .map(btn => parseInt(btn.dataset.alumniId, 10))
+      .filter(Number.isFinite);
+    loadNotesSummary(fallbackIds)
+      .then(() => fallbackIds.forEach(applyNoteIndicatorForId))
+      .catch(err => console.error('Error loading fallback notes summary:', err));
+    return;
+  }
+
+  notesVisibilityObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const alumniId = parseInt(entry.target.dataset.alumniId, 10);
+      queueVisibleNotesLoad(alumniId);
+      notesVisibilityObserver.unobserve(entry.target);
+    });
+  }, {
+    root: null,
+    rootMargin: '220px 0px',
+    threshold: 0.01,
+  });
+
+  noteButtons.forEach(btn => {
+    const alumniId = parseInt(btn.dataset.alumniId, 10);
+    if (!Number.isFinite(alumniId)) return;
+    if (notesStatusCache[alumniId] !== undefined) {
+      applyNoteIndicatorForId(alumniId);
+      return;
+    }
+    notesVisibilityObserver.observe(btn);
+  });
+}
+
+async function loadUserInteractions(alumniIds = [], reset = false, requestToken = null) {
   try {
     const ids = Array.from(new Set((alumniIds || []).map(id => parseInt(id, 10)).filter(Number.isFinite)));
     const params = new URLSearchParams();
@@ -226,6 +304,10 @@ async function loadUserInteractions(alumniIds = [], reset = false) {
     const query = params.toString();
     const response = await fetch(`/api/user-interactions${query ? `?${query}` : ''}`);
     const data = await response.json();
+
+    if (requestToken !== null && requestToken !== activeRequestToken) {
+      return;
+    }
 
     if (data.success) {
       if (reset) {
@@ -360,7 +442,7 @@ function _buildClassLocationLine(profile) {
   const location = _isMeaningfulLocationValue(profile.location) ? String(profile.location).trim() : '';
 
   if (gradYear) {
-    return `Class of ${gradYear}${location ? ' Â· ' + location : ''}`;
+    return `Class of ${gradYear}${location ? ' - ' + location : ''}`;
   }
   return location;
 }
@@ -395,7 +477,7 @@ function createListItem(p) {
             <img src="/assets/linkedin.svg" alt="LinkedIn" class="linkedin-icon" />
           </a>
           <button class="btn connect" type="button">Connect</button>
-          <button class="btn star" type="button" title="Bookmark this alumni">â­</button>
+          <button class="btn star" type="button" title="Bookmark this alumni">&#9734;</button>
           <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${p.name}"><img src="/assets/note.svg" alt="Notes" class="notes-icon" /></button>
         </div>
       </div>
@@ -426,11 +508,11 @@ function createListItem(p) {
     }
   });
 
-  // Bookmark button action - TOGGLE between â­ and â˜…
+  // Bookmark button action - toggle between hollow and filled star.
   const starBtn = item.querySelector('.btn.star');
   if (hasInteraction(p.id, 'bookmarked')) {
     item.classList.add('bookmarked');
-    starBtn.textContent = 'â˜…';
+    starBtn.innerHTML = '&#9733;';
   }
   starBtn.addEventListener('click', async () => {
     const isCurrentlyBookmarked = item.classList.contains('bookmarked');
@@ -438,14 +520,14 @@ function createListItem(p) {
       const success = await removeInteraction(p.id, 'bookmarked');
       if (success) {
         item.classList.remove('bookmarked');
-        starBtn.textContent = 'â­';
+        starBtn.innerHTML = '&#9734;';
         updateBookmarkCount(); // Update banner count
       }
     } else {
       const success = await saveInteraction(p.id, 'bookmarked');
       if (success) {
         item.classList.add('bookmarked');
-        starBtn.textContent = 'â˜…';
+        starBtn.innerHTML = '&#9733;';
         updateBookmarkCount(); // Update banner count
       }
     }
@@ -484,14 +566,13 @@ function renderProfiles(list) {
   }
 
   if (count) {
-    if (Number.isFinite(totalAlumniCount) && totalAlumniCount >= safeList.length) {
-      count.textContent = `(${safeList.length} loaded of ${totalAlumniCount})`;
-    } else {
-      count.textContent = `(${safeList.length})`;
-    }
+    count.textContent = Number.isFinite(totalAlumniCount) && totalAlumniCount > safeList.length
+      ? `(${safeList.length} of ${totalAlumniCount})`
+      : `(${safeList.length})`;
   }
 
   updateStatsBanner(safeList);
+  setupVisibleNotesLoading();
   renderLoadMoreControl();
 }
 
@@ -504,26 +585,16 @@ function renderLoadMoreControl() {
 
   const status = document.createElement('span');
   status.className = 'pagination-ellipsis';
-  status.textContent = Number.isFinite(totalAlumniCount)
-    ? `${loadedAlumni.length} / ${totalAlumniCount}`
-    : `${loadedAlumni.length} loaded`;
-  paginationContainer.appendChild(status);
-
-  if (hasMoreAlumni) {
-    const loadMoreBtn = document.createElement('button');
-    loadMoreBtn.className = 'pagination-btn';
-    loadMoreBtn.textContent = isLoadingAlumni ? 'Loading...' : 'Load More';
-    loadMoreBtn.disabled = isLoadingAlumni;
-    loadMoreBtn.addEventListener('click', async () => {
-      await fetchAlumniPage({ reset: false });
-    });
-    paginationContainer.appendChild(loadMoreBtn);
+  if (isLoadingAlumni) {
+    status.textContent = Number.isFinite(totalAlumniCount) && totalAlumniCount > 0
+      ? `Loading alumni... ${loadedAlumni.length}/${totalAlumniCount}`
+      : `Loading alumni... ${loadedAlumni.length}`;
   } else {
-    const done = document.createElement('span');
-    done.className = 'pagination-ellipsis';
-    done.textContent = 'All results loaded';
-    paginationContainer.appendChild(done);
+    status.textContent = Number.isFinite(totalAlumniCount)
+      ? `${loadedAlumni.length}/${totalAlumniCount} loaded`
+      : `${loadedAlumni.length} loaded`;
   }
+  paginationContainer.appendChild(status);
 }
 
 function getCanonicalRoleTitle(value) {
@@ -730,59 +801,66 @@ function buildAlumniQueryParams(queryState, offset, limit) {
 }
 
 async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}) {
-  if (isLoadingAlumni) return;
-  if (!reset && !hasMoreAlumni) return;
+  const requestToken = ++activeRequestToken;
 
   if (reset) {
-    currentOffset = 0;
-    hasMoreAlumni = true;
     loadedAlumni = [];
-    userInteractions = {};
-    bookmarkedTotalCount = 0;
+    totalAlumniCount = 0;
   }
 
   const queryState = collectQueryState();
   activeQueryState = queryState;
 
   isLoadingAlumni = true;
+  renderProfiles(loadedAlumni);
   renderLoadMoreControl();
 
   try {
-    // Server-side pagination + filtering keeps first paint fast.
-    const params = buildAlumniQueryParams(queryState, currentOffset, initialPageSize);
-    const resp = await fetch(`/api/alumni?${params.toString()}`);
-    const data = await resp.json();
-    const items = Array.isArray(data.items)
-      ? data.items
-      : (Array.isArray(data.alumni) ? data.alumni : []);
-
-    const mapped = items.map(mapAlumniRecord);
     if (reset) {
-      loadedAlumni = mapped;
-    } else {
-      const existingIds = new Set(loadedAlumni.map(a => a.id));
+      await loadUserInteractions([], true, requestToken);
+    }
+
+    let offset = 0;
+    let hasMore = true;
+    const seenIds = new Set();
+
+    // Auto-page through all results so the full dataset is loaded without manual "Load more".
+    while (hasMore) {
+      if (requestToken !== activeRequestToken) {
+        return;
+      }
+
+      const params = buildAlumniQueryParams(queryState, offset, alumniChunkSize);
+      const resp = await fetch(`/api/alumni?${params.toString()}`);
+      const data = await resp.json();
+      const items = Array.isArray(data.items)
+        ? data.items
+        : (Array.isArray(data.alumni) ? data.alumni : []);
+
+      if (Number.isFinite(data.total)) {
+        totalAlumniCount = data.total;
+      }
+
+      const mapped = items.map(mapAlumniRecord);
       mapped.forEach(item => {
-        if (!existingIds.has(item.id)) {
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id);
           loadedAlumni.push(item);
-          existingIds.add(item.id);
         }
       });
+
+      offset = loadedAlumni.length;
+      hasMore = Boolean(data.has_more) && items.length > 0;
+
+      if (requestToken !== activeRequestToken) {
+        return;
+      }
+      renderProfiles(loadedAlumni);
     }
 
-    if (Number.isFinite(data.total)) {
-      totalAlumniCount = data.total;
-    } else if (reset) {
+    if (!Number.isFinite(totalAlumniCount) || totalAlumniCount <= 0) {
       totalAlumniCount = loadedAlumni.length;
     }
-
-    currentOffset = loadedAlumni.length;
-    hasMoreAlumni = Boolean(data.has_more);
-
-    const loadedIds = mapped.map(a => a.id);
-    await Promise.all([
-      loadUserInteractions(loadedIds, reset),
-      loadNotesSummary(loadedIds),
-    ]);
 
     if (initializeFilters && !filtersInitialized && loadedAlumni.length) {
       populateFilters(loadedAlumni);
@@ -792,10 +870,9 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
     renderProfiles(loadedAlumni);
   } catch (err) {
     console.error('Error fetching alumni from API', err);
-    if (reset) {
+    if (reset && requestToken === activeRequestToken) {
       loadedAlumni = fakeAlumni.map(mapAlumniRecord);
       totalAlumniCount = loadedAlumni.length;
-      hasMoreAlumni = false;
       if (initializeFilters && !filtersInitialized) {
         populateFilters(loadedAlumni);
         filtersInitialized = true;
@@ -803,8 +880,10 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
       renderProfiles(loadedAlumni);
     }
   } finally {
-    isLoadingAlumni = false;
-    renderLoadMoreControl();
+    if (requestToken === activeRequestToken) {
+      isLoadingAlumni = false;
+      renderLoadMoreControl();
+    }
   }
 }
 
@@ -884,7 +963,7 @@ function setupFiltering() {
   updateSortLabel();
 }
 
-// Initialize with a small first page so the dashboard becomes interactive quickly.
+// Initialize and auto-load all alumni rows for the active query in backend-sized chunks.
 (async function init() {
   notesModal.create();
   setupFiltering();
