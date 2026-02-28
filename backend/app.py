@@ -635,7 +635,11 @@ def get_user_interactions():
                         """,
                         (user_id,),
                     )
-                    count_row = cursor.fetchone() or {}
+                    if hasattr(cursor, "fetchone"):
+                        count_row = cursor.fetchone() or {}
+                    else:
+                        fallback_rows = cursor.fetchall() or []
+                        count_row = fallback_rows[0] if fallback_rows else {}
                     bookmarked_total = count_row.get('bookmarked_total', 0) or 0
 
                     sql = """
@@ -662,7 +666,11 @@ def get_user_interactions():
                         """,
                         (user_id,),
                     )
-                    count_row = cur.fetchone() or {}
+                    if hasattr(cur, "fetchone"):
+                        count_row = cur.fetchone() or {}
+                    else:
+                        fallback_rows = cur.fetchall() or []
+                        count_row = fallback_rows[0] if fallback_rows else {}
                     bookmarked_total = count_row.get('bookmarked_total', 0) or 0
 
                     sql = """
@@ -913,7 +921,11 @@ def api_get_alumni():
                         LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
                         WHERE {where_clause}
                     """, tuple(params))
-                    total_row = cur.fetchone() or {}
+                    if hasattr(cur, "fetchone"):
+                        total_row = cur.fetchone() or {}
+                    else:
+                        fallback_rows = cur.fetchall() or []
+                        total_row = fallback_rows[0] if fallback_rows else {}
                     total = int(total_row.get('total', 0) or 0)
 
                     cur.execute(
