@@ -19,14 +19,24 @@ from unt_alumni_status import (
 load_dotenv()
 
 class _SuppressWerkzeugAccessLogFilter(logging.Filter):
-    """Hide noisy request access logs while preserving startup/warning lines."""
-    _access_log_pattern = re.compile(
-        r'"(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+[^"]+\s+HTTP/\d(?:\.\d)?"\s+\d{3}\s+-'
+    """Hide only oversized request URL logs while preserving normal access logs."""
+    _request_line_pattern = re.compile(
+        r'"(?P<method>GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(?P<path>[^"]+?)\s+HTTP/\d(?:\.\d)?"\s+\d{3}\s+-'
     )
+    _max_logged_path_length = 220
 
     def filter(self, record):
         message = record.getMessage()
-        return not bool(self._access_log_pattern.search(message))
+        match = self._request_line_pattern.search(message)
+        if not match:
+            return True
+
+        path = match.group("path") or ""
+        if len(path) <= self._max_logged_path_length:
+            return True
+
+        # Suppress extremely long query-string request lines that flood console output.
+        return False
 
 
 # Keep startup lines visible while suppressing per-request access log noise.
