@@ -1,4 +1,4 @@
-// app.js
+﻿// app.js
 // Approved engineering disciplines (must match backend APPROVED_ENGINEERING_DISCIPLINES)
 const APPROVED_ENGINEERING_DISCIPLINES = [
   'Software, Data & AI Engineering',
@@ -19,30 +19,39 @@ const fakeAlumni = [
 
 // State and configuration
 let userInteractions = {};
-let currentPage = 1;
-const itemsPerPage = 20;
+let loadedAlumni = [];
+let totalAlumniCount = 0;
+let currentOffset = 0;
+let hasMoreAlumni = true;
+let isLoadingAlumni = false;
+let filtersInitialized = false;
+let bookmarkedTotalCount = 0;
+let sortDirection = 'desc';
+let activeQueryState = null;
+// Initial page size kept under 500 for fast first render.
+const initialPageSize = 250;
 
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
 // ===== STATS BANNER UPDATE FUNCTION =====
 function updateStatsBanner(alumniData) {
-  if (!alumniData || alumniData.length === 0) {
-    return;
-  }
-
-  // Calculate total alumni
-  const totalAlumni = alumniData.length;
+  const safeAlumni = Array.isArray(alumniData) ? alumniData : [];
+  const totalAlumni = Number.isFinite(totalAlumniCount) && totalAlumniCount > 0
+    ? totalAlumniCount
+    : safeAlumni.length;
 
   // Calculate unique locations
-  const uniqueLocations = new Set(alumniData.map(a => a.location).filter(_isMeaningfulLocationValue));
+  const uniqueLocations = new Set(safeAlumni.map(a => a.location).filter(_isMeaningfulLocationValue));
   const locationsCount = uniqueLocations.size;
 
   // Calculate bookmarked alumni - check interaction_type === 'bookmarked'
-  const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
+  const bookmarkedCount = Number.isFinite(bookmarkedTotalCount)
+    ? bookmarkedTotalCount
+    : Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
 
   // Calculate working while studying count
-  const wwsCount = alumniData.filter(a => a.working_while_studying === true).length;
+  const wwsCount = safeAlumni.filter(a => a.working_while_studying === true).length;
 
   // Update DOM elements
   const totalAlumniEl = document.getElementById('totalAlumni');
@@ -58,7 +67,9 @@ function updateStatsBanner(alumniData) {
 
 // Helper function to update just the bookmarked count in the banner
 function updateBookmarkCount() {
-  const bookmarkedCount = Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
+  const bookmarkedCount = Number.isFinite(bookmarkedTotalCount)
+    ? bookmarkedTotalCount
+    : Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
   const bookmarkedCountEl = document.getElementById('bookmarkedCount');
   if (bookmarkedCountEl) bookmarkedCountEl.textContent = bookmarkedCount;
 }
@@ -179,59 +190,56 @@ const notesModal = new NotesModal();
 // ===== NOTES CACHING & OPTIMIZATION =====
 const notesStatusCache = {}; // { id: boolean }
 
-async function fetchNoteStatus(id, btn) {
-  // Check cache first
-  if (notesStatusCache[id] !== undefined) {
-    if (notesStatusCache[id]) btn.classList.add('has-note');
-    return;
-  }
+async function loadNotesSummary(alumniIds) {
+  const ids = Array.from(new Set((alumniIds || []).map(id => parseInt(id, 10)).filter(Number.isFinite)));
+  if (!ids.length) return;
+
+  const uncachedIds = ids.filter(id => notesStatusCache[id] === undefined);
+  if (!uncachedIds.length) return;
 
   try {
-    const response = await fetch(`/api/notes/${id}`);
+    // Batch endpoint avoids one /api/notes/<id> call per card on initial render.
+    const params = new URLSearchParams();
+    params.set('ids', uncachedIds.join(','));
+    const response = await fetch(`/api/notes/summary?${params.toString()}`);
     const data = await response.json();
-    const hasNote = data.success && data.note && data.note.note_content && data.note.note_content.trim().length > 0;
+    const summary = (data && data.success && data.summary) ? data.summary : {};
 
-    // Update cache
-    notesStatusCache[id] = hasNote;
-
-    if (hasNote) {
-      btn.classList.add('has-note');
-    }
+    uncachedIds.forEach(id => {
+      notesStatusCache[id] = Boolean(summary[String(id)]);
+    });
   } catch (error) {
-    console.error('Error loading notes status:', error);
+    console.error('Error loading notes summary:', error);
+    uncachedIds.forEach(id => {
+      if (notesStatusCache[id] === undefined) notesStatusCache[id] = false;
+    });
   }
 }
 
-/**
- * Lazy-loads note status as list items enter the viewport.
- * This prevents firing hundreds of API calls for the entire alumni list at once,
- * significantly improving initial load performance and reducing server load.
- */
-const notesObserver = new IntersectionObserver((entries, observer) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const btn = entry.target;
-      const id = btn.dataset.alumniId;
-      fetchNoteStatus(id, btn);
-      observer.unobserve(btn);
-    }
-  });
-});
-
-async function loadUserInteractions() {
+async function loadUserInteractions(alumniIds = [], reset = false) {
   try {
-    const response = await fetch('/api/user-interactions');
+    const ids = Array.from(new Set((alumniIds || []).map(id => parseInt(id, 10)).filter(Number.isFinite)));
+    const params = new URLSearchParams();
+    if (ids.length) {
+      params.set('alumni_ids', ids.join(','));
+    }
+    const query = params.toString();
+    const response = await fetch(`/api/user-interactions${query ? `?${query}` : ''}`);
     const data = await response.json();
 
     if (data.success) {
-      // Convert interactions array to a map for easy lookup
-      // Key: "alumni_id-interaction_type", Value: interaction data
-      userInteractions = {};
-      data.interactions.forEach(interaction => {
+      if (reset) {
+        userInteractions = {};
+      }
+      if (Number.isFinite(data.bookmarked_total)) {
+        bookmarkedTotalCount = data.bookmarked_total;
+      }
+
+      (data.interactions || []).forEach(interaction => {
         const key = `${interaction.alumni_id}-${interaction.interaction_type}`;
         userInteractions[key] = interaction;
       });
-      console.log('User interactions loaded:', userInteractions);
+      updateBookmarkCount();
     }
   } catch (error) {
     console.error('Error loading user interactions:', error);
@@ -257,6 +265,9 @@ async function saveInteraction(alumniId, interactionType, notes = '') {
       // Update local state
       const key = `${alumniId}-${interactionType}`;
       userInteractions[key] = { alumni_id: alumniId, interaction_type: interactionType, notes };
+      if (interactionType === 'bookmarked') {
+        bookmarkedTotalCount = (Number.isFinite(bookmarkedTotalCount) ? bookmarkedTotalCount : 0) + 1;
+      }
       return true;
     } else {
       console.error('Error saving interaction:', data.error);
@@ -286,6 +297,9 @@ async function removeInteraction(alumniId, interactionType) {
       // Update local state
       const key = `${alumniId}-${interactionType}`;
       delete userInteractions[key];
+      if (interactionType === 'bookmarked') {
+        bookmarkedTotalCount = Math.max(0, (Number.isFinite(bookmarkedTotalCount) ? bookmarkedTotalCount : 0) - 1);
+      }
       return true;
     } else {
       console.error('Error removing interaction:', data.error);
@@ -346,7 +360,7 @@ function _buildClassLocationLine(profile) {
   const location = _isMeaningfulLocationValue(profile.location) ? String(profile.location).trim() : '';
 
   if (gradYear) {
-    return `Class of ${gradYear}${location ? ' · ' + location : ''}`;
+    return `Class of ${gradYear}${location ? ' Â· ' + location : ''}`;
   }
   return location;
 }
@@ -381,7 +395,7 @@ function createListItem(p) {
             <img src="/assets/linkedin.svg" alt="LinkedIn" class="linkedin-icon" />
           </a>
           <button class="btn connect" type="button">Connect</button>
-          <button class="btn star" type="button" title="Bookmark this alumni">⭐</button>
+          <button class="btn star" type="button" title="Bookmark this alumni">â­</button>
           <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${p.name}"><img src="/assets/note.svg" alt="Notes" class="notes-icon" /></button>
         </div>
       </div>
@@ -412,11 +426,11 @@ function createListItem(p) {
     }
   });
 
-  // Bookmark button action - TOGGLE between ⭐ and ★
+  // Bookmark button action - TOGGLE between â­ and â˜…
   const starBtn = item.querySelector('.btn.star');
   if (hasInteraction(p.id, 'bookmarked')) {
     item.classList.add('bookmarked');
-    starBtn.textContent = '★';
+    starBtn.textContent = 'â˜…';
   }
   starBtn.addEventListener('click', async () => {
     const isCurrentlyBookmarked = item.classList.contains('bookmarked');
@@ -424,14 +438,14 @@ function createListItem(p) {
       const success = await removeInteraction(p.id, 'bookmarked');
       if (success) {
         item.classList.remove('bookmarked');
-        starBtn.textContent = '⭐';
+        starBtn.textContent = 'â­';
         updateBookmarkCount(); // Update banner count
       }
     } else {
       const success = await saveInteraction(p.id, 'bookmarked');
       if (success) {
         item.classList.add('bookmarked');
-        starBtn.textContent = '★';
+        starBtn.textContent = 'â˜…';
         updateBookmarkCount(); // Update banner count
       }
     }
@@ -449,135 +463,67 @@ function createListItem(p) {
 
   // Notes button action - OPEN MODAL
   const notesBtn = item.querySelector('.btn.notes');
+  if (notesStatusCache[p.id]) {
+    notesBtn.classList.add('has-note');
+  }
   notesBtn.addEventListener('click', async () => {
     const alumniId = parseInt(notesBtn.dataset.alumniId);
     const alumniName = notesBtn.dataset.alumniName;
     notesModal.open(alumniId, alumniName);
   });
 
-  // Load notes status lazily when visible
-  notesObserver.observe(notesBtn);
-
   return item;
 }
 
 function renderProfiles(list) {
-  // Get paginated subset
-  const paginatedList = getPaginated(list);
+  const safeList = Array.isArray(list) ? list : [];
 
   if (listContainer) {
     listContainer.innerHTML = '';
-    paginatedList.forEach(p => listContainer.appendChild(createListItem(p)));
+    safeList.forEach(p => listContainer.appendChild(createListItem(p)));
   }
-  if (count) count.textContent = `(${list.length} total, showing ${paginatedList.length})`;
-  // Render pagination controls
-  renderPagination(list);
+
+  if (count) {
+    if (Number.isFinite(totalAlumniCount) && totalAlumniCount >= safeList.length) {
+      count.textContent = `(${safeList.length} loaded of ${totalAlumniCount})`;
+    } else {
+      count.textContent = `(${safeList.length})`;
+    }
+  }
+
+  updateStatsBanner(safeList);
+  renderLoadMoreControl();
 }
 
-// Pagination: Get paginated subset of profiles
-function getPaginated(list) {
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  return list.slice(startIndex, endIndex);
-}
-
-// Render pagination controls
-function renderPagination(fullList) {
+function renderLoadMoreControl() {
   const paginationContainer = document.getElementById('pagination');
   if (!paginationContainer) return;
 
-  const totalPages = Math.ceil(fullList.length / itemsPerPage);
-
-  // If only one page or no results, hide pagination
-  if (totalPages <= 1) {
-    paginationContainer.innerHTML = '';
-    paginationContainer.style.display = 'none';
-    return;
-  }
-
-  paginationContainer.style.display = 'flex';
   paginationContainer.innerHTML = '';
+  paginationContainer.style.display = 'flex';
 
-  // Previous button
-  const prevBtn = document.createElement('button');
-  prevBtn.className = 'pagination-btn';
-  prevBtn.textContent = '← Previous';
-  prevBtn.disabled = currentPage === 1;
-  prevBtn.addEventListener('click', () => {
-    if (currentPage > 1) {
-      currentPage--;
-      applyFiltersAndSort();
-    }
-  });
-  paginationContainer.appendChild(prevBtn);
+  const status = document.createElement('span');
+  status.className = 'pagination-ellipsis';
+  status.textContent = Number.isFinite(totalAlumniCount)
+    ? `${loadedAlumni.length} / ${totalAlumniCount}`
+    : `${loadedAlumni.length} loaded`;
+  paginationContainer.appendChild(status);
 
-  // Page number buttons
-  const maxVisiblePages = 7;
-  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
-  // Adjust start if we're near the end
-  if (endPage - startPage < maxVisiblePages - 1) {
-    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  if (hasMoreAlumni) {
+    const loadMoreBtn = document.createElement('button');
+    loadMoreBtn.className = 'pagination-btn';
+    loadMoreBtn.textContent = isLoadingAlumni ? 'Loading...' : 'Load More';
+    loadMoreBtn.disabled = isLoadingAlumni;
+    loadMoreBtn.addEventListener('click', async () => {
+      await fetchAlumniPage({ reset: false });
+    });
+    paginationContainer.appendChild(loadMoreBtn);
+  } else {
+    const done = document.createElement('span');
+    done.className = 'pagination-ellipsis';
+    done.textContent = 'All results loaded';
+    paginationContainer.appendChild(done);
   }
-
-  // First page + ellipsis if needed
-  if (startPage > 1) {
-    const firstBtn = createPageButton(1, fullList);
-    paginationContainer.appendChild(firstBtn);
-    if (startPage > 2) {
-      const ellipsis = document.createElement('span');
-      ellipsis.className = 'pagination-ellipsis';
-      ellipsis.textContent = '...';
-      paginationContainer.appendChild(ellipsis);
-    }
-  }
-
-  // Visible page buttons
-  for (let i = startPage; i <= endPage; i++) {
-    const pageBtn = createPageButton(i, fullList);
-    paginationContainer.appendChild(pageBtn);
-  }
-
-  // Last page + ellipsis if needed
-  if (endPage < totalPages) {
-    if (endPage < totalPages - 1) {
-      const ellipsis = document.createElement('span');
-      ellipsis.className = 'pagination-ellipsis';
-      ellipsis.textContent = '...';
-      paginationContainer.appendChild(ellipsis);
-    }
-    const lastBtn = createPageButton(totalPages, fullList);
-    paginationContainer.appendChild(lastBtn);
-  }
-
-  // Next button
-  const nextBtn = document.createElement('button');
-  nextBtn.className = 'pagination-btn';
-  nextBtn.textContent = 'Next →';
-  nextBtn.disabled = currentPage === totalPages;
-  nextBtn.addEventListener('click', () => {
-    if (currentPage < totalPages) {
-      currentPage++;
-      applyFiltersAndSort();
-    }
-  });
-  paginationContainer.appendChild(nextBtn);
-}
-
-// Helper: Create a page number button
-function createPageButton(pageNum, fullList) {
-  const btn = document.createElement('button');
-  btn.className = 'pagination-btn page-number';
-  if (pageNum === currentPage) {
-    btn.classList.add('active');
-  }
-  btn.textContent = pageNum;
-  btn.addEventListener('click', () => {
-    currentPage = pageNum;
-    applyFiltersAndSort();
-  });
-  return btn;
 }
 
 function getCanonicalRoleTitle(value) {
@@ -599,16 +545,9 @@ function getCanonicalRoleTitle(value) {
   return title;
 }
 
-/**
- * Dynamically builds the multi-select filter UI based on the actual 
- * data returned from the API. This ensures that only relevant options 
- * (e.g., existing companies or locations) are shown to the user.
- */
 function populateFilters(list) {
-  // Helper to filter out bad values
   const isValid = val => val && !['Unknown', 'Not Found', 'N/A'].includes(val);
 
-  // Helper: Normalize company names for filtering (duplicate definition for scope access if needed, or move helper out)
   function getNormalizedCompany(name) {
     if (!name) return "";
     if (name.includes("Dallas")) return name;
@@ -626,20 +565,21 @@ function populateFilters(list) {
         .filter(isValid)
     )
   ).sort();
-  // Normalize companies before creating the Set
   const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
-  // Filter majors to only show approved engineering disciplines (which excludes Unknown now)
   const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean)))
     .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
     .sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
-  // Fixed order for degree levels
   const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
     list.some(x => x.degree === level && isValid(level))
   );
 
-  console.log('Degree values found:', degrees);
-  console.log('Sample alumni degrees:', list.slice(0, 5).map(x => ({ name: x.name, degree: x.degree })));
+  const selectedLocations = new Set(Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value));
+  const selectedRoles = new Set(Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value));
+  const selectedCompanies = new Set(Array.from(document.querySelectorAll('input[name="company"]:checked')).map(i => i.value));
+  const selectedMajors = new Set(Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value));
+  const selectedDegrees = new Set(Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value));
+  const currentYearValue = (document.getElementById('gradSelect') || {}).value || '';
 
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
@@ -653,7 +593,7 @@ function populateFilters(list) {
     locations.forEach(v => {
       const label = document.createElement('label');
       label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="location" value="${v}" /> <span>${v}</span>`;
+      label.innerHTML = `<input type="checkbox" name="location" value="${v}" ${selectedLocations.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
       locChecks.appendChild(label);
     });
   }
@@ -663,7 +603,7 @@ function populateFilters(list) {
     roles.forEach(v => {
       const label = document.createElement('label');
       label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="role" value="${v}" /> <span>${v}</span>`;
+      label.innerHTML = `<input type="checkbox" name="role" value="${v}" ${selectedRoles.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
       roleChecks.appendChild(label);
     });
   }
@@ -673,7 +613,7 @@ function populateFilters(list) {
     companies.forEach(v => {
       const label = document.createElement('label');
       label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="company" value="${v}" /> <span>${v}</span>`;
+      label.innerHTML = `<input type="checkbox" name="company" value="${v}" ${selectedCompanies.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
       companyChecks.appendChild(label);
     });
   }
@@ -683,19 +623,20 @@ function populateFilters(list) {
     majors.forEach(v => {
       const label = document.createElement('label');
       label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="major" value="${v}" /> <span>${v}</span>`;
+      label.innerHTML = `<input type="checkbox" name="major" value="${v}" ${selectedMajors.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
       majorChecks.appendChild(label);
     });
   }
 
   if (gradSelect) {
-    gradSelect.innerHTML = '<option value=\"\">All years</option>';
+    gradSelect.innerHTML = '<option value="">All years</option>';
     years.forEach(y => {
       const opt = document.createElement('option');
       opt.value = y;
       opt.textContent = y;
       gradSelect.appendChild(opt);
     });
+    gradSelect.value = currentYearValue;
   }
 
   if (degreeChecks) {
@@ -703,250 +644,249 @@ function populateFilters(list) {
     degrees.forEach(v => {
       const label = document.createElement('label');
       label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="degree" value="${v}" /> <span>${v}</span>`;
+      label.innerHTML = `<input type="checkbox" name="degree" value="${v}" ${selectedDegrees.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
       degreeChecks.appendChild(label);
     });
   }
 }
 
-// Filtering behavior
-function setupFiltering(list) {
+function mapAlumniRecord(a) {
+  return {
+    id: a.id,
+    name: a.name || '',
+    role: a.role || '',
+    normalized_title: a.normalized_title || '',
+    company: a.company || '',
+    class: a.class || '',
+    location: a.location || '',
+    headline: a.headline || '',
+    linkedin: a.linkedin || '',
+    degree: a.degree || '',
+    full_degree: a.full_degree || '',
+    full_major: a.full_major || '',
+    major: a.major || '',
+    updated_at: a.updated_at || '',
+    working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
+    unt_alumni_status: a.unt_alumni_status || 'unknown'
+  };
+}
+
+function collectQueryState() {
+  const q = document.getElementById('q');
+  const gradSelect = document.getElementById('gradSelect');
+  const sortSelect = document.getElementById('sortSelect');
+
+  const term = q ? q.value.trim() : '';
+  const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
+  const role = Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value);
+  const company = Array.from(document.querySelectorAll('input[name="company"]:checked')).map(i => i.value);
+  const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
+  const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
+  const year = gradSelect ? gradSelect.value : '';
+  const wwsRadio = document.querySelector('input[name="workingWhileStudying"]:checked');
+  const wws = wwsRadio ? wwsRadio.value : '';
+  const untAlumniStatusRadio = document.querySelector('input[name="untAlumniStatus"]:checked');
+  const untAlumniStatus = untAlumniStatusRadio ? untAlumniStatusRadio.value : '';
+
+  const sortValue = sortSelect ? (sortSelect.value || '') : '';
+  const bookmarkedOnly = sortValue === 'bookmarked';
+  const sort = bookmarkedOnly ? 'name' : (sortValue || 'name');
+
+  return {
+    term,
+    loc,
+    role,
+    company,
+    major,
+    degree,
+    year,
+    wws,
+    untAlumniStatus,
+    sort,
+    bookmarkedOnly,
+    direction: sortDirection,
+  };
+}
+
+function buildAlumniQueryParams(queryState, offset, limit) {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
+
+  if (queryState.term) params.set('q', queryState.term);
+  if (queryState.loc.length) params.set('location', queryState.loc.join(','));
+  if (queryState.role.length) params.set('role', queryState.role.join(','));
+  if (queryState.company.length) params.set('company', queryState.company.join(','));
+  if (queryState.major.length) params.set('major', queryState.major.join(','));
+  if (queryState.degree.length) params.set('degree', queryState.degree.join(','));
+  if (queryState.year) params.set('grad_year', queryState.year);
+  if (queryState.wws) params.set('working_while_studying', queryState.wws);
+  if (queryState.untAlumniStatus) params.set('unt_alumni_status', queryState.untAlumniStatus);
+  if (queryState.sort) params.set('sort', queryState.sort);
+  params.set('direction', queryState.direction);
+  if (queryState.bookmarkedOnly) params.set('bookmarked_only', '1');
+
+  return params;
+}
+
+async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}) {
+  if (isLoadingAlumni) return;
+  if (!reset && !hasMoreAlumni) return;
+
+  if (reset) {
+    currentOffset = 0;
+    hasMoreAlumni = true;
+    loadedAlumni = [];
+    userInteractions = {};
+    bookmarkedTotalCount = 0;
+  }
+
+  const queryState = collectQueryState();
+  activeQueryState = queryState;
+
+  isLoadingAlumni = true;
+  renderLoadMoreControl();
+
+  try {
+    // Server-side pagination + filtering keeps first paint fast.
+    const params = buildAlumniQueryParams(queryState, currentOffset, initialPageSize);
+    const resp = await fetch(`/api/alumni?${params.toString()}`);
+    const data = await resp.json();
+    const items = Array.isArray(data.items)
+      ? data.items
+      : (Array.isArray(data.alumni) ? data.alumni : []);
+
+    const mapped = items.map(mapAlumniRecord);
+    if (reset) {
+      loadedAlumni = mapped;
+    } else {
+      const existingIds = new Set(loadedAlumni.map(a => a.id));
+      mapped.forEach(item => {
+        if (!existingIds.has(item.id)) {
+          loadedAlumni.push(item);
+          existingIds.add(item.id);
+        }
+      });
+    }
+
+    if (Number.isFinite(data.total)) {
+      totalAlumniCount = data.total;
+    } else if (reset) {
+      totalAlumniCount = loadedAlumni.length;
+    }
+
+    currentOffset = loadedAlumni.length;
+    hasMoreAlumni = Boolean(data.has_more);
+
+    const loadedIds = mapped.map(a => a.id);
+    await Promise.all([
+      loadUserInteractions(loadedIds, reset),
+      loadNotesSummary(loadedIds),
+    ]);
+
+    if (initializeFilters && !filtersInitialized && loadedAlumni.length) {
+      populateFilters(loadedAlumni);
+      filtersInitialized = true;
+    }
+
+    renderProfiles(loadedAlumni);
+  } catch (err) {
+    console.error('Error fetching alumni from API', err);
+    if (reset) {
+      loadedAlumni = fakeAlumni.map(mapAlumniRecord);
+      totalAlumniCount = loadedAlumni.length;
+      hasMoreAlumni = false;
+      if (initializeFilters && !filtersInitialized) {
+        populateFilters(loadedAlumni);
+        filtersInitialized = true;
+      }
+      renderProfiles(loadedAlumni);
+    }
+  } finally {
+    isLoadingAlumni = false;
+    renderLoadMoreControl();
+  }
+}
+
+function updateSortLabel() {
+  const sortSelect = document.getElementById('sortSelect');
+  const sortLabel = document.getElementById('sortLabel');
+  if (!sortSelect || !sortLabel) return;
+
+  const val = sortSelect.value;
+  let text = "";
+  if (val === 'name') {
+    text = sortDirection === 'asc' ? "(A -> Z)" : "(Z -> A)";
+  } else if (val === 'year') {
+    text = sortDirection === 'asc' ? "(Oldest -> Newest)" : "(Newest -> Oldest)";
+  } else if (val === 'updated') {
+    text = sortDirection === 'asc' ? "(Oldest -> Newest)" : "(Newest -> Oldest)";
+  }
+  sortLabel.textContent = text;
+}
+
+function setupFiltering() {
   const q = document.getElementById('q');
   const gradSelect = document.getElementById('gradSelect');
   const sortSelect = document.getElementById('sortSelect');
   const sortReverseBtn = document.getElementById('sortReverseBtn');
-  const sortLabel = document.getElementById('sortLabel');
-  let sortDirection = 'desc'; // 'asc' or 'desc'
-
   const clearBtn = document.getElementById('clear-filters');
+
+  let searchDebounce = null;
+  const applyFilters = async () => {
+    await fetchAlumniPage({ reset: true });
+  };
+
   if (clearBtn) {
-    clearBtn.addEventListener('click', () => {
+    clearBtn.addEventListener('click', async () => {
       document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"]').forEach(cb => cb.checked = false);
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
-      // Reset working while studying radio to 'All'
       const wwsAll = document.querySelector('input[name="workingWhileStudying"][value=""]');
       if (wwsAll) wwsAll.checked = true;
       const untStatusAll = document.querySelector('input[name="untAlumniStatus"][value=""]');
       if (untStatusAll) untStatusAll.checked = true;
-      currentPage = 1; // Reset to page 1 when clearing filters
-      apply();
+      await applyFilters();
     });
   }
 
-  function getFilters() {
-    const term = q ? q.value.trim().toLowerCase() : '';
-    const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
-    const role = Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value);
-    const company = Array.from(document.querySelectorAll('input[name="company"]:checked')).map(i => i.value);
-    const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
-    const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
-    const year = gradSelect ? gradSelect.value : '';
-    const wwsRadio = document.querySelector('input[name="workingWhileStudying"]:checked');
-    const wws = wwsRadio ? wwsRadio.value : '';
-    const untAlumniStatusRadio = document.querySelector('input[name="untAlumniStatus"]:checked');
-    const untAlumniStatus = untAlumniStatusRadio ? untAlumniStatusRadio.value : '';
-    return { term, loc, role, company, major, degree, year, wws, untAlumniStatus };
-  }
-
-  function getSorted(listToSort) {
-    if (!sortSelect) return listToSort;
-    // If no sort selected, treat as 'Default'
-    const value = sortSelect.value || "";
-    let sorted = [...listToSort];
-
-    // Filter first if needed (bookmarked is special, acts as filter here)
-    if (value === "bookmarked") {
-      sorted = sorted.filter(a => hasInteraction(a.id, 'bookmarked'));
-    } else if (value === "name") {
-      sorted.sort((a, b) => {
-        const valA = (a.name || "").toLowerCase();
-        const valB = (b.name || "").toLowerCase();
-        return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-      });
-    } else if (value === "year") {
-      sorted.sort((a, b) => {
-        const valA = parseInt(a.class) || 0;
-        const valB = parseInt(b.class) || 0;
-        return sortDirection === 'asc' ? valA - valB : valB - valA;
-      });
-    } else if (value === "updated") {
-      sorted.sort((a, b) => {
-        const valA = new Date(a.updated_at || 0).getTime();
-        const valB = new Date(b.updated_at || 0).getTime();
-        return sortDirection === 'asc' ? valA - valB : valB - valA;
-      });
-    }
-
-    return sorted;
-  }
-
-  function updateSortLabel() {
-    if (!sortLabel || !sortSelect) return;
-    const val = sortSelect.value;
-    let text = "";
-    if (val === 'name') {
-      text = sortDirection === 'asc' ? "(A → Z)" : "(Z → A)";
-    } else if (val === 'year') {
-      text = sortDirection === 'asc' ? "(Oldest → Newest)" : "(Newest → Oldest)";
-    } else if (val === 'updated') {
-      text = sortDirection === 'asc' ? "(Oldest → Newest)" : "(Newest → Oldest)";
-    }
-    sortLabel.textContent = text;
-  }
-  function getNormalizedCompany(name) {
-    if (!name) return "";
-    // Check for "Dallas" exclusion first
-    if (name.includes("Dallas")) return name;
-
-    // Check for UNT variations
-    if (name.includes("University of North Texas") || name.startsWith("UNT ") || name === "UNT" || name.includes(" UNT ") || name.endsWith(" UNT")) {
-      return "University of North Texas";
-    }
-    return name;
-  }
-
-  /**
-   * The core search/filter engine.
-   * Logic:
-   * 1. Collects state from all checkboxes, inputs, and sort toggles.
-   * 2. Filters the master list based on combined criteria (AND logic).
-   * 3. Sorts the result.
-   * 4. Triggers re-render of paginated cards.
-   */
-  function apply() {
-    const f = getFilters();
-    const filtered = list.filter(a => {
-      const t = `${a.name} ${a.role} ${a.company} ${a.headline}`.toLowerCase();
-      const matchTerm = !f.term || t.includes(f.term);
-      const matchLoc = !f.loc.length || f.loc.includes(a.location);
-      const roleValue = getCanonicalRoleTitle(a.normalized_title || a.role || a.current_job_title);
-      const matchRole = !f.role.length || f.role.includes(roleValue);
-
-      // Normalize company for matching
-      const normCompany = getNormalizedCompany(a.company);
-      const matchCompany = !f.company.length || f.company.includes(normCompany);
-
-      const matchMajor = !f.major.length || f.major.includes(a.major);
-      const matchDegree = !f.degree.length || f.degree.includes(a.degree);
-      const matchYear = !f.year || String(a.class) === String(f.year);
-      // Working while studying: '' = all, 'yes' = true, 'no' = false/null
-      let matchWws = true;
-      if (f.wws === 'yes') matchWws = a.working_while_studying === true;
-      else if (f.wws === 'no') matchWws = a.working_while_studying === false || a.working_while_studying === null;
-      const matchUntAlumniStatus = !f.untAlumniStatus || a.unt_alumni_status === f.untAlumniStatus;
-      return matchTerm && matchLoc && matchRole && matchCompany && matchMajor && matchDegree && matchYear && matchWws && matchUntAlumniStatus;
+  if (q) {
+    q.addEventListener('input', () => {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        applyFilters();
+      }, 250);
     });
-    const sortedFiltered = getSorted(filtered);
-    const paginated = getPaginated(sortedFiltered);
-    renderProfiles(sortedFiltered); // Pass full list for count and pagination
-
-    // Render only paginated items
-    if (listContainer) {
-      listContainer.innerHTML = '';
-      paginated.forEach(p => listContainer.appendChild(createListItem(p)));
-    }
-    if (count) count.textContent = `(${sortedFiltered.length})`;
   }
 
-  // Store reference to apply function globally
-  window.applyFiltersAndSort = apply;
-
-  if (q) q.addEventListener('input', () => {
-    currentPage = 1; // Reset to page 1 on search
-    apply();
-  });
   document.addEventListener('change', (e) => {
     if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"]')) {
-      currentPage = 1; // Reset to page 1 on filter change
-      apply();
+      applyFilters();
     }
   });
-  if (sortSelect) sortSelect.addEventListener('change', () => {
-    currentPage = 1; // Reset to page 1 on sort change
-    // Reset direction to default for the new sort type if desired,
-    // or keep current direction. Let's keep current direction or default to desc for consistency?
-    // User requested "reverse the sort method", implies toggle.
-    // Let's set a sensible default per type?
-    // For now, preserve existing direction or just apply.
-    updateSortLabel();
-    apply();
-  });
+
+  if (sortSelect) {
+    sortSelect.addEventListener('change', () => {
+      updateSortLabel();
+      applyFilters();
+    });
+  }
 
   if (sortReverseBtn) {
     sortReverseBtn.addEventListener('click', () => {
       sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-      // Optional: update icon rotation or visual indicator
       updateSortLabel();
-      apply();
+      applyFilters();
     });
   }
+
+  window.applyFiltersAndSort = applyFilters;
+  updateSortLabel();
 }
 
-// Initialize: fetch alumni from backend and fall back to `fakeAlumni` if necessary
+// Initialize with a small first page so the dashboard becomes interactive quickly.
 (async function init() {
-  // Create notes modal first
   notesModal.create();
-
-  // Attempt to fetch alumni from backend
-  let alumniData = fakeAlumni;
-  try {
-    const resp = await fetch('/api/alumni?limit=10000');  // Get all alumni (up to 10,000)
-    const data = await resp.json();
-
-    if (data && data.success && Array.isArray(data.alumni) && data.alumni.length > 0) {
-      // Map backend response to frontend expected fields
-      alumniData = data.alumni.map(a => ({
-        id: a.id,
-        name: a.name || '',
-        role: a.role || '',
-        normalized_title: a.normalized_title || '',
-        company: a.company || '',
-        class: a.class || '',
-        location: a.location || '',
-        headline: a.headline || '',
-        linkedin: a.linkedin || '',
-        degree: a.degree || '',
-        full_degree: a.full_degree || '',
-        full_major: a.full_major || '',
-        major: a.major || '',
-        updated_at: a.updated_at || '',
-        working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
-        unt_alumni_status: a.unt_alumni_status || 'unknown'
-      }));
-      console.log('Loaded alumni from API, count=', alumniData.length);
-    } else {
-      console.log('No alumni returned from API, using fallback data');
-    }
-  } catch (err) {
-    console.error('Error fetching alumni from API, using fallback data', err);
-  }
-
-  // Load interactions from backend first
-  await loadUserInteractions();
-
-  // Update stats banner with alumni data
-  updateStatsBanner(alumniData);
-
-  // Populate UI with the alumni data (from API or fallback)
-  populateFilters(alumniData);
-  setupFiltering(alumniData);
-  // Show all profiles on first load (default sort)
-  const sortSelect = document.getElementById('sortSelect');
-  if (sortSelect) sortSelect.value = "";
-
-  // Initial label update if needed (though default is empty)
-  // But if we want to show label for default or if we set a value:
-  // updateSortLabel(); // undefined function at this scope if not careful, but it's inside setupFiltering closure.
-  // Actually setupFiltering is called above. We need to trigger label update there?
-  // setupFiltering defines updateSortLabel inside. We can't call it here easily unless we expose it.
-  // Or we just trigger a change event?
-  // Simpler: Just rely on user interaction or ensure setupFiltering initializes it if value exists.
-  // But wait, setupFiltering is a function that runs ONCE to setup listeners.
-  // The inner functions are scoped.
-  // To initialize label, we might need to expose it or run it inside logic.
-  // Let's rely on the fact that default is "" (Default) which has no label text in my logic above.
-
-  // Manually trigger initial rendering
-  if (typeof renderProfiles === 'function') renderProfiles(alumniData);
+  setupFiltering();
+  await fetchAlumniPage({ reset: true, initializeFilters: true });
 })();
