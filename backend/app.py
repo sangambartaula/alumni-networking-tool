@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from functools import wraps
 from collections import Counter
 import os
+import logging
 from time import perf_counter
 import requests  # for OAuth token exchange
 import mysql.connector  # for MySQL connection
@@ -15,6 +16,11 @@ from unt_alumni_status import (
 )
 
 load_dotenv()
+
+# Keep request logs readable during local development.
+# Set QUIET_HTTP_LOGS=0 to restore default per-request INFO lines.
+if os.getenv("QUIET_HTTP_LOGS", "1") == "1":
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 app = Flask(
     __name__,
