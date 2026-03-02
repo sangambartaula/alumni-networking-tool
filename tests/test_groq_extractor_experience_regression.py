@@ -94,7 +94,7 @@ def test_extract_experiences_with_groq_skips_title_company_collisions(monkeypatc
     assert jobs[0]["job_title"] == "Mechanical Engineer"
 
 
-def test_extract_experiences_with_groq_includes_standardized_title_list_in_prompt(monkeypatch):
+def test_extract_experiences_with_groq_prompt_stays_lean(monkeypatch):
     captured = {}
 
     class _PromptCompletions:
@@ -112,7 +112,6 @@ def test_extract_experiences_with_groq_includes_standardized_title_list_in_promp
         chat = _PromptChat()
 
     monkeypatch.setattr(groq_extractor_experience, "_get_client", lambda: _PromptClient())
-    monkeypatch.setattr(groq_extractor_experience, "_load_standardized_job_titles", lambda: ["Software Engineer", "Data Analyst"])
     monkeypatch.setattr(groq_extractor_experience, "is_groq_available", lambda: True)
 
     jobs, _ = groq_extractor_experience.extract_experiences_with_groq(
@@ -128,6 +127,4 @@ def test_extract_experiences_with_groq_includes_standardized_title_list_in_promp
             user_prompt = msg.get("content", "")
             break
 
-    assert "Standardized job titles" in user_prompt
-    assert "- Software Engineer" in user_prompt
-    assert "- Data Analyst" in user_prompt
+    assert "Standardized job titles" not in user_prompt

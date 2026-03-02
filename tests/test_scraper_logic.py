@@ -10,7 +10,12 @@ sys.path.insert(0, str(project_root / 'scraper'))
 sys.modules.pop('scraper', None)
 os.chdir(project_root)
 
-from scraper import LinkedInScraper, _is_company_title_collision
+import scraper as scraper_module
+from scraper import (
+    LinkedInScraper,
+    _is_company_title_collision,
+    _resolve_standardized_title,
+)
 
 class TestScraperLogic:
     def test_is_company_title_collision(self):
@@ -74,6 +79,40 @@ class TestScraperLogic:
 
         entries = scraper._extract_education_from_top_card(_FakeSoup())
         assert entries == []
+
+    def test_resolve_standardized_title_prefers_exact_lookup(self):
+        lookup = {
+            "peer mentor": "Peer Mentor",
+            "software engineer": "Software Engineer",
+        }
+        resolved, score = _resolve_standardized_title("peer mentor", lookup)
+        assert resolved == "Peer Mentor"
+        assert score == 3
+
+    def test_apply_experience_display_normalization_reuses_best_same_entry_title(self, monkeypatch):
+        scraper = LinkedInScraper()
+        monkeypatch.setattr(
+            scraper_module,
+            "_load_standardized_title_lookup",
+            lambda: {"peer mentor": "Peer Mentor"},
+        )
+        data = {
+            "job_title": "Peer Mentor",
+            "company": "UNT College of Engineering",
+            "job_start_date": "2021",
+            "job_end_date": "2025",
+            "exp2_title": "Mentor",
+            "exp2_company": "UNT College of Engineering",
+            "exp2_dates": "2021 - 2025",
+            "exp3_title": "",
+            "exp3_company": "",
+            "exp3_dates": "",
+        }
+
+        scraper._apply_experience_display_normalization(data)
+
+        assert data["normalized_job_title"] == "Peer Mentor"
+        assert data["normalized_exp2_title"] == "Peer Mentor"
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -3,6 +3,7 @@ import json
 import random
 import re
 from datetime import datetime
+from pathlib import Path
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -78,6 +79,79 @@ def _is_company_title_collision(title: str, company: str) -> bool:
     if not title_key or not company_key:
         return False
     return title_key == company_key
+
+
+_STANDARDIZED_TITLE_LOOKUP_CACHE = None
+
+
+def _title_lookup_key(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip()).casefold()
+
+
+def _load_standardized_title_lookup() -> dict[str, str]:
+    """
+    Load known standardized job titles from scraper/data/companies.json.
+    Returns case-insensitive lookup: normalized text -> canonical display text.
+    """
+    global _STANDARDIZED_TITLE_LOOKUP_CACHE
+    if _STANDARDIZED_TITLE_LOOKUP_CACHE is not None:
+        return _STANDARDIZED_TITLE_LOOKUP_CACHE
+
+    db_path = Path(__file__).parent / "data" / "companies.json"
+    try:
+        if not db_path.exists():
+            _STANDARDIZED_TITLE_LOOKUP_CACHE = {}
+            return _STANDARDIZED_TITLE_LOOKUP_CACHE
+
+        payload = json.loads(db_path.read_text(encoding="utf-8"))
+        raw_titles = payload.get("job_titles", []) if isinstance(payload, dict) else []
+        lookup = {}
+        for title in raw_titles:
+            text = str(title or "").strip()
+            if not text:
+                continue
+            key = _title_lookup_key(text)
+            if key and key not in lookup:
+                lookup[key] = text
+
+        _STANDARDIZED_TITLE_LOOKUP_CACHE = lookup
+        return _STANDARDIZED_TITLE_LOOKUP_CACHE
+    except Exception as exc:
+        logger.debug(f"Could not load standardized title lookup: {exc}")
+        _STANDARDIZED_TITLE_LOOKUP_CACHE = {}
+        return _STANDARDIZED_TITLE_LOOKUP_CACHE
+
+
+def _resolve_standardized_title(raw_title: str, title_lookup: dict[str, str] | None = None) -> tuple[str, int]:
+    """
+    Resolve title with local rules:
+    1) Exact raw-title match in standardized list.
+    2) Deterministic normalization mapped back into standardized list.
+    3) Deterministic normalization fallback.
+    Returns: (standardized_title, quality_score)
+    """
+    raw = (raw_title or "").strip()
+    if not raw:
+        return "", 0
+
+    lookup = title_lookup if title_lookup is not None else _load_standardized_title_lookup()
+    raw_key = _title_lookup_key(raw)
+    if raw_key in lookup:
+        return lookup[raw_key], 3
+
+    if _NORM_AVAILABLE:
+        try:
+            normalized = normalize_title_deterministic(raw) or raw
+        except Exception:
+            normalized = raw
+    else:
+        normalized = raw
+
+    norm_key = _title_lookup_key(normalized)
+    if norm_key in lookup:
+        return lookup[norm_key], 2
+
+    return normalized, 1
 
 
 class LinkedInScraper:
@@ -655,19 +729,50 @@ class LinkedInScraper:
         """Populate normalized experience fields used by summary output and downstream UI."""
         if not _NORM_AVAILABLE:
             return
+
+        title_lookup = _load_standardized_title_lookup()
+        best_title_by_entry = {}
+        slot_details = []
+
         for idx, suffix in enumerate(["", "2", "3"], start=1):
             title_key = "job_title" if not suffix else f"exp{idx}_title"
             comp_key = "company" if not suffix else f"exp{idx}_company"
             raw_title = data.get(title_key, "")
             raw_comp = data.get(comp_key, "")
-            if raw_title:
-                data[f"normalized_job_title" if not suffix else f"normalized_exp{idx}_title"] = (
-                    normalize_title_deterministic(raw_title)
-                )
+
+            if not suffix:
+                start_date = (data.get("job_start_date") or "").strip()
+                end_date = (data.get("job_end_date") or "").strip()
+            else:
+                date_range = (data.get(f"exp{idx}_dates") or "").strip()
+                if " - " in date_range:
+                    start_date, end_date = [part.strip() for part in date_range.split(" - ", 1)]
+                else:
+                    start_date, end_date = "", ""
+
+            entry_key = ""
+            if raw_comp:
+                entry_key = f"{_canonical_entity_text(raw_comp)}|{_title_lookup_key(start_date)}|{_title_lookup_key(end_date)}"
+
+            resolved_title, quality = _resolve_standardized_title(raw_title, title_lookup) if raw_title else ("", 0)
+            slot_details.append((idx, suffix, entry_key, resolved_title, quality))
+
+            if entry_key and resolved_title:
+                current = best_title_by_entry.get(entry_key)
+                if current is None or quality > current[1]:
+                    best_title_by_entry[entry_key] = (resolved_title, quality)
+
             if raw_comp:
                 data[f"normalized_company" if not suffix else f"normalized_exp{idx}_company"] = (
                     normalize_company_deterministic(raw_comp)
                 )
+
+        for idx, suffix, entry_key, resolved_title, _quality in slot_details:
+            title_value = resolved_title
+            if entry_key and entry_key in best_title_by_entry:
+                title_value = best_title_by_entry[entry_key][0]
+            if title_value:
+                data[f"normalized_job_title" if not suffix else f"normalized_exp{idx}_title"] = title_value
 
     @staticmethod
     def _drop_title_company_collisions(experiences, source="unknown"):
