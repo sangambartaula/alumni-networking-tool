@@ -12,6 +12,13 @@ let allLocations = new Set();
 let allCompanies = new Set();
 let filteredTableRenderToken = 0;
 
+function isWorkingWhileStudyingPositive(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'yes' || normalized === 'currently' || normalized === 'true' || normalized === '1';
+}
+
 function getCanonicalRoleTitle(value) {
   const title = (value || '').trim();
   if (!title) return '';
@@ -648,7 +655,7 @@ function updateStatistics(data = alumniData) {
   const uniqueJobs = new Set(
     data.map(a => getCanonicalRoleTitle(a.normalized_title || a.current_job_title)).filter(j => j)
   ).size;
-  const workingWhileStudyingCount = data.filter(a => a.working_while_studying === true || a.working_while_studying === 1).length;
+  const workingWhileStudyingCount = data.filter(a => isWorkingWhileStudyingPositive(a.working_while_studying)).length;
 
   document.getElementById('totalAlumni').textContent = totalAlumni;
   document.getElementById('totalCompanies').textContent = uniqueCompanies;

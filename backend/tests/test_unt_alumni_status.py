@@ -82,12 +82,20 @@ def test_multiple_past_degrees_yes():
     assert status == UNT_ALUMNI_STATUS_YES
 
 
-def test_current_year_without_date_unknown():
+def test_current_year_before_may15_is_no():
     status = compute_unt_alumni_status(
         [{"school": "UNT", "end_year": 2026}],
         today=date(2026, 2, 26),
     )
-    assert status == UNT_ALUMNI_STATUS_UNKNOWN
+    assert status == UNT_ALUMNI_STATUS_NO
+
+
+def test_current_year_on_or_after_may15_is_yes():
+    status = compute_unt_alumni_status(
+        [{"school": "UNT", "end_year": 2026}],
+        today=date(2026, 5, 15),
+    )
+    assert status == UNT_ALUMNI_STATUS_YES
 
 
 def test_row_mapping_uses_only_unt_entries():

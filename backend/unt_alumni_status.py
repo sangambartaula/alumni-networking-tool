@@ -88,9 +88,10 @@ def _entry_status(entry: Dict[str, Any], today: date) -> str:
     if end_year > today.year:
         return UNT_ALUMNI_STATUS_NO
 
-    # Year-only value equal to current year is ambiguous without month/day.
-    # We intentionally treat this as unknown for consistency.
-    return UNT_ALUMNI_STATUS_UNKNOWN
+    # For year-only graduation values in the current year, assume a spring
+    # graduation cutoff (May 15) unless an explicit date is present.
+    assumed_graduation_date = date(end_year, 5, 15)
+    return UNT_ALUMNI_STATUS_YES if today >= assumed_graduation_date else UNT_ALUMNI_STATUS_NO
 
 
 def compute_unt_alumni_status(unt_education_entries: Iterable[Dict[str, Any]], today: Optional[date] = None) -> str:

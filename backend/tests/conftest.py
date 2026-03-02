@@ -2,8 +2,14 @@ import pytest
 import sys
 from pathlib import Path
 
-# Add the backend directory to the path so we can import app
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Ensure backend tests can import both `app` and `backend.*` modules
+TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = TESTS_DIR.parent
+PROJECT_ROOT = BACKEND_DIR.parent
+
+for path in (str(PROJECT_ROOT), str(BACKEND_DIR)):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 # Now import the Flask app
 from app import app as flask_app
