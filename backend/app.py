@@ -140,6 +140,30 @@ APPROVED_ENGINEERING_DISCIPLINES = [
     'Materials Science & Manufacturing',
     'Construction & Engineering Management',
 ]
+_APPROVED_DISCIPLINES_SET = set(APPROVED_ENGINEERING_DISCIPLINES)
+
+# Canonical UNT major labels (must stay aligned with scraper/major_normalization.py).
+APPROVED_UNT_MAJORS = [
+    "Autonomous Systems",
+    "Biomedical Engineering",
+    "Computer Engineering",
+    "Computer Science",
+    "Computer Science and Engineering",
+    "Construction Management",
+    "Cybersecurity",
+    "Data Engineering",
+    "Electrical Engineering",
+    "Engineering Management",
+    "Engineering Technology",
+    "Information Technology",
+    "Machine Learning",
+    "Materials Science",
+    "Materials Science and Engineering",
+    "Mechanical and Energy Engineering",
+    "Mechanical Engineering Technology",
+    "Other",
+]
+_APPROVED_UNT_MAJORS_SET = set(APPROVED_UNT_MAJORS)
 
 
 def _resolve_discipline(row):
@@ -148,14 +172,46 @@ def _resolve_discipline(row):
     Fallback to legacy storage where discipline was incorrectly kept in major.
     """
     discipline = (row.get('discipline') or '').strip()
-    if discipline in APPROVED_ENGINEERING_DISCIPLINES:
+    if discipline in _APPROVED_DISCIPLINES_SET:
         return discipline
 
     legacy_major = (row.get('major') or '').strip()
-    if legacy_major in APPROVED_ENGINEERING_DISCIPLINES:
+    if legacy_major in _APPROVED_DISCIPLINES_SET:
         return legacy_major
 
     return 'Other'
+
+
+def _resolve_major(row):
+    """
+    Return canonical major only.
+    Never return discipline labels in this field.
+    """
+    standardized_major = (row.get('standardized_major') or '').strip()
+    if standardized_major in _APPROVED_UNT_MAJORS_SET:
+        return standardized_major
+
+    raw_major = (row.get('major') or '').strip()
+    if raw_major in _APPROVED_DISCIPLINES_SET:
+        return ''
+    if raw_major in _APPROVED_UNT_MAJORS_SET:
+        return raw_major
+    return ''
+
+
+def _resolve_full_major(row):
+    """
+    Return display major.
+    Prefer canonical major; fallback to non-discipline raw major text.
+    """
+    canonical_major = _resolve_major(row)
+    if canonical_major:
+        return canonical_major
+
+    raw_major = (row.get('major') or '').strip()
+    if raw_major and raw_major not in _APPROVED_DISCIPLINES_SET:
+        return raw_major
+    return ''
 
 
 def classify_degree(degree_field, headline=''):
@@ -232,10 +288,25 @@ def _parse_multi_value_param(param_name):
     Example:
       ?location=Dallas&location=Austin
       ?location=Dallas,Austin
+
+    Notes:
+      - Some values legitimately contain commas (e.g. "Austin, TX",
+        "Software, Data & AI Engineering"). For these params we preserve
+        each raw query value as-is and rely on repeated params for multi-select.
     """
+    raw_values = [str(raw or "").strip() for raw in request.args.getlist(param_name)]
+    raw_values = [v for v in raw_values if v]
+    if not raw_values:
+        return []
+
+    # These fields often contain commas in a single value, so do not split.
+    preserve_commas_params = {"location", "role", "company", "major"}
+    if param_name in preserve_commas_params:
+        return raw_values
+
     values = []
-    for raw in request.args.getlist(param_name):
-        for part in (raw or "").split(","):
+    for raw in raw_values:
+        for part in raw.split(","):
             cleaned = part.strip()
             if cleaned:
                 values.append(cleaned)
@@ -796,7 +867,7 @@ def api_get_alumni():
         location_filters = _parse_multi_value_param('location')
         role_filters = _parse_multi_value_param('role')
         company_filters = _parse_multi_value_param('company')
-        major_filters = _parse_multi_value_param('major')
+        discipline_filters = _parse_multi_value_param('major')
         degree_filters = [d.lower() for d in _parse_multi_value_param('degree')]
         grad_year_filters = _parse_int_list_param('grad_year')
         working_while_studying_filter = (request.args.get('working_while_studying', '') or '').strip().lower()
@@ -810,10 +881,10 @@ def api_get_alumni():
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
-        if major_filters:
-            invalid_majors = [m for m in major_filters if m not in APPROVED_ENGINEERING_DISCIPLINES]
-            if invalid_majors:
-                return jsonify({"error": f"Invalid engineering discipline: {invalid_majors[0]}"}), 400
+        if discipline_filters:
+            invalid_disciplines = [m for m in discipline_filters if m not in _APPROVED_DISCIPLINES_SET]
+            if invalid_disciplines:
+                return jsonify({"error": f"Invalid engineering discipline: {invalid_disciplines[0]}"}), 400
 
         user_id_for_bookmark_filter = None
         if bookmarked_only:
@@ -867,13 +938,10 @@ def api_get_alumni():
                         params.extend([company_like, company_like])
                     where_clauses.append("(" + " OR ".join(company_conditions) + ")")
 
-                if major_filters:
-                    placeholders = ",".join(["%s"] * len(major_filters))
-                    where_clauses.append(
-                        f"(a.discipline IN ({placeholders}) OR a.major IN ({placeholders}))"
-                    )
-                    params.extend(major_filters)
-                    params.extend(major_filters)
+                if discipline_filters:
+                    placeholders = ",".join(["%s"] * len(discipline_filters))
+                    where_clauses.append(f"a.discipline IN ({placeholders})")
+                    params.extend(discipline_filters)
 
                 if grad_year_filters:
                     placeholders = ",".join(["%s"] * len(grad_year_filters))
@@ -980,12 +1048,8 @@ def api_get_alumni():
 
                 full_degree = r.get('degree') or ''
                 degree_level = classify_degree(full_degree, r.get('headline', ''))
-                full_major = (r.get('standardized_major') or '').strip()
-                if not full_major:
-                    raw_major = (r.get('major') or '').strip()
-                    if raw_major and raw_major not in APPROVED_ENGINEERING_DISCIPLINES:
-                        full_major = raw_major
-
+                major = _resolve_major(r)
+                full_major = _resolve_full_major(r)
                 discipline = _resolve_discipline(r)
                 updated_at = r.get('updated_at')
                 if hasattr(updated_at, 'isoformat'):
@@ -999,7 +1063,8 @@ def api_get_alumni():
                     "current_job_title": r.get('current_job_title'),
                     "company": r.get('company'),
                     "grad_year": r.get('grad_year'),
-                    "major": discipline,
+                    "major": major,
+                    "discipline": discipline,
 
                     # Keep raw role text for card display.
                     "role": r.get('current_job_title'),
@@ -1082,7 +1147,7 @@ def api_get_alumni_detail(alumni_id):
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.standardized_major,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at,
                            a.school, a.school2, a.school3,
@@ -1116,7 +1181,7 @@ def api_get_alumni_detail(alumni_id):
                 # Education 1 (UNT primary)
                 "school": r.get('school') or 'University of North Texas',
                 "degree": r.get('degree_raw'),
-                "major": r.get('major_raw'),
+                "major": _resolve_full_major(r),
                 "grad_year": r.get('grad_year'),
                 "school_start_date": r.get('school_start_date'),
 
@@ -1836,10 +1901,13 @@ def get_fallback_status_api():
 @api_login_required
 def api_get_majors():
     """
-    Return the static list of approved engineering disciplines.
-    Disciplines are computed on-the-fly from alumni data, not stored in DB.
+    Return canonical filter labels for both majors and engineering disciplines.
     """
-    resp = jsonify({"success": True, "majors": sorted(APPROVED_ENGINEERING_DISCIPLINES)})
+    resp = jsonify({
+        "success": True,
+        "majors": sorted(APPROVED_UNT_MAJORS),
+        "disciplines": sorted(APPROVED_ENGINEERING_DISCIPLINES),
+    })
     resp.headers['Cache-Control'] = 'public, max-age=3600'
     return resp, 200
 
@@ -1930,11 +1998,10 @@ def api_alumni_filter_options():
 @app.route('/api/alumni/filter', methods=['GET'])
 def api_filter_alumni():
     """
-    Filter alumni by major (discipline) and other criteria.
-    NOTE: discipline is computed on-the-fly via infer_discipline(), NOT from the DB.
+    Filter alumni by engineering discipline and other criteria.
     NOTE: Public endpoint - no authentication required
     Query params:
-      - major: filter by engineering discipline
+      - major: filter by engineering discipline (legacy query param name)
       - location, company, job_title, grad_year, degree: other filters
       - limit (default 10000), offset (default 0)
     """
@@ -1944,7 +2011,7 @@ def api_filter_alumni():
 
     try:
         # Get filter parameters
-        major = request.args.get('major', '').strip()
+        discipline_filter = request.args.get('major', '').strip()
         location = request.args.get('location', '').strip()
         company = request.args.get('company', '').strip()
         job_title = request.args.get('job_title', '').strip()
@@ -1960,9 +2027,9 @@ def api_filter_alumni():
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
-        # Validate major parameter
-        if major and major not in APPROVED_ENGINEERING_DISCIPLINES:
-            return jsonify({"error": f"Invalid engineering discipline: {major}"}), 400
+        # Validate engineering discipline filter.
+        if discipline_filter and discipline_filter not in _APPROVED_DISCIPLINES_SET:
+            return jsonify({"error": f"Invalid engineering discipline: {discipline_filter}"}), 400
 
         try:
             limit = int(request.args.get('limit', 10000))
@@ -1976,7 +2043,7 @@ def api_filter_alumni():
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                # Build dynamic WHERE clause -- discipline (major) is NOT filtered in SQL
+                # Build dynamic WHERE clause.
                 where_clauses = []
                 params = []
 
@@ -2027,16 +2094,12 @@ def api_filter_alumni():
 
                     full_degree = r.get('degree') or ''
                     degree_level = classify_degree(full_degree, r.get('headline', ''))
-                    full_major = (r.get('standardized_major') or '').strip()
-                    if not full_major:
-                        raw_major = (r.get('major') or '').strip()
-                        if raw_major and raw_major not in APPROVED_ENGINEERING_DISCIPLINES:
-                            full_major = raw_major
-
+                    major = _resolve_major(r)
+                    full_major = _resolve_full_major(r)
                     discipline = _resolve_discipline(r)
 
-                    # Apply discipline filter in Python (not SQL)
-                    if major and discipline != major:
+                    # Apply discipline filter in Python.
+                    if discipline_filter and discipline != discipline_filter:
                         continue
 
                     alumni.append({
@@ -2045,7 +2108,8 @@ def api_filter_alumni():
                         "current_job_title": r.get('current_job_title'),
                         "company": r.get('company'),
                         "grad_year": r.get('grad_year'),
-                        "major": discipline,
+                        "major": major,
+                        "discipline": discipline,
                         "role": r.get('current_job_title'),
                         "headline": r.get('headline'),
                         "class": r.get('grad_year'),

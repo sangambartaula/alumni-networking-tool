@@ -8,6 +8,114 @@ from pathlib import Path
 
 load_dotenv()
 
+APPROVED_ENGINEERING_DISCIPLINES = {
+    "Software, Data & AI Engineering",
+    "Embedded, Electrical & Hardware Engineering",
+    "Mechanical & Energy Engineering",
+    "Biomedical Engineering",
+    "Materials Science & Manufacturing",
+    "Construction & Engineering Management",
+}
+
+UNT_ALLOWED_MAJORS = {
+    "Autonomous Systems",
+    "Biomedical Engineering",
+    "Computer Engineering",
+    "Computer Science",
+    "Computer Science and Engineering",
+    "Construction Management",
+    "Cybersecurity",
+    "Data Engineering",
+    "Electrical Engineering",
+    "Engineering Management",
+    "Engineering Technology",
+    "Information Technology",
+    "Machine Learning",
+    "Materials Science",
+    "Materials Science and Engineering",
+    "Mechanical and Energy Engineering",
+    "Mechanical Engineering Technology",
+    "Other",
+}
+
+FLAGGED_REVIEW_PATH = (
+    Path(__file__).resolve().parent.parent / "scraper" / "output" / "flagged_for_review.txt"
+)
+
+
+def _clean_optional_text(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+    return text
+
+
+def _sanitize_major_and_discipline(major, standardized_major, discipline):
+    """
+    Ensure major and discipline remain separate:
+    - `major` must never contain a discipline label.
+    - `discipline` must be one of the approved discipline labels (or empty).
+    """
+    normalized_major = _clean_optional_text(major)
+    normalized_standardized_major = _clean_optional_text(standardized_major)
+    normalized_discipline = _clean_optional_text(discipline) or ""
+    review_reason = None
+
+    if normalized_discipline and normalized_discipline not in APPROVED_ENGINEERING_DISCIPLINES:
+        normalized_discipline = ""
+
+    if normalized_major in APPROVED_ENGINEERING_DISCIPLINES:
+        review_reason = "major_equals_discipline_label"
+        if not normalized_discipline:
+            normalized_discipline = normalized_major
+
+        if normalized_standardized_major and normalized_standardized_major in UNT_ALLOWED_MAJORS:
+            normalized_major = normalized_standardized_major
+        else:
+            normalized_major = None
+
+    if normalized_major and normalized_major not in UNT_ALLOWED_MAJORS:
+        if normalized_standardized_major and normalized_standardized_major in UNT_ALLOWED_MAJORS:
+            normalized_major = normalized_standardized_major
+
+    return normalized_major, normalized_discipline, review_reason
+
+
+def _append_flagged_review_urls(url_reason_map):
+    if not url_reason_map:
+        return
+
+    try:
+        FLAGGED_REVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
+        existing_urls = set()
+        if FLAGGED_REVIEW_PATH.exists():
+            with open(FLAGGED_REVIEW_PATH, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    existing_url = line.split("#")[0].strip().rstrip("/")
+                    if existing_url:
+                        existing_urls.add(existing_url)
+
+        pending_lines = []
+        for raw_url, reason in sorted(url_reason_map.items()):
+            url = normalize_url(raw_url)
+            if not url:
+                continue
+            if url in existing_urls:
+                continue
+            pending_lines.append(f"{url} # {reason}\n")
+            existing_urls.add(url)
+
+        if pending_lines:
+            with open(FLAGGED_REVIEW_PATH, "a", encoding="utf-8") as handle:
+                handle.writelines(pending_lines)
+            logger.info(f"Flagged {len(pending_lines)} profile(s) for major/discipline review")
+    except Exception as flag_err:
+        logger.warning(f"Could not append major/discipline review flags: {flag_err}")
+
 def _get_or_create_normalized_entity(cur, table, column, value):
     """
     Inline helper to insert normalized strings and return their DB ID.
@@ -198,8 +306,8 @@ def init_db():
                     last_name VARCHAR(100),
                     grad_year INT,
                     degree VARCHAR(255),
-                    # 'major' stores the Engineering Discipline (e.g., Computer Science, Electrical)
-                    # used for high-level filtering on the dashboard.
+                    # 'major' stores the student's major (not engineering discipline).
+                    # Discipline is stored separately in the `discipline` column.
                     major VARCHAR(255) DEFAULT NULL,
                     linkedin_url VARCHAR(500) NOT NULL,
                     current_job_title VARCHAR(255),
@@ -546,8 +654,8 @@ def ensure_alumni_work_school_date_columns():
 
 def ensure_alumni_major_column():
     """
-    Ensure major column exists in alumni table for engineering disciplines.
-    This is required for the Engineering Discipline filter to work.
+    Ensure major column exists in alumni table for major text.
+    Engineering discipline is stored in the separate `discipline` column.
     """
     conn = None
     try:
@@ -1042,6 +1150,7 @@ def seed_alumni_data():
         added = 0
         updated = 0
         processed = 0
+        flagged_major_issue_urls = {}
         try:
             commit_every = max(1, int(os.getenv("SEED_COMMIT_EVERY", "50")))
         except Exception:
@@ -1091,7 +1200,7 @@ def seed_alumni_data():
                     major2 = str(row.get('major2', '')).strip() if pd.notna(row.get('major2')) else None
                     major3 = str(row.get('major3', '')).strip() if pd.notna(row.get('major3')) else None
 
-                    # Preserve raw major from CSV; discipline is stored separately.
+                    # Preserve discipline from CSV and normalize separately from major.
                     saved_discipline = str(row.get('discipline', '')).strip() if pd.notna(row.get('discipline')) else ''
                     
                     # grad_year (new) vs graduation_year (old)
@@ -1162,6 +1271,14 @@ def seed_alumni_data():
                     std_major = str(row.get('standardized_major', '')).strip() if pd.notna(row.get('standardized_major')) else None
                     std_major2 = str(row.get('standardized_major2', '')).strip() if pd.notna(row.get('standardized_major2')) else None
                     std_major3 = str(row.get('standardized_major3', '')).strip() if pd.notna(row.get('standardized_major3')) else None
+
+                    major, saved_discipline, major_review_reason = _sanitize_major_and_discipline(
+                        major=major,
+                        standardized_major=std_major,
+                        discipline=saved_discipline,
+                    )
+                    if major_review_reason and profile_url:
+                        flagged_major_issue_urls[profile_url] = major_review_reason
 
                     # Insert or update into database
                     try:
@@ -1291,6 +1408,7 @@ def seed_alumni_data():
                 logger.info(f"✅ Added {added} new alumni records")
                 logger.info(f"✅ Updated {updated} existing alumni records")
                 logger.info(f"Successfully processed {processed} total alumni records")
+                _append_flagged_review_urls(flagged_major_issue_urls)
         finally:
             try:
                 conn.close()

@@ -79,6 +79,8 @@ def test_filter_api_selects_major_and_returns_it(monkeypatch):
             "grad_year": 2022,
             "degree": "Bachelor of Science",
             "major": "Software, Data & AI Engineering",
+            "discipline": "Software, Data & AI Engineering",
+            "standardized_major": "Computer Science",
             "linkedin_url": "https://www.linkedin.com/in/ada",
             "current_job_title": "Software Engineer",
             "company": "UNT",
@@ -109,7 +111,8 @@ def test_filter_api_selects_major_and_returns_it(monkeypatch):
     assert resp.status_code == 200
     assert "a.major" in executed["query"]
     assert executed["params"] == [2022]
-    assert payload["alumni"][0]["major"] == "Software, Data & AI Engineering"
+    assert payload["alumni"][0]["major"] == "Computer Science"
+    assert payload["alumni"][0]["discipline"] == "Software, Data & AI Engineering"
 
 
 def test_filter_api_combines_location_and_unt_alumni_status(monkeypatch):
@@ -178,3 +181,95 @@ def test_filter_api_combines_location_and_unt_alumni_status(monkeypatch):
     assert payload["count"] == 1
     assert payload["alumni"][0]["id"] == 1
     assert payload["alumni"][0]["unt_alumni_status"] == "yes"
+
+
+def test_filter_api_accepts_major_with_commas(monkeypatch):
+    executed = {}
+    rows = [
+        {
+            "id": 1,
+            "first_name": "Ada",
+            "last_name": "Lovelace",
+            "grad_year": 2022,
+            "degree": "Bachelor of Science",
+            "major": "Software, Data & AI Engineering",
+            "discipline": "Software, Data & AI Engineering",
+            "standardized_major": "Computer Science",
+            "linkedin_url": "https://www.linkedin.com/in/ada",
+            "current_job_title": "Software Engineer",
+            "company": "Acme",
+            "location": "Austin, TX",
+            "headline": "Software Engineer",
+            "normalized_title": "Software Engineer",
+            "normalized_company": "Acme",
+            "school": "University of North Texas",
+            "school2": None,
+            "school3": None,
+            "degree2": None,
+            "degree3": None,
+            "major2": None,
+            "major3": None,
+        }
+    ]
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(rows=rows, sink=executed),
+    )
+    client = backend_app.app.test_client()
+
+    resp = client.get("/api/alumni?major=Software,%20Data%20%26%20AI%20Engineering")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert len(payload["alumni"]) == 1
+    assert payload["alumni"][0]["major"] == "Computer Science"
+    assert payload["alumni"][0]["discipline"] == "Software, Data & AI Engineering"
+    major_params = [p for p in executed["params"] if isinstance(p, str) and "Software, Data & AI Engineering" in p]
+    # Query applies the legacy `major` query param as a discipline filter.
+    assert len(major_params) == 1
+
+
+def test_filter_api_repeated_location_values_preserve_commas(monkeypatch):
+    executed = {}
+    rows = [
+        {
+            "id": 1,
+            "first_name": "Ada",
+            "last_name": "Lovelace",
+            "grad_year": 2022,
+            "degree": "Bachelor of Science",
+            "major": "Software, Data & AI Engineering",
+            "discipline": "Software, Data & AI Engineering",
+            "standardized_major": "Computer Science",
+            "linkedin_url": "https://www.linkedin.com/in/ada",
+            "current_job_title": "Software Engineer",
+            "company": "Acme",
+            "location": "Austin, TX",
+            "headline": "Software Engineer",
+            "normalized_title": "Software Engineer",
+            "normalized_company": "Acme",
+            "school": "University of North Texas",
+            "school2": None,
+            "school3": None,
+            "degree2": None,
+            "degree3": None,
+            "major2": None,
+            "major3": None,
+        }
+    ]
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(rows=rows, sink=executed),
+    )
+    client = backend_app.app.test_client()
+
+    resp = client.get("/api/alumni?location=Austin,%20TX&location=Dallas,%20TX")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+    string_params = [p for p in executed["params"] if isinstance(p, str)]
+    assert "Austin, TX" in string_params
+    assert "Dallas, TX" in string_params

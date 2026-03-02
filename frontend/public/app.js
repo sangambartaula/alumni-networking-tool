@@ -33,6 +33,13 @@ const alumniChunkSize = 500;
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
+function isWorkingWhileStudyingPositive(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'yes' || normalized === 'currently' || normalized === 'true' || normalized === '1';
+}
+
 // ===== STATS BANNER UPDATE FUNCTION =====
 function updateStatsBanner(alumniData) {
   const safeAlumni = Array.isArray(alumniData) ? alumniData : [];
@@ -50,7 +57,7 @@ function updateStatsBanner(alumniData) {
     : Object.values(userInteractions).filter(interaction => interaction.interaction_type === 'bookmarked').length;
 
   // Calculate working while studying count
-  const wwsCount = safeAlumni.filter(a => a.working_while_studying === true).length;
+  const wwsCount = safeAlumni.filter(a => isWorkingWhileStudyingPositive(a.working_while_studying)).length;
 
   // Update DOM elements
   const totalAlumniEl = document.getElementById('totalAlumni');
@@ -637,7 +644,7 @@ function populateFilters(list) {
     )
   ).sort();
   const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
-  const majors = Array.from(new Set(list.map(x => x.major).filter(Boolean)))
+  const majors = Array.from(new Set(list.map(x => x.discipline).filter(Boolean)))
     .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
     .sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
@@ -736,6 +743,7 @@ function mapAlumniRecord(a) {
     full_degree: a.full_degree || '',
     full_major: a.full_major || '',
     major: a.major || '',
+    discipline: a.discipline || '',
     updated_at: a.updated_at || '',
     working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
     unt_alumni_status: a.unt_alumni_status || 'unknown'
@@ -785,11 +793,11 @@ function buildAlumniQueryParams(queryState, offset, limit) {
   params.set('offset', String(offset));
 
   if (queryState.term) params.set('q', queryState.term);
-  if (queryState.loc.length) params.set('location', queryState.loc.join(','));
-  if (queryState.role.length) params.set('role', queryState.role.join(','));
-  if (queryState.company.length) params.set('company', queryState.company.join(','));
-  if (queryState.major.length) params.set('major', queryState.major.join(','));
-  if (queryState.degree.length) params.set('degree', queryState.degree.join(','));
+  queryState.loc.forEach(v => params.append('location', v));
+  queryState.role.forEach(v => params.append('role', v));
+  queryState.company.forEach(v => params.append('company', v));
+  queryState.major.forEach(v => params.append('major', v));
+  queryState.degree.forEach(v => params.append('degree', v));
   if (queryState.year) params.set('grad_year', queryState.year);
   if (queryState.wws) params.set('working_while_studying', queryState.wws);
   if (queryState.untAlumniStatus) params.set('unt_alumni_status', queryState.untAlumniStatus);
