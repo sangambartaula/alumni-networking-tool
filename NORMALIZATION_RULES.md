@@ -217,8 +217,10 @@ Status values:
 
 Date-based logic:
 
+- use month precision when available for both school end and job dates
+- if graduation year exists but month is missing, effective graduation date defaults to May 15 of that year
 - if still studying (expected grad / present / missing grad year) and job is active => `currently`
-- if job started before graduation => `yes`
+- if job started before effective graduation date => `yes`
 - else => `no`
 
 Missing-date strict fallback:

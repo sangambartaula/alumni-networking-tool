@@ -54,6 +54,28 @@ def _clean_optional_text(value):
     return text
 
 
+_NAME_SUFFIX_TOKENS = {"ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
+
+
+def _normalize_person_name(raw_name):
+    """Normalize person-name casing while preserving punctuation."""
+    text = re.sub(r"\s+", " ", str(raw_name or "").strip())
+    if not text:
+        return ""
+    text = re.sub(r"[,\s]+$", "", text).strip()
+
+    def _cap_word(match):
+        word = match.group(0)
+        low = word.lower()
+        if low in _NAME_SUFFIX_TOKENS:
+            return low.upper()
+        if len(word) == 1:
+            return word.upper()
+        return word[0].upper() + word[1:].lower()
+
+    return re.sub(r"[A-Za-z]+", _cap_word, text)
+
+
 def _sanitize_major_and_discipline(major, standardized_major, discipline):
     """
     Ensure major and discipline remain separate:
@@ -1164,10 +1186,13 @@ def seed_alumni_data():
                     # Parse name (Handle New 'first', 'last' OR Old 'name')
                     first_name = str(row.get('first', '')).strip() if pd.notna(row.get('first')) else ''
                     last_name = str(row.get('last', '')).strip() if pd.notna(row.get('last')) else ''
+                    first_name = _normalize_person_name(first_name)
+                    last_name = _normalize_person_name(last_name)
                     
                     if not first_name and not last_name:
                         # Fallback to old 'name' column
                         name = str(row.get('name', '')).strip() if pd.notna(row.get('name')) else ''
+                        name = _normalize_person_name(name)
                         if name:
                             parts = name.split()
                             first_name = parts[0]

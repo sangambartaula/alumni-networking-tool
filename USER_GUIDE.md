@@ -55,6 +55,8 @@ Use the `Working While Studying` filter:
 - `Yes`: evidence of job overlap during UNT attendance window.
 - `No`: no evidence of overlap.
 - `Currently` may appear in scraper-side status values when profile indicates ongoing study/work overlap.
+- Month precision is used when available for job and graduation dates.
+- If graduation month is missing but graduation year exists, the system uses a May 15 cutoff for overlap checks.
 
 The backend supports both boolean and status-string representations and normalizes them for filtering.
 

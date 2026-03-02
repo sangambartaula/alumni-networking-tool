@@ -81,6 +81,38 @@ def _is_company_title_collision(title: str, company: str) -> bool:
     return title_key == company_key
 
 
+_NAME_SUFFIX_TOKENS = {"ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
+
+
+def _normalize_person_name(raw_name: str) -> str:
+    """
+    Normalize person-name casing while preserving punctuation and nicknames.
+    Examples:
+    - "sanjana madharapu" -> "Sanjana Madharapu"
+    - "ZOHREH FARAHMANDPOUR," -> "Zohreh Farahmandpour"
+    - "KENNETH (\"KENNY\") WELLS" -> "Kenneth (\"Kenny\") Wells"
+    """
+    text = re.sub(r"\s+", " ", (raw_name or "").strip())
+    if not text:
+        return ""
+
+    # Remove trailing punctuation noise like dangling commas.
+    text = re.sub(r"[,\s]+$", "", text).strip()
+
+    def _cap_word(match: re.Match) -> str:
+        word = match.group(0)
+        low = word.lower()
+        if low in _NAME_SUFFIX_TOKENS:
+            return low.upper()
+        if len(word) == 1:
+            return word.upper()
+        return word[0].upper() + word[1:].lower()
+
+    normalized = re.sub(r"[A-Za-z]+", _cap_word, text)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
 _STANDARDIZED_TITLE_LOOKUP_CACHE = None
 
 
@@ -973,7 +1005,7 @@ class LinkedInScraper:
                 if verify_location(text):
                     location = text
                     break
-        
+        name = _normalize_person_name(name)
         return name, headline, location
 
     def _extract_all_experiences(self, soup, max_entries=3, profile_name="unknown"):

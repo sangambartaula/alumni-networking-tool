@@ -1,14 +1,15 @@
 import re
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date
+from calendar import monthrange
 import pandas as pd
 from pathlib import Path
 from config import logger
 
 """Pure functions for text cleaning, date parsing, and logic."""
 # --- Constants for Parsing ---
-MONTHS_RE = r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+MONTHS_RE = r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
 DATE_RANGE_RE = re.compile(
-    rf"(?P<start>(?:{MONTHS_RE}\s+\d{{4}})|(?:\d{{4}}))\s*[-–—]\s*(?P<end>(?:Present)|(?:{MONTHS_RE}\s+\d{{4}})|(?:\d{{4}}))",
+    rf"(?P<start>(?:{MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))\s*[-–—]\s*(?P<end>(?:Present)|(?:{MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))",
     re.IGNORECASE
 )
 YEAR_RANGE_RE = re.compile(r"(\d{4})\s*[-–—]\s*(\d{4}|Present)", re.IGNORECASE)
@@ -96,10 +97,21 @@ def load_names_from_csv(csv_path: Path):
 # --- Date Logic ---
 def month_to_num(m: str) -> int:
     month_map = {
-        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
-        "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
+        "jan": 1, "january": 1,
+        "feb": 2, "february": 2,
+        "mar": 3, "march": 3,
+        "apr": 4, "april": 4,
+        "may": 5,
+        "jun": 6, "june": 6,
+        "jul": 7, "july": 7,
+        "aug": 8, "august": 8,
+        "sep": 9, "sept": 9, "september": 9,
+        "oct": 10, "october": 10,
+        "nov": 11, "november": 11,
+        "dec": 12, "december": 12,
     }
-    return month_map.get((m or "").strip().title(), 0)
+    key = re.sub(r"[.\s]+$", "", (m or "").strip().lower())
+    return month_map.get(key, 0)
 
 def parse_date_token(token: str):
     raw = (token or "").strip()
@@ -108,11 +120,18 @@ def parse_date_token(token: str):
     if raw.lower().startswith("present"):
         return {"raw": "Present", "is_present": True, "year": None, "month": None, "has_month": False}
     
-    mm = re.match(rf"^(?P<m>{MONTHS_RE})\s+(?P<y>\d{{4}})$", raw, re.I)
+    mm = re.match(
+        r"^(?P<m>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+        r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|"
+        r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(?P<y>\d{4})$",
+        raw,
+        re.I,
+    )
     if mm:
-        m = mm.group("m").title()
+        m_num = month_to_num(mm.group("m"))
         y = int(mm.group("y"))
-        return {"raw": f"{m} {y}", "is_present": False, "year": y, "month": month_to_num(m), "has_month": True}
+        m_abbr = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m_num]
+        return {"raw": f"{m_abbr} {y}", "is_present": False, "year": y, "month": m_num or None, "has_month": bool(m_num)}
     
     yy = re.match(r"^(?P<y>\d{4})$", raw)
     if yy:
@@ -135,7 +154,13 @@ def format_date_for_storage(d: dict) -> str:
     if d.get("is_present"): return "Present"
     y = d.get("year")
     if not y: return ""
-    if d.get("has_month") and d.get("month"): return d.get("raw") or ""
+    month = d.get("month")
+    if month:
+        if d.get("raw") and d.get("has_month", True):
+            return d.get("raw")
+        month_abbr = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][int(month)]
+        if month_abbr:
+            return f"{month_abbr} {y}"
     return str(y)
 
 def date_to_comparable(d: dict, bound: str):
@@ -157,14 +182,12 @@ def determine_work_study_status(
     Determine whether an alumni worked before, during, or after graduation.
 
     Logic (per spec):
-      1. Identify graduation year from school_end. Year 9999 means "Present/ongoing".
-      2. If graduation is marked "Expected" (or school end is_present / 9999) → treat as
-         not yet graduated (currently studying).
-      3. Compare job_start year with graduation year:
-         a. Job start year < grad year → "yes" (Worked While Studying).
-         b. Grad year in the future (or Expected) AND job is active → "currently"
-            (Currently Working While Studying).
-         c. Job start year >= grad year → "no" (Worked After Graduation / no overlap).
+      1. Use month precision when available.
+      2. If graduation month is missing but graduation year exists, use May 15.
+      3. If graduation is marked expected/present/missing, treat as still studying.
+      4. If job start date is before effective graduation date -> "yes".
+      5. If still studying and job is active -> "currently".
+      6. Otherwise -> "no".
 
     Returns:
         "yes"       – worked while studying (job started before graduation)
@@ -172,55 +195,72 @@ def determine_work_study_status(
         "no"        – worked after graduation
         ""          – insufficient data to determine
     """
-    CURRENT_YEAR = datetime.now().year
+    today = date.today()
 
-    # --- Get graduation year -------------------------------------------------
-    grad_year = None
-    still_studying = False  # True if not yet graduated
+    def _safe_date(y: int, m: int, d: int) -> date | None:
+        try:
+            return date(int(y), int(m), int(d))
+        except Exception:
+            return None
 
-    if school_end:
-        if school_end.get("is_present") or school_end.get("year") == 9999:
-            # Ongoing education → not yet graduated
-            still_studying = True
-        else:
-            grad_year = school_end.get("year")
+    def _effective_grad_date(end_info: dict | None) -> tuple[date | None, bool]:
+        # still_studying=True means expected/present/missing grad signal.
+        if not end_info or is_expected:
+            return None, True
+        if end_info.get("is_present") or end_info.get("year") == 9999:
+            return None, True
 
-    # Treat "Expected" flag or missing graduation year as not yet graduated
-    if is_expected or grad_year is None:
-        still_studying = True
+        year = end_info.get("year")
+        if not year:
+            return None, True
 
-    # --- Get job start year --------------------------------------------------
-    job_start_year = None
-    if job_start and not job_start.get("is_present"):
-        job_start_year = job_start.get("year")
+        month = end_info.get("month") or 5
+        grad = _safe_date(year, month, 15)
+        return grad, grad is None
 
-    if job_start_year is None:
-        return ""  # Can't determine without job start
+    def _job_start_date(start_info: dict | None) -> date | None:
+        if not start_info or start_info.get("is_present"):
+            return None
+        year = start_info.get("year")
+        if not year:
+            return None
+        month = start_info.get("month") or 1
+        return _safe_date(year, month, 1)
 
-    # --- Classify ------------------------------------------------------------
+    def _job_end_date(end_info: dict | None) -> date | None:
+        if end_info is None or end_info.get("is_present") or end_info.get("year") == 9999:
+            return today
+        year = end_info.get("year")
+        if not year:
+            return None
+        month = end_info.get("month") or 12
+        try:
+            day = monthrange(int(year), int(month))[1]
+        except Exception:
+            day = 28
+        return _safe_date(year, month, day)
+
+    grad_date, still_studying = _effective_grad_date(school_end)
+    start_date = _job_start_date(job_start)
+    if start_date is None:
+        return ""
+
+    is_active_job = job_end is None or job_end.get("is_present") or job_end.get("year") == 9999
+    end_date = _job_end_date(job_end)
+
     if still_studying:
-        # Not yet graduated: any active job = currently working while studying
-        job_is_active = job_end is None or job_end.get("is_present") or job_end.get("year") == 9999
-        if job_is_active:
+        if is_active_job:
             return "currently"
-        # Job has ended but they were still in school → "yes"
-        job_end_year = job_end.get("year") if job_end else None
-        if job_end_year and job_end_year > CURRENT_YEAR:
+        if end_date and end_date > today:
             return "currently"
         return "yes"
 
-    # grad_year is known
-    # Step 4: job started before graduation → worked while studying
-    if job_start_year < grad_year:
+    if grad_date and start_date < grad_date:
         return "yes"
 
-    # Step 5: grad year is in the future and job is active → currently working while studying
-    if grad_year > CURRENT_YEAR:
-        job_is_active = job_end is None or job_end.get("is_present") or (job_end.get("year") or 0) > CURRENT_YEAR
-        if job_is_active:
-            return "currently"
+    if grad_date and grad_date > today and is_active_job:
+        return "currently"
 
-    # Step 6: job started at or after graduation → worked after graduation
     return "no"
 
 

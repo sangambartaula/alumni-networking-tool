@@ -1,5 +1,6 @@
 import re
-from datetime import datetime
+from calendar import monthrange
+from datetime import date
 from typing import Dict, Optional, Tuple
 
 try:
@@ -11,6 +12,25 @@ except Exception:
 _UNT_FULL_NAME_RE = re.compile(r"university\s+of\s+north\s+texas", re.IGNORECASE)
 _UNT_TOKEN_RE = re.compile(r"\bunt\b", re.IGNORECASE)
 _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+_MONTHS_RE = r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+_DATE_RANGE_RE = re.compile(
+    rf"(?P<start>(?:{_MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))\s*[-–—]\s*(?P<end>(?:Present)|(?:{_MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))",
+    re.IGNORECASE,
+)
+_MONTH_TO_NUM = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
 
 
 def is_unt_school_name(name: str) -> bool:
@@ -46,18 +66,54 @@ def _parse_year(value) -> Optional[int]:
     return None
 
 
-def _job_start_end_dicts(start_text, end_text) -> Tuple[Optional[Dict], Optional[Dict]]:
-    start_year = _parse_year(start_text)
-    if start_year is None:
-        return None, None
+def _parse_date_token(value, bound: str) -> Optional[Dict]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower().startswith("present"):
+        return {"year": 9999, "month": 12, "is_present": True}
 
-    start_d = {"year": start_year, "is_present": False}
-    end_raw = str(end_text).strip().lower() if end_text is not None else ""
-    if end_raw.startswith("present"):
-        end_d = {"year": 9999, "is_present": True}
-    else:
-        end_year = _parse_year(end_text)
-        end_d = {"year": end_year, "is_present": False} if end_year else None
+    month_match = re.match(rf"^({_MONTHS_RE})\.?\s+(\d{{4}})$", text, re.IGNORECASE)
+    if month_match:
+        month = _MONTH_TO_NUM.get(month_match.group(1).lower())
+        year = int(month_match.group(2))
+        if month:
+            return {"year": year, "month": month, "is_present": False}
+
+    year_match = re.match(r"^(\d{4})$", text)
+    if year_match:
+        year = int(year_match.group(1))
+        month = 1 if bound == "start" else 12
+        return {"year": year, "month": month, "is_present": False}
+
+    parsed_year = _parse_year(text)
+    if parsed_year is None:
+        return None
+    month = 1 if bound == "start" else 12
+    return {"year": parsed_year, "month": month, "is_present": False}
+
+
+def _parse_date_range_text(range_text) -> Tuple[Optional[Dict], Optional[Dict]]:
+    if range_text is None:
+        return None, None
+    text = str(range_text).strip()
+    if not text:
+        return None, None
+    match = _DATE_RANGE_RE.search(text)
+    if not match:
+        return None, None
+    start_d = _parse_date_token(match.group("start"), "start")
+    end_d = _parse_date_token(match.group("end"), "end")
+    return start_d, end_d
+
+
+def _job_start_end_dicts(start_text, end_text) -> Tuple[Optional[Dict], Optional[Dict]]:
+    start_d = _parse_date_token(start_text, "start")
+    if start_d is None:
+        return None, None
+    end_d = _parse_date_token(end_text, "end")
     return start_d, end_d
 
 
@@ -87,42 +143,64 @@ def _determine_work_study_status_local(
     job_end: Optional[Dict],
     is_expected: bool = False,
 ) -> str:
-    current_year = datetime.now().year
-    grad_year = None
-    still_studying = False
+    today = date.today()
 
-    if school_end:
-        if school_end.get("is_present") or school_end.get("year") == 9999:
-            still_studying = True
+    def _safe_date(y: int, m: int, d: int) -> Optional[date]:
+        try:
+            return date(int(y), int(m), int(d))
+        except Exception:
+            return None
+
+    def _effective_grad_date(end_info: Optional[Dict]) -> Tuple[Optional[date], bool]:
+        if not end_info or is_expected:
+            return None, True
+        if end_info.get("is_present") or end_info.get("year") == 9999:
+            return None, True
+        year = end_info.get("year")
+        if not year:
+            return None, True
+        month = end_info.get("month") or 5
+        grad = _safe_date(year, month, 15)
+        return grad, grad is None
+
+    def _job_date(d: Optional[Dict], bound: str) -> Optional[date]:
+        if d is None:
+            return None if bound == "start" else today
+        if d.get("is_present") or d.get("year") == 9999:
+            return today
+        year = d.get("year")
+        if not year:
+            return None
+        month = d.get("month") or (1 if bound == "start" else 12)
+        if bound == "start":
+            day = 1
         else:
-            grad_year = school_end.get("year")
+            try:
+                day = monthrange(int(year), int(month))[1]
+            except Exception:
+                day = 28
+        return _safe_date(year, month, day)
 
-    if is_expected or grad_year is None:
-        still_studying = True
-
-    job_start_year = None
-    if job_start and not job_start.get("is_present"):
-        job_start_year = job_start.get("year")
-
-    if job_start_year is None:
+    grad_date, still_studying = _effective_grad_date(school_end)
+    job_start_date = _job_date(job_start, "start")
+    if job_start_date is None:
         return ""
 
+    job_end_date = _job_date(job_end, "end")
+    job_is_active = job_end is None or job_end.get("is_present") or job_end.get("year") == 9999
+
     if still_studying:
-        job_is_active = job_end is None or job_end.get("is_present") or job_end.get("year") == 9999
         if job_is_active:
             return "currently"
-        job_end_year = job_end.get("year") if job_end else None
-        if job_end_year and job_end_year > current_year:
+        if job_end_date and job_end_date > today:
             return "currently"
         return "yes"
 
-    if job_start_year < grad_year:
+    if grad_date and job_start_date < grad_date:
         return "yes"
 
-    if grad_year > current_year:
-        job_is_active = job_end is None or job_end.get("is_present") or (job_end.get("year") or 0) > current_year
-        if job_is_active:
-            return "currently"
+    if grad_date and grad_date > today and job_is_active:
+        return "currently"
 
     return "no"
 
@@ -147,20 +225,25 @@ def recompute_working_while_studying_status(row: Dict) -> str:
     strict UNT+Graduate Assistant fallback.
     """
     grad_year = _parse_year(row.get("grad_year"))
-    school_end = {"year": grad_year, "is_present": False} if grad_year else None
+    # Backend row currently stores grad_year only; use May 15 fallback semantics.
+    school_end = {"year": grad_year, "month": None, "is_present": False} if grad_year else None
     is_expected = False
 
     wws_priority = {"": 0, "no": 1, "yes": 2, "currently": 3}
     best_status = ""
 
-    date_pairs = [
-        (row.get("job_start_date"), row.get("job_end_date")),
-        (row.get("exp2_dates"), row.get("exp2_dates")),
-        (row.get("exp3_dates"), row.get("exp3_dates")),
-    ]
+    date_pairs = []
+    date_pairs.append((row.get("job_start_date"), row.get("job_end_date")))
+    for range_key in ("exp2_dates", "exp3_dates"):
+        range_start, range_end = _parse_date_range_text(row.get(range_key))
+        if range_start:
+            date_pairs.append((range_start, range_end))
 
     for start_text, end_text in date_pairs:
-        start_d, end_d = _job_start_end_dicts(start_text, end_text)
+        if isinstance(start_text, dict):
+            start_d, end_d = start_text, end_text
+        else:
+            start_d, end_d = _job_start_end_dicts(start_text, end_text)
         if not start_d:
             continue
         status = _determine_work_study_status_local(

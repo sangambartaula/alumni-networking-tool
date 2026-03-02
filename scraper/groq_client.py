@@ -49,6 +49,47 @@ DEBUG_HTML_DIR = Path(__file__).parent / "output" / "debug_html"
 # Initialize the client once
 _client = None
 
+_MONTH_ALIASES = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+_MONTH_NUM_TO_ABBR = {
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dec",
+}
+
 
 def _get_client():
     """Lazy initialization of Groq client."""
@@ -158,34 +199,68 @@ def parse_groq_date(date_str: str) -> dict:
         return None
 
     date_str = date_str.strip()
+    normalized = re.sub(r"\s+", " ", date_str)
+    normalized = normalized.replace("–", "-").replace("—", "-")
 
     # Check for "Present"
-    if date_str.lower() == "present":
-        return {"year": 9999, "month": 12, "is_present": True, "is_expected": False}
+    if normalized.lower() == "present":
+        return {
+            "year": 9999,
+            "month": 12,
+            "is_present": True,
+            "is_expected": False,
+            "has_month": False,
+            "raw": "Present",
+        }
 
     # Check for "Expected YYYY" or "Expected: YYYY"
-    expected_match = re.match(r'expected[:\s]+(\d{4})', date_str, re.IGNORECASE)
+    expected_match = re.search(r"\bexpected[:\s]+(\d{4})\b", normalized, re.IGNORECASE)
     if expected_match:
         year = int(expected_match.group(1))
-        return {"year": year, "month": None, "is_present": False, "is_expected": True}
+        return {
+            "year": year,
+            "month": None,
+            "is_present": False,
+            "is_expected": True,
+            "has_month": False,
+            "raw": str(year),
+        }
 
-    # Month mapping
-    month_map = {
-        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
-    }
-
-    # Try "Mon YYYY" format
-    match = re.match(r'([A-Za-z]{3})\s*(\d{4})', date_str)
+    # Try explicit month + year ("Jan 2024", "January 2024", optional trailing period)
+    month_pattern = (
+        r"\b("
+        r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+        r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|"
+        r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
+        r")\.?\s+(\d{4})\b"
+    )
+    match = re.search(month_pattern, normalized, re.IGNORECASE)
     if match:
         month_str, year_str = match.groups()
-        month = month_map.get(month_str.lower(), None)
-        return {"year": int(year_str), "month": month, "is_present": False, "is_expected": False}
+        month = _MONTH_ALIASES.get(month_str.lower().rstrip("."), None)
+        year = int(year_str)
+        if month:
+            return {
+                "year": year,
+                "month": month,
+                "is_present": False,
+                "is_expected": False,
+                "has_month": True,
+                "raw": f"{_MONTH_NUM_TO_ABBR[month]} {year}",
+            }
 
     # Try "YYYY" format
-    match = re.match(r'^(\d{4})$', date_str)
+    match = re.fullmatch(r"\d{4}", normalized)
     if match:
-        return {"year": int(match.group(1)), "month": None, "is_present": False, "is_expected": False}
+        year = int(match.group(0))
+        return {
+            "year": year,
+            "month": None,
+            "is_present": False,
+            "is_expected": False,
+            "has_month": False,
+            "raw": str(year),
+        }
 
     return None
 

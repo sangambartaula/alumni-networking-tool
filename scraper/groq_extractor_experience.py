@@ -247,8 +247,8 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
 For each job return:
 - company: The employer name
 - job_title: The position/role  
-- start_date: Format "Mon YYYY" (e.g. "Jan 2024") or just "YYYY"
-- end_date: Format "Mon YYYY" or "Present" if current
+- start_date: Use "Mon YYYY" when month is visible in source; use "YYYY" only if month is truly missing
+- end_date: Use "Mon YYYY" when month is visible, "Present" if current, or "YYYY" only when month is not available
 
 Rules:
 - Extract ALL jobs found, even if there is only 1
@@ -259,6 +259,7 @@ Rules:
 - INCLUDE multiple roles at the same company as separate entries with their own dates
 - If someone held an internship then got hired full-time at the same company, include BOTH as separate entries
 - If a sub-role only says "Internship" or "Full-time" but has a parent title, append "Intern" to the parent title (e.g. "Assistant Project Manager Intern")
+- Do NOT drop month precision. If source has month, output month.
 - DO NOT invent role names. Never output "Role 1", "Role 2", etc.
 - DO NOT return bare employment types (Internship, Part-time, Full-time) as the job_title
 - job_title must describe a role. Never set job_title equal to the company name.
