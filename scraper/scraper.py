@@ -501,8 +501,9 @@ class LinkedInScraper:
                     if groq_results:
                         logger.debug(f"Using Groq education results ({len(groq_results)} entries)")
                         for ge in groq_results:
-                            start_info = parse_groq_date(ge.get("start_date", ""))
-                            end_info = parse_groq_date(ge.get("end_date", ""))
+                            start_raw = ge.get("start_date", "") or ge.get("start_year", "")
+                            end_raw = ge.get("end_date", "") or ge.get("end_year", "")
+                            start_info, end_info = self._parse_education_dates(start_raw, end_raw)
                             grad_year = ""
                             if end_info and end_info.get("year") and end_info["year"] != 9999:
                                 grad_year = str(end_info["year"])
@@ -515,6 +516,11 @@ class LinkedInScraper:
                                 "school_start": start_info,
                                 "school_end": end_info,
                             })
+
+                        # Groq can miss dates on some entries; fill from CSS extraction when possible.
+                        css_entries = self._extract_education_entries(soup)
+                        if css_entries:
+                            edu_entries = self._merge_education_entries(edu_entries, css_entries)
 
             # CSS fallback if Groq didn't produce results
             if not edu_entries:
@@ -543,6 +549,13 @@ class LinkedInScraper:
                 school_start_d = best_unt.get("school_start")
                 school_end_d = best_unt.get("school_end")
                 data["school_start_date"] = utils.format_date_for_storage(school_start_d)
+                data["school_end_date"] = utils.format_date_for_storage(school_end_d)
+                if not data["graduation_year"] and school_end_d and school_end_d.get("year") and school_end_d.get("year") != 9999:
+                    data["graduation_year"] = str(school_end_d.get("year"))
+                if data.get("school_start_date") or data.get("school_end_date"):
+                    data["school_dates"] = f"{data.get('school_start_date', '')} - {data.get('school_end_date', '')}".strip(" -")
+                else:
+                    data["school_dates"] = ""
 
                 # Determine working_while_studying using graduation-year comparison.
                 # Priority order: "currently" > "yes" > "no" > ""
@@ -626,6 +639,14 @@ class LinkedInScraper:
                 data[f"school{i}"] = entry.get("school", "")
                 data[f"degree{i}"] = entry.get("degree", "").strip()
                 data[f"major{i}"] = entry.get("major", "").strip()
+                start_label = utils.format_date_for_storage(entry.get("school_start"))
+                end_label = utils.format_date_for_storage(entry.get("school_end"))
+                if (not end_label) and entry.get("graduation_year"):
+                    end_label = str(entry.get("graduation_year"))
+                if start_label or end_label:
+                    data[f"school{i}_dates"] = f"{start_label} - {end_label}".strip(" -")
+                else:
+                    data[f"school{i}_dates"] = ""
 
             self._apply_education_and_discipline_normalization(data)
             self._apply_experience_display_normalization(data)
@@ -825,7 +846,7 @@ class LinkedInScraper:
             logger.warning(f"No experience found for {data.get('name', 'Unknown')}")
         if not edu_entries:
             logger.warning(f"No education found for {data.get('name', 'Unknown')}")
-        if not data.get("graduation_year"):
+        if config.FLAG_MISSING_GRAD_YEAR and (not data.get("graduation_year")) and (not data.get("school_end_date")):
             logger.warning(f"No graduation year for {data.get('name', 'Unknown')}")
 
     # ============================================================
@@ -1353,6 +1374,98 @@ class LinkedInScraper:
         best = experiences[0]
         return best["title"], best["company"], best["start"], best["end"]
 
+    @staticmethod
+    def _school_match_key(name: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", (name or "").casefold()).strip()
+
+    def _schools_match(self, left: str, right: str) -> bool:
+        lk = self._school_match_key(left)
+        rk = self._school_match_key(right)
+        if not lk or not rk:
+            return False
+        if lk == rk:
+            return True
+        return lk in rk or rk in lk
+
+    def _merge_education_entries(self, primary_entries, fallback_entries):
+        """
+        Merge fallback education extraction into primary entries by school name.
+        Fills missing dates/grad year/degree without overwriting present primary values.
+        """
+        if not primary_entries:
+            return fallback_entries or []
+        if not fallback_entries:
+            return primary_entries
+
+        merged = [dict(e) for e in primary_entries]
+        used_fallback = set()
+
+        for p in merged:
+            p_school = p.get("school", "")
+            for i, f in enumerate(fallback_entries):
+                if i in used_fallback:
+                    continue
+                if not self._schools_match(p_school, f.get("school", "")):
+                    continue
+
+                if not p.get("degree") and f.get("degree"):
+                    p["degree"] = f.get("degree", "")
+                if not p.get("major") and f.get("major"):
+                    p["major"] = f.get("major", "")
+                if not p.get("school_start") and f.get("school_start"):
+                    p["school_start"] = f.get("school_start")
+                if not p.get("school_end") and f.get("school_end"):
+                    p["school_end"] = f.get("school_end")
+                if not p.get("graduation_year") and f.get("graduation_year"):
+                    p["graduation_year"] = f.get("graduation_year", "")
+
+                used_fallback.add(i)
+                break
+
+        # Add fallback-only schools we did not already match.
+        for i, f in enumerate(fallback_entries):
+            if i in used_fallback:
+                continue
+            if any(self._schools_match(m.get("school", ""), f.get("school", "")) for m in merged):
+                continue
+            merged.append(dict(f))
+
+        return merged
+
+    @staticmethod
+    def _parse_education_dates(start_raw: str, end_raw: str):
+        """
+        Parse education start/end dates from either split fields or combined ranges.
+        Handles cases like:
+          - start='2024', end='2028'
+          - start='2024 - 2028', end=''
+          - start='', end='Aug 2020 - May 2024'
+        """
+        start_raw = (start_raw or "").strip()
+        end_raw = (end_raw or "").strip()
+
+        # Normal path: separate start/end values.
+        start_info = parse_groq_date(start_raw) if start_raw else None
+        end_info = parse_groq_date(end_raw) if end_raw else None
+
+        # If either side is missing, try parsing date ranges from either field.
+        if not (start_info and end_info):
+            for candidate in (start_raw, end_raw):
+                if not candidate:
+                    continue
+                s_d, e_d = utils.parse_date_range_line(candidate)
+                if s_d and e_d:
+                    return s_d, e_d
+
+        # Final attempt: combine split tokens and parse as one range.
+        if not (start_info and end_info) and start_raw and end_raw:
+            combined = f"{start_raw} - {end_raw}"
+            s_d, e_d = utils.parse_date_range_line(combined)
+            if s_d and e_d:
+                return s_d, e_d
+
+        return start_info, end_info
+
     def _extract_education_entries(self, soup):
         edu_root = self._find_section_root(soup, "Education")
         if not edu_root: return []
@@ -1424,6 +1537,7 @@ class LinkedInScraper:
             entries.append({
                 "school": school,
                 "degree": degree,
+                "major": "",
                 "graduation_year": grad_year,
                 "school_start": school_start,
                 "school_end": school_end

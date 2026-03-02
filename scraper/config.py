@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -28,13 +29,18 @@ except ImportError:
     _handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     _console = None
 
-logging.basicConfig(level=logging.DEBUG, handlers=[_handler])
 logger = logging.getLogger("LinkedInScraper")
 logger.setLevel(logging.DEBUG)  # allow DEBUG through; handler filters to INFO
+if not logger.handlers:
+    logger.addHandler(_handler)
+logger.propagate = False
 
 # Suppress noisy HTTP loggers
 for _noisy in ("httpx", "httpcore", "urllib3", "urllib3.connectionpool", "selenium", "filelock"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+_LAST_SUMMARY_SIGNATURE = None
+_LAST_SUMMARY_TS = 0.0
 
 
 def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved"):
@@ -46,6 +52,17 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
     url = data.get("profile_url", "")
     location = data.get("location", "Not Found")
     separator = "━" * 50
+    global _LAST_SUMMARY_SIGNATURE, _LAST_SUMMARY_TS
+    summary_signature = (
+        f"{url}|{data.get('scraped_at', '')}|"
+        f"{data.get('job_title', '')}|{data.get('company', '')}|"
+        f"{data.get('school', '')}|{data.get('graduation_year', '')}"
+    )
+    now_ts = time.time()
+    if summary_signature == _LAST_SUMMARY_SIGNATURE and (now_ts - _LAST_SUMMARY_TS) < 5:
+        return
+    _LAST_SUMMARY_SIGNATURE = summary_signature
+    _LAST_SUMMARY_TS = now_ts
 
     # Experience lines
     exp_raw_lines = []
@@ -90,8 +107,21 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         major = data.get(maj_key, "")
         std_deg = data.get(std_deg_key, degree)
         std_maj = data.get(std_maj_key, major)
-        edu_raw_lines.append(f"  • {school} — {degree} / {major}" if major else f"  • {school} — {degree}")
-        edu_std_lines.append(f"  • {school} — {std_deg} / {std_maj}" if std_maj else f"  • {school} — {std_deg}")
+        if suffix:
+            dates = (data.get(f"school{suffix}_dates", "") or "").strip()
+        else:
+            start = (data.get("school_start_date", "") or "").strip()
+            end = (data.get("school_end_date", "") or "").strip() or (str(data.get("graduation_year", "")) if data.get("graduation_year") else "")
+            dates = f"{start} - {end}".strip(" -") if (start or end) else ""
+
+        raw_base = f"{school} — {degree} / {major}" if major else f"{school} — {degree}"
+        std_base = f"{school} — {std_deg} / {std_maj}" if std_maj else f"{school} — {std_deg}"
+        if dates:
+            edu_raw_lines.append(f"  • {raw_base} ({dates})")
+            edu_std_lines.append(f"  • {std_base} ({dates})")
+        else:
+            edu_raw_lines.append(f"  • {raw_base}")
+            edu_std_lines.append(f"  • {std_base}")
 
     discipline = data.get("discipline", "Other")
     wws = data.get("working_while_studying", "N/A")
