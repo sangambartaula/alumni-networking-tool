@@ -89,6 +89,8 @@ yarn.lock
 scraper/linkedin_cookies.json
 backend/engineering_graduate.csv
 scraper/output/
+scraper/output/flagged_for_review.txt
+scraper/output/visited_history.csv
 *.csv
 backend/engineering_students.csv
 scraper/*.json
