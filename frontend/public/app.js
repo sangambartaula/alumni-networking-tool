@@ -900,14 +900,10 @@ function updateSortLabel() {
   const sortLabel = document.getElementById('sortLabel');
   if (!sortSelect || !sortLabel) return;
 
-  const val = sortSelect.value;
-  const effectiveSort = val || 'name';
+  const effectiveSort = sortSelect.value || 'name';
   let text = "";
   if (effectiveSort === 'name') {
     text = sortDirection === 'asc' ? "(A -> Z)" : "(Z -> A)";
-    if (!val) {
-      text = `Default ${text}`;
-    }
   } else if (effectiveSort === 'year') {
     text = sortDirection === 'asc' ? "(Oldest -> Newest)" : "(Newest -> Oldest)";
   } else if (effectiveSort === 'updated') {
