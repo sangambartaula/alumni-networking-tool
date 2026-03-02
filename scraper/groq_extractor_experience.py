@@ -51,6 +51,21 @@ def _strip_trailing_location_fragment(text: str) -> str:
     return t
 
 
+def _canonical_entity_text(text: str) -> str:
+    """Normalize strings for lightweight title/company collision checks."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", (text or "").casefold())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _is_company_title_collision(title: str, company: str) -> bool:
+    """True when title and company resolve to the same label."""
+    title_key = _canonical_entity_text(title)
+    company_key = _canonical_entity_text(company)
+    if not title_key or not company_key:
+        return False
+    return title_key == company_key
+
+
 def _html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
     """
     Convert experience section HTML into clean structured text for the LLM.
@@ -246,6 +261,7 @@ Rules:
 - If a sub-role only says "Internship" or "Full-time" but has a parent title, append "Intern" to the parent title (e.g. "Assistant Project Manager Intern")
 - DO NOT invent role names. Never output "Role 1", "Role 2", etc.
 - DO NOT return bare employment types (Internship, Part-time, Full-time) as the job_title
+- job_title must describe a role. Never set job_title equal to the company name.
 - Remove trailing location fragments from company/job_title when present after comma or dash
   (e.g. "Avinash Enterprises, Hyderabad" -> "Avinash Enterprises")
 - IGNORE skill tags, metadata, and duration strings like "1 yr 5 mos"
@@ -347,6 +363,9 @@ Data:
             company = _clean_doubled(company)
             title = _strip_trailing_location_fragment(title)
             company = _strip_trailing_location_fragment(company)
+            if _is_company_title_collision(title, company):
+                logger.debug(f"Skipping title/company collision: {title} @ {company}")
+                continue
                     
             # Filter out duration strings in Company field
             duration_pattern = re.compile(r'\b(\d+\s+yrs?|\d+\s+mos?|Full-time|Part-time|Contract|Internship)\b', re.IGNORECASE)
@@ -354,6 +373,9 @@ Data:
                  if "·" in company or re.search(r'\d+\s+yrs?', company):
                      logger.warning(f"    ⚠️ Suspicious company name (looks like duration): {company}")
                      company = "" 
+
+            if not title or not company:
+                continue
 
             # Deduplication: only skip if same company AND same title AND same dates
             is_duplicate = False

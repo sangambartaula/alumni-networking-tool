@@ -61,3 +61,34 @@ def test_extract_experiences_with_groq_does_not_crash_on_length_metrics(monkeypa
     assert jobs[0]["job_title"] == "Software Engineer"
     assert jobs[0]["company"] == "ACME Corp"
     assert token_count == 123
+
+
+def test_extract_experiences_with_groq_skips_title_company_collisions(monkeypatch):
+    class _CollisionCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return _FakeResponse(
+                '{"jobs":['
+                '{"company":"UNT College of Engineering","job_title":"UNT College of Engineering","start_date":"2021","end_date":"2025"},'
+                '{"company":"RWB Consulting Engineers","job_title":"Mechanical Engineer","start_date":"2025","end_date":"Present"}'
+                ']}'
+            )
+
+    class _CollisionChat:
+        completions = _CollisionCompletions()
+
+    class _CollisionClient:
+        chat = _CollisionChat()
+
+    monkeypatch.setattr(groq_extractor_experience, "_get_client", lambda: _CollisionClient())
+    monkeypatch.setattr(groq_extractor_experience, "is_groq_available", lambda: True)
+
+    jobs, _ = groq_extractor_experience.extract_experiences_with_groq(
+        "<section><li>dummy</li></section>",
+        max_jobs=3,
+        profile_name="Collision Test",
+    )
+
+    assert len(jobs) == 1
+    assert jobs[0]["company"] == "RWB Consulting Engineers"
+    assert jobs[0]["job_title"] == "Mechanical Engineer"

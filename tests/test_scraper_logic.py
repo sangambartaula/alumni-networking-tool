@@ -10,9 +10,14 @@ sys.path.insert(0, str(project_root / 'scraper'))
 sys.modules.pop('scraper', None)
 os.chdir(project_root)
 
-from scraper import LinkedInScraper
+from scraper import LinkedInScraper, _is_company_title_collision
 
 class TestScraperLogic:
+    def test_is_company_title_collision(self):
+        assert _is_company_title_collision("UNT College of Engineering", "UNT College of Engineering")
+        assert _is_company_title_collision("UNT College of Engineering.", "UNT College of Engineering")
+        assert not _is_company_title_collision("Peer Mentor", "UNT College of Engineering")
+
     def test_split_context_line_pipes(self):
         """Test splitting by pipe symbol."""
         scraper = LinkedInScraper()

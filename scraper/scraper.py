@@ -64,6 +64,22 @@ def normalize_scraped_data(data):
     
     return data
 
+
+def _canonical_entity_text(text: str) -> str:
+    """Normalize strings for lightweight title/company collision checks."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", (text or "").casefold())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _is_company_title_collision(title: str, company: str) -> bool:
+    """True when title and company resolve to the same label."""
+    title_key = _canonical_entity_text(title)
+    company_key = _canonical_entity_text(company)
+    if not title_key or not company_key:
+        return False
+    return title_key == company_key
+
+
 class LinkedInScraper:
     """
     Core scraper class for navigating LinkedIn and extracting alumni data.
@@ -654,6 +670,19 @@ class LinkedInScraper:
                 )
 
     @staticmethod
+    def _drop_title_company_collisions(experiences, source="unknown"):
+        """Remove experiences where title and company collapse to the same text."""
+        sanitized = []
+        for exp in experiences or []:
+            title = (exp.get("title") or "").strip()
+            company = (exp.get("company") or "").strip()
+            if _is_company_title_collision(title, company):
+                logger.debug(f"Skipping {source} experience with title/company collision: {title} @ {company}")
+                continue
+            sanitized.append(exp)
+        return sanitized
+
+    @staticmethod
     def _log_missing_data_warnings(data, all_experiences, edu_entries):
         if not all_experiences:
             logger.warning(f"No experience found for {data.get('name', 'Unknown')}")
@@ -877,8 +906,12 @@ class LinkedInScraper:
                         start_d = parse_groq_date(job.get("start_date", ""))
                         end_d = parse_groq_date(job.get("end_date", ""))
                         
-                        title = job.get("job_title", "")
-                        company = job.get("company", "")
+                        title = (job.get("job_title") or "").strip()
+                        company = (job.get("company") or "").strip()
+
+                        if _is_company_title_collision(title, company):
+                            logger.debug(f"Skipping Groq experience with title/company collision: {title} @ {company}")
+                            continue
                         
                         if (title or company) and start_d and end_d:
                             u_key = f"{title.lower()}|{company.lower()}|{start_d}|{end_d}"
@@ -891,6 +924,7 @@ class LinkedInScraper:
                                 })
                                 seen_entries.add(u_key)
                     
+                    parsed = self._drop_title_company_collisions(parsed, source="Groq")
                     if parsed:
                         logger.debug(f"Groq extracted {len(parsed)} experience(s)")
                         return parsed[:max_entries]
@@ -980,6 +1014,8 @@ class LinkedInScraper:
         if not parsed:
             logger.debug("Direct CSS extraction found nothing, trying text-based fallback...")
             parsed = self._extract_experiences_text_based(exp_root, max_entries, seen_entries)
+
+        parsed = self._drop_title_company_collisions(parsed, source="Fallback")
         
         # Sort by end date descending (most recent first)
         def experience_sort_key(exp):
