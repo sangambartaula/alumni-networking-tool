@@ -4,7 +4,9 @@ Groq API integration for extracting job experiences from LinkedIn HTML.
 Uses shared Groq client infrastructure from groq_client.py.
 """
 
+import json
 import re
+from pathlib import Path
 from config import logger
 from groq_client import (
     _get_client, is_groq_available, GROQ_MODEL, BS4_AVAILABLE,
@@ -14,6 +16,8 @@ from groq_client import (
 
 if BS4_AVAILABLE:
     from bs4 import BeautifulSoup
+
+_STANDARDIZED_JOB_TITLES_CACHE = None
 
 
 def _looks_like_location_fragment(fragment: str) -> bool:
@@ -64,6 +68,43 @@ def _is_company_title_collision(title: str, company: str) -> bool:
     if not title_key or not company_key:
         return False
     return title_key == company_key
+
+
+def _load_standardized_job_titles() -> list[str]:
+    """
+    Load standardized job-title list from scraper/data/companies.json.
+    Falls back to an empty list when unavailable.
+    """
+    global _STANDARDIZED_JOB_TITLES_CACHE
+    if _STANDARDIZED_JOB_TITLES_CACHE is not None:
+        return _STANDARDIZED_JOB_TITLES_CACHE
+
+    db_path = Path(__file__).parent / "data" / "companies.json"
+    try:
+        if not db_path.exists():
+            _STANDARDIZED_JOB_TITLES_CACHE = []
+            return _STANDARDIZED_JOB_TITLES_CACHE
+
+        payload = json.loads(db_path.read_text(encoding="utf-8"))
+        raw_titles = payload.get("job_titles", []) if isinstance(payload, dict) else []
+        deduped = []
+        seen = set()
+        for title in raw_titles:
+            t = str(title or "").strip()
+            if not t:
+                continue
+            key = t.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(t)
+
+        _STANDARDIZED_JOB_TITLES_CACHE = deduped
+        return _STANDARDIZED_JOB_TITLES_CACHE
+    except Exception as exc:
+        logger.debug(f"Could not load standardized job titles: {exc}")
+        _STANDARDIZED_JOB_TITLES_CACHE = []
+        return _STANDARDIZED_JOB_TITLES_CACHE
 
 
 def _html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
@@ -240,6 +281,8 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
     
     # Ask Groq for extra jobs to buffer against duplicates being filtered out
     groq_max = max_jobs + 2
+    standardized_titles = _load_standardized_job_titles()
+    standardized_titles_block = "\n".join(f"- {title}" for title in standardized_titles) if standardized_titles else "(none available)"
     
     # Build a clear, simple prompt (no HTML instructions needed anymore)
     prompt = f"""Extract the {groq_max} most recent jobs from this LinkedIn experience data.
@@ -261,11 +304,16 @@ Rules:
 - If a sub-role only says "Internship" or "Full-time" but has a parent title, append "Intern" to the parent title (e.g. "Assistant Project Manager Intern")
 - DO NOT invent role names. Never output "Role 1", "Role 2", etc.
 - DO NOT return bare employment types (Internship, Part-time, Full-time) as the job_title
+- Prefer one of the standardized job titles below when the match is close.
+- If no standardized title matches well, create a concise new job title.
 - job_title must describe a role. Never set job_title equal to the company name.
 - Remove trailing location fragments from company/job_title when present after comma or dash
   (e.g. "Avinash Enterprises, Hyderabad" -> "Avinash Enterprises")
 - IGNORE skill tags, metadata, and duration strings like "1 yr 5 mos"
 - Order by most recent first
+
+Standardized job titles:
+{standardized_titles_block}
 
 Return ONLY a JSON object with a "jobs" key:
 {{"jobs": [{{"company":"...","job_title":"...","start_date":"...","end_date":"..."}}]}}
