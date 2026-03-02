@@ -987,11 +987,15 @@ def api_get_alumni():
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
                 if sort_key == 'year':
-                    order_clause = f"a.grad_year {sort_direction}, a.last_name ASC, a.first_name ASC"
+                    order_clause = (
+                        "CASE WHEN a.grad_year IS NULL THEN 1 ELSE 0 END ASC, "
+                        f"a.grad_year {sort_direction}, "
+                        "a.first_name ASC, a.last_name ASC"
+                    )
                 elif sort_key == 'updated':
                     order_clause = f"a.updated_at {sort_direction}, a.last_name ASC, a.first_name ASC"
                 else:
-                    order_clause = f"a.last_name {sort_direction}, a.first_name {sort_direction}"
+                    order_clause = f"a.first_name {sort_direction}, a.last_name {sort_direction}"
 
                 select_sql = f"""
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major,

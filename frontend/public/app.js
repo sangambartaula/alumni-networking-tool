@@ -901,12 +901,16 @@ function updateSortLabel() {
   if (!sortSelect || !sortLabel) return;
 
   const val = sortSelect.value;
+  const effectiveSort = val || 'name';
   let text = "";
-  if (val === 'name') {
+  if (effectiveSort === 'name') {
     text = sortDirection === 'asc' ? "(A -> Z)" : "(Z -> A)";
-  } else if (val === 'year') {
+    if (!val) {
+      text = `Default ${text}`;
+    }
+  } else if (effectiveSort === 'year') {
     text = sortDirection === 'asc' ? "(Oldest -> Newest)" : "(Newest -> Oldest)";
-  } else if (val === 'updated') {
+  } else if (effectiveSort === 'updated') {
     text = sortDirection === 'asc' ? "(Oldest -> Newest)" : "(Newest -> Oldest)";
   }
   sortLabel.textContent = text;

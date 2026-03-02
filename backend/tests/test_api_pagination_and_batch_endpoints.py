@@ -189,6 +189,11 @@ class _FakeConn:
         return None
 
 
+def _latest_select_query(query_log):
+    select_queries = [q for q, _ in query_log if "SELECT a.id, a.first_name, a.last_name" in q]
+    return select_queries[-1] if select_queries else ""
+
+
 def test_api_alumni_returns_pagination_fields(client, monkeypatch):
     rows = [
         _alumni_row(1, "Alice", "Anderson"),
@@ -252,6 +257,47 @@ def test_api_alumni_caps_limit_to_500(client, monkeypatch):
     assert len(payload["items"]) == 500
     assert payload["has_more"] is True
     assert payload["total"] == 600
+
+
+def test_api_alumni_name_sort_uses_first_name_then_last_name(client, monkeypatch):
+    rows = [_alumni_row(1, "Alice", "Zulu"), _alumni_row(2, "Bob", "Alpha")]
+    query_log = []
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, query_log)),
+    )
+
+    resp = client.get("/api/alumni?sort=name&direction=asc&limit=2&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+    select_query = _latest_select_query(query_log)
+    assert "ORDER BY a.first_name ASC, a.last_name ASC" in select_query
+
+
+def test_api_alumni_year_sort_puts_missing_grad_year_last(client, monkeypatch):
+    rows = [
+        _alumni_row(1, "Alice", "A", grad_year=2020),
+        _alumni_row(2, "Bob", "B", grad_year=None),
+        _alumni_row(3, "Cara", "C", grad_year=2024),
+    ]
+    query_log = []
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, query_log)),
+    )
+
+    resp = client.get("/api/alumni?sort=year&direction=desc&limit=3&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+    select_query = _latest_select_query(query_log)
+    assert "CASE WHEN a.grad_year IS NULL THEN 1 ELSE 0 END ASC" in select_query
+    assert "a.grad_year DESC" in select_query
 
 
 def test_api_alumni_unt_status_filter_uses_python_side_pagination(client, monkeypatch):
