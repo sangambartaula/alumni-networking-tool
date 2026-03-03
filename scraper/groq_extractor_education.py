@@ -350,6 +350,11 @@ Data:
             if not school:
                 continue
 
+            # Skip entries where Groq mistakenly used activities text as a school
+            if re.match(r'^\s*Activities and societies:', school, re.IGNORECASE):
+                logger.debug(f"Skipping activities-as-school entry: {school[:60]}...")
+                continue
+
             # Clean doubled text
             school = _clean_doubled(school)
             degree_raw = _clean_doubled(degree_raw)

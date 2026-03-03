@@ -368,10 +368,12 @@ Data:
             # Strip trailing employment type suffixes that Groq sometimes
             # appends without the · separator
             # (e.g. "UNT College of Engineering Part-time" → "UNT College of Engineering")
-            company = re.sub(
+            _emp_type_re = re.compile(
                 r'\s+(?:Full-time|Part-time|Contract|Internship|Self-employed|Freelance|Seasonal|Temporary|Apprenticeship)$',
-                '', company, flags=re.IGNORECASE
-            ).strip()
+                re.IGNORECASE,
+            )
+            title = _emp_type_re.sub('', title).strip()
+            company = _emp_type_re.sub('', company).strip()
 
             if _is_company_title_collision(title, company):
                 logger.debug(f"Skipping title/company collision: {title} @ {company}")
