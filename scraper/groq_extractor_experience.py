@@ -257,6 +257,15 @@ Rules:
 - INCLUDE roles like "Member", "Volunteer", "Fellow", "Extern" — these are valid job titles
 - INCLUDE academic jobs (Teaching Assistant, Research Assistant, etc.)
 - INCLUDE multiple roles at the same company as separate entries with their own dates
+- GROUPED ROLES: LinkedIn sometimes lists multiple roles under ONE company. The pattern is:
+  Company Name
+  Employment-type · duration
+  Location
+  Role Title 1
+  Date range 1
+  Role Title 2
+  Date range 2
+  Each role title is a separate job entry and ALL share the same parent company name. Extract EVERY sub-role — do not skip any.
 - If someone held an internship then got hired full-time at the same company, include BOTH as separate entries
 - If a sub-role only says "Internship" or "Full-time" but has a parent title, append "Intern" to the parent title (e.g. "Assistant Project Manager Intern")
 - Do NOT drop month precision. If source has month, output month.
