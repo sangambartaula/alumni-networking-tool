@@ -529,7 +529,14 @@ class LinkedInScraper:
             # Fallback: Check top card shortcuts for education if no Education section found
             if not edu_entries:
                 edu_entries = self._extract_education_from_top_card(soup)
-            
+
+            # Filter out entries where Groq mistakenly used activities text as a school name
+            # (activities text contains "UNT" which falsely passes _is_unt_school_name)
+            edu_entries = [
+                e for e in edu_entries
+                if not re.match(r'^\s*Activities and societies:', e.get("school", ""), re.IGNORECASE)
+            ]
+
             data["all_education"] = list(dict.fromkeys([e["school"] for e in edu_entries if e.get("school")]))
 
             # --- Pick best UNT education as primary entry ---
@@ -634,7 +641,11 @@ class LinkedInScraper:
             # Trust the extraction layer (Groq/CSS) to return clean entries.
             # Only exclude the primary entry itself.
             primary_entry = best_unt if best_unt else None
-            other_entries = [e for e in edu_entries if e is not primary_entry]
+            other_entries = [
+                e for e in edu_entries
+                if e is not primary_entry
+                and not re.match(r'^\s*Activities and societies:', e.get("school", ""), re.IGNORECASE)
+            ]
             for i, entry in enumerate(other_entries[:2], start=2):
                 data[f"school{i}"] = entry.get("school", "")
                 data[f"degree{i}"] = entry.get("degree", "").strip()
