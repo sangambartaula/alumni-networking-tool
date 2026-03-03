@@ -89,6 +89,17 @@ class TestScraperLogic:
         assert resolved == "Peer Mentor"
         assert score == 3
 
+    def test_resolve_standardized_title_does_not_preserve_jr_variant_from_lookup(self):
+        lookup = {
+            "jr. devops engineer": "Jr. DevOps Engineer",
+            "devops engineer": "DevOps Engineer",
+        }
+
+        resolved, score = _resolve_standardized_title("Jr. DevOps Engineer", lookup)
+
+        assert resolved == "DevOps Engineer"
+        assert score == 2
+
     def test_apply_experience_display_normalization_reuses_best_same_entry_title(self, monkeypatch):
         scraper = LinkedInScraper()
         monkeypatch.setattr(

@@ -157,9 +157,10 @@ def _load_standardized_title_lookup() -> dict[str, str]:
 def _resolve_standardized_title(raw_title: str, title_lookup: dict[str, str] | None = None) -> tuple[str, int]:
     """
     Resolve title with local rules:
-    1) Exact raw-title match in standardized list.
-    2) Deterministic normalization mapped back into standardized list.
-    3) Deterministic normalization fallback.
+    1) Deterministic normalization.
+    2) Preserve exact lookup casing only when raw title is already canonical.
+    3) Deterministic normalization mapped back into lookup.
+    4) Deterministic normalization fallback.
     Returns: (standardized_title, quality_score)
     """
     raw = (raw_title or "").strip()
@@ -168,8 +169,6 @@ def _resolve_standardized_title(raw_title: str, title_lookup: dict[str, str] | N
 
     lookup = title_lookup if title_lookup is not None else _load_standardized_title_lookup()
     raw_key = _title_lookup_key(raw)
-    if raw_key in lookup:
-        return lookup[raw_key], 3
 
     if _NORM_AVAILABLE:
         try:
@@ -180,6 +179,13 @@ def _resolve_standardized_title(raw_title: str, title_lookup: dict[str, str] | N
         normalized = raw
 
     norm_key = _title_lookup_key(normalized)
+
+    # Preserve exact lookup casing only when the raw title is already canonical.
+    # This prevents raw seniority variants (e.g., "Jr. DevOps Engineer") from
+    # bypassing deterministic normalization.
+    if raw_key in lookup and raw_key == norm_key:
+        return lookup[raw_key], 3
+
     if norm_key in lookup:
         return lookup[norm_key], 2
 
