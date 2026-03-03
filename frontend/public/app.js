@@ -622,6 +622,9 @@ function getCanonicalRoleTitle(value) {
   ) {
     return 'Manager';
   }
+  if (low === 'data owner') {
+    return 'Data Analyst';
+  }
   return canonicalTitle;
 }
 
