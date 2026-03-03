@@ -128,3 +128,36 @@ def test_extract_experiences_with_groq_prompt_stays_lean(monkeypatch):
             break
 
     assert "Standardized job titles" not in user_prompt
+
+
+def test_extract_experiences_strips_trailing_employment_type(monkeypatch):
+    """Company names with trailing employment types should be cleaned."""
+    class _EmpTypeCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return _FakeResponse(
+                '{"jobs":['
+                '{"company":"UNT College of Engineering Part-time","job_title":"Peer Mentor","start_date":"Oct 2021","end_date":"Apr 2025"},'
+                '{"company":"RWB Consulting Engineers","job_title":"Mechanical Design Engineer","start_date":"Jun 2025","end_date":"Present"}'
+                ']}'
+            )
+
+    class _EmpTypeChat:
+        completions = _EmpTypeCompletions()
+
+    class _EmpTypeClient:
+        chat = _EmpTypeChat()
+
+    monkeypatch.setattr(groq_extractor_experience, "_get_client", lambda: _EmpTypeClient())
+    monkeypatch.setattr(groq_extractor_experience, "is_groq_available", lambda: True)
+
+    jobs, _ = groq_extractor_experience.extract_experiences_with_groq(
+        "<section><li>dummy</li></section>",
+        max_jobs=3,
+        profile_name="Employment Type Test",
+    )
+
+    assert len(jobs) == 2
+    assert jobs[0]["company"] == "RWB Consulting Engineers"  # no change needed
+    assert jobs[1]["company"] == "UNT College of Engineering"  # "Part-time" stripped
+    assert "Part-time" not in jobs[1]["company"]

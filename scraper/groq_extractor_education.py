@@ -128,6 +128,13 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown",
     )):
         tag.decompose()
 
+    # 5b. Text-based fallback: remove any element whose text starts with
+    #     "Activities and societies:" (LinkedIn doesn't always use a class for this)
+    for tag in soup.find_all(['div', 'span', 'p', 'li']):
+        txt = tag.get_text(strip=True)
+        if txt.lower().startswith('activities and societies:'):
+            tag.decompose()
+
     # Extract structured entries from education list items
     entries = []
 
@@ -347,6 +354,12 @@ Data:
             school = _clean_doubled(school)
             degree_raw = _clean_doubled(degree_raw)
             major_raw = _clean_doubled(major_raw)
+
+            # Strip activities/societies text that Groq sometimes includes
+            _act_re = re.compile(r'\s*(?:\|\s*)?Activities and societies:.*$', re.IGNORECASE | re.DOTALL)
+            major_raw = _act_re.sub('', major_raw).strip()
+            degree_raw = _act_re.sub('', degree_raw).strip()
+            school = re.sub(r'\s*—\s*$', '', school).strip()  # trailing em-dash
 
             # Deduplicate: same school + same or equivalent degree level
             is_dup = False
