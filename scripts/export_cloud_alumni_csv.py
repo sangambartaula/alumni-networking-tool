@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -114,6 +115,31 @@ def _coerce_grad_year(value: Any) -> str:
     return text
 
 
+def _infer_grad_year_from_school_start(value: Any) -> str:
+    text = _clean_text(value)
+    if not text:
+        return ""
+    if "-" in text or "–" in text or "—" in text:
+        return ""
+
+    years = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
+    if len(years) != 1:
+        return ""
+    return _coerce_grad_year(years[0])
+
+
+def _normalize_primary_education_dates(grad_year_value: Any, school_start_value: Any) -> Tuple[str, str]:
+    grad_year = _coerce_grad_year(grad_year_value)
+    school_start = _clean_text(school_start_value)
+    if grad_year:
+        return grad_year, school_start
+
+    inferred = _infer_grad_year_from_school_start(school_start)
+    if inferred:
+        return inferred, ""
+    return "", school_start
+
+
 def _row_rank(row: Dict[str, Any]) -> Tuple[datetime, int]:
     ts = row.get("updated_at") or row.get("scraped_at")
     if isinstance(ts, datetime):
@@ -137,6 +163,10 @@ def _row_rank(row: Dict[str, Any]) -> Tuple[datetime, int]:
 
 def _to_csv_row(row: Dict[str, Any]) -> Dict[str, str]:
     csv_row = {col: "" for col in CSV_COLUMNS}
+    grad_year, school_start = _normalize_primary_education_dates(
+        row.get("grad_year"),
+        row.get("school_start_date"),
+    )
     csv_row.update(
         {
             "first": _clean_text(row.get("first_name")),
@@ -145,8 +175,8 @@ def _to_csv_row(row: Dict[str, Any]) -> Dict[str, str]:
             "school": _clean_text(row.get("school")),
             "degree": _clean_text(row.get("degree")),
             "major": _clean_text(row.get("major")),
-            "school_start": _clean_text(row.get("school_start_date")),
-            "grad_year": _coerce_grad_year(row.get("grad_year")),
+            "school_start": school_start,
+            "grad_year": grad_year,
             "school2": _clean_text(row.get("school2")),
             "degree2": _clean_text(row.get("degree2")),
             "major2": _clean_text(row.get("major2")),

@@ -11,6 +11,7 @@ let selectedUntAlumniStatus = '';
 let allLocations = new Set();
 let allCompanies = new Set();
 let filteredTableRenderToken = 0;
+const analyticsChunkSize = 500;
 
 function isWorkingWhileStudyingPositive(value) {
   if (value === true || value === 1) return true;
@@ -22,7 +23,9 @@ function isWorkingWhileStudyingPositive(value) {
 function getCanonicalRoleTitle(value) {
   const title = (value || '').trim();
   if (!title) return '';
-  const low = title.toLowerCase().replace(/\s+/g, ' ');
+  const withoutLevelSuffix = title.replace(/\s+(?:level\s*)?(?:i{1,5}|[1-5])$/i, '').trim();
+  const canonicalTitle = withoutLevelSuffix || title;
+  const low = canonicalTitle.toLowerCase().replace(/\s+/g, ' ');
 
   if (low === 'director' || low === 'director of' || low === 'director of engineering') {
     return 'Director';
@@ -35,7 +38,7 @@ function getCanonicalRoleTitle(value) {
   ) {
     return 'Manager';
   }
-  return title;
+  return canonicalTitle;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -619,20 +622,55 @@ function filterAlumniData(data) {
 
 async function loadAnalyticsData() {
   try {
-    const response = await fetch('/api/alumni');
-    const data = await response.json();
-
-    if (data.success) {
-      alumniData = data.alumni;
-      buildAnalyticsAutocomplete(alumniData);
-      updateAnalyticsFilterUI();
-      renderAnalytics();
-    } else {
-      console.error('Failed to load alumni data:', data.error);
-    }
+    alumniData = await fetchAllAnalyticsAlumni();
+    buildAnalyticsAutocomplete(alumniData);
+    updateAnalyticsFilterUI();
+    renderAnalytics();
   } catch (error) {
     console.error('Error loading analytics data:', error);
   }
+}
+
+async function fetchAllAnalyticsAlumni() {
+  const allAlumni = [];
+  const seenIds = new Set();
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const params = new URLSearchParams();
+    params.set('limit', String(analyticsChunkSize));
+    params.set('offset', String(offset));
+
+    const response = await fetch(`/api/alumni?${params.toString()}`);
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to load alumni data');
+    }
+
+    const items = Array.isArray(data.items)
+      ? data.items
+      : (Array.isArray(data.alumni) ? data.alumni : []);
+
+    if (items.length === 0) {
+      break;
+    }
+
+    items.forEach((alumni) => {
+      const id = alumni && alumni.id;
+      if (id != null) {
+        if (seenIds.has(id)) return;
+        seenIds.add(id);
+      }
+      allAlumni.push(alumni);
+    });
+
+    offset += items.length;
+    hasMore = Boolean(data.has_more);
+  }
+
+  return allAlumni;
 }
 
 function renderAnalytics() {

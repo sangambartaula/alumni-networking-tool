@@ -114,3 +114,20 @@ def test_row_mapping_uses_only_unt_entries():
     status = compute_unt_alumni_status_from_row(row, today=date(2026, 2, 26))
     assert status == UNT_ALUMNI_STATUS_YES
 
+
+def test_row_mapping_uses_school_start_as_grad_year_when_grad_missing():
+    row = {
+        "school": "University of North Texas",
+        "grad_year": None,
+        "school_start_date": "2025",
+        "degree": "Bachelor of Science",
+        "major": "Computer Science",
+        "school2": None,
+        "degree2": None,
+        "major2": None,
+        "school3": None,
+        "degree3": None,
+        "major3": None,
+    }
+    status = compute_unt_alumni_status_from_row(row, today=date(2026, 2, 26))
+    assert status == UNT_ALUMNI_STATUS_YES

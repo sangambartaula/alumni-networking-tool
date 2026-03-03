@@ -607,7 +607,9 @@ function renderLoadMoreControl() {
 function getCanonicalRoleTitle(value) {
   const title = (value || '').trim();
   if (!title) return '';
-  const low = title.toLowerCase().replace(/\s+/g, ' ');
+  const withoutLevelSuffix = title.replace(/\s+(?:level\s*)?(?:i{1,5}|[1-5])$/i, '').trim();
+  const canonicalTitle = withoutLevelSuffix || title;
+  const low = canonicalTitle.toLowerCase().replace(/\s+/g, ' ');
 
   if (low === 'director' || low === 'director of' || low === 'director of engineering') {
     return 'Director';
@@ -620,7 +622,7 @@ function getCanonicalRoleTitle(value) {
   ) {
     return 'Manager';
   }
-  return title;
+  return canonicalTitle;
 }
 
 function populateFilters(list) {

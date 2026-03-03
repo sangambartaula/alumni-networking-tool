@@ -11,6 +11,7 @@ from backend.working_while_studying_status import (
 def _base_row():
     return {
         "grad_year": None,
+        "school_start_date": None,
         "school": "University of North Texas",
         "school2": None,
         "school3": None,
@@ -78,6 +79,20 @@ class WorkingWhileStudyingStatusTests(unittest.TestCase):
         row["grad_year"] = 2024
         row["job_start_date"] = "2022"
         row["job_end_date"] = "2023"
+        self.assertEqual(recompute_working_while_studying_status(row), "yes")
+
+    def test_school_start_fallback_used_as_grad_year(self):
+        row = _base_row()
+        row["school_start_date"] = "2024"
+        row["job_start_date"] = "2023"
+        row["job_end_date"] = "Present"
+        self.assertEqual(recompute_working_while_studying_status(row), "yes")
+
+    def test_month_year_job_start_is_parsed(self):
+        row = _base_row()
+        row["grad_year"] = 2024
+        row["job_start_date"] = "Jan 2023"
+        row["job_end_date"] = "Present"
         self.assertEqual(recompute_working_while_studying_status(row), "yes")
 
     def test_status_to_bool(self):

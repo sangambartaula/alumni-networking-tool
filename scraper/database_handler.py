@@ -252,6 +252,64 @@ def normalize_grad_year(value):
     return year if _in_range(year) else None
 
 
+def infer_grad_year_from_school_start(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if pd.isna(value):
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+    if re.search(r"[-–—]", text):
+        return None
+
+    years = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
+    if len(years) != 1:
+        return None
+    return normalize_grad_year(years[0])
+
+
+def normalize_primary_education_dates(grad_year_value, school_start_value):
+    grad_year = normalize_grad_year(grad_year_value)
+
+    school_start = None
+    if school_start_value is not None and not pd.isna(school_start_value):
+        school_start = str(school_start_value).strip() or None
+
+    if grad_year is not None:
+        return grad_year, school_start
+
+    inferred_grad = infer_grad_year_from_school_start(school_start)
+    if inferred_grad is None:
+        return None, school_start
+
+    return inferred_grad, None
+
+
+def _normalize_dataframe_primary_education_dates(df: pd.DataFrame) -> pd.DataFrame:
+    if 'grad_year' not in df.columns or 'school_start' not in df.columns:
+        return df
+    if df.empty:
+        return df
+
+    normalized = pd.DataFrame(
+        df.apply(
+            lambda row: normalize_primary_education_dates(row.get('grad_year'), row.get('school_start')),
+            axis=1,
+        ).tolist(),
+        index=df.index,
+        columns=['grad_year', 'school_start'],
+    )
+    df['grad_year'] = normalized['grad_year']
+    df['school_start'] = normalized['school_start']
+    return df
+
+
 def flag_profile_for_review(profile_data):
     """
     Flag profiles with incomplete data for manual review.
@@ -368,12 +426,18 @@ def save_profile_to_csv(profile_data):
         # Retroactive cleanup for existing CSV content.
         if 'grad_year' in existing_df.columns:
             existing_df['grad_year'] = existing_df['grad_year'].apply(normalize_grad_year)
+        existing_df = _normalize_dataframe_primary_education_dates(existing_df)
         
         # Transform data to new schema
         name = str(profile_data.get('name', '')).strip()
         parts = name.split()
         first = parts[0] if len(parts) > 0 else ''
         last = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        normalized_grad_year, normalized_school_start = normalize_primary_education_dates(
+            profile_data.get('graduation_year'),
+            profile_data.get('school_start_date'),
+        )
 
         save_data = {
             'first': first,
@@ -383,8 +447,8 @@ def save_profile_to_csv(profile_data):
             'school': profile_data.get('school', profile_data.get('education', '')),
             'degree': profile_data.get('degree', ''),
             'major': profile_data.get('major', ''),
-            'school_start': profile_data.get('school_start_date'),
-            'grad_year': normalize_grad_year(profile_data.get('graduation_year')),
+            'school_start': normalized_school_start,
+            'grad_year': normalized_grad_year,
             # Education 2 and 3
             'school2': profile_data.get('school2', ''),
             'degree2': profile_data.get('degree2', ''),
@@ -445,8 +509,13 @@ def save_profile_to_csv(profile_data):
 
         if 'grad_year' in combined_df.columns:
             combined_df['grad_year'] = combined_df['grad_year'].apply(normalize_grad_year)
+            combined_df = _normalize_dataframe_primary_education_dates(combined_df)
             combined_df['grad_year'] = combined_df['grad_year'].apply(
                 lambda y: '' if y is None or pd.isna(y) else int(y)
+            )
+        if 'school_start' in combined_df.columns:
+            combined_df['school_start'] = combined_df['school_start'].apply(
+                lambda v: '' if v is None or (isinstance(v, float) and pd.isna(v)) else v
             )
         
         combined_df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')

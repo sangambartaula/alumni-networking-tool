@@ -274,7 +274,7 @@ def test_api_alumni_name_sort_uses_first_name_then_last_name(client, monkeypatch
     assert resp.status_code == 200
     assert payload["success"] is True
     select_query = _latest_select_query(query_log)
-    assert "ORDER BY a.first_name ASC, a.last_name ASC" in select_query
+    assert "ORDER BY LOWER(a.first_name) ASC, LOWER(a.last_name) ASC" in select_query
 
 
 def test_api_alumni_year_sort_puts_missing_grad_year_last(client, monkeypatch):

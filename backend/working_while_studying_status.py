@@ -75,10 +75,14 @@ def _parse_date_token(value, bound: str) -> Optional[Dict]:
     if text.lower().startswith("present"):
         return {"year": 9999, "month": 12, "is_present": True}
 
-    month_match = re.match(rf"^({_MONTHS_RE})\.?\s+(\d{{4}})$", text, re.IGNORECASE)
+    month_match = re.match(
+        rf"^(?P<month>{_MONTHS_RE})\.?\s+(?P<year>\d{{4}})$",
+        text,
+        re.IGNORECASE,
+    )
     if month_match:
-        month = _MONTH_TO_NUM.get(month_match.group(1).lower())
-        year = int(month_match.group(2))
+        month = _MONTH_TO_NUM.get(month_match.group("month").lower())
+        year = int(month_match.group("year"))
         if month:
             return {"year": year, "month": month, "is_present": False}
 
@@ -225,6 +229,10 @@ def recompute_working_while_studying_status(row: Dict) -> str:
     strict UNT+Graduate Assistant fallback.
     """
     grad_year = _parse_year(row.get("grad_year"))
+    if grad_year is None:
+        # Legacy data can have a single education date in school_start_date
+        # that actually represents graduation timing.
+        grad_year = _parse_year(row.get("school_start_date"))
     # Backend row currently stores grad_year only; use May 15 fallback semantics.
     school_end = {"year": grad_year, "month": None, "is_present": False} if grad_year else None
     is_expected = False

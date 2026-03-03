@@ -231,6 +231,53 @@ def _coerce_grad_year(value):
     return year if _in_range(year) else None
 
 
+def _infer_grad_year_from_school_start_date(value):
+    """
+    Infer grad_year from school_start_date only when the value contains a single
+    date/year signal (legacy data quirk where one date was put in start field).
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+
+    # Skip explicit ranges; this rule is only for single-date entries.
+    if re.search(r"[-–—]", text):
+        return None
+
+    years = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
+    if len(years) != 1:
+        return None
+
+    return _coerce_grad_year(years[0])
+
+
+def _normalize_primary_education_dates(grad_year_value, school_start_value):
+    """
+    Normalize primary education date fields:
+    - keep explicit grad_year when present
+    - if grad_year missing and school_start has a single date/year, treat it as grad_year
+      and clear school_start
+    """
+    grad_year = _coerce_grad_year(grad_year_value)
+
+    school_start_text = None
+    if school_start_value is not None and not pd.isna(school_start_value):
+        school_start_text = str(school_start_value).strip() or None
+
+    if grad_year is not None:
+        return grad_year, school_start_text
+
+    inferred_grad_year = _infer_grad_year_from_school_start_date(school_start_text)
+    if inferred_grad_year is None:
+        return None, school_start_text
+
+    return inferred_grad_year, None
+
+
 
 def get_connection():
     """
@@ -1229,9 +1276,9 @@ def seed_alumni_data():
                     saved_discipline = str(row.get('discipline', '')).strip() if pd.notna(row.get('discipline')) else ''
                     
                     # grad_year (new) vs graduation_year (old)
-                    grad_year = _coerce_grad_year(row.get('grad_year'))
-                    if grad_year is None:
-                        grad_year = _coerce_grad_year(row.get('graduation_year'))
+                    raw_grad_year = _coerce_grad_year(row.get('grad_year'))
+                    if raw_grad_year is None:
+                        raw_grad_year = _coerce_grad_year(row.get('graduation_year'))
 
                     # linkedin_url (new) vs profile_url (old)
                     raw_url = row.get('linkedin_url') if pd.notna(row.get('linkedin_url')) else row.get('profile_url')
@@ -1241,8 +1288,18 @@ def seed_alumni_data():
 
                     # New fields (may not exist in older CSVs)
                     # school_start (new) vs school_start_date (old)
-                    school_start_date = str(row.get('school_start', '')).strip() if pd.notna(row.get('school_start')) else \
-                                        str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date')) else None
+                    raw_school_start_date = str(row.get('school_start', '')).strip() if pd.notna(row.get('school_start')) else \
+                        str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date')) else None
+                    grad_year, school_start_date = _normalize_primary_education_dates(
+                        raw_grad_year,
+                        raw_school_start_date,
+                    )
+                    inferred_grad_from_school_start = (
+                        raw_grad_year is None
+                        and grad_year is not None
+                        and bool(raw_school_start_date)
+                        and school_start_date is None
+                    )
 
                     # job_start (new) vs job_start_date (old)
                     job_start_date = str(row.get('job_start', '')).strip() if pd.notna(row.get('job_start')) else \
@@ -1287,6 +1344,39 @@ def seed_alumni_data():
                     
                     exp3_dates = str(row.get('exp_3_dates', '')).strip() if pd.notna(row.get('exp_3_dates')) else \
                                  str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates')) else None
+
+                    if inferred_grad_from_school_start:
+                        try:
+                            from working_while_studying_status import (
+                                recompute_working_while_studying_status,
+                                status_to_bool,
+                            )
+                            recomputed_status = (recompute_working_while_studying_status({
+                                "grad_year": grad_year,
+                                "school_start_date": school_start_date,
+                                "school": school,
+                                "school2": school2,
+                                "school3": school3,
+                                "current_job_title": job_title,
+                                "company": company,
+                                "job_start_date": job_start_date,
+                                "job_end_date": job_end_date,
+                                "exp2_title": exp2_title,
+                                "exp2_company": exp2_company,
+                                "exp2_dates": exp2_dates,
+                                "exp3_title": exp3_title,
+                                "exp3_company": exp3_company,
+                                "exp3_dates": exp3_dates,
+                            }) or "").strip().lower()
+                            if recomputed_status in {"yes", "no", "currently"}:
+                                working_while_studying_status = recomputed_status
+                                working_while_studying = status_to_bool(recomputed_status)
+                        except Exception as recompute_err:
+                            logger.warning(
+                                "Could not recompute working_while_studying for %s: %s",
+                                profile_url or f"{first_name} {last_name}".strip(),
+                                recompute_err,
+                            )
 
                     # Read standardized values from CSV (now handled purely by scraper)
                     std_degree = str(row.get('standardized_degree', '')).strip() if pd.notna(row.get('standardized_degree')) else None
@@ -1366,8 +1456,8 @@ def seed_alumni_data():
                                 standardized_major2=VALUES(standardized_major2),
                                 standardized_major3=VALUES(standardized_major3),
                                 last_updated=VALUES(last_updated),
-                                normalized_job_title_id=COALESCE(VALUES(normalized_job_title_id), normalized_job_title_id),
-                                normalized_company_id=COALESCE(VALUES(normalized_company_id), normalized_company_id)
+                                normalized_job_title_id=VALUES(normalized_job_title_id),
+                                normalized_company_id=VALUES(normalized_company_id)
                         """, (
                             first_name,
                             last_name,
@@ -1587,6 +1677,104 @@ def normalize_existing_grad_years():
         logger.info(f"✅ Grad year normalization complete: updated {normalized} of {scanned} rows")
     except Exception as e:
         logger.error(f"❌ Error normalizing grad years: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def normalize_single_date_education_semantics():
+    """
+    Retroactively apply primary education single-date semantics:
+    if grad_year is missing and school_start_date has a single date/year, move it
+    into grad_year and clear school_start_date.
+
+    Recomputes working_while_studying_status for updated rows so filter behavior
+    stays aligned with the corrected education dates.
+    """
+    conn = None
+    scanned = 0
+    updated = 0
+
+    try:
+        from working_while_studying_status import (
+            recompute_working_while_studying_status,
+            status_to_bool,
+        )
+    except Exception as import_err:
+        logger.error(f"❌ Could not import working_while_studying_status helpers: {import_err}")
+        return
+
+    try:
+        conn = get_connection()
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                """
+                SELECT id,
+                       grad_year,
+                       school_start_date,
+                       school,
+                       school2,
+                       school3,
+                       current_job_title,
+                       company,
+                       job_start_date,
+                       job_end_date,
+                       exp2_title,
+                       exp2_company,
+                       exp2_dates,
+                       exp3_title,
+                       exp3_company,
+                       exp3_dates
+                FROM alumni
+                WHERE grad_year IS NULL
+                  AND school_start_date IS NOT NULL
+                  AND school_start_date <> ''
+                """
+            )
+            rows = cur.fetchall() or []
+            scanned = len(rows)
+
+            for row in rows:
+                inferred_grad_year = _infer_grad_year_from_school_start_date(row.get("school_start_date"))
+                if inferred_grad_year is None:
+                    continue
+
+                row_for_status = dict(row)
+                row_for_status["grad_year"] = inferred_grad_year
+                row_for_status["school_start_date"] = None
+                recomputed_status = (recompute_working_while_studying_status(row_for_status) or "").strip().lower()
+                if recomputed_status not in {"yes", "no", "currently"}:
+                    recomputed_status = ""
+
+                cur.execute(
+                    """
+                    UPDATE alumni
+                    SET grad_year = %s,
+                        school_start_date = NULL,
+                        working_while_studying = %s,
+                        working_while_studying_status = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        inferred_grad_year,
+                        status_to_bool(recomputed_status),
+                        recomputed_status or None,
+                        row.get("id"),
+                    ),
+                )
+                updated += 1
+
+        conn.commit()
+        logger.info(
+            "✅ Single-date education normalization complete: updated %s of %s candidate rows",
+            updated,
+            scanned,
+        )
+    except Exception as e:
+        logger.error(f"❌ Error normalizing single-date education semantics: {e}")
     finally:
         if conn:
             try:

@@ -141,7 +141,10 @@ def build_unt_education_entries_from_alumni_row(row: Dict[str, Any]) -> List[Dic
         explicit_end_year = _extract_year(row.get(grad_year_key)) if grad_year_key else None
         degree_year = _extract_year(row.get(degree_key))
         major_year = _extract_year(row.get(major_key))
-        inferred_end_year = explicit_end_year or degree_year or major_year
+        # Legacy data sometimes stored a single education date in school_start_date.
+        # If grad_year is missing, treat that lone date as graduation year.
+        school_start_fallback_year = _extract_year(row.get("school_start_date")) if school_key == "school" else None
+        inferred_end_year = explicit_end_year or degree_year or major_year or school_start_fallback_year
 
         entries.append(
             {
@@ -159,4 +162,3 @@ def build_unt_education_entries_from_alumni_row(row: Dict[str, Any]) -> List[Dic
 def compute_unt_alumni_status_from_row(row: Dict[str, Any], today: Optional[date] = None) -> str:
     entries = build_unt_education_entries_from_alumni_row(row or {})
     return compute_unt_alumni_status(entries, today=today)
-

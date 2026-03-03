@@ -995,7 +995,7 @@ def api_get_alumni():
                 elif sort_key == 'updated':
                     order_clause = f"a.updated_at {sort_direction}, a.last_name ASC, a.first_name ASC"
                 else:
-                    order_clause = f"a.first_name {sort_direction}, a.last_name {sort_direction}"
+                    order_clause = f"LOWER(a.first_name) {sort_direction}, LOWER(a.last_name) {sort_direction}"
 
                 select_sql = f"""
                     SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major,
@@ -2164,6 +2164,7 @@ if __name__ == "__main__":
         seed_alumni_data,
         has_alumni_records,
         normalize_existing_grad_years,
+        normalize_single_date_education_semantics,
         ensure_normalized_job_title_column,
         ensure_normalized_degree_column,
         ensure_normalized_company_column
@@ -2183,7 +2184,6 @@ if __name__ == "__main__":
             if seed_mode in {"1", "true", "yes", "sync", "force"}:
                 app.logger.info("Seeding alumni on startup (CSV sync explicitly enabled)")
                 seed_alumni_data()
-                normalize_existing_grad_years()
             elif seed_mode in {"0", "false", "no", "off", "skip"}:
                 app.logger.info("Skipping alumni seed on startup (SEED_ON_STARTUP=0)")
             elif seed_mode == "auto":
@@ -2192,9 +2192,13 @@ if __name__ == "__main__":
                 else:
                     app.logger.info("Seeding alumni on startup (alumni table is empty)")
                     seed_alumni_data()
-                    normalize_existing_grad_years()
             else:
                 app.logger.info(f"Skipping alumni seed on startup (unknown SEED_ON_STARTUP={seed_mode})")
+
+            # Always apply normalization passes so legacy date semantics stay consistent
+            # even when startup seeding is disabled.
+            normalize_existing_grad_years()
+            normalize_single_date_education_semantics()
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {e}")
             if not USE_SQLITE_FALLBACK:
