@@ -153,6 +153,10 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown",
         text = re.sub(r'\|\s*\|', '|', text)
         text = re.sub(r'\s+', ' ', text).strip()
 
+        # Strip "Activities and societies:" and everything after it
+        # (they appear as pipe-separated segments in the same entry)
+        text = re.sub(r'\s*\|\s*Activities and societies:.*$', '', text, flags=re.IGNORECASE).strip()
+
         if text and len(text) > 10:
             entries.append(text)
 
