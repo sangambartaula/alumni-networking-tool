@@ -607,8 +607,9 @@ function renderLoadMoreControl() {
 function getCanonicalRoleTitle(value) {
   const title = (value || '').trim();
   if (!title) return '';
-  const withoutLevelSuffix = title.replace(/\s+(?:level\s*)?(?:i{1,5}|[1-5])$/i, '').trim();
-  const canonicalTitle = withoutLevelSuffix || title;
+  const withoutLevelSuffix = title.replace(/\s+(?:level\s*)?(?:i{1,5}|[1-9])$/i, '').trim();
+  const withoutSeniority = withoutLevelSuffix.replace(/^(?:senior|sr\.?)\s+/i, '').trim();
+  const canonicalTitle = withoutSeniority || withoutLevelSuffix || title;
   const low = canonicalTitle.toLowerCase().replace(/\s+/g, ' ');
 
   if (low === 'director' || low === 'director of' || low === 'director of engineering') {
@@ -624,6 +625,9 @@ function getCanonicalRoleTitle(value) {
   }
   if (low === 'data owner') {
     return 'Data Analyst';
+  }
+  if (low === 'software developer' || low === 'software dev') {
+    return 'Software Engineer';
   }
   return canonicalTitle;
 }

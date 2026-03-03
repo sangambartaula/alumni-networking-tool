@@ -79,7 +79,8 @@ TITLE_MAP = {
     "developer": "Software Engineer",
     "application developer": "Software Engineer",
     "application development analyst": "Software Engineer",
-    "application engineer": "Software Engineer",
+    "application engineer": "Application Engineer",
+    "application engineer ii": "Application Engineer",
     "associate programmer, it aviator": "Software Engineer",
     "mainframe programmer": "Software Engineer",
     "programmer analyst trainee": "Software Engineer",
@@ -252,6 +253,9 @@ TITLE_MAP = {
     "project manager": "Project Manager",
     "project manager 2": "Project Manager",
     "project manager ii": "Project Manager",
+    "senior project manager": "Project Manager",
+    "sr project manager": "Project Manager",
+    "sr. project manager": "Project Manager",
     "project manager ii": "Project Manager",
     "assistant project manager": "Project Manager",
     "project management coordinator": "Project Manager",
@@ -424,6 +428,10 @@ TITLE_MAP = {
     "hr manager": "Human Resources",
 
     # ── Finance / Accounting ──
+    "accountant": "Accountant",
+    "senior accountant": "Accountant",
+    "sr accountant": "Accountant",
+    "sr. accountant": "Accountant",
     "financial solutions advisor": "Finance / Accounting",
     "financial advisor": "Finance / Accounting",
     "financial reporting accountant": "Finance / Accounting",
@@ -493,6 +501,8 @@ _PREFERRED_TITLE_BUCKETS = [
     "Graduate Assistant",
     "Student",
     "Project Manager",
+    "Application Engineer",
+    "Accountant",
     "Manager",
     "Customer Service",
     "Sales",
@@ -649,7 +659,8 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
 
 # Regex patterns to strip before re-matching
 _LEVEL_SUFFIXES = re.compile(
-    r'\s*[-–]\s*(?:level\s*)?\s*(?:i{1,3}|iv|v|[1-5])\s*$', re.IGNORECASE
+    r'\s*(?:[-–]\s*)?(?:level\s*)?\s*(?:i{1,5}|iv|v|[1-9])\s*$',
+    re.IGNORECASE,
 )
 _PAREN_QUALIFIER = re.compile(r'\s*\(.*?\)\s*$')
 _SENIORITY_PREFIX = re.compile(
