@@ -366,6 +366,25 @@ def init_db():
                 VALUES (%s)
             """, ("lamichhaneabishek451@gmail.com",))
 
+            # Create scraper_activity table (internal tracking: who scraped how much)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scraper_activity (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    profiles_scraped INT DEFAULT 0,
+                    last_scraped_at TIMESTAMP NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_scraper_email (email)
+                )
+            """)
+            logger.info("scraper_activity table created/verified")
+
+            # Seed scraper_activity with all authorized emails (initialized to 0)
+            cur.execute("""
+                INSERT IGNORE INTO scraper_activity (email)
+                SELECT email FROM authorized_emails
+            """)
+
 
             # Create alumni table
             cur.execute("""
@@ -1194,6 +1213,100 @@ def migrate_env_emails_to_db():
     
     logger.info(f"✅ Migrated {migrated}/{len(emails)} authorized emails to database")
     return migrated
+
+
+# ============================================================
+# SCRAPER ACTIVITY TRACKING
+# ============================================================
+
+def increment_scraper_activity(email):
+    """
+    Increment the profiles_scraped counter for a scraper email.
+    Upserts: if the email doesn't exist yet, creates a new row.
+    Works with both MySQL and SQLite fallback.
+    """
+    if not email:
+        return
+    email = email.strip().lower()
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                # MySQL syntax
+                cur.execute("""
+                    INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
+                    VALUES (%s, 1, NOW())
+                    ON DUPLICATE KEY UPDATE
+                        profiles_scraped = profiles_scraped + 1,
+                        last_scraped_at = NOW()
+                """, (email,))
+            except Exception:
+                # SQLite fallback syntax
+                cur.execute("""
+                    INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
+                    VALUES (?, 1, datetime('now'))
+                    ON CONFLICT(email) DO UPDATE SET
+                        profiles_scraped = profiles_scraped + 1,
+                        last_scraped_at = datetime('now')
+                """, (email,))
+            conn.commit()
+    except Exception as err:
+        logger.error(f"Error incrementing scraper activity for {email}: {err}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_scraper_activity():
+    """
+    Get all scraper activity records.
+    Returns a list of dicts with email, profiles_scraped, last_scraped_at, created_at.
+    Works with both MySQL and SQLite fallback.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute("""
+                    SELECT email, profiles_scraped, last_scraped_at, created_at
+                    FROM scraper_activity
+                    ORDER BY profiles_scraped DESC
+                """)
+                rows = cur.fetchall()
+        except Exception:
+            # SQLite fallback — cursor doesn't support dictionary= kwarg,
+            # but SQLiteConnectionWrapper's cursor returns Row objects
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT email, profiles_scraped, last_scraped_at, created_at
+                    FROM scraper_activity
+                    ORDER BY profiles_scraped DESC
+                """)
+                raw = cur.fetchall()
+                rows = [dict(r) for r in raw]
+
+        # Convert datetime objects to strings for JSON serialization
+        for row in rows:
+            for key in ('last_scraped_at', 'created_at'):
+                val = row.get(key)
+                if hasattr(val, 'isoformat'):
+                    row[key] = val.isoformat()
+
+        return rows
+    except Exception as err:
+        logger.error(f"Error fetching scraper activity: {err}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # ============================================================

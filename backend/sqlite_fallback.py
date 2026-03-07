@@ -100,6 +100,11 @@ TABLE_CONFIG = {
         'pk': ['id'],
         'unique_cols': ['normalized_company'],
         'timestamp_col': 'created_at'
+    },
+    'scraper_activity': {
+        'pk': ['id'],
+        'unique_cols': ['email'],
+        'timestamp_col': 'created_at'
     }
 }
 
@@ -344,6 +349,15 @@ class ConnectionManager:
                 CREATE TABLE IF NOT EXISTS normalized_companies (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     normalized_company TEXT NOT NULL UNIQUE,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
+                -- Scraper activity tracking (internal: who scraped how much)
+                CREATE TABLE IF NOT EXISTS scraper_activity (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    profiles_scraped INTEGER DEFAULT 0,
+                    last_scraped_at TEXT,
                     created_at TEXT DEFAULT (datetime('now'))
                 );
 

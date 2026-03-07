@@ -24,6 +24,7 @@ from config import logger
 
 # Backend
 from backend.sqlite_fallback import get_connection_manager
+from backend.database import increment_scraper_activity
 from defense.navigator import SafeNavigator
 
 
@@ -313,6 +314,8 @@ def _save_and_track(data, input_url, history_mgr):
         # If we came through a redirect, remove the old URL from persisted data sources.
         if original_url and original_url.rstrip('/') != canonical_url.rstrip('/'):
             _canonicalize_redirect_url(original_url, canonical_url, history_mgr)
+        # Track scraper activity (who scraped this profile)
+        increment_scraper_activity(config.LINKEDIN_EMAIL)
         return True
     return False
 
