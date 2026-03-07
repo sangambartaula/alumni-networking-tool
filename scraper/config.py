@@ -222,6 +222,7 @@ SCRAPE_RESUME_MAX_AGE_DAYS = int(os.getenv("SCRAPE_RESUME_MAX_AGE_DAYS", "7"))
 OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
 UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
 CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "connections.csv")
+SEARCH_DISCIPLINES = os.getenv("SEARCH_DISCIPLINES", "")
 
 # Groq AI Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")

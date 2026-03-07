@@ -60,6 +60,33 @@ python scraper/main.py
 
 The scraper uses cookie-first login. If a valid saved session cookie exists, it reuses that session. If not, it falls back to account login and refreshes cookies.
 
+### Discipline-Targeted UNT Search (`SEARCH_DISCIPLINES`)
+
+When `SCRAPER_MODE=search`, you can optionally target one or more discipline buckets with:
+
+- `SEARCH_DISCIPLINES=software`
+- `SEARCH_DISCIPLINES=software,mechanical`
+- `SEARCH_DISCIPLINES=embedded,construction`
+- `SEARCH_DISCIPLINES=biomedical,materials`
+
+Accepted values (case-insensitive, comma-separated, whitespace allowed):
+- `software`
+- `embedded`
+- `mechanical`
+- `construction`
+- `biomedical`
+- `materials`
+
+Behavior:
+- If `SEARCH_DISCIPLINES` is missing or empty, scraper behavior stays the same as normal/default search mode.
+- Unknown values are ignored with a warning.
+- If all provided values are invalid, scraper falls back to normal/default search mode.
+- If multiple values are provided, they run sequentially in one scraper run.
+- This mode starts from the canonical UNT people search page (`https://www.linkedin.com/search/results/people/?schoolFilter=%5B%226464%22%5D`), types the discipline keyword bucket into the page search bar, submits with Enter, then continues with the normal result-processing and profile-scraping flow.
+
+Visited history behavior:
+- After a profile is successfully saved, its normalized LinkedIn URL is now persisted to visited history immediately during the run (including DB update), to reduce duplicates across concurrent scraper sessions.
+
 ### Device-Safe Team Workflow (Recommended)
 
 If teammates scrape from different machines, refresh the local CSV from cloud DB first:

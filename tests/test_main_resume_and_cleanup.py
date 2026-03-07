@@ -219,3 +219,28 @@ def test_remove_dead_urls_cleans_slash_variants_from_files(monkeypatch, tmp_path
     alumni_after = (out_dir / "UNT_Alumni_Data.csv").read_text(encoding="utf-8")
     assert "remove-me" not in alumni_after
     assert "keep-me" in alumni_after
+
+
+def test_parse_search_disciplines_handles_case_whitespace_and_duplicates():
+    selected = scraper_main._parse_search_disciplines(" software , MECHANICAL,software ")
+    assert selected == ["software", "mechanical"]
+
+
+def test_get_selected_search_disciplines_all_invalid_falls_back(monkeypatch):
+    monkeypatch.setattr(scraper_main.config, "SEARCH_DISCIPLINES", "invalid,unknown")
+    selected = scraper_main._get_selected_search_disciplines()
+    assert selected == []
+
+
+def test_canonicalize_search_base_url_strips_sid_and_page():
+    raw_url = (
+        "https://www.linkedin.com/search/results/people/"
+        "?schoolFilter=%5B%226464%22%5D&keywords=software&page=4&sid=abc123"
+    )
+    normalized = scraper_main._canonicalize_search_base_url(
+        raw_url,
+        scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL,
+    )
+    assert "sid=" not in normalized
+    assert "page=" not in normalized
+    assert "keywords=software" in normalized

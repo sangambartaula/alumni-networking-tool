@@ -14,6 +14,8 @@ import csv
 import urllib.parse
 import threading
 from datetime import datetime, timedelta, timezone
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 # Local Modules
 import config
@@ -24,7 +26,7 @@ from config import logger
 
 # Backend
 from backend.sqlite_fallback import get_connection_manager
-from backend.database import increment_scraper_activity
+from backend.database import increment_scraper_activity, normalize_url
 from defense.navigator import SafeNavigator
 
 
@@ -186,6 +188,198 @@ def check_force_exit():
 # ============================================================
 # Helpers
 # ============================================================
+DEFAULT_SEARCH_BASE_URL = (
+    "https://www.linkedin.com/search/results/people/"
+    "?network=%5B%22O%22%5D&schoolFilter=%5B%226464%22%5D"
+)
+UNT_DISCIPLINE_SEARCH_BASE_URL = (
+    "https://www.linkedin.com/search/results/people/?schoolFilter=%5B%226464%22%5D"
+)
+_TEMP_SEARCH_QUERY_KEYS = {"sid", "origin", "position", "trackingId", "searchId"}
+
+DISCIPLINE_ALIAS_LABELS = {
+    "software": "Software, Data & AI Engineering",
+    "embedded": "Embedded, Electrical & Hardware Engineering",
+    "mechanical": "Mechanical & Energy Engineering",
+    "construction": "Construction & Engineering Management",
+    "biomedical": "Biomedical Engineering",
+    "materials": "Materials Science & Manufacturing",
+}
+
+DISCIPLINE_KEYWORD_BUCKETS = {
+    "software": (
+        "software, developer, programmer, software engineer, backend, frontend, full stack, web "
+        "developer, computer science, computer engineering, information technology, cybersecurity, "
+        "data, data engineer, data science, data scientist, analytics, machine learning, artificial "
+        "intelligence, ai, python, java, c++, javascript, cloud"
+    ),
+    "embedded": (
+        "embedded, firmware, embedded systems, hardware, hardware engineer, electronics, electrical "
+        "engineering, electrical engineer, pcb, circuit design, circuits, fpga, verilog, vhdl, "
+        "semiconductor, microcontroller, arm, stm32, esp32, signal processing, power systems, "
+        "matlab, simulink, c, c++"
+    ),
+    "mechanical": (
+        "mechanical engineering, mechanical engineer, mechanical design, cad, solidworks, autocad, "
+        "ansys, manufacturing, manufacturing engineering, thermodynamics, heat transfer, fluid "
+        "mechanics, hvac, energy, energy systems, renewable energy, finite element analysis, fea, "
+        "structural analysis, stress analysis, machine design, robotics, matlab, simulink, catia"
+    ),
+    "construction": (
+        "construction engineering, construction management, construction engineer, civil engineering, "
+        "civil engineer, structural engineering, structural engineer, project engineer, site engineer, "
+        "field engineer, infrastructure, transportation engineering, geotechnical engineering, "
+        "surveying, land development, bim, revit, autocad, primavera, p6, ms project, project "
+        "controls, estimating, cost estimation, osha"
+    ),
+    "biomedical": (
+        "biomedical engineering, biomedical engineer, bioengineering, medical devices, biomaterials, "
+        "bioinformatics, medical imaging, biosensors, prosthetics, healthcare engineering, biotech, "
+        "biotechnology, mri, ct scan, ultrasound, clinical engineering, tissue engineering, neural "
+        "engineering, rehabilitation engineering, fda, medical informatics, health informatics"
+    ),
+    "materials": (
+        "materials science, materials engineering, materials engineer, nanotechnology, nanomaterials, "
+        "polymers, composites, metallurgy, ceramics, materials characterization, additive "
+        "manufacturing, 3d printing, sem, tem, xrd, corrosion, heat treatment, thin films, "
+        "crystallography, semiconductor materials, process engineering, quality engineering, six "
+        "sigma, failure analysis, powder metallurgy"
+    ),
+}
+
+_SEARCH_INPUT_SELECTORS = [
+    (By.CSS_SELECTOR, "input[aria-label*='Search by name']"),
+    (By.CSS_SELECTOR, "input[aria-label*='Search']"),
+    (By.CSS_SELECTOR, "input[placeholder*='Search']"),
+    (By.CSS_SELECTOR, "input.search-global-typeahead__input"),
+    (By.CSS_SELECTOR, "input[role='combobox']"),
+]
+
+
+def _normalize_profile_url(url):
+    normalized = normalize_url(url)
+    if not normalized:
+        return ""
+    cleaned = normalized.strip().split("?", 1)[0].split("#", 1)[0]
+    return cleaned.rstrip("/")
+
+
+def _parse_search_disciplines(raw_value):
+    selected = []
+    seen = set()
+    for token in (raw_value or "").split(","):
+        alias = token.strip().lower()
+        if not alias:
+            continue
+        if alias in DISCIPLINE_KEYWORD_BUCKETS:
+            if alias not in seen:
+                selected.append(alias)
+                seen.add(alias)
+        else:
+            logger.warning(f"Unknown SEARCH_DISCIPLINES value ignored: '{token.strip()}'")
+    return selected
+
+
+def _get_selected_search_disciplines():
+    raw_value = (getattr(config, "SEARCH_DISCIPLINES", "") or "").strip()
+    if not raw_value:
+        return []
+    selected = _parse_search_disciplines(raw_value)
+    if not selected:
+        logger.warning(
+            "SEARCH_DISCIPLINES is set, but no valid aliases were found. "
+            "Falling back to default search mode."
+        )
+    return selected
+
+
+def _canonicalize_search_base_url(current_url, fallback_url):
+    parsed = urllib.parse.urlsplit((current_url or "").strip())
+    if not parsed.scheme or not parsed.netloc:
+        return fallback_url
+
+    query_items = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    filtered_items = [
+        (key, value)
+        for key, value in query_items
+        if key not in _TEMP_SEARCH_QUERY_KEYS and key != "page"
+    ]
+    if not any(key == "schoolFilter" for key, _ in filtered_items):
+        filtered_items.append(("schoolFilter", '["6464"]'))
+
+    path = parsed.path or "/search/results/people/"
+    if "/search/results/people/" not in path:
+        path = "/search/results/people/"
+    if not path.endswith("/"):
+        path = f"{path}/"
+
+    query = urllib.parse.urlencode(filtered_items, doseq=True)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, query, ""))
+
+
+def _build_discipline_search_base_url(current_url, keyword_query):
+    base_url = _canonicalize_search_base_url(current_url, UNT_DISCIPLINE_SEARCH_BASE_URL)
+    if "keywords=" in base_url:
+        return base_url
+
+    parsed = urllib.parse.urlsplit(base_url)
+    query_items = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    query_items = [(k, v) for (k, v) in query_items if k != "keywords"]
+    query_items.append(("keywords", keyword_query))
+    query = urllib.parse.urlencode(query_items, doseq=True)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
+
+
+def _find_visible_people_search_input(scraper, timeout_seconds=12):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        for by, selector in _SEARCH_INPUT_SELECTORS:
+            try:
+                elements = scraper.driver.find_elements(by, selector)
+            except Exception:
+                continue
+
+            for element in elements:
+                try:
+                    if element.is_displayed() and element.is_enabled():
+                        return element
+                except Exception:
+                    continue
+        time.sleep(0.25)
+    return None
+
+
+def _submit_discipline_keywords(scraper, keyword_query):
+    search_input = _find_visible_people_search_input(scraper)
+    if not search_input:
+        logger.warning("Could not find LinkedIn people search input on results page.")
+        return False
+
+    previous_url = (scraper.driver.current_url or "").strip()
+    try:
+        search_input.click()
+        time.sleep(random.uniform(0.2, 0.5))
+        search_input.send_keys(Keys.CONTROL, "a")
+        search_input.send_keys(Keys.DELETE)
+        time.sleep(random.uniform(0.2, 0.5))
+        search_input.send_keys(keyword_query)
+        time.sleep(random.uniform(0.3, 0.7))
+        search_input.send_keys(Keys.ENTER)
+    except Exception as e:
+        logger.warning(f"Failed to submit discipline keywords via search bar: {e}")
+        return False
+
+    deadline = time.time() + 12
+    while time.time() < deadline:
+        current_url = (scraper.driver.current_url or "").strip()
+        if current_url and current_url != previous_url and "/search/results/people/" in current_url:
+            return True
+        time.sleep(0.25)
+
+    current_url = (scraper.driver.current_url or "").strip()
+    return bool(current_url and "/search/results/people/" in current_url)
+
+
 def wait_between_profiles():
     delay = random.uniform(config.MIN_DELAY, config.MAX_DELAY)
     logger.info(f"Next profile in {delay:.0f}s")
@@ -298,8 +492,14 @@ def _save_and_track(data, input_url, history_mgr):
     if not data or data == "PAGE_NOT_FOUND":
         return False
     
-    canonical_url = data.get("profile_url", input_url)
-    original_url = data.pop("_original_url", None)  # Remove internal key before save
+    canonical_url = _normalize_profile_url(data.get("profile_url", input_url))
+    input_url = _normalize_profile_url(input_url)
+    if not canonical_url:
+        canonical_url = input_url
+    if canonical_url:
+        data["profile_url"] = canonical_url
+
+    original_url = _normalize_profile_url(data.pop("_original_url", None))  # Remove internal key before save
     
     # Check if canonical URL was already saved in this session under a different input URL
     if original_url and history_mgr.should_skip(canonical_url):
@@ -351,6 +551,9 @@ def run_names_mode(scraper, nav, history_mgr):
 
         urls = scraper.extract_profile_urls_from_page()
         for url in urls:
+            url = _normalize_profile_url(url)
+            if not url:
+                continue
             if check_force_exit():
                 return
 
@@ -377,17 +580,12 @@ def run_names_mode(scraper, nav, history_mgr):
             wait_between_profiles()
 
 
-def run_search_mode(scraper, nav, history_mgr):
-    base_url = (
-        "https://www.linkedin.com/search/results/people/"
-        "?network=%5B%22O%22%5D&schoolFilter=%5B%226464%22%5D"
-    )
-
+def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key, mode_label):
     page = 1
     state = load_scrape_state()
     if (
         state
-        and state.get("mode") == "search"
+        and state.get("mode") == state_mode_key
         and state.get("search_url") == base_url
         and _is_recent_state(state.get("updated_at"), config.SCRAPE_RESUME_MAX_AGE_DAYS)
     ):
@@ -397,18 +595,18 @@ def run_search_mode(scraper, nav, history_mgr):
             saved_page = 1
         page = saved_page if saved_page >= 1 else 1
         logger.info(
-            f"↪ Resuming search mode from page {page} "
+            f"↪ Resuming {mode_label} from page {page} "
             f"(state age <= {config.SCRAPE_RESUME_MAX_AGE_DAYS} days)"
         )
     else:
-        logger.info("↪ Starting search mode from page 1")
+        logger.info(f"↪ Starting {mode_label} from page 1")
 
     while True:
         if should_stop():
             break
 
         url = base_url if page == 1 else f"{base_url}&page={page}"
-        save_scrape_state("search", base_url, page)
+        save_scrape_state(state_mode_key, base_url, page)
         logger.info(f"📄 Search page {page}")
 
         ok = nav.get(url)
@@ -422,10 +620,14 @@ def run_search_mode(scraper, nav, history_mgr):
         urls = scraper.extract_profile_urls_from_page()
         if not urls:
             # Reached the end of results; restart from page 1 next run.
-            save_scrape_state("search", base_url, 1)
+            save_scrape_state(state_mode_key, base_url, 1)
             break
 
         for profile_url in urls:
+            profile_url = _normalize_profile_url(profile_url)
+            if not profile_url:
+                continue
+
             if check_force_exit():
                 return
 
@@ -452,8 +654,53 @@ def run_search_mode(scraper, nav, history_mgr):
             wait_between_profiles()
 
         page += 1
-        save_scrape_state("search", base_url, page)
+        save_scrape_state(state_mode_key, base_url, page)
 
+
+def run_search_mode(scraper, nav, history_mgr):
+    _run_search_results_mode(
+        scraper=scraper,
+        nav=nav,
+        history_mgr=history_mgr,
+        base_url=DEFAULT_SEARCH_BASE_URL,
+        state_mode_key="search",
+        mode_label="search mode",
+    )
+
+
+def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
+    for alias in discipline_aliases:
+        if should_stop():
+            return
+
+        label = DISCIPLINE_ALIAS_LABELS.get(alias, alias)
+        keyword_query = DISCIPLINE_KEYWORD_BUCKETS[alias]
+        logger.info(f"--- MODE: Discipline Search ({label}) ---")
+
+        ok = nav.get(UNT_DISCIPLINE_SEARCH_BASE_URL)
+        if not ok:
+            logger.warning("UNT people search page unhealthy. Skipping this discipline.")
+            continue
+
+        time.sleep(3)
+        if not _submit_discipline_keywords(scraper, keyword_query):
+            logger.warning(f"Could not submit search keywords for discipline '{alias}'. Skipping.")
+            continue
+
+        discipline_base_url = _build_discipline_search_base_url(
+            scraper.driver.current_url,
+            keyword_query,
+        )
+        logger.info(f"Discipline base URL: {discipline_base_url}")
+
+        _run_search_results_mode(
+            scraper=scraper,
+            nav=nav,
+            history_mgr=history_mgr,
+            base_url=discipline_base_url,
+            state_mode_key=f"search_discipline:{alias}",
+            mode_label=f"discipline search ({alias})",
+        )
 
 def run_review_mode(scraper, nav, history_mgr):
     """
@@ -476,6 +723,7 @@ def run_review_mode(scraper, nav, history_mgr):
     urls = []
     for raw in raw_urls:
         url = raw.split('#')[0].strip() if '#' in raw else raw
+        url = _normalize_profile_url(url)
         if url and not is_blocked_url(url):
             urls.append(url)
     
@@ -488,6 +736,9 @@ def run_review_mode(scraper, nav, history_mgr):
     dead_urls = []  # Collect profiles that no longer exist
     
     for profile_url in urls:
+        profile_url = _normalize_profile_url(profile_url)
+        if not profile_url:
+            continue
         if should_stop():
             break
         
@@ -675,6 +926,12 @@ def main():
             run_names_mode(scraper, nav, history_mgr)
         elif config.SCRAPER_MODE == "review":
             run_review_mode(scraper, nav, history_mgr)
+        elif config.SCRAPER_MODE == "search":
+            selected_disciplines = _get_selected_search_disciplines()
+            if selected_disciplines:
+                run_discipline_search_mode(scraper, nav, history_mgr, selected_disciplines)
+            else:
+                run_search_mode(scraper, nav, history_mgr)
         else:
             run_search_mode(scraper, nav, history_mgr)
 

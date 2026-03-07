@@ -8,7 +8,7 @@ import sys
 
 # Hack for imports if needed, or adjust structure
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'backend'))
-from database import save_visited_profile, get_all_visited_profiles
+from database import save_visited_profile, get_all_visited_profiles, normalize_url as db_normalize_url
 
 from config import (
     logger, UPDATE_FREQUENCY, VISITED_HISTORY_FILE, 
@@ -58,13 +58,21 @@ class HistoryManager:
         except Exception:
             pd.DataFrame(columns=VISITED_HISTORY_COLUMNS).to_csv(VISITED_HISTORY_FILE, index=False)
 
+    @staticmethod
+    def _normalize_profile_url(url):
+        normalized = db_normalize_url(url)
+        if not normalized:
+            return ""
+        cleaned = normalized.strip().split('?', 1)[0].split('#', 1)[0]
+        return cleaned.rstrip('/')
+
     def load_from_csv(self):
         if VISITED_HISTORY_FILE.exists():
             try:
                 df = pd.read_csv(VISITED_HISTORY_FILE)
                 self.visited_history = {}
                 for _, row in df.iterrows():
-                    url = str(row.get('profile_url', '')).strip().rstrip('/')
+                    url = self._normalize_profile_url(row.get('profile_url'))
                     if not url: continue
                     self.visited_history[url] = {
                         'saved': str(row.get('saved', 'no')).strip().lower(),
@@ -92,7 +100,7 @@ class HistoryManager:
 
         self.visited_history = {}
         for profile in db_profiles:
-            url = (profile.get('linkedin_url') or "").strip().rstrip('/')
+            url = self._normalize_profile_url(profile.get('linkedin_url'))
             if not url: continue
 
             is_unt = bool(profile.get('is_unt_alum'))
@@ -137,9 +145,16 @@ class HistoryManager:
             logger.error(f"Error saving visited history: {e}")
 
     def mark_as_visited(self, url, saved=False, update_needed=False):
-        if not url: return
-        url = url.strip().rstrip('/')
-        save_visited_profile(url, is_unt_alum=bool(saved)) # DB Call
+        url = self._normalize_profile_url(url)
+        if not url:
+            return False
+        try:
+            db_saved = save_visited_profile(url, is_unt_alum=bool(saved))  # live DB update
+        except Exception as e:
+            logger.warning(f"Could not persist visited profile to DB immediately: {url} ({e})")
+            db_saved = False
+        if not db_saved:
+            logger.warning(f"Could not persist visited profile to DB immediately: {url}")
         
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -150,10 +165,12 @@ class HistoryManager:
             'last_db_update': now_str  # Update with current time as we just synced to DB
         }
         self.save_history_csv()
+        return bool(db_saved)
 
     def should_skip(self, url):
-        if not url: return False
-        url = url.strip().rstrip('/')
+        url = self._normalize_profile_url(url)
+        if not url:
+            return False
         if url not in self.visited_history: return False
         entry = self.visited_history[url]
         saved = entry.get('saved', 'no').lower()
