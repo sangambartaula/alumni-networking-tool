@@ -114,6 +114,19 @@
           </div>
         </div>
 
+        <div class="analytics-filter-group">
+          <label>
+            <i class="fas fa-calendar-alt"></i> Grad Year Range
+          </label>
+          <div class="analytics-filter-input-container" style="gap: 8px;">
+            <input id="analyticsGradYearMin" type="number" placeholder="From (e.g. 2010)"
+              class="analytics-filter-input" min="1900" max="2100" style="flex:1;" />
+            <span style="align-self:center; color: var(--text-secondary, #888);">–</span>
+            <input id="analyticsGradYearMax" type="number" placeholder="To (e.g. 2020)"
+              class="analytics-filter-input" min="1900" max="2100" style="flex:1;" />
+          </div>
+        </div>
+
         <button id="analyticsClearAllFiltersBtn" class="analytics-filter-clear-btn">
           <i class="fas fa-times-circle"></i> Clear All Filters
         </button>
@@ -143,6 +156,14 @@
           </span>
           <div class="analytics-filter-tags" id="analyticsUntAlumniStatusTag">
             <span class="empty-analytics-filters-message">All statuses</span>
+          </div>
+        </div>
+        <div style="margin-top: 16px;">
+          <span class="analytics-filter-tags-label">
+            <i class="fas fa-calendar-alt"></i> Grad Year Range
+          </span>
+          <div class="analytics-filter-tags" id="analyticsGradYearRangeTag">
+            <span class="empty-analytics-filters-message">All years</span>
           </div>
         </div>
       </div>

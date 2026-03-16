@@ -12,6 +12,8 @@ let allLocations = new Set();
 let allCompanies = new Set();
 let filteredTableRenderToken = 0;
 const analyticsChunkSize = 500;
+let gradYearRangeMin = null;
+let gradYearRangeMax = null;
 
 function isWorkingWhileStudyingPositive(value) {
   if (value === true || value === 1) return true;
@@ -78,6 +80,8 @@ function saveHiddenFiltersToStorage() {
   localStorage.setItem('analyticsHiddenLocations', JSON.stringify(Array.from(hiddenLocations)));
   localStorage.setItem('analyticsHiddenCompanies', JSON.stringify(Array.from(hiddenCompanies)));
   localStorage.setItem('analyticsUntAlumniStatus', selectedUntAlumniStatus || '');
+  localStorage.setItem('analyticsGradYearMin', gradYearRangeMin != null ? String(gradYearRangeMin) : '');
+  localStorage.setItem('analyticsGradYearMax', gradYearRangeMax != null ? String(gradYearRangeMax) : '');
 }
 
 /**
@@ -90,6 +94,8 @@ function loadHiddenFiltersFromStorage() {
     const savedLocations = localStorage.getItem('analyticsHiddenLocations');
     const savedCompanies = localStorage.getItem('analyticsHiddenCompanies');
     const savedUntAlumniStatus = localStorage.getItem('analyticsUntAlumniStatus');
+    const savedGradYearMin = localStorage.getItem('analyticsGradYearMin');
+    const savedGradYearMax = localStorage.getItem('analyticsGradYearMax');
 
     if (savedLocations) {
       hiddenLocations = new Set(JSON.parse(savedLocations));
@@ -100,11 +106,15 @@ function loadHiddenFiltersFromStorage() {
     if (savedUntAlumniStatus) {
       selectedUntAlumniStatus = savedUntAlumniStatus;
     }
+    if (savedGradYearMin) gradYearRangeMin = parseInt(savedGradYearMin, 10);
+    if (savedGradYearMax) gradYearRangeMax = parseInt(savedGradYearMax, 10);
   } catch (error) {
     console.error('Error loading filters from storage:', error);
     hiddenLocations = new Set();
     hiddenCompanies = new Set();
     selectedUntAlumniStatus = '';
+    gradYearRangeMin = null;
+    gradYearRangeMax = null;
   }
 }
 
@@ -127,6 +137,32 @@ function initializeAnalyticsFilterUI() {
     untAlumniStatusSelect.value = selectedUntAlumniStatus || '';
     untAlumniStatusSelect.addEventListener('change', (e) => {
       selectedUntAlumniStatus = (e.target.value || '').trim().toLowerCase();
+      saveHiddenFiltersToStorage();
+      updateAnalyticsFilterUI();
+      renderAnalytics();
+    });
+  }
+
+  // Grad Year Range inputs
+  const gradYearMinInput = document.getElementById('analyticsGradYearMin');
+  const gradYearMaxInput = document.getElementById('analyticsGradYearMax');
+
+  if (gradYearMinInput) {
+    if (gradYearRangeMin != null) gradYearMinInput.value = gradYearRangeMin;
+    gradYearMinInput.addEventListener('change', () => {
+      const v = gradYearMinInput.value;
+      gradYearRangeMin = v !== '' ? parseInt(v, 10) : null;
+      saveHiddenFiltersToStorage();
+      updateAnalyticsFilterUI();
+      renderAnalytics();
+    });
+  }
+
+  if (gradYearMaxInput) {
+    if (gradYearRangeMax != null) gradYearMaxInput.value = gradYearRangeMax;
+    gradYearMaxInput.addEventListener('change', () => {
+      const v = gradYearMaxInput.value;
+      gradYearRangeMax = v !== '' ? parseInt(v, 10) : null;
       saveHiddenFiltersToStorage();
       updateAnalyticsFilterUI();
       renderAnalytics();
@@ -163,6 +199,12 @@ function initializeAnalyticsFilterUI() {
     hiddenCompanies.clear();
     selectedUntAlumniStatus = '';
     if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
+    gradYearRangeMin = null;
+    gradYearRangeMax = null;
+    const minInput = document.getElementById('analyticsGradYearMin');
+    const maxInput = document.getElementById('analyticsGradYearMax');
+    if (minInput) minInput.value = '';
+    if (maxInput) maxInput.value = '';
     saveHiddenFiltersToStorage();
     updateAnalyticsFilterUI();
     renderAnalytics();
@@ -515,7 +557,8 @@ function updateAnalyticsFilterUI() {
   const clearBtn = document.getElementById('analyticsClearAllFiltersBtn');
 
   // Update badge count
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0);
+  const hasGradYearRange = gradYearRangeMin != null || gradYearRangeMax != null;
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + (hasGradYearRange ? 1 : 0);
   if (badge) {
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'inline-block' : 'none';
@@ -577,12 +620,43 @@ function updateAnalyticsFilterUI() {
       `;
     }
   }
+
+  const gradYearRangeTag = document.getElementById('analyticsGradYearRangeTag');
+  if (gradYearRangeTag) {
+    const hasMin = gradYearRangeMin != null;
+    const hasMax = gradYearRangeMax != null;
+    if (!hasMin && !hasMax) {
+      gradYearRangeTag.innerHTML = '<span class="empty-analytics-filters-message">All years</span>';
+    } else {
+      const rangeText = hasMin && hasMax
+        ? `${gradYearRangeMin} – ${gradYearRangeMax}`
+        : hasMin ? `From ${gradYearRangeMin}` : `Up to ${gradYearRangeMax}`;
+      gradYearRangeTag.innerHTML = `
+        <span class="analytics-filter-tag">
+          <span>${rangeText}</span>
+          <button class="analytics-filter-tag-remove" onclick="clearGradYearRangeFilter()">×</button>
+        </span>
+      `;
+    }
+  }
 }
 
 function clearUntAlumniStatusFilter() {
   selectedUntAlumniStatus = '';
   const untAlumniStatusSelect = document.getElementById('analyticsUntAlumniStatusSelect');
   if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
+}
+
+function clearGradYearRangeFilter() {
+  gradYearRangeMin = null;
+  gradYearRangeMax = null;
+  const minInput = document.getElementById('analyticsGradYearMin');
+  const maxInput = document.getElementById('analyticsGradYearMax');
+  if (minInput) minInput.value = '';
+  if (maxInput) maxInput.value = '';
   saveHiddenFiltersToStorage();
   updateAnalyticsFilterUI();
   renderAnalytics();
@@ -620,6 +694,14 @@ function filterAlumniData(data) {
       return false;
     }
     if (selectedUntAlumniStatus && (alumni.unt_alumni_status || 'unknown') !== selectedUntAlumniStatus) {
+      return false;
+    }
+
+    // Filter by grad year range
+    if (gradYearRangeMin != null && alumni.grad_year != null && Number(alumni.grad_year) < gradYearRangeMin) {
+      return false;
+    }
+    if (gradYearRangeMax != null && alumni.grad_year != null && Number(alumni.grad_year) > gradYearRangeMax) {
       return false;
     }
 
@@ -1028,39 +1110,51 @@ function renderIndustryPieChart(data = alumniData) {
   });
 }
 
-// Render graduation year line chart
+// Helper: bucket a year into a 5-year range label, e.g. 2015 -> "2015–2019"
+function getGradYearRangeLabel(year) {
+  const y = parseInt(year, 10);
+  if (isNaN(y)) return null;
+  const rangeStart = Math.floor(y / 5) * 5;
+  const rangeEnd = rangeStart + 4;
+  return { label: `${rangeStart}–${rangeEnd}`, start: rangeStart, end: rangeEnd };
+}
+
+// Render graduation year line chart (grouped into 5-year ranges)
 function renderGraduationLineChart(data = alumniData) {
   const years = data.map(a => a.grad_year).filter(y => y);
-  const yearFrequency = {};
 
+  // Build range buckets
+  const rangeMap = {}; // label -> { start, end, count }
   years.forEach(year => {
-    yearFrequency[year] = (yearFrequency[year] || 0) + 1;
+    const bucket = getGradYearRangeLabel(year);
+    if (!bucket) return;
+    if (!rangeMap[bucket.label]) {
+      rangeMap[bucket.label] = { start: bucket.start, end: bucket.end, count: 0 };
+    }
+    rangeMap[bucket.label].count++;
   });
 
-  const sortedYears = Object.keys(yearFrequency).sort((a, b) => a - b);
-  const counts = sortedYears.map(year => yearFrequency[year]);
+  // Sort labels by range start year
+  const sortedLabels = Object.keys(rangeMap).sort((a, b) => rangeMap[a].start - rangeMap[b].start);
+  const counts = sortedLabels.map(label => rangeMap[label].count);
+  const rangeData = sortedLabels.map(label => rangeMap[label]); // for click drilling
 
   const ctx = document.getElementById('graduationLineChart').getContext('2d');
 
   if (charts.graduationLine) charts.graduationLine.destroy();
 
   charts.graduationLine = new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
-      labels: sortedYears,
+      labels: sortedLabels,
       datasets: [{
         label: 'Number of Graduates',
         data: counts,
+        backgroundColor: 'rgba(102, 126, 234, 0.7)',
         borderColor: '#667eea',
-        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-        borderWidth: 3,
-        fill: true,
-        tension: 0.4,
-        pointBackgroundColor: '#667eea',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-        pointRadius: 5,
-        pointHoverRadius: 7
+        borderWidth: 2,
+        borderRadius: 6,
+        hoverBackgroundColor: 'rgba(102, 126, 234, 0.9)'
       }]
     },
     options: {
@@ -1075,6 +1169,9 @@ function renderGraduationLineChart(data = alumniData) {
           mode: 'index',
           intersect: false,
           callbacks: {
+            title: function(context) {
+              return `Grad Years: ${context[0].label}`;
+            },
             afterLabel: function () {
               return 'Click to view graduates';
             }
@@ -1095,15 +1192,15 @@ function renderGraduationLineChart(data = alumniData) {
         x: {
           title: {
             display: true,
-            text: 'Graduation Year'
+            text: 'Graduation Year Range'
           }
         }
       },
       onClick: (event, elements) => {
         if (elements.length > 0) {
           const index = elements[0].index;
-          const year = sortedYears[index];
-          filterAlumni('year', year);
+          const range = rangeData[index];
+          filterAlumni('yearRange', range);
         }
       }
     }
@@ -1188,6 +1285,14 @@ function filterAlumni(filterType, filterValue) {
       filtered = baseData.filter(a => a.grad_year == filterValue);
       filterTitle = `Class of ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni who graduated in ${filterValue}`;
+      break;
+    case 'yearRange':
+      filtered = baseData.filter(a => {
+        const yr = parseInt(a.grad_year, 10);
+        return !isNaN(yr) && yr >= filterValue.start && yr <= filterValue.end;
+      });
+      filterTitle = `Graduates ${filterValue.start}–${filterValue.end}`;
+      filterDesc = `Showing ${filtered.length} alumni who graduated between ${filterValue.start} and ${filterValue.end}`;
       break;
   }
 
