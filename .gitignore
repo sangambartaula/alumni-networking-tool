@@ -119,8 +119,14 @@ out/
 *~
 
 *.csv
-*.txt*.db-shm
+*.txt
+*.db-shm
 *.db-wal
+
+# Scraper generated output logs
+scraper/output/inferred_disciplines.txt
+scraper/output/standardized_degree.txt
+scraper/output/standardized_major.txt
 
 # Temporary test/diagnostic scripts
 test_api.py
