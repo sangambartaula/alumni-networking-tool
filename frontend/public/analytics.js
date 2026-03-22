@@ -15,6 +15,10 @@ const analyticsChunkSize = 500;
 let gradYearRangeMin = null;
 let gradYearRangeMax = null;
 
+// Local graduation line-chart view range (independent of global filter)
+let lineChartViewMin = null;
+let lineChartViewMax = null;
+
 function isWorkingWhileStudyingPositive(value) {
   if (value === true || value === 1) return true;
   if (typeof value !== 'string') return false;
@@ -73,6 +77,37 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') {
       closeModal();
     }
+  });
+
+  // ── Graduation line chart local year-range filter ──────────────────
+  const lineFromInput = document.getElementById('lineChartYearFrom');
+  const lineToInput   = document.getElementById('lineChartYearTo');
+  const lineApplyBtn  = document.getElementById('lineChartApplyRangeBtn');
+  const lineResetBtn  = document.getElementById('lineChartResetRangeBtn');
+
+  function applyLineChartRange() {
+    const fromVal = lineFromInput ? lineFromInput.value.trim() : '';
+    const toVal   = lineToInput   ? lineToInput.value.trim()   : '';
+    lineChartViewMin = fromVal !== '' ? parseInt(fromVal, 10) : null;
+    lineChartViewMax = toVal   !== '' ? parseInt(toVal,   10) : null;
+    // Re-render only the graduation chart (fast, no full re-render needed)
+    const filteredData = filterAlumniData(alumniData);
+    renderGraduationLineChart(filteredData);
+  }
+
+  lineApplyBtn?.addEventListener('click', applyLineChartRange);
+
+  // Also trigger on Enter inside either input
+  lineFromInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyLineChartRange(); });
+  lineToInput?.addEventListener('keydown',   (e) => { if (e.key === 'Enter') applyLineChartRange(); });
+
+  lineResetBtn?.addEventListener('click', () => {
+    lineChartViewMin = null;
+    lineChartViewMax = null;
+    if (lineFromInput) lineFromInput.value = '';
+    if (lineToInput)   lineToInput.value   = '';
+    const filteredData = filterAlumniData(alumniData);
+    renderGraduationLineChart(filteredData);
   });
 });
 
@@ -1119,92 +1154,169 @@ function getGradYearRangeLabel(year) {
   return { label: `${rangeStart}–${rangeEnd}`, start: rangeStart, end: rangeEnd };
 }
 
-// Render graduation year line chart (grouped into 5-year ranges)
+/**
+ * Render the graduation year chart.
+ * When lineChartViewMin / lineChartViewMax are set (local range filter on the card),
+ * the chart shows one bar per individual year within that window for fine-grained
+ * visibility. Otherwise it falls back to the default 5-year bucket grouping.
+ */
 function renderGraduationLineChart(data = alumniData) {
-  const years = data.map(a => a.grad_year).filter(y => y);
+  const indicator = document.getElementById('gradChartRangeIndicator');
+  const hasLocalRange = lineChartViewMin != null || lineChartViewMax != null;
 
-  // Build range buckets
-  const rangeMap = {}; // label -> { start, end, count }
-  years.forEach(year => {
-    const bucket = getGradYearRangeLabel(year);
-    if (!bucket) return;
-    if (!rangeMap[bucket.label]) {
-      rangeMap[bucket.label] = { start: bucket.start, end: bucket.end, count: 0 };
+  // Update range indicator pill
+  if (indicator) {
+    if (hasLocalRange) {
+      const fromStr = lineChartViewMin != null ? lineChartViewMin : '–';
+      const toStr   = lineChartViewMax != null ? lineChartViewMax : '–';
+      indicator.textContent = `Showing: ${fromStr} – ${toStr}`;
+      indicator.style.display = 'inline-flex';
+    } else {
+      indicator.style.display = 'none';
     }
-    rangeMap[bucket.label].count++;
-  });
+  }
 
-  // Sort labels by range start year
-  const sortedLabels = Object.keys(rangeMap).sort((a, b) => rangeMap[a].start - rangeMap[b].start);
-  const counts = sortedLabels.map(label => rangeMap[label].count);
-  const rangeData = sortedLabels.map(label => rangeMap[label]); // for click drilling
+  const allYears = data.map(a => a.grad_year).filter(y => y != null && y !== '');
 
   const ctx = document.getElementById('graduationLineChart').getContext('2d');
-
   if (charts.graduationLine) charts.graduationLine.destroy();
 
-  charts.graduationLine = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: sortedLabels,
-      datasets: [{
-        label: 'Number of Graduates',
-        data: counts,
-        backgroundColor: 'rgba(102, 126, 234, 0.7)',
-        borderColor: '#667eea',
-        borderWidth: 2,
-        borderRadius: 6,
-        hoverBackgroundColor: 'rgba(102, 126, 234, 0.9)'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          display: true,
-          position: 'top'
-        },
-        tooltip: {
-          mode: 'index',
-          intersect: false,
-          callbacks: {
-            title: function(context) {
-              return `Grad Years: ${context[0].label}`;
-            },
-            afterLabel: function () {
-              return 'Click to view graduates';
+  if (hasLocalRange) {
+    // ── Individual-year mode (zoomed range) ───────────────────────────
+    const fromY = lineChartViewMin != null ? lineChartViewMin : -Infinity;
+    const toY   = lineChartViewMax != null ? lineChartViewMax :  Infinity;
+
+    // Build a count map per individual year within the window
+    const yearCount = {};
+    allYears.forEach(y => {
+      const yr = parseInt(y, 10);
+      if (isNaN(yr) || yr < fromY || yr > toY) return;
+      yearCount[yr] = (yearCount[yr] || 0) + 1;
+    });
+
+    // Fill every year in the window (even zeros) for a continuous axis
+    const minYear = lineChartViewMin != null ? lineChartViewMin
+      : (Object.keys(yearCount).length ? Math.min(...Object.keys(yearCount).map(Number)) : 2000);
+    const maxYear = lineChartViewMax != null ? lineChartViewMax
+      : (Object.keys(yearCount).length ? Math.max(...Object.keys(yearCount).map(Number)) : 2024);
+
+    const yearLabels = [];
+    for (let yr = minYear; yr <= maxYear; yr++) yearLabels.push(yr);
+    const yearCounts = yearLabels.map(yr => yearCount[yr] || 0);
+
+    charts.graduationLine = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: yearLabels,
+        datasets: [{
+          label: 'Number of Graduates',
+          data: yearCounts,
+          backgroundColor: 'rgba(102, 126, 234, 0.15)',
+          borderColor: '#667eea',
+          borderWidth: 2.5,
+          pointBackgroundColor: '#667eea',
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          fill: true,
+          tension: 0.35
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              title: ctx => `Grad Year: ${ctx[0].label}`,
+              afterLabel: () => 'Click to view graduates'
             }
           }
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: {
-            stepSize: 1
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1 },
+            title: { display: true, text: 'Number of Alumni' }
           },
-          title: {
-            display: true,
-            text: 'Number of Alumni'
+          x: {
+            title: { display: true, text: 'Graduation Year' }
           }
         },
-        x: {
-          title: {
-            display: true,
-            text: 'Graduation Year Range'
+        onClick: (event, elements) => {
+          if (elements.length > 0) {
+            const yr = yearLabels[elements[0].index];
+            filterAlumni('yearRange', { start: yr, end: yr });
           }
         }
+      }
+    });
+
+  } else {
+    // ── Default 5-year bucket mode ─────────────────────────────────────
+    const rangeMap = {};
+    allYears.forEach(year => {
+      const bucket = getGradYearRangeLabel(year);
+      if (!bucket) return;
+      if (!rangeMap[bucket.label]) {
+        rangeMap[bucket.label] = { start: bucket.start, end: bucket.end, count: 0 };
+      }
+      rangeMap[bucket.label].count++;
+    });
+
+    const sortedLabels = Object.keys(rangeMap).sort((a, b) => rangeMap[a].start - rangeMap[b].start);
+    const counts = sortedLabels.map(label => rangeMap[label].count);
+    const rangeData = sortedLabels.map(label => rangeMap[label]);
+
+    charts.graduationLine = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: sortedLabels,
+        datasets: [{
+          label: 'Number of Graduates',
+          data: counts,
+          backgroundColor: 'rgba(102, 126, 234, 0.7)',
+          borderColor: '#667eea',
+          borderWidth: 2,
+          borderRadius: 6,
+          hoverBackgroundColor: 'rgba(102, 126, 234, 0.9)'
+        }]
       },
-      onClick: (event, elements) => {
-        if (elements.length > 0) {
-          const index = elements[0].index;
-          const range = rangeData[index];
-          filterAlumni('yearRange', range);
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              title: ctx => `Grad Years: ${ctx[0].label}`,
+              afterLabel: () => 'Click to view graduates'
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1 },
+            title: { display: true, text: 'Number of Alumni' }
+          },
+          x: {
+            title: { display: true, text: 'Graduation Year Range' }
+          }
+        },
+        onClick: (event, elements) => {
+          if (elements.length > 0) {
+            const range = rangeData[elements[0].index];
+            filterAlumni('yearRange', range);
+          }
         }
       }
-    }
-  });
+    });
+  }
 }
 
 // Render top companies table
