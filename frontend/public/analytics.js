@@ -1145,20 +1145,11 @@ function renderIndustryPieChart(data = alumniData) {
   });
 }
 
-// Helper: bucket a year into a 5-year range label, e.g. 2015 -> "2015–2019"
-function getGradYearRangeLabel(year) {
-  const y = parseInt(year, 10);
-  if (isNaN(y)) return null;
-  const rangeStart = Math.floor(y / 5) * 5;
-  const rangeEnd = rangeStart + 4;
-  return { label: `${rangeStart}–${rangeEnd}`, start: rangeStart, end: rangeEnd };
-}
-
 /**
- * Render the graduation year chart.
- * When lineChartViewMin / lineChartViewMax are set (local range filter on the card),
- * the chart shows one bar per individual year within that window for fine-grained
- * visibility. Otherwise it falls back to the default 5-year bucket grouping.
+ * Render the graduation year chart as a smooth area line chart.
+ * One data point per individual year across the full dataset.
+ * When lineChartViewMin / lineChartViewMax are set via the inline
+ * range filter on the card, only years within that window are shown.
  */
 function renderGraduationLineChart(data = alumniData) {
   const indicator = document.getElementById('gradChartRangeIndicator');
@@ -1178,145 +1169,96 @@ function renderGraduationLineChart(data = alumniData) {
 
   const allYears = data.map(a => a.grad_year).filter(y => y != null && y !== '');
 
+  // Determine the visible year window
+  const fromY = lineChartViewMin != null ? lineChartViewMin : -Infinity;
+  const toY   = lineChartViewMax != null ? lineChartViewMax :  Infinity;
+
+  // Count alumni per individual year, filtered to the window
+  const yearCount = {};
+  allYears.forEach(y => {
+    const yr = parseInt(y, 10);
+    if (isNaN(yr) || yr < fromY || yr > toY) return;
+    yearCount[yr] = (yearCount[yr] || 0) + 1;
+  });
+
+  const parsedYears = Object.keys(yearCount).map(Number);
+  if (parsedYears.length === 0) {
+    // Nothing to show – destroy if exists and return
+    const ctx = document.getElementById('graduationLineChart').getContext('2d');
+    if (charts.graduationLine) charts.graduationLine.destroy();
+    return;
+  }
+
+  const minYear = lineChartViewMin != null ? lineChartViewMin : Math.min(...parsedYears);
+  const maxYear = lineChartViewMax != null ? lineChartViewMax : Math.max(...parsedYears);
+
+  // Build a continuous year axis (fill gaps with 0)
+  const yearLabels = [];
+  for (let yr = minYear; yr <= maxYear; yr++) yearLabels.push(yr);
+  const yearCounts = yearLabels.map(yr => yearCount[yr] || 0);
+
   const ctx = document.getElementById('graduationLineChart').getContext('2d');
   if (charts.graduationLine) charts.graduationLine.destroy();
 
-  if (hasLocalRange) {
-    // ── Individual-year mode (zoomed range) ───────────────────────────
-    const fromY = lineChartViewMin != null ? lineChartViewMin : -Infinity;
-    const toY   = lineChartViewMax != null ? lineChartViewMax :  Infinity;
-
-    // Build a count map per individual year within the window
-    const yearCount = {};
-    allYears.forEach(y => {
-      const yr = parseInt(y, 10);
-      if (isNaN(yr) || yr < fromY || yr > toY) return;
-      yearCount[yr] = (yearCount[yr] || 0) + 1;
-    });
-
-    // Fill every year in the window (even zeros) for a continuous axis
-    const minYear = lineChartViewMin != null ? lineChartViewMin
-      : (Object.keys(yearCount).length ? Math.min(...Object.keys(yearCount).map(Number)) : 2000);
-    const maxYear = lineChartViewMax != null ? lineChartViewMax
-      : (Object.keys(yearCount).length ? Math.max(...Object.keys(yearCount).map(Number)) : 2024);
-
-    const yearLabels = [];
-    for (let yr = minYear; yr <= maxYear; yr++) yearLabels.push(yr);
-    const yearCounts = yearLabels.map(yr => yearCount[yr] || 0);
-
-    charts.graduationLine = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: yearLabels,
-        datasets: [{
-          label: 'Number of Graduates',
-          data: yearCounts,
-          backgroundColor: 'rgba(102, 126, 234, 0.15)',
-          borderColor: '#667eea',
-          borderWidth: 2.5,
-          pointBackgroundColor: '#667eea',
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          fill: true,
-          tension: 0.35
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true, position: 'top' },
-          tooltip: {
-            mode: 'index',
-            intersect: false,
-            callbacks: {
-              title: ctx => `Grad Year: ${ctx[0].label}`,
-              afterLabel: () => 'Click to view graduates'
-            }
-          }
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { stepSize: 1 },
-            title: { display: true, text: 'Number of Alumni' }
-          },
-          x: {
-            title: { display: true, text: 'Graduation Year' }
-          }
-        },
-        onClick: (event, elements) => {
-          if (elements.length > 0) {
-            const yr = yearLabels[elements[0].index];
-            filterAlumni('yearRange', { start: yr, end: yr });
+  charts.graduationLine = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: yearLabels,
+      datasets: [{
+        label: 'Number of Graduates',
+        data: yearCounts,
+        backgroundColor: 'rgba(102, 126, 234, 0.12)',
+        borderColor: '#667eea',
+        borderWidth: 2.5,
+        pointBackgroundColor: '#667eea',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 7,
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'top' },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            title: ctx => `Grad Year: ${ctx[0].label}`,
+            label: ctx => ` ${ctx.parsed.y} alumni`,
+            afterLabel: () => 'Click to view graduates'
           }
         }
-      }
-    });
-
-  } else {
-    // ── Default 5-year bucket mode ─────────────────────────────────────
-    const rangeMap = {};
-    allYears.forEach(year => {
-      const bucket = getGradYearRangeLabel(year);
-      if (!bucket) return;
-      if (!rangeMap[bucket.label]) {
-        rangeMap[bucket.label] = { start: bucket.start, end: bucket.end, count: 0 };
-      }
-      rangeMap[bucket.label].count++;
-    });
-
-    const sortedLabels = Object.keys(rangeMap).sort((a, b) => rangeMap[a].start - rangeMap[b].start);
-    const counts = sortedLabels.map(label => rangeMap[label].count);
-    const rangeData = sortedLabels.map(label => rangeMap[label]);
-
-    charts.graduationLine = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: sortedLabels,
-        datasets: [{
-          label: 'Number of Graduates',
-          data: counts,
-          backgroundColor: 'rgba(102, 126, 234, 0.7)',
-          borderColor: '#667eea',
-          borderWidth: 2,
-          borderRadius: 6,
-          hoverBackgroundColor: 'rgba(102, 126, 234, 0.9)'
-        }]
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true, position: 'top' },
-          tooltip: {
-            mode: 'index',
-            intersect: false,
-            callbacks: {
-              title: ctx => `Grad Years: ${ctx[0].label}`,
-              afterLabel: () => 'Click to view graduates'
-            }
-          }
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 1, precision: 0 },
+          title: { display: true, text: 'Number of Alumni' },
+          grid: { color: 'rgba(0,0,0,0.05)' }
         },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { stepSize: 1 },
-            title: { display: true, text: 'Number of Alumni' }
+        x: {
+          title: { display: true, text: 'Graduation Year' },
+          ticks: {
+            maxRotation: 45,
+            autoSkip: true,
+            maxTicksLimit: 20
           },
-          x: {
-            title: { display: true, text: 'Graduation Year Range' }
-          }
-        },
-        onClick: (event, elements) => {
-          if (elements.length > 0) {
-            const range = rangeData[elements[0].index];
-            filterAlumni('yearRange', range);
-          }
+          grid: { display: false }
+        }
+      },
+      onClick: (event, elements) => {
+        if (elements.length > 0) {
+          const yr = yearLabels[elements[0].index];
+          filterAlumni('yearRange', { start: yr, end: yr });
         }
       }
-    });
-  }
+    }
+  });
 }
 
 // Render top companies table
