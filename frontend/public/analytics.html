@@ -268,7 +268,38 @@
       <div class="line-charts-container">
         <!-- Graduation Timeline -->
         <div class="chart-card full-width">
-          <h3>Alumni by Graduation Year</h3>
+          <div class="grad-chart-header">
+            <h3>Alumni by Graduation Year</h3>
+            <div class="grad-year-range-filter" id="gradYearRangeFilter">
+              <span class="grad-range-label"><i class="fas fa-sliders-h"></i> View Range:</span>
+              <input
+                id="lineChartYearFrom"
+                type="number"
+                placeholder="From"
+                min="1900"
+                max="2100"
+                class="grad-range-input"
+                aria-label="From graduation year"
+              />
+              <span class="grad-range-sep">–</span>
+              <input
+                id="lineChartYearTo"
+                type="number"
+                placeholder="To"
+                min="1900"
+                max="2100"
+                class="grad-range-input"
+                aria-label="To graduation year"
+              />
+              <button id="lineChartApplyRangeBtn" class="grad-range-btn grad-range-btn--apply">
+                <i class="fas fa-check"></i> Apply
+              </button>
+              <button id="lineChartResetRangeBtn" class="grad-range-btn grad-range-btn--reset" title="Reset to all years">
+                <i class="fas fa-undo"></i>
+              </button>
+            </div>
+          </div>
+          <div id="gradChartRangeIndicator" class="grad-chart-range-indicator" style="display:none;"></div>
           <div class="chart-wrapper">
             <canvas id="graduationLineChart"></canvas>
           </div>
@@ -351,7 +382,7 @@
   </main>
 
   <script src="profile_modal.js"></script>
-  <script src="analytics.js?v=11"></script>
+  <script src="analytics.js?v=12"></script>
 </body>
 
 </html>
