@@ -394,6 +394,12 @@ class ConnectionManager:
             ("job_3_is_relevant", "INTEGER"),
             ("relevant_experience_months", "INTEGER"),
             ("seniority_level", "TEXT"),
+            # Normalization foreign keys (used by app.py LEFT JOINs)
+            ("normalized_company_id", "INTEGER"),
+            ("normalized_job_title_id", "INTEGER"),
+            # Working-while-studying status
+            ("working_while_studying_status", "TEXT"),
+            ("updated_at", "TEXT"),
         ]
         for col_name, col_type in _migration_cols:
             try:
