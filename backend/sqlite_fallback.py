@@ -250,6 +250,14 @@ class ConnectionManager:
                     standardized_major TEXT,
                     standardized_major2 TEXT,
                     standardized_major3 TEXT,
+                    job_1_relevance_score REAL,
+                    job_2_relevance_score REAL,
+                    job_3_relevance_score REAL,
+                    job_1_is_relevant INTEGER,
+                    job_2_is_relevant INTEGER,
+                    job_3_is_relevant INTEGER,
+                    relevant_experience_months INTEGER,
+                    seniority_level TEXT,
                     scraped_at TEXT DEFAULT (datetime('now')),
                     created_at TEXT DEFAULT (datetime('now')),
                     updated_at TEXT DEFAULT (datetime('now')),
@@ -373,6 +381,26 @@ class ConnectionManager:
                 CREATE INDEX IF NOT EXISTS idx_user_interactions_user_alumni ON user_interactions(user_id, alumni_id);
                 CREATE INDEX IF NOT EXISTS idx_user_interactions_user_updated ON user_interactions(user_id, updated_at);
             """)
+        
+        # ── Migrations for existing databases ──
+        # Add relevance scoring columns if they don't exist yet
+        # (covers databases created before these columns were added to CREATE TABLE)
+        _migration_cols = [
+            ("job_1_relevance_score", "REAL"),
+            ("job_2_relevance_score", "REAL"),
+            ("job_3_relevance_score", "REAL"),
+            ("job_1_is_relevant", "INTEGER"),
+            ("job_2_is_relevant", "INTEGER"),
+            ("job_3_is_relevant", "INTEGER"),
+            ("relevant_experience_months", "INTEGER"),
+            ("seniority_level", "TEXT"),
+        ]
+        for col_name, col_type in _migration_cols:
+            try:
+                conn.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+        conn.commit()
         
         conn.close()
         logger.info(f"✅ SQLite database initialized at {SQLITE_DB_PATH}")
