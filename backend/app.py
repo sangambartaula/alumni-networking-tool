@@ -1003,7 +1003,8 @@ def api_get_alumni():
                            a.updated_at, njt.normalized_title, nc.normalized_company,
                            a.working_while_studying, a.working_while_studying_status,
                            a.school, a.school2, a.school3,
-                           a.degree2, a.degree3, a.major2, a.major3
+                           a.degree2, a.degree3, a.major2, a.major3,
+                           a.seniority_level
                     FROM alumni a
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
@@ -1091,7 +1092,8 @@ def api_get_alumni():
                         r.get('working_while_studying_status')
                         or (True if r.get('working_while_studying') else
                             (False if r.get('working_while_studying') is not None else None))
-                    )
+                    ),
+                    "seniority_level": r.get('seniority_level')
                 })
 
             serialization_ms = (perf_counter() - serialization_start) * 1000.0
@@ -1159,7 +1161,8 @@ def api_get_alumni_detail(alumni_id):
                            a.major AS major_raw, a.major2, a.major3,
                            a.school_start_date, a.job_start_date, a.job_end_date,
                            a.exp2_title, a.exp2_company, a.exp2_dates,
-                           a.exp3_title, a.exp3_company, a.exp3_dates
+                           a.exp3_title, a.exp3_company, a.exp3_dates,
+                           a.seniority_level
                     FROM alumni a
                     WHERE a.id = %s
                     LIMIT 1
@@ -1214,6 +1217,9 @@ def api_get_alumni_detail(alumni_id):
                 "exp3_title": r.get('exp3_title'),
                 "exp3_company": r.get('exp3_company'),
                 "exp3_dates": r.get('exp3_dates'),
+
+                # Seniority classification
+                "seniority_level": r.get('seniority_level'),
             }
 
             return jsonify({"success": True, "alumni": detail}), 200
