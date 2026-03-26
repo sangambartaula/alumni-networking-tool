@@ -34,9 +34,9 @@ SENIORITY_PATTERNS = [
     ("Senior", re.compile(
         r'\b(Senior|Sr\.?|Staff|Distinguished|Fellow)\b', re.IGNORECASE
     )),
-    # Junior level
+    # Junior level (Associate only when NOT followed by senior-role words)
     ("Junior", re.compile(
-        r'\b(Junior|Jr\.?|Entry[\s-]?Level|Associate|Apprentice)\b', re.IGNORECASE
+        r'\b(Junior|Jr\.?|Entry[\s-]?Level|Associate(?!\s+(?:Director|VP|Vice|Manager|Principal))|Apprentice)\b', re.IGNORECASE
     )),
     # Intern level
     ("Intern", re.compile(
