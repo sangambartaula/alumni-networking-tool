@@ -281,20 +281,23 @@ def _parse_date_to_month_year(date_str):
 
 
 def _merge_intervals(intervals):
-    """Merge overlapping (year, month) intervals."""
+    """Merge overlapping or adjacent (year, month) intervals."""
     if not intervals:
         return []
     
     # Sort by start
     sorted_intervals = sorted(intervals, key=lambda x: x[0])
     
+    def _to_months(ym):
+        return ym[0] * 12 + ym[1]
+    
     merged = [sorted_intervals[0]]
     for start, end in sorted_intervals[1:]:
         prev_start, prev_end = merged[-1]
         
-        # Check if overlapping or adjacent (within 1 month)
-        if start <= (prev_end[0], prev_end[1] + 1) if prev_end[1] < 12 else (prev_end[0] + 1, 1):
-            # Merge: extend the end
+        # Overlapping or adjacent: start <= prev_end + 1 month
+        if _to_months(start) <= _to_months(prev_end) + 1:
+            # Merge: extend the end to the later date
             new_end = max(prev_end, end)
             merged[-1] = (prev_start, new_end)
         else:
