@@ -1,8 +1,36 @@
 """
 Groq-based job relevance scoring and experience months computation.
 
-Evaluates how relevant each job is to a person's field of study (major),
-then computes total relevant work experience in months.
+=== SCORING LOGIC ===
+For each of a person's jobs (up to 3), this module asks the Groq LLM to rate
+how relevant that job is to the person's field of study (major/standardized_major).
+The LLM returns a single float in [0, 1]:
+    0.0 = completely unrelated
+    0.5 = somewhat related
+    1.0 = perfectly aligned
+
+=== THRESHOLD REASONING ===
+RELEVANCE_THRESHOLD = 0.8
+We use 0.8 as the boolean cutoff because:
+  - It avoids false positives from tangentially related roles
+  - It aligns with the user's requirement (>= 0.8 → relevant)
+  - Scores 0.6–0.79 are "maybe related" — too noisy to count as relevant
+  - The LLM tends to give ~0.5 for loosely related jobs and ~0.85-1.0 for
+    genuinely field-aligned jobs, so 0.8 sits in the natural gap
+
+=== RETRY LOGIC ===
+Each job is scored independently with up to MAX_RETRIES=3 attempts.
+On each attempt, the LLM output is strictly validated: it must parse as a
+single float in [0.0, 1.0]. If validation fails, a retry is triggered.
+
+=== INPUT / OUTPUT ===
+Input: profile_data dict with job titles, companies, dates, and major
+Output: dict with per-job scores and booleans, plus total relevant months
+
+Structured JSON output is available via get_relevance_json() — returns a list
+of dicts ready for the Experience Engine:
+    [{"title": "...", "company": "...", "score": 0.82, "is_relevant": true,
+      "start_date": "...", "end_date": "..."}, ...]
 
 Uses the Groq LLM with strict validation and retry logic.
 """
@@ -16,9 +44,11 @@ from groq_client import (
     parse_groq_json_response, parse_groq_date,
 )
 
-# Relevance thresholds
-RELEVANCE_THRESHOLD_RELEVANT = 0.7   # >= 0.7 = relevant
-RELEVANCE_THRESHOLD_UNSURE = 0.4     # 0.4-0.7 = unsure, < 0.4 = not relevant
+# ── Relevance Thresholds ──────────────────────────────────────
+# >= 0.8 = relevant (boolean True), < 0.8 = not relevant (boolean False)
+# See module docstring for reasoning.
+RELEVANCE_THRESHOLD_RELEVANT = 0.8
+RELEVANCE_THRESHOLD_UNSURE = 0.4     # 0.4-0.8 = unsure, < 0.4 = not relevant
 MAX_RETRIES = 3
 
 
@@ -32,7 +62,12 @@ def score_job_relevance(title, company, major):
         major: Person's field of study / major
         
     Returns:
-        float between 0.0 and 1.0, or None if scoring fails
+        float between 0.0 and 1.0, or None if scoring fails after retries
+        
+    Edge cases:
+        - Empty/None title or major → returns None (can't score without both)
+        - Empty company → still scores (company is optional context)
+        - LLM returns garbage → retries up to MAX_RETRIES times
     """
     if not title or not major:
         return None
@@ -103,7 +138,12 @@ Return ONLY the number. No text, no explanation, no JSON."""
 
 
 def _extract_score(text):
-    """Extract a float between 0 and 1 from LLM output. Returns None if invalid."""
+    """
+    Extract a float between 0 and 1 from LLM output.
+    
+    Strict validation: output must be a single number in [0, 1].
+    Returns None if invalid (triggers retry in caller).
+    """
     if not text:
         return None
     
@@ -131,7 +171,16 @@ def _extract_score(text):
 
 
 def is_job_relevant(score, threshold=RELEVANCE_THRESHOLD_RELEVANT):
-    """Check if a relevance score meets the threshold for 'relevant'."""
+    """
+    Check if a relevance score meets the threshold for 'relevant'.
+    
+    Args:
+        score: float in [0, 1], or None
+        threshold: cutoff value (default 0.8)
+        
+    Returns:
+        True if score >= threshold, False if score < threshold, None if score is None
+    """
     if score is None:
         return None
     return score >= threshold
@@ -258,11 +307,17 @@ def analyze_profile_relevance(profile_data):
     """
     Analyze all jobs in a profile for relevance and compute experience months.
     
+    Handles up to 3 jobs per person. Edge cases:
+      - No major → returns empty dict (can't assess relevance without major)
+      - 0 jobs → returns empty dict
+      - 1-3 jobs, none relevant → all is_relevant=False, relevant_experience_months=0
+      - Jobs with missing title/company → skipped
+    
     Args:
         profile_data: dict with job titles, companies, dates, and major
         
     Returns:
-        dict with relevance scores, is_relevant flags, and experience months
+        dict with keys like job_1_relevance_score, job_1_is_relevant, etc.
     """
     major = (
         profile_data.get('standardized_major')
@@ -331,12 +386,128 @@ def analyze_profile_relevance(profile_data):
     return result
 
 
+def get_relevance_json(profile_data):
+    """
+    Get structured JSON output for all jobs in a profile.
+    
+    This is the primary output format for the Experience Engine.
+    Returns a list of dicts (up to 3), one per job, with score and boolean.
+    
+    Args:
+        profile_data: dict with job titles, companies, dates, and major
+        
+    Returns:
+        list of dicts, each with:
+            - title (str)
+            - company (str)
+            - score (float or None)
+            - is_relevant (bool or None)
+            - start_date (str)
+            - end_date (str)
+            
+    Edge cases:
+        - Person has 0 jobs → returns []
+        - Person has no major → returns [] (can't score)
+        - Jobs with missing title → skipped
+        - Score is None (Groq failed) → score=None, is_relevant=None
+    """
+    major = (
+        profile_data.get('standardized_major')
+        or profile_data.get('major')
+        or ''
+    ).strip()
+    
+    if not major:
+        return []
+    
+    # Define job field mappings for up to 3 jobs
+    job_specs = [
+        {
+            'title_keys': ['title', 'current_job_title'],
+            'company_keys': ['company'],
+            'start_keys': ['job_start', 'job_start_date'],
+            'end_keys': ['job_end', 'job_end_date'],
+            'dates_key': None,  # Job 1 has separate start/end fields
+        },
+        {
+            'title_keys': ['exp_2_title', 'exp2_title'],
+            'company_keys': ['exp_2_company', 'exp2_company'],
+            'start_keys': [],
+            'end_keys': [],
+            'dates_key': ['exp_2_dates', 'exp2_dates'],
+        },
+        {
+            'title_keys': ['exp_3_title', 'exp3_title'],
+            'company_keys': ['exp_3_company', 'exp3_company'],
+            'start_keys': [],
+            'end_keys': [],
+            'dates_key': ['exp_3_dates', 'exp3_dates'],
+        },
+    ]
+    
+    results = []
+    
+    for spec in job_specs:
+        # Get title
+        title = ''
+        for key in spec['title_keys']:
+            title = profile_data.get(key) or ''
+            if title.strip():
+                break
+        
+        if not title.strip():
+            continue  # Skip jobs with no title
+        
+        # Get company
+        company = ''
+        for key in spec['company_keys']:
+            company = profile_data.get(key) or ''
+            if company.strip():
+                break
+        
+        # Get dates
+        if spec['dates_key']:
+            dates_str = ''
+            for key in spec['dates_key']:
+                dates_str = profile_data.get(key) or ''
+                if dates_str.strip():
+                    break
+            start_date, end_date = _split_date_range(dates_str)
+        else:
+            start_date = ''
+            for key in spec['start_keys']:
+                start_date = profile_data.get(key) or ''
+                if start_date.strip():
+                    break
+            end_date = ''
+            for key in spec['end_keys']:
+                end_date = profile_data.get(key) or ''
+                if end_date.strip():
+                    break
+        
+        # Score this job
+        score = score_job_relevance(title.strip(), company.strip(), major)
+        
+        results.append({
+            'title': title.strip(),
+            'company': company.strip(),
+            'score': score,
+            'is_relevant': is_job_relevant(score),
+            'start_date': start_date.strip() if start_date else '',
+            'end_date': end_date.strip() if end_date else '',
+        })
+    
+    return results
+
+
 def _split_date_range(date_range_str):
     """
     Split a date range string like "Mar 2020 - Dec 2022" into (start, end).
     
+    Handles various separators: " - ", " – ", " — ", " to "
+    
     Returns:
-        (start_str, end_str) tuple
+        (start_str, end_str) tuple. Both empty strings if input is empty.
     """
     if not date_range_str:
         return ('', '')
