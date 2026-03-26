@@ -114,7 +114,7 @@ class HistoryManager:
                 # Basic date parsing logic if string
                 if isinstance(last_checked, str):
                     try: last_checked_dt = datetime.fromisoformat(last_checked.replace('Z', '+00:00'))
-                    except: last_checked_dt = now
+                    except (ValueError, TypeError): last_checked_dt = now
                 else:
                     last_checked_dt = last_checked
                 
@@ -218,7 +218,6 @@ def normalize_text(text):
         text = text.replace(unicode_char, ascii_char)
     
     # Collapse multiple spaces into one
-    import re
     text = re.sub(r'\s+', ' ', text)
     
     return text.strip()
@@ -606,7 +605,7 @@ def _update_csv_row(profile_url, analysis_data):
         
         for key, value in analysis_data.items():
             if key in df.columns:
-                df.loc[mask, key] = value if value is not None else ''
+                df.loc[mask, key] = value
         
         df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')
     except Exception as e:
