@@ -400,6 +400,8 @@ class ConnectionManager:
             # Working-while-studying status
             ("working_while_studying_status", "TEXT"),
             ("updated_at", "TEXT"),
+            # Discipline classification
+            ("discipline", "TEXT"),
         ]
         for col_name, col_type in _migration_cols:
             try:
