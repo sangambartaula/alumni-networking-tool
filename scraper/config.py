@@ -277,7 +277,10 @@ CSV_COLUMNS = [
     'exp_2_title', 'exp_2_company', 'exp_2_dates', 
     'exp_3_title', 'exp_3_company', 'exp_3_dates',
     'scraped_at',
-    'normalized_job_title', 'normalized_exp2_title', 'normalized_exp3_title'
+    'normalized_job_title', 'normalized_exp2_title', 'normalized_exp3_title',
+    'job_1_relevance_score', 'job_2_relevance_score', 'job_3_relevance_score',
+    'job_1_is_relevant', 'job_2_is_relevant', 'job_3_is_relevant',
+    'relevant_experience_months', 'seniority_level',
 ]
 
 # ── Blocked Profiles ─────────────────────────────────────────

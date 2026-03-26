@@ -499,6 +499,15 @@ def save_profile_to_csv(profile_data):
             'normalized_job_title': profile_data.get('normalized_job_title', ''),
             'normalized_exp2_title': profile_data.get('normalized_exp2_title', ''),
             'normalized_exp3_title': profile_data.get('normalized_exp3_title', ''),
+            # Experience analysis fields
+            'job_1_relevance_score': profile_data.get('job_1_relevance_score', ''),
+            'job_2_relevance_score': profile_data.get('job_2_relevance_score', ''),
+            'job_3_relevance_score': profile_data.get('job_3_relevance_score', ''),
+            'job_1_is_relevant': profile_data.get('job_1_is_relevant', ''),
+            'job_2_is_relevant': profile_data.get('job_2_is_relevant', ''),
+            'job_3_is_relevant': profile_data.get('job_3_is_relevant', ''),
+            'relevant_experience_months': profile_data.get('relevant_experience_months', ''),
+            'seniority_level': profile_data.get('seniority_level', ''),
         }
         
         # Normalize text fields
@@ -541,7 +550,65 @@ def save_profile_to_csv(profile_data):
         # Note: flag_profile_for_review still expects original keys, so pass original profile_data
         flag_profile_for_review(profile_data)
         
+        # Run experience analysis (relevance scoring + seniority detection)
+        _run_experience_analysis_on_profile(profile_data)
+        
         return True
     except Exception as e:
         logger.error(f"❌ Error saving profile: {e}")
         return False
+
+
+def _run_experience_analysis_on_profile(profile_data):
+    """
+    Run relevance scoring and seniority detection on a newly saved profile.
+    Updates the CSV row with computed values.
+    """
+    try:
+        from relevance_scorer import analyze_profile_relevance, is_groq_available
+        from seniority_detector import analyze_seniority
+    except ImportError:
+        return  # Modules not available, skip silently
+    
+    try:
+        # Relevance scoring (requires Groq)
+        relevance = {}
+        if is_groq_available():
+            relevance = analyze_profile_relevance(profile_data)
+        
+        # Seniority detection
+        experience_months = relevance.get('relevant_experience_months')
+        seniority = analyze_seniority(profile_data, experience_months)
+        
+        # Update CSV if we computed anything
+        analysis_data = {**relevance, 'seniority_level': seniority}
+        if analysis_data:
+            _update_csv_row(profile_data.get('profile_url', ''), analysis_data)
+    except Exception as e:
+        logger.debug(f"Experience analysis skipped for profile: {e}")
+
+
+def _update_csv_row(profile_url, analysis_data):
+    """Update a specific row in the CSV with analysis results."""
+    if not profile_url or not analysis_data:
+        return
+    
+    try:
+        if not OUTPUT_CSV.exists():
+            return
+        
+        df = pd.read_csv(OUTPUT_CSV, encoding='utf-8')
+        url = str(profile_url).strip().rstrip('/')
+        
+        mask = df['linkedin_url'].astype(str).str.strip().str.rstrip('/') == url
+        if not mask.any():
+            return
+        
+        for key, value in analysis_data.items():
+            if key in df.columns:
+                df.loc[mask, key] = value if value is not None else ''
+        
+        df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8')
+    except Exception as e:
+        logger.debug(f"Could not update CSV row with analysis data: {e}")
+

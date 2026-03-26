@@ -66,6 +66,14 @@ CSV_COLUMNS = [
     "normalized_job_title",
     "normalized_exp2_title",
     "normalized_exp3_title",
+    "job_1_relevance_score",
+    "job_2_relevance_score",
+    "job_3_relevance_score",
+    "job_1_is_relevant",
+    "job_2_is_relevant",
+    "job_3_is_relevant",
+    "relevant_experience_months",
+    "seniority_level",
 ]
 
 
@@ -210,6 +218,15 @@ def _to_csv_row(row: Dict[str, Any]) -> Dict[str, str]:
             # Not stored as dedicated columns in current DB schema.
             "normalized_exp2_title": "",
             "normalized_exp3_title": "",
+            # Experience analysis columns
+            "job_1_relevance_score": _clean_text(row.get("job_1_relevance_score")),
+            "job_2_relevance_score": _clean_text(row.get("job_2_relevance_score")),
+            "job_3_relevance_score": _clean_text(row.get("job_3_relevance_score")),
+            "job_1_is_relevant": _clean_text(row.get("job_1_is_relevant")),
+            "job_2_is_relevant": _clean_text(row.get("job_2_is_relevant")),
+            "job_3_is_relevant": _clean_text(row.get("job_3_is_relevant")),
+            "relevant_experience_months": _clean_text(row.get("relevant_experience_months")),
+            "seniority_level": _clean_text(row.get("seniority_level")),
         }
     )
     return csv_row
@@ -278,7 +295,15 @@ def export_cloud_alumni_csv(output_path: Path, backup_existing: bool = True) -> 
                        a.exp3_dates,
                        a.scraped_at,
                        a.updated_at,
-                       njt.normalized_title AS normalized_job_title
+                       njt.normalized_title AS normalized_job_title,
+                       a.job_1_relevance_score,
+                       a.job_2_relevance_score,
+                       a.job_3_relevance_score,
+                       a.job_1_is_relevant,
+                       a.job_2_is_relevant,
+                       a.job_3_is_relevant,
+                       a.relevant_experience_months,
+                       a.seniority_level
                 FROM alumni a
                 LEFT JOIN normalized_job_titles njt
                   ON a.normalized_job_title_id = njt.id

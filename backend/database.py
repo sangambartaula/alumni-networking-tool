@@ -54,6 +54,63 @@ def _clean_optional_text(value):
     return text
 
 
+def _parse_float(value):
+    """Parse a value to float, returning None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, float):
+        return value if not pd.isna(value) else None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "na", "n/a", ""}:
+        return None
+    try:
+        return float(text)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_bool(value):
+    """Parse a value to bool, returning None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if pd.isna(value):
+            return None
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes"}:
+        return True
+    if text in {"false", "0", "no"}:
+        return False
+    return None
+
+
+def _parse_int(value):
+    """Parse a value to int, returning None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        if pd.isna(value):
+            return None
+        if value.is_integer():
+            return int(value)
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "na", "n/a", ""}:
+        return None
+    try:
+        f = float(text)
+        if f.is_integer():
+            return int(f)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
 _NAME_SUFFIX_TOKENS = {"ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
 
 
@@ -835,6 +892,48 @@ def ensure_education_columns():
                 pass
 
 
+def ensure_experience_analysis_columns():
+    """Ensure columns for job relevance scoring, relevant experience months, and seniority level exist."""
+    NEW_COLS = [
+        ("job_1_relevance_score", "FLOAT DEFAULT NULL"),
+        ("job_2_relevance_score", "FLOAT DEFAULT NULL"),
+        ("job_3_relevance_score", "FLOAT DEFAULT NULL"),
+        ("job_1_is_relevant",     "BOOLEAN DEFAULT NULL"),
+        ("job_2_is_relevant",     "BOOLEAN DEFAULT NULL"),
+        ("job_3_is_relevant",     "BOOLEAN DEFAULT NULL"),
+        ("relevant_experience_months", "INT DEFAULT NULL"),
+        ("seniority_level",       "VARCHAR(20) DEFAULT NULL"),
+    ]
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            for col_name, col_def in NEW_COLS:
+                try:
+                    cur.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_def}")
+                    logger.info(f"Added {col_name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        pass  # already exists
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        pass  # SQLite: already exists
+                    else:
+                        raise
+            conn.commit()
+            logger.info("✅ Experience analysis columns ensured")
+    except Exception as e:
+        logger.error(f"Error ensuring experience analysis columns: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 # ============================================================
 # VISITED PROFILES FUNCTIONS
 # ============================================================
@@ -1525,14 +1624,20 @@ def seed_alumni_data():
                              school, school2, school3, degree2, degree3, major2, major3,
                              standardized_degree, standardized_degree2, standardized_degree3,
                              standardized_major, standardized_major2, standardized_major3,
-                             scraped_at, last_updated, normalized_job_title_id, normalized_company_id)
+                             scraped_at, last_updated, normalized_job_title_id, normalized_company_id,
+                             job_1_relevance_score, job_2_relevance_score, job_3_relevance_score,
+                             job_1_is_relevant, job_2_is_relevant, job_3_is_relevant,
+                             relevant_experience_months, seniority_level)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s,
                                     %s, %s, %s,
-                                    %s, %s, %s, %s)
+                                    %s, %s, %s, %s,
+                                    %s, %s, %s,
+                                    %s, %s, %s,
+                                    %s, %s)
                             ON DUPLICATE KEY UPDATE
                                 first_name=VALUES(first_name),
                                 last_name=VALUES(last_name),
@@ -1570,7 +1675,15 @@ def seed_alumni_data():
                                 standardized_major3=VALUES(standardized_major3),
                                 last_updated=VALUES(last_updated),
                                 normalized_job_title_id=VALUES(normalized_job_title_id),
-                                normalized_company_id=VALUES(normalized_company_id)
+                                normalized_company_id=VALUES(normalized_company_id),
+                                job_1_relevance_score=VALUES(job_1_relevance_score),
+                                job_2_relevance_score=VALUES(job_2_relevance_score),
+                                job_3_relevance_score=VALUES(job_3_relevance_score),
+                                job_1_is_relevant=VALUES(job_1_is_relevant),
+                                job_2_is_relevant=VALUES(job_2_is_relevant),
+                                job_3_is_relevant=VALUES(job_3_is_relevant),
+                                relevant_experience_months=VALUES(relevant_experience_months),
+                                seniority_level=VALUES(seniority_level)
                         """, (
                             first_name,
                             last_name,
@@ -1610,7 +1723,15 @@ def seed_alumni_data():
                             scraped_at,
                             scraped_at,
                             norm_title_id,
-                            norm_company_id
+                            norm_company_id,
+                            _parse_float(row.get('job_1_relevance_score')),
+                            _parse_float(row.get('job_2_relevance_score')),
+                            _parse_float(row.get('job_3_relevance_score')),
+                            _parse_bool(row.get('job_1_is_relevant')),
+                            _parse_bool(row.get('job_2_is_relevant')),
+                            _parse_bool(row.get('job_3_is_relevant')),
+                            _parse_int(row.get('relevant_experience_months')),
+                            _clean_optional_text(row.get('seniority_level')),
                         ))
 
                         if cur.rowcount == 1:
