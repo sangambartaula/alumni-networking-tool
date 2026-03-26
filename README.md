@@ -10,6 +10,7 @@ The project is still in active development and is expected to be finalized in ab
 
 - Search alumni records.
 - Filter alumni by major, graduation year, UNT alumni status (yes/no/unknown), and working-while-studying status.
+- View alumni seniority levels (Intern, Junior, Mid, Senior, Manager, Director, Executive).
 - View an alumni location heatmap.
 - Add private outreach notes.
 - Bookmark and track alumni contacts.
@@ -137,3 +138,9 @@ For day-to-day run and usage instructions (filters, alumni status behavior, work
 For detailed normalization/classification logic (job titles, companies, majors, degrees, discipline inference, alumni status, and working-while-studying), see:
 
 [NORMALIZATION_RULES.md](NORMALIZATION_RULES.md)
+
+## 10. Seniority Level Classification
+
+For information about the automatic seniority level classification feature, flagging logic, and how to populate existing records, see:
+
+[SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md)
