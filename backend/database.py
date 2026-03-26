@@ -2035,6 +2035,8 @@ if __name__ == "__main__":
         ensure_alumni_work_school_date_columns()
         ensure_alumni_major_column()
         ensure_education_columns()
+        ensure_normalized_job_title_column()
+        ensure_experience_analysis_columns()
 
         run_seed_mode = os.getenv("DB_RUN_SEED", "1").strip().lower()
         run_seed = run_seed_mode in {"1", "true", "yes", "sync", "force"}
