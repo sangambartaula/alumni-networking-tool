@@ -26,6 +26,62 @@ body {
   z-index: 100;
 }
 
+/* Grad-year filter banner (shown when arriving from Analytics redirect) */
+.grad-year-filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  background: linear-gradient(90deg, #004d24 0%, #00843d 100%);
+  color: #fff;
+  font-size: 0.87rem;
+  font-weight: 500;
+  z-index: 99;
+  flex-shrink: 0;
+}
+
+.grad-year-banner-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.85;
+  font-size: 0.9rem;
+}
+
+.grad-year-banner-link {
+  margin-left: auto;
+  color: #d1fae5;
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.9;
+  transition: opacity 0.2s;
+}
+.grad-year-banner-link:hover { opacity: 1; text-decoration: underline; }
+
+.grad-year-banner-close {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.35);
+  color: #fff;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: 4px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.grad-year-banner-close:hover { background: rgba(255,255,255,0.2); }
+
 footer {
   display: none !important;
 }
