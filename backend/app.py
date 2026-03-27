@@ -1751,12 +1751,24 @@ def get_heatmap_data():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
+    # Optional graduation year range filter (passed from Analytics page redirect)
+    def _safe_int(val):
+        try: return int(val) if val else None
+        except (ValueError, TypeError): return None
+    grad_year_from = _safe_int(request.args.get("grad_year_from"))
+    grad_year_to   = _safe_int(request.args.get("grad_year_to"))
+
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
             return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
     # --- Check cache ---
-    cache_key = f"{continent_filter or '__all__'}|{unt_alumni_status_filter or '__all__'}"
+    cache_key = (
+        f"{continent_filter or '__all__'}"
+        f"|{unt_alumni_status_filter or '__all__'}"
+        f"|{grad_year_from or '__'}"
+        f"|{grad_year_to or '__'}"
+    )
     cached = _heatmap_cache.get(cache_key)
     if cached and (_time.time() - cached["ts"]) < _HEATMAP_CACHE_TTL:
         return jsonify(cached["data"]), 200
@@ -1803,6 +1815,20 @@ def get_heatmap_data():
                 unt_alumni_status = compute_unt_alumni_status_from_row(row)
                 if unt_alumni_status_filter and unt_alumni_status != unt_alumni_status_filter:
                     continue
+
+                # Grad year range filter
+                if grad_year_from is not None or grad_year_to is not None:
+                    gy = row.get("grad_year")
+                    try:
+                        gy_int = int(gy) if gy is not None else None
+                    except (ValueError, TypeError):
+                        gy_int = None
+                    if gy_int is None:
+                        continue  # skip alumni with no grad year when filter is active
+                    if grad_year_from is not None and gy_int < grad_year_from:
+                        continue
+                    if grad_year_to is not None and gy_int > grad_year_to:
+                        continue
 
                 lat = row["latitude"]
                 lon = row["longitude"]
