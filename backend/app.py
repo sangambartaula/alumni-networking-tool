@@ -1762,22 +1762,35 @@ def get_heatmap_data():
         if not USE_SQLITE_FALLBACK:
             return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
+    # Skip cache for year-filtered requests (ephemeral analytical view)
+    use_cache = (grad_year_from is None and grad_year_to is None)
+
     # --- Check cache ---
     cache_key = (
         f"{continent_filter or '__all__'}"
         f"|{unt_alumni_status_filter or '__all__'}"
-        f"|{grad_year_from or '__'}"
-        f"|{grad_year_to or '__'}"
     )
-    cached = _heatmap_cache.get(cache_key)
-    if cached and (_time.time() - cached["ts"]) < _HEATMAP_CACHE_TTL:
-        return jsonify(cached["data"]), 200
+    if use_cache:
+        cached = _heatmap_cache.get(cache_key)
+        if cached and (_time.time() - cached["ts"]) < _HEATMAP_CACHE_TTL:
+            return jsonify(cached["data"]), 200
 
     try:
         conn = get_connection()
         try:
             with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
+                # Build dynamic WHERE clause for grad_year
+                year_clauses = ["latitude IS NOT NULL", "longitude IS NOT NULL"]
+                year_params = []
+                if grad_year_from is not None:
+                    year_clauses.append("grad_year >= %s")
+                    year_params.append(grad_year_from)
+                if grad_year_to is not None:
+                    year_clauses.append("grad_year <= %s")
+                    year_params.append(grad_year_to)
+
+                where_sql = " AND ".join(year_clauses)
+                cur.execute(f"""
                     SELECT id,
                            first_name,
                            last_name,
@@ -1800,10 +1813,9 @@ def get_heatmap_data():
                            major2,
                            major3
                     FROM alumni
-                    WHERE latitude IS NOT NULL
-                      AND longitude IS NOT NULL
+                    WHERE {where_sql}
                     ORDER BY location ASC
-                """)
+                """, year_params if year_params else ())
                 rows = cur.fetchall()
 
             # ----- city-level clustering -----
@@ -1815,20 +1827,6 @@ def get_heatmap_data():
                 unt_alumni_status = compute_unt_alumni_status_from_row(row)
                 if unt_alumni_status_filter and unt_alumni_status != unt_alumni_status_filter:
                     continue
-
-                # Grad year range filter
-                if grad_year_from is not None or grad_year_to is not None:
-                    gy = row.get("grad_year")
-                    try:
-                        gy_int = int(gy) if gy is not None else None
-                    except (ValueError, TypeError):
-                        gy_int = None
-                    if gy_int is None:
-                        continue  # skip alumni with no grad year when filter is active
-                    if grad_year_from is not None and gy_int < grad_year_from:
-                        continue
-                    if grad_year_to is not None and gy_int > grad_year_to:
-                        continue
 
                 lat = row["latitude"]
                 lon = row["longitude"]
