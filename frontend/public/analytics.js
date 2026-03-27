@@ -19,6 +19,11 @@ let gradYearRangeMax = null;
 let lineChartViewMin = null;
 let lineChartViewMax = null;
 
+// Embedded heatmap (Leaflet)
+let analyticsLeafletMap = null;
+let analyticsHeatLayer = null;
+let analyticsHeatmapInitialized = false;
+
 function isWorkingWhileStudyingPositive(value) {
   if (value === true || value === 1) return true;
   if (typeof value !== 'string') return false;
@@ -90,9 +95,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const toVal   = lineToInput   ? lineToInput.value.trim()   : '';
     lineChartViewMin = fromVal !== '' ? parseInt(fromVal, 10) : null;
     lineChartViewMax = toVal   !== '' ? parseInt(toVal,   10) : null;
-    // Re-render only the graduation chart (fast, no full re-render needed)
+    // Re-render graduation chart for the same year window
     const filteredData = filterAlumniData(alumniData);
     renderGraduationLineChart(filteredData);
+    updateHeatmapButtonUrl();
   }
 
   lineApplyBtn?.addEventListener('click', applyLineChartRange);
@@ -108,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (lineToInput)   lineToInput.value   = '';
     const filteredData = filterAlumniData(alumniData);
     renderGraduationLineChart(filteredData);
+    updateHeatmapButtonUrl();
   });
 });
 
@@ -750,9 +757,26 @@ async function loadAnalyticsData() {
     buildAnalyticsAutocomplete(alumniData);
     updateAnalyticsFilterUI();
     renderAnalytics();
+    updateHeatmapButtonUrl();
   } catch (error) {
     console.error('Error loading analytics data:', error);
   }
+}
+
+/**
+ * Update the "Show Heatmap" button href to include the current
+ * graduation year range as ?from=X&to=Y query params.
+ */
+function updateHeatmapButtonUrl() {
+  const btn = document.getElementById('showHeatmapBtn');
+  if (!btn) return;
+
+  const params = new URLSearchParams();
+  if (lineChartViewMin != null) params.set('from', String(lineChartViewMin));
+  if (lineChartViewMax != null) params.set('to',   String(lineChartViewMax));
+
+  const qs = params.toString();
+  btn.href = qs ? `/heatmap?${qs}` : '/heatmap';
 }
 
 async function fetchAllAnalyticsAlumni() {
