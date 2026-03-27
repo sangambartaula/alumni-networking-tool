@@ -1247,3 +1247,102 @@
   .grad-year-range-filter { width: 100%; }
   .grad-range-input { width: 80px; }
 }
+
+/* ── Embedded Analytics Heatmap ─────────────────────────────── */
+.analytics-heatmap-card {
+  position: relative;
+  padding: 1.75rem;
+}
+
+.analytics-heatmap-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+  flex-wrap: wrap;
+}
+
+.analytics-heatmap-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  background: var(--emerald-50);
+  border: 1px solid var(--emerald-100);
+  color: var(--emerald-700);
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.analytics-heatmap-label i {
+  color: var(--emerald-500);
+}
+
+.analytics-heatmap-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* The Leaflet map itself */
+.analytics-heatmap-container {
+  height: 430px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  position: relative;
+  z-index: 0; /* keep below modals */
+}
+
+/* Loading overlay (sits above map) */
+.analytics-heatmap-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.analytics-heatmap-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid var(--emerald-100);
+  border-top-color: var(--emerald-500);
+  border-radius: 50%;
+  animation: hmSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes hmSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Empty state */
+.analytics-heatmap-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 200px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.analytics-heatmap-empty i {
+  font-size: 2.8rem;
+  opacity: 0.25;
+}
+
+.analytics-heatmap-empty p {
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .analytics-heatmap-container { height: 300px; }
+}
