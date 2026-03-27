@@ -1227,6 +1227,22 @@
   transform: translateY(-1px);
 }
 
+/* "Show Heatmap" redirect button — UNT green accent */
+.grad-range-btn--heatmap {
+  background: linear-gradient(135deg, var(--emerald-500), var(--emerald-700));
+  color: #fff !important;
+  border: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-decoration: none !important;
+  gap: 5px;
+}
+.grad-range-btn--heatmap:hover {
+  background: linear-gradient(135deg, var(--emerald-600), var(--emerald-800));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 132, 61, 0.35);
+}
+
 /* Active range indicator pill shown below the header when a range is set */
 .grad-chart-range-indicator {
   display: inline-flex;
