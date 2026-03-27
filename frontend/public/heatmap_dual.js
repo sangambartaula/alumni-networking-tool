@@ -354,8 +354,24 @@ function setupMapViewport() {
   window.addEventListener('resize', resizeMap);
 }
 
+// Grad-year filter applied from Analytics → Heatmap redirect
+let heatmapGradYearFrom = null;
+let heatmapGradYearTo   = null;
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+  // ── Read graduation year range from query string ──────────────────────────
+  const urlParams = new URLSearchParams(window.location.search);
+  const rawFrom = urlParams.get('from');
+  const rawTo   = urlParams.get('to');
+
+  if (rawFrom) heatmapGradYearFrom = parseInt(rawFrom, 10) || null;
+  if (rawTo)   heatmapGradYearTo   = parseInt(rawTo,   10) || null;
+
+  if (heatmapGradYearFrom != null || heatmapGradYearTo != null) {
+    showGradYearBanner(heatmapGradYearFrom, heatmapGradYearTo);
+  }
+
   setupMapViewport();
   initialize2DMap();
   add2D3DToggle();
@@ -366,8 +382,57 @@ document.addEventListener('DOMContentLoaded', () => {
     mark3DUnavailable(new Error('Cesium library not available.'));
   }
 
-  loadHeatmapData(); // Load data first, which will initialize filters
+  // Build heatmap data URL with optional grad year params from Analytics redirect
+  const hmParams = new URLSearchParams();
+  if (heatmapGradYearFrom != null) hmParams.set('grad_year_from', String(heatmapGradYearFrom));
+  if (heatmapGradYearTo   != null) hmParams.set('grad_year_to',   String(heatmapGradYearTo));
+  const hmUrl = hmParams.toString() ? `/api/heatmap?${hmParams}` : '/api/heatmap';
+  loadHeatmapData(hmUrl); // Load data first, which will initialize filters
 });
+
+/**
+ * Show a top-of-page banner indicating which grad year range is active.
+ * Includes a dismiss button and a link back to Analytics.
+ */
+function showGradYearBanner(from, to) {
+  const existing = document.getElementById('gradYearFilterBanner');
+  if (existing) existing.remove();
+
+  let rangeText;
+  if (from != null && to != null) rangeText = `${from} – ${to}`;
+  else if (from != null)          rangeText = `${from} and later`;
+  else                            rangeText = `up to ${to}`;
+
+  const banner = document.createElement('div');
+  banner.id = 'gradYearFilterBanner';
+  banner.className = 'grad-year-filter-banner';
+  banner.innerHTML = `
+    <span class="grad-year-banner-icon"><i class="fas fa-filter"></i></span>
+    <span>Showing alumni who graduated&nbsp;<strong>${rangeText}</strong></span>
+    <a href="/analytics" class="grad-year-banner-link"><i class="fas fa-chart-line"></i> Back to Analytics</a>
+    <button class="grad-year-banner-close" title="Clear filter" onclick="clearGradYearFilter()">×</button>
+  `;
+
+  // Insert right after the <header>
+  const header = document.querySelector('header.appbar');
+  if (header && header.nextSibling) {
+    header.parentNode.insertBefore(banner, header.nextSibling);
+  } else {
+    document.body.insertBefore(banner, document.body.firstChild);
+  }
+}
+
+/** Remove the grad year filter and reload without params */
+function clearGradYearFilter() {
+  heatmapGradYearFrom = null;
+  heatmapGradYearTo   = null;
+  const banner = document.getElementById('gradYearFilterBanner');
+  if (banner) banner.remove();
+  // Reload without params so the map shows all alumni
+  window.history.replaceState({}, '', '/heatmap');
+  reloadMapData();
+}
+
 
 // Initialize 2D Leaflet Map
 function initialize2DMap() {
