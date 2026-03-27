@@ -871,6 +871,23 @@ def api_get_alumni():
         degree_filters = [d.lower() for d in _parse_multi_value_param('degree')]
         grad_year_filters = _parse_int_list_param('grad_year')
         working_while_studying_filter = (request.args.get('working_while_studying', '') or '').strip().lower()
+
+        # Experience range filter (in months)
+        exp_min_raw = request.args.get('exp_min', '')
+        exp_max_raw = request.args.get('exp_max', '')
+        exp_min = None
+        exp_max = None
+        try:
+            if exp_min_raw and exp_min_raw.strip():
+                exp_min = int(exp_min_raw)
+        except (ValueError, TypeError):
+            pass
+        try:
+            if exp_max_raw and exp_max_raw.strip():
+                exp_max = int(exp_max_raw)
+        except (ValueError, TypeError):
+            pass
+
         sort_key = (request.args.get('sort', 'name') or 'name').strip().lower()
         sort_direction = (request.args.get('direction', 'asc') or 'asc').strip().lower()
         sort_direction = 'DESC' if sort_direction == 'desc' else 'ASC'
@@ -978,6 +995,16 @@ def api_get_alumni():
                         "(a.working_while_studying = 0 OR LOWER(COALESCE(a.working_while_studying_status,'')) = 'no')"
                     )
 
+                # Experience range filter (values in months)
+                if exp_min is not None and exp_min > 0:
+                    where_clauses.append("COALESCE(a.relevant_experience_months, 0) >= %s")
+                    params.append(exp_min)
+                if exp_max is not None:
+                    # 360 months = 30 years; when max is 360 treat as "30+" → no upper bound
+                    if exp_max < 360:
+                        where_clauses.append("COALESCE(a.relevant_experience_months, 0) <= %s")
+                        params.append(exp_max)
+
                 if bookmarked_only:
                     where_clauses.append(
                         "EXISTS (SELECT 1 FROM user_interactions ui WHERE ui.user_id = %s AND ui.alumni_id = a.id AND ui.interaction_type = 'bookmarked')"
@@ -1004,7 +1031,8 @@ def api_get_alumni():
                            a.working_while_studying, a.working_while_studying_status,
                            a.school, a.school2, a.school3,
                            a.degree2, a.degree3, a.major2, a.major3,
-                           a.seniority_level
+                           a.seniority_level,
+                           a.relevant_experience_months
                     FROM alumni a
                     LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     LEFT JOIN normalized_companies nc ON a.normalized_company_id = nc.id
@@ -1093,7 +1121,8 @@ def api_get_alumni():
                         or (True if r.get('working_while_studying') else
                             (False if r.get('working_while_studying') is not None else None))
                     ),
-                    "seniority_level": r.get('seniority_level')
+                    "seniority_level": r.get('seniority_level'),
+                    "relevant_experience_months": r.get('relevant_experience_months'),
                 })
 
             serialization_ms = (perf_counter() - serialization_start) * 1000.0

@@ -117,3 +117,37 @@ The structured output from `get_relevance_json()` feeds directly into the Experi
 - `score` — raw relevance weight
 - `is_relevant` — boolean filter
 - `start_date` / `end_date` — for duration computation
+
+## Retroactive Computation
+
+The `scripts/compute_experience_months.py` script computes `relevant_experience_months` for alumni who already have `job_X_is_relevant` flags but missing experience months. **It does NOT re-call Groq** — it only does date arithmetic.
+
+### Usage
+
+```bash
+# Dry run — show computed values without writing
+python scripts/compute_experience_months.py --dry-run
+
+# Normal run — update only alumni with missing experience months
+python scripts/compute_experience_months.py
+
+# Force — re-process all alumni (even those already computed)
+python scripts/compute_experience_months.py --force
+```
+
+### Date Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| Missing end date | Treated as "Present" (current month) |
+| Missing start date | Job skipped |
+| Overlapping date ranges | Merged before summing |
+| Same-month start/end | Counted as 1 month |
+| Year-only date (e.g. "2020") | Defaults to January |
+
+### Frontend Experience Filter
+
+The alumni directory sidebar includes a "Relevant Experience" range filter (0–30+ years). Setting max to 30 displays the `30+` range.
+
+- **Backend**: `exp_min` and `exp_max` query params (in months) on `/api/alumni`
+- **Frontend**: `#expMin` / `#expMax` number inputs converted to months (years × 12)

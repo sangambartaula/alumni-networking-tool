@@ -1,4 +1,4 @@
-﻿// app.js
+// app.js
 // Approved engineering disciplines (must match backend APPROVED_ENGINEERING_DISCIPLINES)
 const APPROVED_ENGINEERING_DISCIPLINES = [
   'Software, Data & AI Engineering',
@@ -755,7 +755,8 @@ function mapAlumniRecord(a) {
     discipline: a.discipline || '',
     updated_at: a.updated_at || '',
     working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
-    unt_alumni_status: a.unt_alumni_status || 'unknown'
+    unt_alumni_status: a.unt_alumni_status || 'unknown',
+    relevant_experience_months: a.relevant_experience_months != null ? a.relevant_experience_months : null
   };
 }
 
@@ -763,6 +764,8 @@ function collectQueryState() {
   const q = document.getElementById('q');
   const gradSelect = document.getElementById('gradSelect');
   const sortSelect = document.getElementById('sortSelect');
+  const expMinInput = document.getElementById('expMin');
+  const expMaxInput = document.getElementById('expMax');
 
   const term = q ? q.value.trim() : '';
   const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
@@ -775,6 +778,12 @@ function collectQueryState() {
   const wws = wwsRadio ? wwsRadio.value : '';
   const untAlumniStatusRadio = document.querySelector('input[name="untAlumniStatus"]:checked');
   const untAlumniStatus = untAlumniStatusRadio ? untAlumniStatusRadio.value : '';
+
+  // Experience range (in years from UI, converted to months for API)
+  const expMinYears = expMinInput && expMinInput.value.trim() !== '' ? parseInt(expMinInput.value, 10) : null;
+  const expMaxYears = expMaxInput && expMaxInput.value.trim() !== '' ? parseInt(expMaxInput.value, 10) : null;
+  const expMin = Number.isFinite(expMinYears) && expMinYears >= 0 ? expMinYears * 12 : null;
+  const expMax = Number.isFinite(expMaxYears) && expMaxYears >= 0 ? expMaxYears * 12 : null;
 
   const sortValue = sortSelect ? (sortSelect.value || '') : '';
   const bookmarkedOnly = sortValue === 'bookmarked';
@@ -790,6 +799,8 @@ function collectQueryState() {
     year,
     wws,
     untAlumniStatus,
+    expMin,
+    expMax,
     sort,
     bookmarkedOnly,
     direction: sortDirection,
@@ -813,6 +824,8 @@ function buildAlumniQueryParams(queryState, offset, limit) {
   if (queryState.sort) params.set('sort', queryState.sort);
   params.set('direction', queryState.direction);
   if (queryState.bookmarkedOnly) params.set('bookmarked_only', '1');
+  if (queryState.expMin != null) params.set('exp_min', String(queryState.expMin));
+  if (queryState.expMax != null) params.set('exp_max', String(queryState.expMax));
 
   return params;
 }
@@ -942,6 +955,10 @@ function setupFiltering() {
       if (wwsAll) wwsAll.checked = true;
       const untStatusAll = document.querySelector('input[name="untAlumniStatus"][value=""]');
       if (untStatusAll) untStatusAll.checked = true;
+      const expMinInput = document.getElementById('expMin');
+      const expMaxInput = document.getElementById('expMax');
+      if (expMinInput) expMinInput.value = '';
+      if (expMaxInput) expMaxInput.value = '';
       await applyFilters();
     });
   }
@@ -956,7 +973,7 @@ function setupFiltering() {
   }
 
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"]')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax')) {
       applyFilters();
     }
   });

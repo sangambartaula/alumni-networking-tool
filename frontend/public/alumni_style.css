@@ -400,6 +400,56 @@ select:focus {
   display: none;
 }
 
+/* ===== EXPERIENCE RANGE FILTER ===== */
+.exp-range-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.exp-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.exp-range-inputs input[type="number"] {
+  flex: 1;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  transition: border-color 0.2s;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.exp-range-inputs input[type="number"]::-webkit-outer-spin-button,
+.exp-range-inputs input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.exp-range-inputs input[type="number"]:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.exp-range-sep {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.exp-range-hint {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* ===== RESULTS SECTION ===== */
 .results-head {
   display: flex;
