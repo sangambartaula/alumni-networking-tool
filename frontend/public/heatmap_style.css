@@ -2296,3 +2296,124 @@ footer {
     right: -100%;
   }
 }
+
+/* Alumni-directory theme alignment overrides */
+:root {
+  --page: #f8fafc;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --brand: #00843d;
+  --brand-hover: #006b32;
+  --brand-light: #e8f5e9;
+}
+
+body {
+  background: var(--page);
+  color: var(--text);
+}
+
+.grad-year-filter-banner,
+.heatmap-header,
+.heatmap-header-compact,
+.filter-panel-header.analytics-filter-panel-header,
+#filterPanel .filter-panel-header {
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-hover) 100%) !important;
+  color: #ffffff !important;
+}
+
+.search-btn,
+.filter-action-btn,
+#filterPanel .filter-action-btn,
+.filter-btn-icon,
+#continentFilters .filter-btn-icon,
+.continent-btn.selected,
+.badge-primary,
+.toggle-btn.active {
+  background: var(--brand) !important;
+  color: #ffffff !important;
+  border-color: var(--brand) !important;
+}
+
+.search-btn:hover,
+.filter-action-btn:hover,
+#filterPanel .filter-action-btn:hover,
+.filter-btn-icon:hover,
+#continentFilters .filter-btn-icon:hover,
+.continent-btn.selected:hover,
+.toggle-btn.active:hover {
+  background: var(--brand-hover) !important;
+  border-color: var(--brand-hover) !important;
+}
+
+#continentFilters button,
+.continent-btn,
+#continentFilters .continent-buttons .continent-btn {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+#continentFilters button:hover,
+.continent-btn:hover,
+#continentFilters .continent-buttons .continent-btn:hover {
+  background: var(--brand-light) !important;
+  border-color: var(--brand) !important;
+  color: var(--brand) !important;
+}
+
+.toggle-panel,
+.layer-control-panel,
+.leaflet-control-layers,
+.pie-charts-wrapper,
+.pie-chart-container,
+.filter-panel,
+#filterPanel.filter-panel {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+.layer-control-title {
+  color: var(--text) !important;
+  border-bottom-color: var(--brand) !important;
+}
+
+.layer-option input[type="radio"],
+.toggle-btn,
+.filter-input:focus,
+#filterPanel .filter-input:focus {
+  accent-color: var(--brand) !important;
+}
+
+.toggle-btn:hover {
+  background: var(--brand-light) !important;
+  color: var(--brand) !important;
+}
+
+.filter-input:focus,
+#filterPanel .filter-input:focus {
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 3px rgba(0, 132, 61, 0.12) !important;
+}
+
+.filter-tags-label,
+.filter-group label,
+.popup-content h4,
+.layer-option span,
+.layer-control-title,
+.pie-chart-container h3 {
+  color: var(--text) !important;
+}
+
+.filter-tag.location-tag,
+#filterPanel .analytics-filter-tag {
+  background: var(--brand-light) !important;
+  color: var(--brand) !important;
+  border-color: var(--brand) !important;
+}
+
+#filterPanel .analytics-filter-tag-remove {
+  background: rgba(0, 132, 61, 0.12) !important;
+  color: var(--brand) !important;
+}

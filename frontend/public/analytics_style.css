@@ -2,10 +2,15 @@
 
 /* ── Design Tokens ──────────────────────────────────────────── */
 :root {
+  --page: #f8fafc;
+  --brand: #00843d;
+  --brand-hover: #006b32;
+  --brand-light: #e8f5e9;
+
   /* ── UNT Mean Green palette ── */
   --emerald-50:  #e8f5e9;
   --emerald-100: #c8e6c9;
-  --emerald-400: #4caf7a;
+  --emerald-400: #34d399;
   --emerald-500: #00843d;
   --emerald-600: #006b32;
   --emerald-700: #005228;
@@ -22,8 +27,8 @@
   --slate-800: #1e293b;
   --slate-900: #0f172a;
 
-  --violet-500: #8b5cf6;
-  --blue-500:   #3b82f6;
+  --violet-500: #00843d;
+  --blue-500:   #00843d;
   --amber-400:  #fbbf24;
   --rose-500:   #f43f5e;
 
@@ -54,7 +59,7 @@
   max-width: 1440px;
   margin: 0 auto;
   padding: 2rem 2.5rem 4rem;
-  background: #f0fdf4;
+  background: var(--page);
   min-height: 100vh;
 }
 
@@ -67,10 +72,10 @@
   margin-bottom: 2.5rem;
   padding: 3.5rem 2rem 5rem;
   background:
-    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(76,175,122,0.28) 0%, transparent 65%),
-    linear-gradient(160deg, #002b18 0%, #00521e 50%, #006b32 100%);
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(232,245,233,0.24) 0%, transparent 65%),
+    linear-gradient(135deg, var(--brand) 0%, var(--brand-hover) 100%);
   border-radius: var(--radius-xl);
-  box-shadow: 0 8px 40px rgba(0,82,40,0.35), 0 2px 8px rgba(0,82,40,0.15);
+  box-shadow: 0 8px 40px rgba(0, 107, 50, 0.25), 0 2px 8px rgba(0, 107, 50, 0.12);
   overflow: hidden;
 }
 
@@ -116,7 +121,7 @@
   position: relative;
   margin: 0;
   font-size: 1.05rem;
-  color: rgba(255,255,255,0.55);
+  color: rgba(255,255,255,0.9);
   font-weight: 400;
   letter-spacing: 0.01em;
 }
