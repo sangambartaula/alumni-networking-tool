@@ -2226,7 +2226,8 @@ if __name__ == "__main__":
         normalize_single_date_education_semantics,
         ensure_normalized_job_title_column,
         ensure_normalized_degree_column,
-        ensure_normalized_company_column
+        ensure_normalized_company_column,
+        ensure_experience_analysis_columns,
     )
     if not DISABLE_DB:
         try:
@@ -2235,6 +2236,7 @@ if __name__ == "__main__":
             ensure_normalized_job_title_column()
             ensure_normalized_degree_column()
             ensure_normalized_company_column()
+            ensure_experience_analysis_columns()
             # Startup seed strategy:
             # - Default ("0"): skip CSV sync in app startup for faster boot.
             # - "auto": seed only when alumni table is empty.
