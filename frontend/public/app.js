@@ -27,8 +27,10 @@ let bookmarkedTotalCount = 0;
 let sortDirection = 'desc';
 let activeQueryState = null;
 let activeRequestToken = 0;
+let currentDirectoryPage = 1;
 // Backend currently caps alumni page size at 500.
 const alumniChunkSize = 500;
+const directoryPageSize = 25;
 
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
@@ -566,21 +568,66 @@ function createListItem(p) {
 
 function renderProfiles(list) {
   const safeList = Array.isArray(list) ? list : [];
+  const resolvedTotal = Number.isFinite(totalAlumniCount) && totalAlumniCount > 0
+    ? totalAlumniCount
+    : safeList.length;
+  const totalPages = Math.max(1, Math.ceil(resolvedTotal / directoryPageSize));
+
+  if (currentDirectoryPage > totalPages) {
+    currentDirectoryPage = totalPages;
+  }
+  if (currentDirectoryPage < 1) {
+    currentDirectoryPage = 1;
+  }
+
+  const startIndex = (currentDirectoryPage - 1) * directoryPageSize;
+  const pageSlice = safeList.slice(startIndex, startIndex + directoryPageSize);
 
   if (listContainer) {
     listContainer.innerHTML = '';
-    safeList.forEach(p => listContainer.appendChild(createListItem(p)));
+    pageSlice.forEach(p => listContainer.appendChild(createListItem(p)));
   }
 
   if (count) {
-    count.textContent = Number.isFinite(totalAlumniCount) && totalAlumniCount > safeList.length
-      ? `(${safeList.length} of ${totalAlumniCount})`
-      : `(${safeList.length})`;
+    if (!resolvedTotal || pageSlice.length === 0) {
+      count.textContent = '(0)';
+    } else {
+      const startDisplay = startIndex + 1;
+      const endDisplay = startIndex + pageSlice.length;
+      count.textContent = `(${startDisplay}-${endDisplay} of ${resolvedTotal})`;
+    }
   }
 
   updateStatsBanner(safeList);
   setupVisibleNotesLoading();
   renderLoadMoreControl();
+}
+
+function goToDirectoryPage(page) {
+  const resolvedTotal = Number.isFinite(totalAlumniCount) && totalAlumniCount > 0
+    ? totalAlumniCount
+    : loadedAlumni.length;
+  const totalPages = Math.max(1, Math.ceil(resolvedTotal / directoryPageSize));
+  const targetPage = Math.max(1, Math.min(totalPages, Number(page) || 1));
+  if (targetPage === currentDirectoryPage) return;
+
+  currentDirectoryPage = targetPage;
+  renderProfiles(loadedAlumni);
+}
+
+function createPaginationButton(label, page, { disabled = false, active = false } = {}) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = active ? 'pagination-btn active' : 'pagination-btn';
+  btn.textContent = label;
+  btn.disabled = disabled;
+  if (active) {
+    btn.setAttribute('aria-current', 'page');
+  }
+  if (!disabled && !active) {
+    btn.addEventListener('click', () => goToDirectoryPage(page));
+  }
+  return btn;
 }
 
 function renderLoadMoreControl() {
@@ -589,19 +636,80 @@ function renderLoadMoreControl() {
 
   paginationContainer.innerHTML = '';
   paginationContainer.style.display = 'flex';
+  paginationContainer.style.flexWrap = 'wrap';
 
-  const status = document.createElement('span');
-  status.className = 'pagination-ellipsis';
+  const resolvedTotal = Number.isFinite(totalAlumniCount) && totalAlumniCount > 0
+    ? totalAlumniCount
+    : loadedAlumni.length;
+
   if (isLoadingAlumni) {
+    const status = document.createElement('span');
+    status.className = 'pagination-ellipsis';
     status.textContent = Number.isFinite(totalAlumniCount) && totalAlumniCount > 0
       ? `Loading alumni... ${loadedAlumni.length}/${totalAlumniCount}`
       : `Loading alumni... ${loadedAlumni.length}`;
-  } else {
-    status.textContent = Number.isFinite(totalAlumniCount)
-      ? `${loadedAlumni.length}/${totalAlumniCount} loaded`
-      : `${loadedAlumni.length} loaded`;
+    paginationContainer.appendChild(status);
+    return;
   }
+
+  if (resolvedTotal <= 0) {
+    const empty = document.createElement('span');
+    empty.className = 'pagination-ellipsis';
+    empty.textContent = 'No alumni found';
+    paginationContainer.appendChild(empty);
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(resolvedTotal / directoryPageSize));
+  const startDisplay = (currentDirectoryPage - 1) * directoryPageSize + 1;
+  const endDisplay = Math.min(currentDirectoryPage * directoryPageSize, resolvedTotal);
+
+  const status = document.createElement('span');
+  status.className = 'pagination-ellipsis';
+  status.textContent = `Showing ${startDisplay}-${endDisplay} of ${resolvedTotal}`;
   paginationContainer.appendChild(status);
+
+  paginationContainer.appendChild(
+    createPaginationButton('Prev', currentDirectoryPage - 1, { disabled: currentDirectoryPage <= 1 })
+  );
+
+  const maxVisiblePages = 5;
+  let pageStart = Math.max(1, currentDirectoryPage - Math.floor(maxVisiblePages / 2));
+  let pageEnd = Math.min(totalPages, pageStart + maxVisiblePages - 1);
+
+  if ((pageEnd - pageStart + 1) < maxVisiblePages) {
+    pageStart = Math.max(1, pageEnd - maxVisiblePages + 1);
+  }
+
+  if (pageStart > 1) {
+    paginationContainer.appendChild(createPaginationButton('1', 1));
+    if (pageStart > 2) {
+      const leadEllipsis = document.createElement('span');
+      leadEllipsis.className = 'pagination-ellipsis';
+      leadEllipsis.textContent = '...';
+      paginationContainer.appendChild(leadEllipsis);
+    }
+  }
+
+  for (let page = pageStart; page <= pageEnd; page += 1) {
+    paginationContainer.appendChild(
+      createPaginationButton(String(page), page, { active: page === currentDirectoryPage })
+    );
+  }
+
+  if (pageEnd < totalPages) {
+    if (pageEnd < totalPages - 1) {
+      const trailEllipsis = document.createElement('span');
+      trailEllipsis.className = 'pagination-ellipsis';
+      trailEllipsis.textContent = '...';
+      paginationContainer.appendChild(trailEllipsis);
+    }
+    paginationContainer.appendChild(createPaginationButton(String(totalPages), totalPages));
+  }
+
+  paginationContainer.appendChild(
+    createPaginationButton('Next', currentDirectoryPage + 1, { disabled: currentDirectoryPage >= totalPages })
+  );
 }
 
 function getCanonicalRoleTitle(value) {
@@ -841,6 +949,7 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
   if (reset) {
     loadedAlumni = [];
     totalAlumniCount = 0;
+    currentDirectoryPage = 1;
   }
 
   const queryState = collectQueryState();
