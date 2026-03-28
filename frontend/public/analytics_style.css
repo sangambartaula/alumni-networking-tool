@@ -324,6 +324,11 @@
   background: var(--slate-200);
 }
 
+.analytics-diagram-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .analytics-diagram-selection-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

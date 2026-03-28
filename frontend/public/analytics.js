@@ -14,6 +14,21 @@ let filteredTableRenderToken = 0;
 const analyticsChunkSize = 500;
 let gradYearRangeMin = null;
 let gradYearRangeMax = null;
+let analyticsExportDiagramCounter = 0;
+
+const analyticsExportState = {
+  mode: 'full',
+  isExporting: false,
+  visibleDiagrams: [],
+  selectedDiagramIds: new Set()
+};
+const analyticsExportIgnoredElementIds = new Set([
+  'analyticsFilterToggleBtn',
+  'analyticsDownloadBtn',
+  'analyticsFilterPanel',
+  'analyticsFilterBackdrop',
+  'alumniModal'
+]);
 
 // Local graduation line-chart view range (independent of global filter)
 let lineChartViewMin = null;
@@ -62,6 +77,7 @@ function getCanonicalRoleTitle(value) {
 document.addEventListener('DOMContentLoaded', () => {
   loadHiddenFiltersFromStorage();
   initializeAnalyticsFilterUI();
+  initializeAnalyticsExportUI();
   loadAnalyticsData();
 
   // Setup modal close handlers
@@ -80,7 +96,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Close modal with Escape key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      closeModal();
+      if (isAnalyticsExportModalOpen()) {
+        closeAnalyticsExportModal();
+      } else {
+        closeModal();
+      }
     }
   });
 
@@ -832,6 +852,426 @@ function renderAnalytics() {
   renderGraduationLineChart(filteredData);
   renderTopCompaniesTable(filteredData);
   renderTopLocationsTable(filteredData);
+  refreshAnalyticsExportDiagramOptions({ preserveSelection: true });
+}
+
+function getAnalyticsExportElements() {
+  return {
+    backdrop: document.getElementById('analyticsExportBackdrop'),
+    modal: document.getElementById('analyticsExportModal'),
+    downloadBtn: document.getElementById('analyticsDownloadBtn'),
+    closeBtn: document.getElementById('analyticsCloseExportBtn'),
+    cancelBtn: document.getElementById('analyticsCancelExportBtn'),
+    confirmBtn: document.getElementById('analyticsConfirmExportBtn'),
+    selectionPanel: document.getElementById('analyticsDiagramSelectionPanel'),
+    selectionList: document.getElementById('analyticsDiagramSelectionList'),
+    selectAllBtn: document.getElementById('analyticsSelectAllDiagramsBtn'),
+    clearAllBtn: document.getElementById('analyticsClearAllDiagramsBtn'),
+    validationEl: document.getElementById('analyticsExportValidation')
+  };
+}
+
+function initializeAnalyticsExportUI() {
+  const elements = getAnalyticsExportElements();
+  if (!elements.downloadBtn || !elements.modal || !elements.backdrop) return;
+
+  elements.downloadBtn.addEventListener('click', openAnalyticsExportModal);
+  elements.closeBtn?.addEventListener('click', closeAnalyticsExportModal);
+  elements.cancelBtn?.addEventListener('click', closeAnalyticsExportModal);
+  elements.backdrop.addEventListener('click', closeAnalyticsExportModal);
+
+  document.querySelectorAll('input[name="analyticsExportMode"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      analyticsExportState.mode = input.value === 'selected' ? 'selected' : 'full';
+      updateAnalyticsExportModeUI();
+      updateAnalyticsExportConfirmState();
+    });
+  });
+
+  elements.selectionList?.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!target || target.tagName !== 'INPUT') return;
+    const diagramId = target.getAttribute('data-diagram-id');
+    if (!diagramId) return;
+    if (target.checked) {
+      analyticsExportState.selectedDiagramIds.add(diagramId);
+    } else {
+      analyticsExportState.selectedDiagramIds.delete(diagramId);
+    }
+    updateAnalyticsExportConfirmState();
+  });
+
+  elements.selectAllBtn?.addEventListener('click', () => {
+    analyticsExportState.selectedDiagramIds = new Set(
+      analyticsExportState.visibleDiagrams.map(diagram => diagram.id)
+    );
+    refreshAnalyticsExportDiagramOptions({ preserveSelection: true });
+    updateAnalyticsExportConfirmState();
+  });
+
+  elements.clearAllBtn?.addEventListener('click', () => {
+    analyticsExportState.selectedDiagramIds.clear();
+    refreshAnalyticsExportDiagramOptions({ preserveSelection: true });
+    updateAnalyticsExportConfirmState();
+  });
+
+  elements.confirmBtn?.addEventListener('click', () => {
+    void handleAnalyticsPdfExport();
+  });
+
+  updateAnalyticsExportModeUI();
+  refreshAnalyticsExportDiagramOptions({ preserveSelection: false });
+  updateAnalyticsExportConfirmState();
+}
+
+function isAnalyticsExportModalOpen() {
+  const { modal } = getAnalyticsExportElements();
+  return Boolean(modal && modal.classList.contains('active'));
+}
+
+function openAnalyticsExportModal() {
+  const { backdrop, modal } = getAnalyticsExportElements();
+  if (!backdrop || !modal) return;
+
+  analyticsExportState.mode = 'full';
+  document.querySelectorAll('input[name="analyticsExportMode"]').forEach((input) => {
+    input.checked = input.value === 'full';
+  });
+
+  refreshAnalyticsExportDiagramOptions({ preserveSelection: false });
+  updateAnalyticsExportModeUI();
+  setAnalyticsExportValidation('');
+  updateAnalyticsExportConfirmState();
+
+  backdrop.classList.add('active');
+  modal.classList.add('active');
+  modal.setAttribute('aria-hidden', 'false');
+  syncAnalyticsBodyScrollLock();
+}
+
+function closeAnalyticsExportModal({ force = false } = {}) {
+  if (analyticsExportState.isExporting && !force) return;
+  const { backdrop, modal } = getAnalyticsExportElements();
+  if (!backdrop || !modal) return;
+
+  backdrop.classList.remove('active');
+  modal.classList.remove('active');
+  modal.setAttribute('aria-hidden', 'true');
+  setAnalyticsExportValidation('');
+  syncAnalyticsBodyScrollLock();
+}
+
+function updateAnalyticsExportModeUI() {
+  const { selectionPanel, selectAllBtn, clearAllBtn } = getAnalyticsExportElements();
+  const isSelectedMode = analyticsExportState.mode === 'selected';
+
+  if (selectionPanel) {
+    selectionPanel.hidden = !isSelectedMode;
+  }
+
+  const hasDiagrams = analyticsExportState.visibleDiagrams.length > 0;
+  if (selectAllBtn) selectAllBtn.disabled = !isSelectedMode || !hasDiagrams;
+  if (clearAllBtn) clearAllBtn.disabled = !isSelectedMode || !hasDiagrams;
+}
+
+function setAnalyticsExportValidation(message) {
+  const { validationEl } = getAnalyticsExportElements();
+  if (validationEl) validationEl.textContent = message || '';
+}
+
+function updateAnalyticsExportConfirmState({ preserveExistingValidation = false } = {}) {
+  const { confirmBtn } = getAnalyticsExportElements();
+  if (!confirmBtn) return;
+
+  let disableConfirm = analyticsExportState.isExporting;
+  let validationMessage = '';
+
+  if (analyticsExportState.mode === 'selected') {
+    if (analyticsExportState.visibleDiagrams.length === 0) {
+      disableConfirm = true;
+      validationMessage = 'No diagrams are currently visible for export.';
+    } else if (analyticsExportState.selectedDiagramIds.size === 0) {
+      disableConfirm = true;
+      validationMessage = 'Select at least one diagram to download.';
+    }
+  }
+
+  confirmBtn.disabled = disableConfirm;
+  confirmBtn.textContent = analyticsExportState.isExporting ? 'Generating PDF...' : 'Download PDF';
+  if (!preserveExistingValidation) {
+    setAnalyticsExportValidation(validationMessage);
+  }
+}
+
+function refreshAnalyticsExportDiagramOptions({ preserveSelection = true } = {}) {
+  const { selectionList, selectAllBtn, clearAllBtn } = getAnalyticsExportElements();
+  if (!selectionList) return;
+
+  const visibleDiagrams = collectVisibleAnalyticsDiagrams();
+  analyticsExportState.visibleDiagrams = visibleDiagrams;
+
+  if (preserveSelection) {
+    const visibleIds = new Set(visibleDiagrams.map(diagram => diagram.id));
+    analyticsExportState.selectedDiagramIds = new Set(
+      Array.from(analyticsExportState.selectedDiagramIds).filter(id => visibleIds.has(id))
+    );
+  } else {
+    analyticsExportState.selectedDiagramIds = new Set(visibleDiagrams.map(diagram => diagram.id));
+  }
+
+  if (visibleDiagrams.length === 0) {
+    selectionList.innerHTML = '<p class="analytics-diagram-selection-empty">No diagrams currently visible.</p>';
+  } else {
+    selectionList.innerHTML = visibleDiagrams.map((diagram) => {
+      const checked = analyticsExportState.selectedDiagramIds.has(diagram.id) ? 'checked' : '';
+      return `
+        <label class="analytics-diagram-option">
+          <input type="checkbox" data-diagram-id="${diagram.id}" ${checked} />
+          <span>${escapeHtml(diagram.title)}</span>
+        </label>
+      `;
+    }).join('');
+  }
+
+  const hasDiagrams = visibleDiagrams.length > 0;
+  if (selectAllBtn) selectAllBtn.disabled = !hasDiagrams;
+  if (clearAllBtn) clearAllBtn.disabled = !hasDiagrams;
+
+  updateAnalyticsExportModeUI();
+  updateAnalyticsExportConfirmState();
+}
+
+function collectVisibleAnalyticsDiagrams() {
+  const exportableElements = Array.from(document.querySelectorAll('[data-export-diagram]'));
+  return exportableElements
+    .filter(isElementVisibleForExport)
+    .map((element, index) => {
+      if (!element.dataset.exportDiagramId) {
+        analyticsExportDiagramCounter += 1;
+        element.dataset.exportDiagramId = `diagram-${analyticsExportDiagramCounter}`;
+      }
+
+      const fallbackTitle = `Diagram ${index + 1}`;
+      const derivedTitle = element.dataset.exportTitle
+        || element.querySelector('h2, h3, h4')?.textContent
+        || fallbackTitle;
+
+      return {
+        id: element.dataset.exportDiagramId,
+        title: (derivedTitle || fallbackTitle).trim(),
+        element
+      };
+    });
+}
+
+function isElementVisibleForExport(element) {
+  if (!element) return false;
+  const style = window.getComputedStyle(element);
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+  if (element.offsetParent === null && style.position !== 'fixed') return false;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function syncAnalyticsBodyScrollLock() {
+  const alumniModal = document.getElementById('alumniModal');
+  const alumniModalOpen = Boolean(alumniModal && alumniModal.classList.contains('show'));
+  document.body.style.overflow = (alumniModalOpen || isAnalyticsExportModalOpen()) ? 'hidden' : '';
+}
+
+async function handleAnalyticsPdfExport() {
+  if (analyticsExportState.isExporting) return;
+  if (typeof window.html2canvas !== 'function' || !window.jspdf || typeof window.jspdf.jsPDF !== 'function') {
+    setAnalyticsExportValidation('PDF dependencies failed to load. Refresh the page and try again.');
+    return;
+  }
+
+  let failedExportMessage = '';
+  analyticsExportState.isExporting = true;
+  updateAnalyticsExportConfirmState();
+
+  try {
+    await waitForAnalyticsRenderStability();
+
+    if (analyticsExportState.mode === 'selected') {
+      await exportSelectedDiagramsPdf();
+    } else {
+      await exportFullAnalyticsPagePdf();
+    }
+
+    closeAnalyticsExportModal({ force: true });
+  } catch (error) {
+    console.error('Analytics PDF export failed:', error);
+    failedExportMessage = 'Unable to generate PDF. Please try again.';
+    setAnalyticsExportValidation(failedExportMessage);
+  } finally {
+    analyticsExportState.isExporting = false;
+    updateAnalyticsExportConfirmState({ preserveExistingValidation: Boolean(failedExportMessage) });
+  }
+}
+
+async function waitForAnalyticsRenderStability() {
+  await waitForNextFrame();
+  await waitForNextFrame();
+
+  for (let i = 0; i < 24; i++) {
+    const chartStillAnimating = Object.values(charts).some(chart => chart && chart.animating);
+    if (!chartStillAnimating) {
+      await waitForNextFrame();
+      await waitForNextFrame();
+      return;
+    }
+    await waitForNextFrame();
+  }
+}
+
+function waitForNextFrame() {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
+
+async function exportFullAnalyticsPagePdf() {
+  const analyticsPage = document.querySelector('.analytics-page');
+  if (!analyticsPage) {
+    throw new Error('Analytics page container not found.');
+  }
+
+  const canvas = await captureAnalyticsElementToCanvas(analyticsPage);
+  const pdf = createAnalyticsPdf();
+  addTallCanvasAsPaginatedPdf(pdf, canvas, { marginMm: 8 });
+  pdf.save(buildAnalyticsPdfFilename('full'));
+}
+
+async function exportSelectedDiagramsPdf() {
+  const selectedDiagrams = analyticsExportState.visibleDiagrams.filter(diagram =>
+    analyticsExportState.selectedDiagramIds.has(diagram.id)
+  );
+
+  if (selectedDiagrams.length === 0) {
+    throw new Error('No diagrams selected for export.');
+  }
+
+  const pdf = createAnalyticsPdf();
+
+  for (let i = 0; i < selectedDiagrams.length; i++) {
+    if (i > 0) pdf.addPage();
+    const canvas = await captureAnalyticsElementToCanvas(selectedDiagrams[i].element);
+    addCanvasFitToCurrentPage(pdf, canvas, { marginMm: 8 });
+  }
+
+  pdf.save(buildAnalyticsPdfFilename('selected'));
+}
+
+function createAnalyticsPdf() {
+  const { jsPDF } = window.jspdf;
+  return new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+    compress: true
+  });
+}
+
+function buildAnalyticsPdfFilename(mode) {
+  const datePart = new Date().toISOString().slice(0, 10);
+  const suffix = mode === 'selected' ? 'selected-diagrams' : 'full-page';
+  return `analytics-${suffix}-${datePart}.pdf`;
+}
+
+async function captureAnalyticsElementToCanvas(element) {
+  const scale = Math.min(2, Math.max(1.25, window.devicePixelRatio || 1));
+  return window.html2canvas(element, {
+    backgroundColor: '#ffffff',
+    scale,
+    useCORS: true,
+    logging: false,
+    ignoreElements: shouldIgnoreElementDuringAnalyticsExport
+  });
+}
+
+function shouldIgnoreElementDuringAnalyticsExport(element) {
+  if (!element) return false;
+  if (element.classList && element.classList.contains('analytics-export-exclude')) {
+    return true;
+  }
+
+  return Boolean(element.id && analyticsExportIgnoredElementIds.has(element.id));
+}
+
+function addCanvasFitToCurrentPage(pdf, canvas, { marginMm = 8 } = {}) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const maxWidth = pageWidth - (marginMm * 2);
+  const maxHeight = pageHeight - (marginMm * 2);
+
+  const scale = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
+  const renderWidth = canvas.width * scale;
+  const renderHeight = canvas.height * scale;
+  const x = (pageWidth - renderWidth) / 2;
+  const y = (pageHeight - renderHeight) / 2;
+
+  pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, renderWidth, renderHeight, undefined, 'FAST');
+}
+
+function addTallCanvasAsPaginatedPdf(pdf, canvas, { marginMm = 8 } = {}) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const renderWidthMm = pageWidth - (marginMm * 2);
+  const renderHeightMm = pageHeight - (marginMm * 2);
+  const pxPerMm = canvas.width / renderWidthMm;
+
+  const pageSliceHeightPx = Math.floor(renderHeightMm * pxPerMm);
+  let renderedHeightPx = 0;
+  let pageIndex = 0;
+
+  while (renderedHeightPx < canvas.height) {
+    if (pageIndex > 0) pdf.addPage();
+
+    const sliceHeightPx = Math.min(pageSliceHeightPx, canvas.height - renderedHeightPx);
+    const pageCanvas = document.createElement('canvas');
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeightPx;
+
+    const ctx = pageCanvas.getContext('2d');
+    if (!ctx) throw new Error('Unable to create PDF image context.');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    ctx.drawImage(
+      canvas,
+      0,
+      renderedHeightPx,
+      canvas.width,
+      sliceHeightPx,
+      0,
+      0,
+      pageCanvas.width,
+      pageCanvas.height
+    );
+
+    const sliceHeightMm = sliceHeightPx / pxPerMm;
+    pdf.addImage(
+      pageCanvas.toDataURL('image/png'),
+      'PNG',
+      marginMm,
+      marginMm,
+      renderWidthMm,
+      sliceHeightMm,
+      undefined,
+      'FAST'
+    );
+
+    renderedHeightPx += sliceHeightPx;
+    pageIndex += 1;
+  }
 }
 
 function updateStatistics(data = alumniData) {
@@ -1499,13 +1939,13 @@ function closeProfileModal() {
 function openModal() {
   const modal = document.getElementById('alumniModal');
   modal.classList.add('show');
-  document.body.style.overflow = 'hidden'; // Prevent background scrolling
+  syncAnalyticsBodyScrollLock();
 }
 
 // Close modal
 function closeModal() {
   const modal = document.getElementById('alumniModal');
   modal.classList.remove('show');
-  document.body.style.overflow = ''; // Restore scrolling
+  syncAnalyticsBodyScrollLock();
   currentFilter = null;
 }
