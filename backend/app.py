@@ -243,6 +243,106 @@ def classify_degree(degree_field, headline=''):
     return None
 
 
+_SENIORITY_FILTER_LABELS = {
+    "intern": "Intern",
+    "mid": "Mid",
+    "senior": "Senior",
+    "executive": "Executive",
+}
+
+_SENIORITY_EXECUTIVE_PATTERN = re.compile(
+    r"\b(?:director|head|vice president|president|chief|cxo|c[a-z]o|partner|founder|co founder|owner)\b",
+    re.IGNORECASE,
+)
+_SENIORITY_SENIOR_PATTERN = re.compile(
+    r"\b(?:senior|lead|principal|staff|specialist)\b",
+    re.IGNORECASE,
+)
+_SENIORITY_MID_PATTERN = re.compile(
+    r"\b(?:junior|entry level|associate)\b",
+    re.IGNORECASE,
+)
+_SENIORITY_INTERN_PATTERN = re.compile(
+    r"\b(?:intern|trainee|apprentice)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_title_for_seniority(job_title):
+    if job_title is None:
+        return ""
+
+    normalized = str(job_title).strip().lower()
+    if not normalized:
+        return ""
+
+    normalized = normalized.replace("&", " and ")
+    normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
+    normalized = re.sub(r"\bjr\b", "junior", normalized)
+    normalized = re.sub(r"\bsr\b", "senior", normalized)
+    normalized = re.sub(r"\bsvp\b", "senior vice president", normalized)
+    normalized = re.sub(r"\bevp\b", "executive vice president", normalized)
+    normalized = re.sub(r"\bvp\b", "vice president", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _coerce_int(value):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def classify_seniority_bucket(job_title, relevant_experience_months=None):
+    """
+    Classify alumni into UI buckets: Intern / Mid / Senior / Executive.
+    - Title keywords are primary.
+    - Experience is used only as a tiebreaker when title has no keywords.
+    - Missing title falls back to internal "Others".
+    """
+    normalized_title = _normalize_title_for_seniority(job_title)
+    if not normalized_title:
+        return "Others"
+
+    if _SENIORITY_EXECUTIVE_PATTERN.search(normalized_title):
+        return "Executive"
+    if _SENIORITY_SENIOR_PATTERN.search(normalized_title):
+        return "Senior"
+    if _SENIORITY_MID_PATTERN.search(normalized_title):
+        return "Mid"
+    if _SENIORITY_INTERN_PATTERN.search(normalized_title):
+        return "Intern"
+
+    # Title did not match known keywords: use experience only as a fallback tiebreaker.
+    exp_months = _coerce_int(relevant_experience_months)
+    if exp_months is None:
+        return "Mid"
+    if exp_months >= 180:
+        return "Executive"
+    if exp_months >= 72:
+        return "Senior"
+    if exp_months >= 12:
+        return "Mid"
+    return "Intern"
+
+
+def _parse_seniority_filters(raw_values):
+    values = []
+    seen = set()
+    for raw in raw_values:
+        key = (raw or "").strip().lower()
+        if not key:
+            continue
+        if key not in _SENIORITY_FILTER_LABELS:
+            raise ValueError("Invalid seniority. Use Intern, Mid, Senior, or Executive.")
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(_SENIORITY_FILTER_LABELS[key])
+    return values
+
+
 def _rank_filter_option_counts(counts, query='', limit=15):
     """
     Rank filter options similar to analytics autocomplete behavior.
@@ -897,6 +997,11 @@ def api_get_alumni():
             unt_alumni_status_filter = _parse_unt_alumni_status_filter(request.args.get('unt_alumni_status', ''))
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
+        try:
+            seniority_filters = _parse_seniority_filters(_parse_multi_value_param('seniority'))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        seniority_filter_set = set(seniority_filters)
 
         if discipline_filters:
             invalid_disciplines = [m for m in discipline_filters if m not in _APPROVED_DISCIPLINES_SET]
@@ -1040,15 +1145,26 @@ def api_get_alumni():
                     ORDER BY {order_clause}
                 """
 
-                if unt_alumni_status_filter:
-                    # unt_alumni_status is derived from multiple school/date fields, so we filter in Python.
+                requires_python_filtering = bool(unt_alumni_status_filter or seniority_filter_set)
+                if requires_python_filtering:
+                    # unt_alumni_status and seniority are derived fields, so we filter in Python.
                     cur.execute(select_sql, tuple(params))
                     prefiltered_rows = cur.fetchall() or []
                     filtered_rows = []
                     for row in prefiltered_rows:
                         status = compute_unt_alumni_status_from_row(row)
-                        if status == unt_alumni_status_filter:
-                            filtered_rows.append(row)
+                        seniority_bucket = classify_seniority_bucket(
+                            row.get('current_job_title'),
+                            row.get('relevant_experience_months'),
+                        )
+                        if unt_alumni_status_filter and status != unt_alumni_status_filter:
+                            continue
+
+                        if seniority_filter_set and seniority_bucket not in seniority_filter_set:
+                            continue
+
+                        row['_computed_seniority_bucket'] = seniority_bucket
+                        filtered_rows.append(row)
                     total = len(filtered_rows)
                     rows = filtered_rows[offset:offset + limit]
                 else:
@@ -1084,6 +1200,13 @@ def api_get_alumni():
                 major = _resolve_major(r)
                 full_major = _resolve_full_major(r)
                 discipline = _resolve_discipline(r)
+                seniority_bucket = (
+                    r.get('_computed_seniority_bucket')
+                    or classify_seniority_bucket(
+                        r.get('current_job_title'),
+                        r.get('relevant_experience_months'),
+                    )
+                )
                 updated_at = r.get('updated_at')
                 if hasattr(updated_at, 'isoformat'):
                     updated_at = updated_at.isoformat()
@@ -1121,7 +1244,8 @@ def api_get_alumni():
                         or (True if r.get('working_while_studying') else
                             (False if r.get('working_while_studying') is not None else None))
                     ),
-                    "seniority_level": r.get('seniority_level'),
+                    "seniority_level": seniority_bucket,
+                    "seniority_bucket": seniority_bucket,
                     "relevant_experience_months": r.get('relevant_experience_months'),
                 })
 
