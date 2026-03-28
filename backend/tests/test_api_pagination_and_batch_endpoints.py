@@ -1,7 +1,15 @@
 import app as backend_app
 
 
-def _alumni_row(alumni_id, first_name, last_name, grad_year=2020, school="University of North Texas"):
+def _alumni_row(
+    alumni_id,
+    first_name,
+    last_name,
+    grad_year=2020,
+    school="University of North Texas",
+    job_title="Software Engineer",
+    relevant_experience_months=None,
+):
     return {
         "id": alumni_id,
         "first_name": first_name,
@@ -12,7 +20,7 @@ def _alumni_row(alumni_id, first_name, last_name, grad_year=2020, school="Univer
         "discipline": "Software, Data & AI Engineering",
         "standardized_major": "Computer Science",
         "linkedin_url": f"https://www.linkedin.com/in/{first_name.lower()}-{alumni_id}",
-        "current_job_title": "Software Engineer",
+        "current_job_title": job_title,
         "company": "Acme Corp",
         "location": "Austin, TX",
         "headline": "Software Engineer",
@@ -28,6 +36,8 @@ def _alumni_row(alumni_id, first_name, last_name, grad_year=2020, school="Univer
         "degree3": None,
         "major2": None,
         "major3": None,
+        "seniority_level": None,
+        "relevant_experience_months": relevant_experience_months,
     }
 
 
@@ -257,6 +267,64 @@ def test_api_alumni_caps_limit_to_500(client, monkeypatch):
     assert len(payload["items"]) == 500
     assert payload["has_more"] is True
     assert payload["total"] == 600
+
+
+def test_api_alumni_classifies_seniority_buckets_from_title(client, monkeypatch):
+    rows = [
+        _alumni_row(1, "Intern", "Case", job_title="Software Intern"),
+        _alumni_row(2, "Junior", "Case", job_title="Junior Engineer"),
+        _alumni_row(3, "Senior", "Case", job_title="Senior Staff Specialist"),
+        _alumni_row(4, "Director", "Case", job_title="Director of Engineering"),
+        _alumni_row(5, "Unknown", "Case", job_title=None),
+    ]
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, [])),
+    )
+
+    resp = client.get("/api/alumni?limit=10&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    items_by_id = {item["id"]: item for item in payload["items"]}
+    assert items_by_id[1]["seniority_level"] == "Intern"
+    assert items_by_id[2]["seniority_level"] == "Mid"
+    assert items_by_id[3]["seniority_level"] == "Senior"
+    assert items_by_id[4]["seniority_level"] == "Executive"
+    assert items_by_id[5]["seniority_level"] == "Others"
+
+
+def test_api_alumni_filters_by_seniority_bucket(client, monkeypatch):
+    rows = [
+        _alumni_row(1, "Intern", "Case", job_title="Software Intern"),
+        _alumni_row(2, "Mid", "Case", job_title="Junior Engineer"),
+        _alumni_row(3, "Senior", "Case", job_title="Senior Developer"),
+        _alumni_row(4, "Executive", "Case", job_title="VP Engineering"),
+        _alumni_row(5, "Other", "Case", job_title=None),
+    ]
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, [])),
+    )
+
+    resp = client.get("/api/alumni?seniority=Mid&seniority=Executive&limit=10&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+    assert payload["total"] == 2
+    ids = {item["id"] for item in payload["items"]}
+    assert ids == {2, 4}
+
+
+def test_api_alumni_rejects_invalid_seniority_filter(client):
+    resp = client.get("/api/alumni?seniority=Others")
+    payload = resp.get_json()
+
+    assert resp.status_code == 400
+    assert payload["error"] == "Invalid seniority. Use Intern, Mid, Senior, or Executive."
 
 
 def test_api_alumni_name_sort_uses_first_name_then_last_name(client, monkeypatch):
