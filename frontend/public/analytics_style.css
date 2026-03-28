@@ -159,6 +159,253 @@
   text-align: center;
 }
 
+/* Export button aligned opposite the filter button */
+.analytics-download-toggle {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  z-index: 5;
+  padding: 9px 18px;
+  background: rgba(255,255,255,0.14);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+  backdrop-filter: blur(8px);
+}
+
+.analytics-download-toggle:hover {
+  background: rgba(255,255,255,0.22);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+
+/* PDF Export Modal */
+.analytics-export-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,0.58);
+  z-index: 1300;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.22s ease, visibility 0.22s ease;
+}
+
+.analytics-export-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1301;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.analytics-export-backdrop.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.analytics-export-modal.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.analytics-export-modal-content {
+  width: min(760px, 92vw);
+  max-height: 86vh;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+}
+
+.analytics-export-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.3rem 1.5rem;
+  background:
+    radial-gradient(ellipse 80% 120% at 12% -20%, rgba(76,175,122,0.24) 0%, transparent 60%),
+    linear-gradient(135deg, #002b18 0%, #006b32 100%);
+  color: #fff;
+}
+
+.analytics-export-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.analytics-export-close-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.analytics-export-close-btn:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.analytics-export-modal-body {
+  padding: 1.35rem 1.5rem 0.9rem;
+  overflow: auto;
+  background: var(--slate-50);
+}
+
+.analytics-export-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 0.7rem;
+}
+
+.analytics-export-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.analytics-export-mode-option input {
+  margin: 0;
+  accent-color: var(--emerald-600);
+}
+
+.analytics-diagram-selection-panel {
+  margin-top: 1rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.95rem;
+}
+
+.analytics-diagram-selection-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.analytics-diagram-action-btn {
+  border: 1px solid var(--slate-300);
+  background: var(--slate-50);
+  color: var(--slate-700);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+
+.analytics-diagram-action-btn:hover {
+  background: var(--slate-200);
+}
+
+.analytics-diagram-selection-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.6rem;
+}
+
+.analytics-diagram-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.6rem;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.analytics-diagram-option input {
+  margin-top: 2px;
+  accent-color: var(--emerald-600);
+}
+
+.analytics-diagram-selection-empty {
+  margin: 0.2rem 0;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.analytics-export-validation {
+  margin: 0.75rem 0 0;
+  min-height: 20px;
+  font-size: 0.82rem;
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.analytics-export-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  padding: 1rem 1.5rem 1.2rem;
+  background: #fff;
+  border-top: 1px solid var(--border);
+}
+
+.analytics-export-footer-btn {
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: 0.84rem;
+  font-weight: 700;
+  padding: 0.58rem 0.9rem;
+  cursor: pointer;
+}
+
+.analytics-export-footer-btn--secondary {
+  background: var(--slate-100);
+  border-color: var(--slate-300);
+  color: var(--slate-700);
+}
+
+.analytics-export-footer-btn--secondary:hover {
+  background: var(--slate-200);
+}
+
+.analytics-export-footer-btn--primary {
+  background: linear-gradient(135deg, var(--emerald-500), var(--emerald-700));
+  color: #fff;
+}
+
+.analytics-export-footer-btn--primary:hover {
+  box-shadow: 0 4px 12px rgba(5,150,105,0.3);
+}
+
+.analytics-export-footer-btn--primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 /* ── Stat Cards ─────────────────────────────────────────────────
    Each card gets a coloured left accent + floating shadow on hover.
 */
@@ -1088,6 +1335,11 @@
 
   .analytics-header { padding: 2.5rem 1.5rem 4rem; }
   .analytics-header h1 { font-size: 1.75rem; }
+  .analytics-download-toggle,
+  .analytics-filter-toggle {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
 
   .stats-overview {
     grid-template-columns: repeat(2, 1fr);
@@ -1111,6 +1363,9 @@
   .modal-body   { padding: 1.25rem; }
 
   .analytics-filter-panel { width: 100%; right: -100%; }
+  .analytics-export-modal-content { width: 94vw; }
+  .analytics-export-mode { grid-template-columns: 1fr; }
+  .analytics-diagram-selection-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {

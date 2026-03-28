@@ -18,6 +18,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <!-- Chart.js for visualizations -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <!-- PDF export dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 
 <body>
@@ -63,6 +66,10 @@
         <i class="fas fa-filter"></i>
         <span>Filters</span>
         <span id="analyticsFilterBadge" class="analytics-filter-badge">0</span>
+      </button>
+      <button id="analyticsDownloadBtn" class="analytics-download-toggle analytics-export-exclude" title="Download PDF">
+        <i class="fas fa-download"></i>
+        <span>Download</span>
       </button>
     </section>
 
@@ -265,7 +272,7 @@
         <h2>Top 5 Most Common Job Titles</h2>
         <p>Most popular career paths among alumni</p>
       </div>
-      <div class="top-jobs-container">
+      <div class="top-jobs-container" data-export-diagram data-export-title="Top 5 Most Common Job Titles">
         <div id="topJobsList" class="top-jobs-list"></div>
       </div>
     </section>
@@ -273,7 +280,7 @@
     <!-- Charts Grid -->
     <section class="charts-grid">
       <!-- Job Distribution Pie Chart -->
-      <div class="chart-card">
+      <div class="chart-card" data-export-diagram data-export-title="Job Title Distribution">
         <h3>Job Title Distribution</h3>
         <div class="chart-wrapper">
           <canvas id="jobPieChart"></canvas>
@@ -281,7 +288,7 @@
       </div>
 
       <!-- Company Distribution Pie Chart -->
-      <div class="chart-card">
+      <div class="chart-card" data-export-diagram data-export-title="Top Companies">
         <h3>Top Companies</h3>
         <div class="chart-wrapper">
           <canvas id="companyPieChart"></canvas>
@@ -289,7 +296,7 @@
       </div>
 
       <!-- Location Distribution Pie Chart -->
-      <div class="chart-card">
+      <div class="chart-card" data-export-diagram data-export-title="Location Distribution">
         <h3>Location Distribution</h3>
         <div class="chart-wrapper">
           <canvas id="locationPieChart"></canvas>
@@ -297,7 +304,7 @@
       </div>
 
       <!-- Industry Distribution Pie Chart -->
-      <div class="chart-card">
+      <div class="chart-card" data-export-diagram data-export-title="Industry Distribution">
         <h3>Industry Distribution</h3>
         <div class="chart-wrapper">
           <canvas id="industryPieChart"></canvas>
@@ -313,7 +320,7 @@
       </div>
       <div class="line-charts-container">
         <!-- Graduation Timeline -->
-        <div class="chart-card full-width">
+        <div class="chart-card full-width" data-export-diagram data-export-title="Alumni by Graduation Year">
           <div class="grad-chart-header">
             <h3>Alumni by Graduation Year</h3>
             <div class="grad-year-range-filter" id="gradYearRangeFilter">
@@ -394,7 +401,7 @@
       </div>
       <div class="insights-grid">
         <!-- Top Companies Table -->
-        <div class="insight-card">
+        <div class="insight-card" data-export-diagram data-export-title="Top 10 Employers">
           <h3>🏢 Top 10 Employers</h3>
           <div class="table-container">
             <table id="topCompaniesTable">
@@ -411,7 +418,7 @@
         </div>
 
         <!-- Top Locations Table -->
-        <div class="insight-card">
+        <div class="insight-card" data-export-diagram data-export-title="Top 10 Locations">
           <h3>📍 Top 10 Locations</h3>
           <div class="table-container">
             <table id="topLocationsTable">
@@ -428,6 +435,48 @@
         </div>
       </div>
     </section>
+
+    <!-- PDF Export Modal -->
+    <div id="analyticsExportBackdrop" class="analytics-export-backdrop analytics-export-exclude"></div>
+    <div
+      id="analyticsExportModal"
+      class="analytics-export-modal analytics-export-exclude"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="analyticsExportTitle"
+      aria-hidden="true"
+    >
+      <div class="analytics-export-modal-content">
+        <div class="analytics-export-modal-header">
+          <h3 id="analyticsExportTitle">Download Analytics PDF</h3>
+          <button id="analyticsCloseExportBtn" class="analytics-export-close-btn" aria-label="Close export modal">&times;</button>
+        </div>
+        <div class="analytics-export-modal-body">
+          <div class="analytics-export-mode">
+            <label class="analytics-export-mode-option">
+              <input type="radio" name="analyticsExportMode" value="full" checked />
+              <span>Full page</span>
+            </label>
+            <label class="analytics-export-mode-option">
+              <input type="radio" name="analyticsExportMode" value="selected" />
+              <span>Select diagrams</span>
+            </label>
+          </div>
+          <div id="analyticsDiagramSelectionPanel" class="analytics-diagram-selection-panel" hidden>
+            <div class="analytics-diagram-selection-actions">
+              <button id="analyticsSelectAllDiagramsBtn" type="button" class="analytics-diagram-action-btn">Select all</button>
+              <button id="analyticsClearAllDiagramsBtn" type="button" class="analytics-diagram-action-btn">Clear all</button>
+            </div>
+            <div id="analyticsDiagramSelectionList" class="analytics-diagram-selection-list"></div>
+          </div>
+          <p id="analyticsExportValidation" class="analytics-export-validation" aria-live="polite"></p>
+        </div>
+        <div class="analytics-export-modal-footer">
+          <button id="analyticsCancelExportBtn" type="button" class="analytics-export-footer-btn analytics-export-footer-btn--secondary">Cancel</button>
+          <button id="analyticsConfirmExportBtn" type="button" class="analytics-export-footer-btn analytics-export-footer-btn--primary">Download PDF</button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <script src="profile_modal.js"></script>
