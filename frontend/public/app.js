@@ -756,6 +756,8 @@ function mapAlumniRecord(a) {
     updated_at: a.updated_at || '',
     working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
     unt_alumni_status: a.unt_alumni_status || 'unknown',
+    seniority_level: a.seniority_level || '',
+    seniority_bucket: a.seniority_bucket || '',
     relevant_experience_months: a.relevant_experience_months != null ? a.relevant_experience_months : null
   };
 }
@@ -771,6 +773,7 @@ function collectQueryState() {
   const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
   const role = Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value);
   const company = Array.from(document.querySelectorAll('input[name="company"]:checked')).map(i => i.value);
+  const seniority = Array.from(document.querySelectorAll('input[name="seniority"]:checked')).map(i => i.value);
   const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
   const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
   const year = gradSelect ? gradSelect.value : '';
@@ -794,6 +797,7 @@ function collectQueryState() {
     loc,
     role,
     company,
+    seniority,
     major,
     degree,
     year,
@@ -816,6 +820,7 @@ function buildAlumniQueryParams(queryState, offset, limit) {
   queryState.loc.forEach(v => params.append('location', v));
   queryState.role.forEach(v => params.append('role', v));
   queryState.company.forEach(v => params.append('company', v));
+  queryState.seniority.forEach(v => params.append('seniority', v));
   queryState.major.forEach(v => params.append('major', v));
   queryState.degree.forEach(v => params.append('degree', v));
   if (queryState.year) params.set('grad_year', queryState.year);
@@ -948,7 +953,7 @@ function setupFiltering() {
 
   if (clearBtn) {
     clearBtn.addEventListener('click', async () => {
-      document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"]').forEach(cb => cb.checked = false);
+      document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="degree"]').forEach(cb => cb.checked = false);
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
       const wwsAll = document.querySelector('input[name="workingWhileStudying"][value=""]');
@@ -973,7 +978,7 @@ function setupFiltering() {
   }
 
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax')) {
       applyFilters();
     }
   });
