@@ -1,4 +1,4 @@
-﻿# UNT Alumni Networking Tool
+# UNT Alumni Networking Tool
 
 ## 1. Executive Summary
 
@@ -11,7 +11,11 @@ The project is still in active development and is expected to be finalized in ab
 - Search alumni records.
 - Filter alumni by major, graduation year, UNT alumni status (yes/no/unknown), and working-while-studying status.
 - View alumni seniority levels (Intern, Junior, Mid, Senior, Manager, Director, Executive).
-- View an alumni location heatmap.
+- View an analytics dashboard with charts for graduation year trends, degree distribution, major breakdown, and more.
+  - Filter the graduation year chart by a custom **From–To year range**.
+  - Click **Show Heatmap** to open the location heatmap pre-filtered to the same graduation year range.
+- View an alumni location heatmap with continent filters, 2D/3D toggle, and search by city/country.
+  - When opened from the Analytics page with a year range, the heatmap automatically filters to show only alumni who graduated in that range and displays a dismissible banner with a "Back to Analytics" link.
 - Add private outreach notes.
 - Bookmark and track alumni contacts.
 
