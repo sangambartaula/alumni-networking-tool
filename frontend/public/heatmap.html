@@ -143,6 +143,22 @@
             </div>
           </div>
 
+          <div class="filter-group analytics-filter-group">
+            <label>
+              <i class="fas fa-graduation-cap"></i> Graduation Year Range
+            </label>
+            <div class="filter-input-container analytics-filter-input-container" style="gap:8px;">
+              <input id="heatmapGradYearFrom" type="number" min="1950" max="2099"
+                placeholder="From year" class="filter-input analytics-filter-input" style="max-width:120px;" />
+              <span style="align-self:center;color:#6b7280;">–</span>
+              <input id="heatmapGradYearTo" type="number" min="1950" max="2099"
+                placeholder="To year" class="filter-input analytics-filter-input" style="max-width:120px;" />
+              <button id="applyGradYearFilterBtn" class="filter-action-btn analytics-filter-action-btn">
+                <i class="fas fa-check"></i> Apply
+              </button>
+            </div>
+          </div>
+
           <button id="clearAllFiltersBtn" class="filter-clear-btn analytics-filter-clear-btn">
             <i class="fas fa-times-circle"></i> Clear All Filters
           </button>
@@ -168,6 +184,14 @@
             </span>
             <div class="filter-tags analytics-filter-tags" id="heatmapUntAlumniStatusTag">
               <span class="empty-analytics-filters-message">All statuses</span>
+            </div>
+          </div>
+          <div style="margin-top: 16px;">
+            <span class="filter-tags-label analytics-filter-tags-label">
+              <i class="fas fa-graduation-cap"></i> Graduation Year
+            </span>
+            <div class="filter-tags analytics-filter-tags" id="heatmapGradYearTag">
+              <span class="empty-analytics-filters-message">All years</span>
             </div>
           </div>
         </div>

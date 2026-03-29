@@ -20,6 +20,8 @@ let heatLayer2D = null; // New 2D heatmap layer
 let hiddenLocations = new Set();
 let hiddenCompanies = new Set();
 let selectedUntAlumniStatus = '';
+let filterGradYearFrom = null;  // number | null
+let filterGradYearTo   = null;  // number | null
 
 // Track all available locations and companies for autocomplete
 let allLocations = new Set();
@@ -146,6 +148,8 @@ function saveHiddenFiltersToStorage() {
   localStorage.setItem('hiddenLocations', JSON.stringify(Array.from(hiddenLocations)));
   localStorage.setItem('hiddenCompanies', JSON.stringify(Array.from(hiddenCompanies)));
   localStorage.setItem('heatmapUntAlumniStatus', selectedUntAlumniStatus || '');
+  localStorage.setItem('heatmapGradYearFrom', filterGradYearFrom != null ? String(filterGradYearFrom) : '');
+  localStorage.setItem('heatmapGradYearTo',   filterGradYearTo   != null ? String(filterGradYearTo)   : '');
 }
 
 function loadHiddenFiltersFromStorage() {
@@ -153,15 +157,21 @@ function loadHiddenFiltersFromStorage() {
     const savedLocations = JSON.parse(localStorage.getItem('hiddenLocations') || '[]');
     const savedCompanies = JSON.parse(localStorage.getItem('hiddenCompanies') || '[]');
     const savedUntAlumniStatus = localStorage.getItem('heatmapUntAlumniStatus') || '';
+    const savedGradFrom = localStorage.getItem('heatmapGradYearFrom');
+    const savedGradTo   = localStorage.getItem('heatmapGradYearTo');
 
     hiddenLocations = new Set(savedLocations);
     hiddenCompanies = new Set(savedCompanies);
     selectedUntAlumniStatus = savedUntAlumniStatus;
+    filterGradYearFrom = savedGradFrom ? (parseInt(savedGradFrom, 10) || null) : null;
+    filterGradYearTo   = savedGradTo   ? (parseInt(savedGradTo,   10) || null) : null;
   } catch (e) {
     console.error('Error loading hidden filters from storage:', e);
     hiddenLocations = new Set();
     hiddenCompanies = new Set();
     selectedUntAlumniStatus = '';
+    filterGradYearFrom = null;
+    filterGradYearTo   = null;
   }
 }
 
@@ -169,6 +179,8 @@ function clearHiddenFiltersFromStorage() {
   localStorage.removeItem('hiddenLocations');
   localStorage.removeItem('hiddenCompanies');
   localStorage.removeItem('heatmapUntAlumniStatus');
+  localStorage.removeItem('heatmapGradYearFrom');
+  localStorage.removeItem('heatmapGradYearTo');
 }
 
 function escapeAttribute(value) {
@@ -368,6 +380,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (rawFrom) heatmapGradYearFrom = parseInt(rawFrom, 10) || null;
   if (rawTo)   heatmapGradYearTo   = parseInt(rawTo,   10) || null;
 
+  // Also feed URL params into the filter-panel state so inputs pre-populate
+  if (rawFrom) filterGradYearFrom = heatmapGradYearFrom;
+  if (rawTo)   filterGradYearTo   = heatmapGradYearTo;
+
   if (heatmapGradYearFrom != null || heatmapGradYearTo != null) {
     showGradYearBanner(heatmapGradYearFrom, heatmapGradYearTo);
   }
@@ -382,12 +398,9 @@ document.addEventListener('DOMContentLoaded', () => {
     mark3DUnavailable(new Error('Cesium library not available.'));
   }
 
-  // Build heatmap data URL with optional grad year params from Analytics redirect
-  const hmParams = new URLSearchParams();
-  if (heatmapGradYearFrom != null) hmParams.set('grad_year_from', String(heatmapGradYearFrom));
-  if (heatmapGradYearTo   != null) hmParams.set('grad_year_to',   String(heatmapGradYearTo));
-  const hmUrl = hmParams.toString() ? `/api/heatmap?${hmParams}` : '/api/heatmap';
-  loadHeatmapData(hmUrl); // Load data first, which will initialize filters
+  // Build initial heatmap URL; buildHeatmapUrl() also picks up URL-seeded
+  // filterGradYearFrom/To set above.
+  loadHeatmapData(buildHeatmapUrl());
 });
 
 /**
@@ -1607,8 +1620,36 @@ function initializeFilterUI() {
       hiddenLocations.clear();
       hiddenCompanies.clear();
       selectedUntAlumniStatus = '';
+      filterGradYearFrom = null;
+      filterGradYearTo   = null;
       if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
+      const gradFromEl = document.getElementById('heatmapGradYearFrom');
+      const gradToEl   = document.getElementById('heatmapGradYearTo');
+      if (gradFromEl) gradFromEl.value = '';
+      if (gradToEl)   gradToEl.value   = '';
       clearHiddenFiltersFromStorage();
+      updateFilterUI();
+      updateFilterBadge();
+      reloadMapData();
+    });
+  }
+
+  // Wire up graduation year Apply button
+  const applyGradYearBtn = document.getElementById('applyGradYearFilterBtn');
+  const gradFromEl = document.getElementById('heatmapGradYearFrom');
+  const gradToEl   = document.getElementById('heatmapGradYearTo');
+
+  // Pre-populate inputs from URL params or localStorage
+  if (gradFromEl && filterGradYearFrom != null) gradFromEl.value = String(filterGradYearFrom);
+  if (gradToEl   && filterGradYearTo   != null) gradToEl.value   = String(filterGradYearTo);
+
+  if (applyGradYearBtn) {
+    applyGradYearBtn.addEventListener('click', () => {
+      const rawFrom = gradFromEl ? gradFromEl.value.trim() : '';
+      const rawTo   = gradToEl   ? gradToEl.value.trim()   : '';
+      filterGradYearFrom = rawFrom ? (parseInt(rawFrom, 10) || null) : null;
+      filterGradYearTo   = rawTo   ? (parseInt(rawTo,   10) || null) : null;
+      saveHiddenFiltersToStorage();
       updateFilterUI();
       updateFilterBadge();
       reloadMapData();
@@ -1689,14 +1730,16 @@ function removeCompanyFilter(company) {
 function updateFilterBadge() {
   const badge = document.getElementById('filterBadge');
   if (badge) {
-    const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0);
+    const gradYearActive = (filterGradYearFrom != null || filterGradYearTo != null) ? 1 : 0;
+    const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive;
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'flex' : 'none';
   }
 }
 
 function updateFilterUI() {
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0);
+  const gradYearActive = (filterGradYearFrom != null || filterGradYearTo != null) ? 1 : 0;
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive;
   const clearAllBtn = document.getElementById('clearAllFiltersBtn');
   if (clearAllBtn) {
     clearAllBtn.disabled = totalFilters === 0;
@@ -1756,12 +1799,44 @@ function updateFilterUI() {
       `;
     }
   }
+
+  // Graduation year tag
+  const gradYearTag = document.getElementById('heatmapGradYearTag');
+  if (gradYearTag) {
+    if (filterGradYearFrom == null && filterGradYearTo == null) {
+      gradYearTag.innerHTML = '<span class="empty-analytics-filters-message">All years</span>';
+    } else {
+      let rangeLabel;
+      if (filterGradYearFrom != null && filterGradYearTo != null) rangeLabel = `${filterGradYearFrom} – ${filterGradYearTo}`;
+      else if (filterGradYearFrom != null)                        rangeLabel = `${filterGradYearFrom} and later`;
+      else                                                        rangeLabel = `up to ${filterGradYearTo}`;
+      gradYearTag.innerHTML = `
+        <span class="analytics-filter-tag">
+          <span>${escapeHtml(rangeLabel)}</span>
+          <button class="analytics-filter-tag-remove" onclick="clearGradYearInlineFilter()">×</button>
+        </span>
+      `;
+    }
+  }
 }
 
 function clearHeatmapUntAlumniStatusFilter() {
   selectedUntAlumniStatus = '';
   const untAlumniStatusSelect = document.getElementById('heatmapUntAlumniStatusSelect');
   if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
+  saveHiddenFiltersToStorage();
+  updateFilterUI();
+  updateFilterBadge();
+  reloadMapData();
+}
+
+function clearGradYearInlineFilter() {
+  filterGradYearFrom = null;
+  filterGradYearTo   = null;
+  const gradFromEl = document.getElementById('heatmapGradYearFrom');
+  const gradToEl   = document.getElementById('heatmapGradYearTo');
+  if (gradFromEl) gradFromEl.value = '';
+  if (gradToEl)   gradToEl.value   = '';
   saveHiddenFiltersToStorage();
   updateFilterUI();
   updateFilterBadge();
@@ -1838,11 +1913,29 @@ function getVisibleAlumniForLocation(location) {
   return alumni.filter(a => !isCompanyHidden(a) && matchesUntAlumniStatus(a));
 }
 
+/** Build the /api/heatmap URL incorporating all currently-active filter params. */
+function buildHeatmapUrl() {
+  const params = new URLSearchParams();
+  // Grad-year range (re-fetches from server so the dataset is correctly filtered)
+  if (filterGradYearFrom != null) params.set('grad_year_from', String(filterGradYearFrom));
+  if (filterGradYearTo   != null) params.set('grad_year_to',   String(filterGradYearTo));
+  // UNT alumni status
+  if (selectedUntAlumniStatus) params.set('unt_alumni_status', selectedUntAlumniStatus);
+  return params.toString() ? `/api/heatmap?${params}` : '/api/heatmap';
+}
+
 function reloadMapData() {
   console.log('=== Reloading Map Data ===');
-  console.log('Total locations before filter:', locationClusters.length);
   console.log('Hidden Locations:', Array.from(hiddenLocations));
   console.log('Hidden Companies:', Array.from(hiddenCompanies));
+
+  // If any server-side filters are active, re-fetch from the API so the
+  // dataset is correctly filtered at the DB level (grad year, unt status)
+  const needsServerFetch = (filterGradYearFrom != null || filterGradYearTo != null || selectedUntAlumniStatus);
+  if (needsServerFetch) {
+    loadHeatmapData(buildHeatmapUrl());
+    return;
+  }
 
   try {
     // Clear all old markers and entities
