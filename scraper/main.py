@@ -874,23 +874,22 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
     except Exception as e:
         logger.warning(f"⚠️  Could not clean visited history: {e}")
     
-    # 4. Remove from UNT_Alumni_Data.csv
+    # 4. Remove from UNT_Alumni_Data.csv (rewrite with canonical schema)
     try:
         alumni_csv = PROJECT_ROOT / "scraper" / "output" / "UNT_Alumni_Data.csv"
         if alumni_csv.exists():
             rows = []
             removed = 0
-            with open(alumni_csv, 'r') as f:
+            with open(alumni_csv, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
-                fieldnames = reader.fieldnames
                 for row in reader:
-                    url = (row.get('linkedin_url', '') or row.get('profile_url', '')).rstrip('/')
+                    url = (row.get("linkedin_url", "") or row.get("profile_url", "")).rstrip("/")
                     if url in normalized_dead:
                         removed += 1
                     else:
-                        rows.append(row)
-            with open(alumni_csv, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        rows.append({col: row.get(col, "") for col in config.CSV_COLUMNS})
+            with open(alumni_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=config.CSV_COLUMNS)
                 writer.writeheader()
                 writer.writerows(rows)
             if removed:
@@ -908,6 +907,8 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
 def main():
     history_mgr = database_handler.HistoryManager()
     history_mgr.sync_with_db()
+
+    database_handler.ensure_alumni_output_csv()
 
     scraper = LinkedInScraper()
     scraper.setup_driver()

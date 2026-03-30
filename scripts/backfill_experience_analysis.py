@@ -26,6 +26,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / 'backend'))
 sys.path.insert(0, str(PROJECT_ROOT / 'scraper'))
 
+import groq_retry_patch  # noqa: E402 — Groq HTTP retries (GROQ_RETRY_DELAY_SECONDS)
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -115,6 +117,7 @@ def run_backfill(dry_run=False, force=False):
                         'standardized_major': row.get('standardized_major', ''),
                         'job_start': row.get('job_start_date', ''),
                         'job_end': row.get('job_end_date', ''),
+                        'job_employment_type': row.get('job_employment_type', ''),
                         'exp_2_title': row.get('exp2_title', ''),
                         'exp_2_company': row.get('exp2_company', ''),
                         'exp_2_dates': row.get('exp2_dates', ''),
@@ -237,16 +240,17 @@ def _update_csv_from_db():
     """Re-export the CSV from the database to include new columns."""
     import pandas as pd
     from database import get_connection
-    
+    import database_handler as dh
+
     csv_path = PROJECT_ROOT / 'scraper' / 'output' / 'UNT_Alumni_Data.csv'
-    
-    if not csv_path.exists():
-        logger.info("No CSV file found to update")
-        return
 
     try:
-        # Read existing CSV
-        df = pd.read_csv(csv_path, encoding='utf-8')
+        dh.ensure_alumni_output_csv(csv_path)
+        if not csv_path.exists():
+            logger.info("No CSV file after ensure; skipping CSV merge")
+            return
+
+        df = pd.read_csv(csv_path, encoding="utf-8")
         
         # Fetch updated data from DB
         conn = get_connection()

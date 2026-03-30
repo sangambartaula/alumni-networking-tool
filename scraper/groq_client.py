@@ -15,11 +15,15 @@ import json
 import re
 from pathlib import Path
 from datetime import datetime
+
+import groq_retry_patch  # noqa: F401 — GROQ_RETRY_DELAY_SECONDS before any Groq client
+
 from config import logger
 
 # Try to import groq and BeautifulSoup
 try:
     from groq import Groq
+
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False

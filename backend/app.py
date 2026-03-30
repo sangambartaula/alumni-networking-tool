@@ -1339,6 +1339,7 @@ def api_get_alumni_detail(alumni_id):
                            a.degree AS degree_raw, a.degree2, a.degree3,
                            a.major AS major_raw, a.major2, a.major3,
                            a.school_start_date, a.job_start_date, a.job_end_date,
+                           a.job_employment_type, a.exp2_employment_type, a.exp3_employment_type,
                            a.exp2_title, a.exp2_company, a.exp2_dates,
                            a.exp3_title, a.exp3_company, a.exp3_dates,
                            a.seniority_level
@@ -1388,16 +1389,19 @@ def api_get_alumni_detail(alumni_id):
                 "company": r.get('company'),
                 "job_start_date": r.get('job_start_date'),
                 "job_end_date": r.get('job_end_date'),
+                "job_employment_type": r.get('job_employment_type'),
 
                 # Experience 2
                 "exp2_title": r.get('exp2_title'),
                 "exp2_company": r.get('exp2_company'),
                 "exp2_dates": r.get('exp2_dates'),
+                "exp2_employment_type": r.get('exp2_employment_type'),
 
                 # Experience 3
                 "exp3_title": r.get('exp3_title'),
                 "exp3_company": r.get('exp3_company'),
                 "exp3_dates": r.get('exp3_dates'),
+                "exp3_employment_type": r.get('exp3_employment_type'),
 
                 # Seniority classification
                 "seniority_level": r.get('seniority_level'),

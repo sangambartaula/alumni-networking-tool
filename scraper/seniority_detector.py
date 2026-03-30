@@ -9,6 +9,8 @@ Buckets: Intern, Junior, Mid, Senior, Manager, Director, Executive
 
 import re
 from pathlib import Path
+from typing import Optional
+
 from config import logger
 
 FLAGGED_PROFILES_FILE = Path(__file__).parent / "output" / "flagged_for_review.txt"
@@ -53,30 +55,51 @@ SENIORITY_MIN_EXPERIENCE = {
     "Executive": 48,   # Flag if Executive but < 48 months
 }
 
+_EMP_TYPE_INTERN = re.compile(
+    r"\b(intern(ship)?|co-?op|trainee|student\s+worker|student\s+employee)\b",
+    re.IGNORECASE,
+)
+_EMP_TYPE_JUNIOR = re.compile(
+    r"\b(entry[\s-]?level|apprentice(ship)?)\b",
+    re.IGNORECASE,
+)
 
-def detect_seniority(job_title):
+
+def _seniority_hint_from_employment_type(employment_type: str) -> Optional[str]:
+    """LinkedIn subtitle after '·' (e.g. Full-time, Contract, Internship)."""
+    et = (employment_type or "").strip()
+    if not et:
+        return None
+    if _EMP_TYPE_INTERN.search(et):
+        return "Intern"
+    if _EMP_TYPE_JUNIOR.search(et):
+        return "Junior"
+    return None
+
+
+def detect_seniority(job_title, employment_type=None):
     """
-    Determine seniority level from the original (not normalized) job title.
-    
-    Args:
-        job_title: The original job title string
-        
-    Returns:
-        str: One of "Intern", "Junior", "Mid", "Senior", "Manager", "Director", "Executive"
+    Determine seniority level from the original (not normalized) job title,
+    optionally refined by LinkedIn employment_type (e.g. Internship on the company line).
     """
-    if not job_title:
-        return "Mid"  # Default when no title available
-    
-    title = str(job_title).strip()
+    title = str(job_title).strip() if job_title else ""
+    et_hint = _seniority_hint_from_employment_type(employment_type)
+
     if not title:
+        if et_hint == "Intern":
+            return "Intern"
+        if et_hint == "Junior":
+            return "Junior"
         return "Mid"
-    
-    # Check patterns (most specific first)
+
     for seniority, pattern in SENIORITY_PATTERNS:
         if pattern.search(title):
             return seniority
-    
-    # Default: Mid-level if no seniority indicators found
+
+    if et_hint == "Intern":
+        return "Intern"
+    if et_hint == "Junior":
+        return "Junior"
     return "Mid"
 
 
@@ -159,6 +182,12 @@ def analyze_seniority(profile_data, relevant_experience_months=None):
         or profile_data.get('current_job_title')
         or ''
     ).strip()
+
+    employment_type = (
+        profile_data.get('job_employment_type')
+        or profile_data.get('employment_type')
+        or ''
+    ).strip()
     
     linkedin_url = (
         profile_data.get('linkedin_url')
@@ -166,7 +195,7 @@ def analyze_seniority(profile_data, relevant_experience_months=None):
         or ''
     ).strip()
     
-    seniority = detect_seniority(title)
+    seniority = detect_seniority(title, employment_type)
     seniority = adjust_and_flag_seniority(seniority, relevant_experience_months, linkedin_url)
     
     return seniority

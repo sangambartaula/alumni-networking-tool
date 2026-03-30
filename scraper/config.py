@@ -227,6 +227,7 @@ SEARCH_DISCIPLINES = os.getenv("SEARCH_DISCIPLINES", "")
 # Groq AI Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 USE_GROQ = os.getenv("USE_GROQ", "true").lower() == "true"
+# HTTP retry backoff between Groq attempts (429/5xx) — groq_retry_patch.py / GROQ_RETRY_DELAY_SECONDS (default 5).
 if USE_GROQ and not GROQ_API_KEY:
     logger.warning(
         "⚠️  Groq LLM extraction is DISABLED — no GROQ_API_KEY found.\n"
@@ -273,9 +274,9 @@ CSV_COLUMNS = [
     'standardized_degree3', 'standardized_major3',
     'discipline',
     'location', 'working_while_studying', 
-    'title', 'company', 'job_start', 'job_end', 
-    'exp_2_title', 'exp_2_company', 'exp_2_dates', 
-    'exp_3_title', 'exp_3_company', 'exp_3_dates',
+    'title', 'company', 'job_employment_type', 'job_start', 'job_end', 
+    'exp_2_title', 'exp_2_company', 'exp_2_dates', 'exp_2_employment_type',
+    'exp_3_title', 'exp_3_company', 'exp_3_dates', 'exp_3_employment_type',
     'scraped_at',
     'normalized_job_title', 'normalized_exp2_title', 'normalized_exp3_title',
     'job_1_relevance_score', 'job_2_relevance_score', 'job_3_relevance_score',

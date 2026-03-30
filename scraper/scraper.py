@@ -21,7 +21,7 @@ import config
 from config import logger, print_profile_summary
 from entity_classifier import classify_entity, is_location, is_university, get_classifier
 from groq_client import is_groq_available, verify_location, parse_groq_date, _clean_doubled
-from groq_extractor_experience import extract_experiences_with_groq
+from groq_extractor_experience import extract_experiences_with_groq, strip_seniority_prefixes_from_title
 from groq_extractor_education import extract_education_with_groq
 from utils import determine_work_study_status
 
@@ -79,6 +79,13 @@ def _is_company_title_collision(title: str, company: str) -> bool:
     if not title_key or not company_key:
         return False
     return title_key == company_key
+
+
+# LinkedIn company line: "Employer · Full-time" / "… · Internship"
+_EMP_LINE_TAIL = re.compile(
+    r"^(Full-time|Part-time|Contract|Internship|Seasonal|Temporary|Freelance|Self-employed|Apprenticeship|Intern)$",
+    re.IGNORECASE,
+)
 
 
 _NAME_SUFFIX_TOKENS = {"ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
@@ -427,7 +434,8 @@ class LinkedInScraper:
         """Return the normalized data envelope used for every profile scrape."""
         return {
             "name": "", "headline": "", "location": "",
-            "job_title": "", "company": "", "job_start_date": "", "job_end_date": "",
+            "job_title": "", "company": "", "job_employment_type": "",
+            "job_start_date": "", "job_end_date": "",
             "education": "", "major": "", "school_start_date": "", "graduation_year": "",
             "working_while_studying": "",
             "profile_url": profile_url,
@@ -686,19 +694,22 @@ class LinkedInScraper:
         """
         if all_experiences:
             best_exp = all_experiences[0]
-            data["job_title"] = best_exp["title"]
+            data["job_title"] = strip_seniority_prefixes_from_title(best_exp["title"])
             data["company"] = best_exp["company"]
+            data["job_employment_type"] = (best_exp.get("employment_type") or "").strip()
             data["job_start_date"] = utils.format_date_for_storage(best_exp["start"])
             data["job_end_date"] = utils.format_date_for_storage(best_exp["end"])
         else:
             data["job_title"] = ""
             data["company"] = ""
+            data["job_employment_type"] = ""
             data["job_start_date"] = ""
             data["job_end_date"] = ""
 
         for i, exp in enumerate(all_experiences[1:3], start=2):
-            data[f"exp{i}_title"] = exp["title"]
+            data[f"exp{i}_title"] = strip_seniority_prefixes_from_title(exp["title"])
             data[f"exp{i}_company"] = exp["company"]
+            data[f"exp{i}_employment_type"] = (exp.get("employment_type") or "").strip()
             data[f"exp{i}_dates"] = (
                 f"{utils.format_date_for_storage(exp['start'])} - "
                 f"{utils.format_date_for_storage(exp['end'])}"
@@ -708,6 +719,7 @@ class LinkedInScraper:
             if f"exp{i}_title" not in data:
                 data[f"exp{i}_title"] = ""
                 data[f"exp{i}_company"] = ""
+                data[f"exp{i}_employment_type"] = ""
                 data[f"exp{i}_dates"] = ""
 
     @staticmethod
@@ -1101,8 +1113,9 @@ class LinkedInScraper:
                                 parsed.append({
                                     "title": title,
                                     "company": company,
+                                    "employment_type": (job.get("employment_type") or "").strip(),
                                     "start": start_d,
-                                    "end": end_d
+                                    "end": end_d,
                                 })
                                 seen_entries.add(u_key)
                     
@@ -1130,6 +1143,7 @@ class LinkedInScraper:
         for container in experience_containers:
             title = ""
             company = ""
+            employment_type_css = ""
             start_d = None
             end_d = None
             
@@ -1148,8 +1162,13 @@ class LinkedInScraper:
                 else:
                     text = span.get_text(strip=True)
                 
-                # This could be "Company · Part-time" format
+                # This could be "Company · Part-time" / "… · Internship" format
                 if text and not utils.DATE_RANGE_RE.search(text):
+                    emp_css = ""
+                    if "·" in text:
+                        segs = [s.strip() for s in text.split("·")]
+                        if len(segs) >= 2 and _EMP_LINE_TAIL.match(segs[-1]):
+                            emp_css = segs[-1]
                     candidate_company = _clean_doubled(self._clean_company(text))
                     from entity_classifier import is_location
                     if is_location(candidate_company):
@@ -1160,7 +1179,9 @@ class LinkedInScraper:
                                 outer_title_elem = outer_container.select_one('.t-bold span[aria-hidden="true"]') or outer_container.select_one('.t-bold')
                                 if outer_title_elem:
                                     candidate_company = _clean_doubled(self._clean_company(outer_title_elem.get_text(strip=True)))
+                                    emp_css = ""
                     company = candidate_company
+                    employment_type_css = emp_css
                     break
             
             # Dates: Look for pvs-entity__caption-wrapper or t-black--light
@@ -1185,8 +1206,9 @@ class LinkedInScraper:
                     parsed.append({
                         "title": title or "",
                         "company": company or "",
+                        "employment_type": (employment_type_css or "").strip(),
                         "start": start_d,
-                        "end": end_d
+                        "end": end_d,
                     })
                     seen_entries.add(u_key)
         
@@ -1353,8 +1375,9 @@ class LinkedInScraper:
                         parsed.append({
                             "title": title or "",
                             "company": company or "",
+                            "employment_type": "",
                             "start": start_d,
-                            "end": end_d
+                            "end": end_d,
                         })
                         seen_entries.add(u_key)
 

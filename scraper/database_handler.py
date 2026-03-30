@@ -1,10 +1,12 @@
 import os
+import shutil
 import pandas as pd
 import mysql.connector
 import re
 from datetime import datetime
 from pathlib import Path
 import sys
+from typing import Optional
 
 # Hack for imports if needed, or adjust structure
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'backend'))
@@ -326,6 +328,84 @@ def _normalize_dataframe_primary_education_dates(df: pd.DataFrame) -> pd.DataFra
     return df
 
 
+def _alumni_csv_backup_path(csv_file: Path, label: str) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return csv_file.parent / f"{csv_file.stem}_{label}_{timestamp}.csv"
+
+
+def _migrate_alumni_dataframe_to_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """Reindex to CSV_COLUMNS. New columns become empty; extras are dropped (preserved in backup file)."""
+    migrated = df.reindex(columns=CSV_COLUMNS)
+    for col in CSV_COLUMNS:
+        if col == "grad_year":
+            continue
+        migrated[col] = migrated[col].map(
+            lambda x: "" if x is None or (isinstance(x, float) and pd.isna(x)) else x
+        )
+    return migrated
+
+
+def ensure_alumni_output_csv(csv_path: Optional[Path] = None):
+    """
+    Ensure the alumni CSV exists on disk and matches config.CSV_COLUMNS exactly.
+
+    - Missing: write an empty file with the canonical header.
+    - Unreadable: copy raw file aside, then write an empty template.
+    - Column mismatch: back up the current file, migrate rows to the new schema (add/remove columns), write.
+
+    ``csv_path`` defaults to ``OUTPUT_CSV`` (including ``OUTPUT_CSV`` env override from config).
+    """
+    target = csv_path if csv_path is not None else OUTPUT_CSV
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    if not target.exists():
+        pd.DataFrame(columns=CSV_COLUMNS).to_csv(target, index=False, encoding="utf-8")
+        logger.info("📄 Created alumni CSV with canonical columns: %s", target)
+        return
+
+    try:
+        existing = pd.read_csv(target, encoding="utf-8")
+    except Exception as e:
+        logger.warning("⚠️ Could not read alumni CSV (%s). Backing up raw file and recreating.", e)
+        try:
+            shutil.copy2(target, _alumni_csv_backup_path(target, "unreadable"))
+            logger.info("   ↪ Backup: pre-repair copy saved next to output CSV")
+        except Exception as copy_err:
+            logger.error("   Failed to backup unreadable CSV: %s", copy_err)
+        pd.DataFrame(columns=CSV_COLUMNS).to_csv(target, index=False, encoding="utf-8")
+        return
+
+    if list(existing.columns) == CSV_COLUMNS:
+        return
+
+    logger.warning(
+        "⚠️ Alumni CSV schema mismatch (%s columns on disk vs %s expected). Backing up and migrating.",
+        len(existing.columns),
+        len(CSV_COLUMNS),
+    )
+    try:
+        existing.to_csv(_alumni_csv_backup_path(target, "schema_backup"), index=False, encoding="utf-8")
+        logger.info("   ↪ Full pre-migration backup saved.")
+    except Exception as backup_err:
+        logger.error("   Failed to backup before migration: %s", backup_err)
+
+    migrated = _migrate_alumni_dataframe_to_schema(existing)
+    if "grad_year" in migrated.columns and not migrated.empty:
+        migrated["grad_year"] = migrated["grad_year"].apply(normalize_grad_year)
+    migrated = _normalize_dataframe_primary_education_dates(migrated)
+    if "grad_year" in migrated.columns:
+        migrated["grad_year"] = migrated["grad_year"].apply(
+            lambda y: "" if y is None or pd.isna(y) else int(y)
+        )
+    if "school_start" in migrated.columns:
+        migrated["school_start"] = migrated["school_start"].apply(
+            lambda v: "" if v is None or (isinstance(v, float) and pd.isna(v)) else v
+        )
+
+    migrated.to_csv(target, index=False, encoding="utf-8")
+    logger.info("✅ Alumni CSV migrated to current schema (%s rows). Output: %s", len(migrated), target)
+
+
 def flag_profile_for_review(profile_data):
     """
     Flag profiles with incomplete data for manual review.
@@ -415,29 +495,15 @@ def save_profile_to_csv(profile_data):
         has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'school', 'education']])
         if not has_data: return False
 
-        if OUTPUT_CSV.exists():
-            try:
-                existing_df = pd.read_csv(OUTPUT_CSV, encoding='utf-8')
-                # Strict schema enforcement: if headers don't match exactly, backup and reset
-                if list(existing_df.columns) != CSV_COLUMNS:
-                    logger.warning("⚠️ CSV Schema mismatch detected. Resetting file to fix headers.")
-                    
-                    # Backup corrupted file
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    backup_path = OUTPUT_CSV.parent / f"{OUTPUT_CSV.stem}_corrupt_{timestamp}.csv"
-                    try:
-                        existing_df.to_csv(backup_path, index=False, encoding='utf-8')
-                        logger.info(f"  ↪ Archived original file to: {backup_path.name}")
-                    except Exception as backup_err:
-                        logger.error(f"  Failed to backup: {backup_err}")
-                    
-                    # Reset to empty DataFrame with correct columns
-                    existing_df = pd.DataFrame(columns=CSV_COLUMNS)
-            except Exception as e:
-                logger.warning(f"⚠️ Error reading existing CSV ({e}). Starting fresh.")
-                existing_df = pd.DataFrame(columns=CSV_COLUMNS)
-        else:
+        ensure_alumni_output_csv()
+        try:
+            existing_df = pd.read_csv(OUTPUT_CSV, encoding="utf-8")
+        except Exception as e:
+            logger.warning("⚠️ Read failed after ensure (%s). Using empty frame.", e)
             existing_df = pd.DataFrame(columns=CSV_COLUMNS)
+        if list(existing_df.columns) != CSV_COLUMNS:
+            ensure_alumni_output_csv()
+            existing_df = pd.read_csv(OUTPUT_CSV, encoding="utf-8")
 
         # Retroactive cleanup for existing CSV content.
         if 'grad_year' in existing_df.columns:
@@ -475,6 +541,7 @@ def save_profile_to_csv(profile_data):
             # Standardized fields
             'standardized_degree': profile_data.get('standardized_degree', ''),
             'standardized_major': profile_data.get('standardized_major', ''),
+            'standardized_major_alt': profile_data.get('standardized_major_alt', ''),
             'standardized_degree2': profile_data.get('standardized_degree2', ''),
             'standardized_major2': profile_data.get('standardized_major2', ''),
             'standardized_degree3': profile_data.get('standardized_degree3', ''),
@@ -486,14 +553,17 @@ def save_profile_to_csv(profile_data):
             'working_while_studying': profile_data.get('working_while_studying'),
             'title': clean_job_title(profile_data.get('job_title', '')),
             'company': profile_data.get('company'),
+            'job_employment_type': profile_data.get('job_employment_type', ''),
             'job_start': profile_data.get('job_start_date'),
             'job_end': profile_data.get('job_end_date'),
             'exp_2_title': profile_data.get('exp2_title'),
             'exp_2_company': profile_data.get('exp2_company'),
             'exp_2_dates': profile_data.get('exp2_dates'),
+            'exp_2_employment_type': profile_data.get('exp2_employment_type', ''),
             'exp_3_title': profile_data.get('exp3_title'),
             'exp_3_company': profile_data.get('exp3_company'),
             'exp_3_dates': profile_data.get('exp3_dates'),
+            'exp_3_employment_type': profile_data.get('exp3_employment_type', ''),
             'scraped_at': profile_data.get('scraped_at'),
             'normalized_job_title': profile_data.get('normalized_job_title', ''),
             'normalized_exp2_title': profile_data.get('normalized_exp2_title', ''),
@@ -510,9 +580,10 @@ def save_profile_to_csv(profile_data):
         }
         
         # Normalize text fields
-        text_fields = ['first', 'last', 'location', 'title', 'company', 'major',
+        text_fields = ['first', 'last', 'location', 'title', 'company', 'job_employment_type', 'major',
                        'degree', 'major2', 'degree2', 'major3', 'degree3',
-                       'exp_2_title', 'exp_2_company', 'exp_3_title', 'exp_3_company']
+                       'exp_2_title', 'exp_2_company', 'exp_2_employment_type',
+                       'exp_3_title', 'exp_3_company', 'exp_3_employment_type']
         for field in text_fields:
             if field in save_data and save_data[field]:
                 save_data[field] = normalize_text(str(save_data[field]))
@@ -593,16 +664,21 @@ def _update_csv_row(profile_url, analysis_data):
         return
     
     try:
-        if not OUTPUT_CSV.exists():
-            return
-        
-        df = pd.read_csv(OUTPUT_CSV, encoding='utf-8')
+        ensure_alumni_output_csv()
+        df = pd.read_csv(OUTPUT_CSV, encoding="utf-8")
+        if list(df.columns) != CSV_COLUMNS:
+            ensure_alumni_output_csv()
+            df = pd.read_csv(OUTPUT_CSV, encoding="utf-8")
         url = str(profile_url).strip().rstrip('/')
         
-        mask = df['linkedin_url'].astype(str).str.strip().str.rstrip('/') == url
+        mask = df["linkedin_url"].astype(str).str.strip().str.rstrip("/") == url
         if not mask.any():
             return
-        
+
+        for key in analysis_data:
+            if key in df.columns:
+                df[key] = df[key].astype(object)
+
         for key, value in analysis_data.items():
             if key in df.columns:
                 df.loc[mask, key] = value

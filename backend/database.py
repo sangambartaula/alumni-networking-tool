@@ -53,6 +53,18 @@ def _clean_optional_text(value):
     return text
 
 
+def _csv_optional_str(row, *keys):
+    """First non-empty CSV column among keys (supports new vs legacy column names)."""
+    for k in keys:
+        v = row.get(k)
+        if pd.isna(v):
+            continue
+        text = str(v).strip()
+        if text:
+            return text
+    return None
+
+
 def _parse_float(value):
     """Parse a value to float, returning None on failure."""
     if value is None:
@@ -904,6 +916,9 @@ def ensure_experience_analysis_columns():
         ("job_3_is_relevant",     "BOOLEAN DEFAULT NULL"),
         ("relevant_experience_months", "INT DEFAULT NULL"),
         ("seniority_level",       "VARCHAR(20) DEFAULT NULL"),
+        ("job_employment_type",   "VARCHAR(120) DEFAULT NULL"),
+        ("exp2_employment_type",  "VARCHAR(120) DEFAULT NULL"),
+        ("exp3_employment_type",  "VARCHAR(120) DEFAULT NULL"),
     ]
     conn = None
     try:
@@ -1578,6 +1593,10 @@ def seed_alumni_data():
                     exp3_dates = str(row.get('exp_3_dates', '')).strip() if pd.notna(row.get('exp_3_dates')) else \
                                  str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates')) else None
 
+                    job_employment_type = _csv_optional_str(row, 'job_employment_type')
+                    exp2_employment_type = _csv_optional_str(row, 'exp_2_employment_type', 'exp2_employment_type')
+                    exp3_employment_type = _csv_optional_str(row, 'exp_3_employment_type', 'exp3_employment_type')
+
                     if inferred_grad_from_school_start:
                         try:
                             from working_while_studying_status import (
@@ -1643,6 +1662,7 @@ def seed_alumni_data():
                             (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, headline, 
                              school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status,
                              exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
+                             job_employment_type, exp2_employment_type, exp3_employment_type,
                              school, school2, school3, degree2, degree3, major2, major3,
                              standardized_degree, standardized_degree2, standardized_degree3,
                              standardized_major, standardized_major_alt, standardized_major2, standardized_major3,
@@ -1653,6 +1673,7 @@ def seed_alumni_data():
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s,
                                     %s, %s, %s, %s,
@@ -1682,6 +1703,9 @@ def seed_alumni_data():
                                 exp3_title=VALUES(exp3_title),
                                 exp3_company=VALUES(exp3_company),
                                 exp3_dates=VALUES(exp3_dates),
+                                job_employment_type=VALUES(job_employment_type),
+                                exp2_employment_type=VALUES(exp2_employment_type),
+                                exp3_employment_type=VALUES(exp3_employment_type),
                                 school=VALUES(school),
                                 school2=VALUES(school2),
                                 school3=VALUES(school3),
@@ -1730,6 +1754,9 @@ def seed_alumni_data():
                             exp3_title,
                             exp3_company,
                             exp3_dates,
+                            job_employment_type,
+                            exp2_employment_type,
+                            exp3_employment_type,
                             school,
                             school2,
                             school3,

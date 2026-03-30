@@ -66,6 +66,26 @@ def _is_company_title_collision(title: str, company: str) -> bool:
     return title_key == company_key
 
 
+# Strip common LinkedIn level prefixes from titles for cleaner storage (Sr./Jr./Associate, etc.).
+# Deliberately excludes Staff/Principal/Lead — those are part of role identity for many tracks.
+_TITLE_LEVEL_PREFIX = re.compile(
+    r"^(?:senior|sr\.?|junior|jr\.?|associate|entry[\s-]?level|assistant|asst\.?)\s+",
+    re.IGNORECASE,
+)
+
+
+def strip_seniority_prefixes_from_title(title: str) -> str:
+    """Remove stacked level prefixes (e.g. 'Senior Senior Analyst' -> 'Analyst')."""
+    t = (title or "").strip()
+    if not t:
+        return ""
+    prev = None
+    while prev != t:
+        prev = t
+        t = _TITLE_LEVEL_PREFIX.sub("", t).strip()
+    return t
+
+
 def _html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
     """
     Convert experience section HTML into clean structured text for the LLM.
@@ -212,15 +232,9 @@ def clean_html_for_llm(html: str, profile_name: str = "unknown") -> str:
 def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profile_name: str = "unknown") -> list:
     """
     Extract job experiences from LinkedIn experience section HTML using Groq.
-    
-    Args:
-        experience_html: The innerHTML of the experience section
-        max_jobs: Maximum number of jobs to extract (default 3)
-        profile_name: Name of the profile (for debug file naming)
-    
+
     Returns:
-        List of dicts with keys: job_title, company, start_date, end_date
-        Returns empty list if extraction fails
+        (list of dicts with job_title, company, employment_type, start_date, end_date), token_count
     """
     client = _get_client()
     if not client:
@@ -234,53 +248,65 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
         return [], 0
 
     text_len = len(structured_text)
-    
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
     logger.debug(f"Experience HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
-    
-    # Ask Groq for extra jobs to buffer against duplicates being filtered out
+
+    return extract_experiences_with_groq_from_text(
+        structured_text, max_jobs=max_jobs, profile_name=profile_name
+    )
+
+
+def extract_experiences_with_groq_from_text(
+    structured_text: str,
+    max_jobs: int = 3,
+    profile_name: str = "unknown",
+) -> tuple:
+    """
+    Same as extract_experiences_with_groq but accepts pre-built text (e.g. DB backfill).
+    Each job dict: job_title, company, employment_type, start_date, end_date
+    """
+    client = _get_client()
+    if not client:
+        logger.warning("⚠️ Groq not available, skipping LLM extraction")
+        return [], 0
+
+    structured_text = (structured_text or "").strip()
+    if not structured_text:
+        logger.warning("⚠️ Experience structured text is empty; skipping Groq extraction")
+        return [], 0
+
+    try:
+        save_debug_html(structured_text, f"{profile_name}_from_text", "experience")
+    except Exception:
+        pass
+
     groq_max = max_jobs + 2
-    
-    # Build a clear, simple prompt (no HTML instructions needed anymore)
+
     prompt = f"""Extract the {groq_max} most recent jobs from this LinkedIn experience data.
 
 For each job return:
-- company: The employer name
-- job_title: The position/role  
-- start_date: Use "Mon YYYY" when month is visible in source; use "YYYY" only if month is truly missing
-- end_date: Use "Mon YYYY" when month is visible, "Present" if current, or "YYYY" only when month is not available
+- company: The employer name ONLY (no employment type). If the line is "Deloitte · Full-time", company is "Deloitte".
+- employment_type: The token after " · " on that same line when present
+  (e.g. Full-time, Part-time, Contract, Internship, Seasonal, Apprenticeship, Self-employed, Freelance).
+  Use "" if the type is not visible.
+- job_title: The position/role only. Do not repeat the company name. Do not use bare employment-type words as the title.
+- start_date: "Mon YYYY" when month is visible; "YYYY" only if month is truly missing
+- end_date: "Mon YYYY", "Present" if current, or "YYYY" when month is not available
 
 Rules:
-- Extract ALL jobs found, even if there is only 1
-- Each job has a title, a company, and a date range. They appear near each other in the text. CAREFULLY match each title to its own company and dates — never mix a title from one job with a company from a different job.
-- A company name often has " · " followed by an employment type (e.g. "CloudFactory · Full-time"). Extract ONLY the text before " · " as the company name.
-- INCLUDE roles like "Member", "Volunteer", "Fellow", "Extern" — these are valid job titles
-- INCLUDE academic jobs (Teaching Assistant, Research Assistant, etc.)
-- INCLUDE multiple roles at the same company as separate entries with their own dates
-- GROUPED ROLES: LinkedIn sometimes lists multiple roles under ONE company. The pattern is:
-  Company Name
-  Employment-type · duration
-  Location
-  Role Title 1
-  Date range 1
-  Role Title 2
-  Date range 2
-  Each role title is a separate job entry and ALL share the same parent company name. Extract EVERY sub-role — do not skip any.
-- If someone held an internship then got hired full-time at the same company, include BOTH as separate entries
-- If a sub-role only says "Internship" or "Full-time" but has a parent title, append "Intern" to the parent title (e.g. "Assistant Project Manager Intern")
-- Do NOT drop month precision. If source has month, output month.
-- DO NOT invent role names. Never output "Role 1", "Role 2", etc.
-- DO NOT return bare employment types (Internship, Part-time, Full-time) as the job_title
-- job_title must describe a role. Never set job_title equal to the company name.
-- Remove trailing location fragments from company/job_title when present after comma or dash
-  (e.g. "Avinash Enterprises, Hyderabad" -> "Avinash Enterprises")
-- IGNORE skill tags, metadata, and duration strings like "1 yr 5 mos"
-- Order by most recent first
+- Keep subtitle lines in the source (employment type, location, date) — they disambiguate roles.
+- Extract ALL jobs found. Match each title to its company and dates — never mix across jobs.
+- GROUPED ROLES under one company: each sub-role is its own job entry with the same company (and usually same employment_type line).
+- If a line only says "Internship" / "Full-time" under a parent role, fold into the real title (e.g. "... Intern").
+- Remove trailing location fragments from company/job_title after comma or dash when clearly a city/region.
+- Skip chip lines like "Python, SQL and +3 skills" (skill pills), but DO NOT strip real job descriptions that clarify the role.
+- DO NOT return bare employment types (Internship, Part-time, Full-time, Contract) as the sole job_title.
+- Order by most recent first.
 
-Return ONLY a JSON object with a "jobs" key:
-{{"jobs": [{{"company":"...","job_title":"...","start_date":"...","end_date":"..."}}]}}
+Return ONLY JSON:
+{{"jobs": [{{"company":"...","employment_type":"...","job_title":"...","start_date":"...","end_date":"..."}}]}}
 
-If no jobs found return: {{"jobs": []}}
+If no jobs: {{"jobs": []}}
 
 Data:
 {structured_text}
@@ -347,6 +373,7 @@ Data:
             
             title = (job.get("job_title") or "").strip()
             company = (job.get("company") or "").strip()
+            employment_type = (job.get("employment_type") or "").strip()
             start = (job.get("start_date") or "").strip()
             end = (job.get("end_date") or "").strip()
             
@@ -383,6 +410,8 @@ Data:
             )
             title = _emp_type_re.sub('', title).strip()
             company = _emp_type_re.sub('', company).strip()
+
+            title = strip_seniority_prefixes_from_title(title)
 
             if _is_company_title_collision(title, company):
                 logger.debug(f"Skipping title/company collision: {title} @ {company}")
@@ -427,8 +456,9 @@ Data:
             valid_jobs.append({
                 "job_title": title,
                 "company": company,
+                "employment_type": employment_type,
                 "start_date": start,
-                "end_date": end
+                "end_date": end,
             })
         
         # Sort jobs by date (Most recent first)
@@ -440,7 +470,11 @@ Data:
         if valid_jobs:
             logger.debug(f"Groq extracted {len(valid_jobs)} job(s)")
             for i, job in enumerate(valid_jobs):
-                logger.debug(f"  Job {i+1}: {job['job_title']} @ {job['company']} ({job['start_date']} - {job['end_date']})")
+                et = job.get("employment_type") or ""
+                logger.debug(
+                    f"  Job {i+1}: {job['job_title']} @ {job['company']}"
+                    f"{' [' + et + ']' if et else ''} ({job['start_date']} - {job['end_date']})"
+                )
         
         return valid_jobs, token_count
         

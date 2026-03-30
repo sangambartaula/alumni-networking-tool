@@ -237,6 +237,9 @@ class ConnectionManager:
                     exp3_title TEXT,
                     exp3_company TEXT,
                     exp3_dates TEXT,
+                    job_employment_type TEXT,
+                    exp2_employment_type TEXT,
+                    exp3_employment_type TEXT,
                     school TEXT,
                     school2 TEXT,
                     school3 TEXT,
@@ -405,6 +408,9 @@ class ConnectionManager:
             ("discipline", "TEXT"),
             # Secondary major for multi-entry mapping (CS&E -> CS + CE)
             ("standardized_major_alt", "TEXT"),
+            ("job_employment_type", "TEXT"),
+            ("exp2_employment_type", "TEXT"),
+            ("exp3_employment_type", "TEXT"),
         ]
         for col_name, col_type in _migration_cols:
             try:
