@@ -22,6 +22,7 @@ let hiddenCompanies = new Set();
 let selectedUntAlumniStatus = '';
 let filterGradYearFrom = null;  // number | null
 let filterGradYearTo   = null;  // number | null
+let selectedHeatmapMajors = new Set();
 
 // Track all available locations and companies for autocomplete
 let allLocations = new Set();
@@ -1622,11 +1623,13 @@ function initializeFilterUI() {
       selectedUntAlumniStatus = '';
       filterGradYearFrom = null;
       filterGradYearTo   = null;
+      selectedHeatmapMajors.clear();
       if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
       const gradFromEl = document.getElementById('heatmapGradYearFrom');
       const gradToEl   = document.getElementById('heatmapGradYearTo');
       if (gradFromEl) gradFromEl.value = '';
       if (gradToEl)   gradToEl.value   = '';
+      document.querySelectorAll('#heatmapMajorChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
       clearHiddenFiltersFromStorage();
       updateFilterUI();
       updateFilterBadge();
@@ -1672,6 +1675,43 @@ function initializeFilterUI() {
         e.preventDefault();
         addCompanyBtn.click();
       }
+    });
+  }
+
+  // Populate major checkboxes from loaded alumni data
+  const majorChecksContainer = document.getElementById('heatmapMajorChecks');
+  if (majorChecksContainer) {
+    const uniqueMajors = new Set();
+    (locationClusters || []).forEach(loc => {
+      (loc.sample_alumni || []).forEach(a => {
+        const sm = (a.standardized_major || '').trim();
+        const sma = (a.standardized_major_alt || '').trim();
+        if (sm && sm !== 'Other') uniqueMajors.add(sm);
+        if (sma && sma !== 'Other') uniqueMajors.add(sma);
+      });
+    });
+    const sortedMajors = Array.from(uniqueMajors).sort();
+    majorChecksContainer.innerHTML = '';
+    sortedMajors.forEach(m => {
+      const label = document.createElement('label');
+      label.style.display = 'flex';
+      label.style.alignItems = 'center';
+      label.style.gap = '6px';
+      label.style.cursor = 'pointer';
+      label.style.fontSize = '0.85rem';
+      label.style.padding = '2px 0';
+      label.innerHTML = `<input type="checkbox" value="${m}" ${selectedHeatmapMajors.has(m) ? 'checked' : ''} /> ${m}`;
+      label.querySelector('input').addEventListener('change', (e) => {
+        if (e.target.checked) {
+          selectedHeatmapMajors.add(m);
+        } else {
+          selectedHeatmapMajors.delete(m);
+        }
+        saveHiddenFiltersToStorage();
+        updateFilterBadge();
+        reloadMapData();
+      });
+      majorChecksContainer.appendChild(label);
     });
   }
 
@@ -1731,7 +1771,7 @@ function updateFilterBadge() {
   const badge = document.getElementById('filterBadge');
   if (badge) {
     const gradYearActive = (filterGradYearFrom != null || filterGradYearTo != null) ? 1 : 0;
-    const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive;
+    const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive + selectedHeatmapMajors.size;
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'flex' : 'none';
   }
@@ -1916,11 +1956,10 @@ function getVisibleAlumniForLocation(location) {
 /** Build the /api/heatmap URL incorporating all currently-active filter params. */
 function buildHeatmapUrl() {
   const params = new URLSearchParams();
-  // Grad-year range (re-fetches from server so the dataset is correctly filtered)
   if (filterGradYearFrom != null) params.set('grad_year_from', String(filterGradYearFrom));
   if (filterGradYearTo   != null) params.set('grad_year_to',   String(filterGradYearTo));
-  // UNT alumni status
   if (selectedUntAlumniStatus) params.set('unt_alumni_status', selectedUntAlumniStatus);
+  selectedHeatmapMajors.forEach(m => params.append('standardized_major', m));
   return params.toString() ? `/api/heatmap?${params}` : '/api/heatmap';
 }
 
