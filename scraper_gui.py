@@ -2,10 +2,13 @@ import sys
 import os
 import subprocess
 import threading
+import csv
+from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QGroupBox, QLabel, QLineEdit, QComboBox, 
-    QCheckBox, QPushButton, QTextEdit, QMessageBox
+    QCheckBox, QPushButton, QTextEdit, QMessageBox, QDialog,
+    QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
@@ -102,6 +105,117 @@ class ScraperWorker(QThread):
             self.process.terminate()
             self.output_signal.emit("\nSent termination signal...\n")
 
+class FlagManagerDialog(QDialog):
+    def __init__(self, base_dir, parent=None):
+        super().__init__(parent)
+        self.base_dir = base_dir
+        self.setWindowTitle("Manage Review Flags")
+        self.resize(800, 500)
+        
+        self.csv_path = os.path.join(self.base_dir, 'scraper', 'output', 'UNT_Alumni_Data.csv')
+        self.txt_path = os.path.join(self.base_dir, 'scraper', 'output', 'flagged_for_review.txt')
+        
+        self.init_ui()
+        self.load_data()
+        
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Flag", "Date Scraped", "Name", "Profile URL"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        
+        layout.addWidget(self.table)
+        
+        btn_layout = QHBoxLayout()
+        self.sel_all_btn = QPushButton("Select All")
+        self.clear_all_btn = QPushButton("Clear All")
+        self.save_btn = QPushButton("Save Flags")
+        
+        self.sel_all_btn.clicked.connect(self.select_all)
+        self.clear_all_btn.clicked.connect(self.clear_all)
+        self.save_btn.clicked.connect(self.save_flags)
+        
+        btn_layout.addWidget(self.sel_all_btn)
+        btn_layout.addWidget(self.clear_all_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.save_btn)
+        
+        layout.addLayout(btn_layout)
+        
+    def load_data(self):
+        flagged_urls = set()
+        if os.path.exists(self.txt_path):
+            with open(self.txt_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    url = line.split('#')[0].strip().rstrip('/').lower()
+                    if url: flagged_urls.add(url)
+                    
+        profiles = []
+        if os.path.exists(self.csv_path):
+            with open(self.csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    url = (row.get('linkedin_url', '') or row.get('profile_url', '')).strip().rstrip('/')
+                    if not url: continue
+                    name = f"{row.get('first', '')} {row.get('last', '')}".strip()
+                    date_str = row.get('scraped_at', '')
+                    profiles.append({'url': url, 'name': name, 'date': date_str})
+                    
+        # Sort by date descending
+        def get_date(p):
+            try: return datetime.fromisoformat(p['date'].replace('Z', '+00:00'))
+            except: return datetime.min
+        profiles.sort(key=get_date, reverse=True)
+        
+        self.table.setRowCount(len(profiles))
+        for i, p in enumerate(profiles):
+            cb = QCheckBox()
+            is_flagged = p['url'].lower() in flagged_urls
+            cb.setChecked(is_flagged)
+            
+            # Center checkbox
+            cb_widget = QWidget()
+            cb_layout = QHBoxLayout(cb_widget)
+            cb_layout.addWidget(cb)
+            cb_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cb_layout.setContentsMargins(0,0,0,0)
+            
+            self.table.setCellWidget(i, 0, cb_widget)
+            self.table.setItem(i, 1, QTableWidgetItem(p['date'][:10] if p['date'] else "Unknown"))
+            self.table.setItem(i, 2, QTableWidgetItem(p['name']))
+            self.table.setItem(i, 3, QTableWidgetItem(p['url']))
+            
+    def select_all(self):
+        for i in range(self.table.rowCount()):
+            cb_widget = self.table.cellWidget(i, 0)
+            if cb_widget: cb_widget.layout().itemAt(0).widget().setChecked(True)
+            
+    def clear_all(self):
+        for i in range(self.table.rowCount()):
+            cb_widget = self.table.cellWidget(i, 0)
+            if cb_widget: cb_widget.layout().itemAt(0).widget().setChecked(False)
+            
+    def save_flags(self):
+        flagged = []
+        for i in range(self.table.rowCount()):
+            cb_widget = self.table.cellWidget(i, 0)
+            if cb_widget and cb_widget.layout().itemAt(0).widget().isChecked():
+                url = self.table.item(i, 3).text()
+                name = self.table.item(i, 2).text()
+                flagged.append(f"{url} # {name}")
+                
+        os.makedirs(os.path.dirname(self.txt_path), exist_ok=True)
+        with open(self.txt_path, 'w', encoding='utf-8') as f:
+            for item in flagged:
+                f.write(f"{item}\n")
+                
+        QMessageBox.information(self, "Saved", f"Successfully saved {len(flagged)} profiles for review!")
+        self.accept()
+
 class ScraperApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -147,9 +261,21 @@ class ScraperApp(QMainWindow):
         target_layout = QGridLayout()
         
         target_layout.addWidget(QLabel("Mode:"), 0, 0)
+        mode_row = QHBoxLayout()
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["search", "review", "connections"])
-        target_layout.addWidget(self.mode_combo, 0, 1)
+        mode_row.addWidget(self.mode_combo)
+        
+        self.help_btn = QPushButton("?")
+        self.help_btn.setFixedWidth(30)
+        self.help_btn.clicked.connect(self.show_help)
+        mode_row.addWidget(self.help_btn)
+        
+        self.manage_flags_btn = QPushButton("Manage Flags")
+        self.manage_flags_btn.clicked.connect(self.open_flag_manager)
+        mode_row.addWidget(self.manage_flags_btn)
+        
+        target_layout.addLayout(mode_row, 0, 1)
         
         target_layout.addWidget(QLabel("Disciplines:"), 1, 0, Qt.AlignmentFlag.AlignTop)
         
@@ -270,13 +396,17 @@ class ScraperApp(QMainWindow):
         # Auto-load existing config
         self.load_settings_from_env()
 
-    def load_settings_from_env(self):
+    def get_base_dir(self):
         if getattr(sys, 'frozen', False):
             base_dir = os.path.dirname(sys.executable)
             if sys.platform == 'darwin':
                 base_dir = os.path.abspath(os.path.join(base_dir, '../../..'))
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
+        return base_dir
+
+    def load_settings_from_env(self):
+        base_dir = self.get_base_dir()
             
         env_path = os.path.join(base_dir, '.env')
         if not os.path.exists(env_path):
@@ -326,7 +456,45 @@ class ScraperApp(QMainWindow):
         scrollbar = self.console.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
+    def show_help(self):
+        QMessageBox.information(self, "Connections Mode Help", 
+            "To use Connections Mode, you must download your LinkedIn Connections archive.\n\n"
+            "1. Go to LinkedIn -> Settings & Privacy -> Data Privacy\n"
+            "2. Click 'Get a copy of your data'\n"
+            "3. Select 'Connections' and download the archive.\n"
+            "4. Extract the zip file and place the 'Connections.csv' file directly into this project directory.\n\n"
+            "Ensure the file contains the standard First Name, Last Name, and URL columns."
+        )
+
+    def open_flag_manager(self):
+        dialog = FlagManagerDialog(self.get_base_dir(), self)
+        dialog.exec()
+
     def validate_inputs(self):
+        base_dir = self.get_base_dir()
+        mode = self.mode_combo.currentText()
+        if mode == "review":
+            txt_path = os.path.join(base_dir, 'scraper', 'output', 'flagged_for_review.txt')
+            if not os.path.exists(txt_path) or os.path.getsize(txt_path) == 0:
+                QMessageBox.critical(self, "Missing Data", "Review Mode selected, but 'flagged_for_review.txt' is empty or missing!\n\nPlease use the 'Manage Flags' button to flag profiles first.")
+                return False
+                
+        if mode == "connections":
+            csv_path = os.path.join(base_dir, 'Connections.csv')
+            if not os.path.exists(csv_path):
+                QMessageBox.critical(self, "Missing File", "Connections Mode selected, but 'Connections.csv' was not found in the root directory!\n\nClick the (?) button for instructions.")
+                return False
+            try:
+                import csv
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    header = next(csv.reader(f))
+                    if not any("url" in c.lower() for c in header):
+                        QMessageBox.critical(self, "Invalid Format", "Connections.csv does not contain a recognizable 'URL' column!\nPlease ensure you downloaded the correct Connections archive from LinkedIn.")
+                        return False
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to read Connections.csv: {e}")
+                return False
+
         try:
             min_d = int(self.min_delay.text())
             max_d = int(self.max_delay.text())

@@ -57,13 +57,42 @@ http://127.0.0.1:5000
 
 The terminal startup output also shows the active URL. Use the terminal output as the source of truth.
 
-## 5. Running the Scraper (Simple Version)
+## 5. Running the Scraper GUI (Desktop App)
+
+A visual desktop application is available to configure and run the scraper without modifying `.env` files manually. 
+
+### How to Build the App (First Time Only)
+Because the scraper requires web drivers and specific libraries to run efficiently, you can bundle it into a standalone app so you can just double click it like any other program on your machine.
+
+**Mac Users:**
+1. Open your project folder.
+2. Double-click the file named `build_mac_app.command` (if needed, run `chmod +x build_mac_app.command` in the terminal first).
+3. Wait for the terminal to finish compiling. Inside the newly created `dist/` folder, you will find `UNT Alumni Scraper.app`. You can double click this file forever!
+
+**Windows Users:**
+1. Open your project folder.
+2. Double-click the file named `build_windows_app.bat`.
+3. Wait for compilation. Inside the `dist/` folder, you will find `UNT Alumni Scraper.exe`. Double click this anytime to open the scraper!
+
+*Note: For the App to work optimally, ensure it remains in the same parent folder/directory alongside your `venv` folder.*
+
+---
+
+## 6. Running the Scraper via Terminal (Command Line Version)
 
 ```bash
 python scraper/main.py
 ```
 
 The scraper uses cookie-first login. If a valid saved session cookie exists, it reuses that session. If not, it falls back to account login and refreshes cookies.
+
+### How to Export Connections.csv from LinkedIn
+
+If you run the scraper in **Connections Mode**, you must provide your LinkedIn connections archive:
+1. Open LinkedIn and click your profile picture (Me) > **Settings & Privacy**.
+2. Go to **Data Privacy** > **Get a copy of your data**.
+3. Select **Connections** and click **Request archive**.
+4. LinkedIn will email you a `.zip` file. Extract it and place the included **`Connections.csv`** file directly in the root directory of this project before starting Connections Mode in the GUI.
 
 ### Discipline-Targeted UNT Search (`SEARCH_DISCIPLINES`)
 

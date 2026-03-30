@@ -221,7 +221,7 @@ SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()
 SCRAPE_RESUME_MAX_AGE_DAYS = int(os.getenv("SCRAPE_RESUME_MAX_AGE_DAYS", "7"))
 OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
 UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
-CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "connections.csv")
+CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "Connections.csv")
 SEARCH_DISCIPLINES = os.getenv("SEARCH_DISCIPLINES", "")
 
 # Groq AI Configuration
@@ -247,12 +247,15 @@ FLAG_MISSING_GRAD_YEAR = os.getenv("FLAG_MISSING_GRAD_YEAR", "false").lower() ==
 FLAG_MISSING_DEGREE = os.getenv("FLAG_MISSING_DEGREE", "false").lower() == "true"
 FLAG_MISSING_EXPERIENCE_DATA = os.getenv("FLAG_MISSING_EXPERIENCE_DATA", "true").lower() == "true"
 
-if TESTING:
-    MIN_DELAY = 15
-    MAX_DELAY = 60
+if os.getenv("MIN_DELAY"):
+    MIN_DELAY = int(os.getenv("MIN_DELAY"))
 else:
-    MIN_DELAY = 120
-    MAX_DELAY = 600
+    MIN_DELAY = 15 if TESTING else 120
+
+if os.getenv("MAX_DELAY"):
+    MAX_DELAY = int(os.getenv("MAX_DELAY"))
+else:
+    MAX_DELAY = 60 if TESTING else 600
 
 # Paths
 OUTPUT_DIR = Path(__file__).parent / "output"
