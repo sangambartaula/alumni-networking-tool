@@ -27,7 +27,7 @@ from database import (
     ensure_normalized_company_column,
 )
 from degree_normalization import standardize_degree
-from major_normalization import standardize_major
+from major_normalization import standardize_major, standardize_major_list
 from job_title_normalization import normalize_title_deterministic
 from company_normalization import normalize_company_deterministic
 
@@ -111,7 +111,9 @@ def run_migration() -> None:
             std_degree2 = standardize_degree(degree2 or "")
             std_degree3 = standardize_degree(degree3 or "")
 
-            std_major = standardize_major(major or "", current_title or "")
+            major_list = standardize_major_list(major or "", current_title or "")
+            std_major = major_list[0]
+            std_major_alt = major_list[1] if len(major_list) > 1 else None
             std_major2 = standardize_major(major2 or "", current_title or "")
             std_major3 = standardize_major(major3 or "", current_title or "")
 
@@ -133,6 +135,7 @@ def run_migration() -> None:
                     standardized_degree2 = {ph},
                     standardized_degree3 = {ph},
                     standardized_major = {ph},
+                    standardized_major_alt = {ph},
                     standardized_major2 = {ph},
                     standardized_major3 = {ph},
                     normalized_job_title_id = {ph},
@@ -144,6 +147,7 @@ def run_migration() -> None:
                     std_degree2,
                     std_degree3,
                     std_major,
+                    std_major_alt,
                     std_major2,
                     std_major3,
                     title_id,

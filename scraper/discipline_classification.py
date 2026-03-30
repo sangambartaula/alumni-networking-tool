@@ -29,14 +29,17 @@ UNT_CENG_MAJORS = {
     "Software, Data & AI Engineering": [
         "B.A. Information Technology", "B.S. Computer Engineering", "B.S. Computer Science", "B.S. Cybersecurity",
         "M.S. Computer Engineering", "M.S. Computer Science", "M.S. Cybersecurity", "M.S. Data Engineering",
-        "Autonomous Systems (Concentration)", "Machine Learning (Concentration)", "Ph.D. Computer Science and Engineering"
+        "M.S. Artificial Intelligence", "M.S. Data Engineering",
+        "B.S. Geographic Information Systems + Computer Science",
+        "Ph.D. Computer Science and Engineering"
     ],
     "Embedded, Electrical & Hardware Engineering": [
         "B.S. Electrical Engineering", "M.S. Electrical Engineering", "Ph.D. Electrical Engineering"
     ],
     "Materials Science & Manufacturing": [
         "B.S. Materials Science and Engineering", "M.S. Materials Science and Engineering", 
-        "Ph.D. Materials Science and Engineering"
+        "Ph.D. Materials Science and Engineering",
+        "M.S. Semiconductor Manufacturing Engineering"
     ],
     "Mechanical & Energy Engineering": [
         "B.S. Mechanical and Energy Engineering", "B.S.E.T. Mechanical Engineering Technology",
@@ -44,7 +47,8 @@ UNT_CENG_MAJORS = {
         "Ph.D. Mechanical and Energy Engineering", "Mechanical Engineering"
     ],
     "Construction & Engineering Management": [
-        "B.S. Construction Management", "M.S. Engineering Management (Construction Management)", 
+        "B.S. Construction Management", "B.S. Construction Engineering Technology",
+        "M.S. Engineering Management (Construction Management)", 
         "M.S. Engineering Technology (Construction Management)"
     ]
 }
