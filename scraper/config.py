@@ -268,7 +268,7 @@ CSV_COLUMNS = [
     'school', 'degree', 'major', 'school_start', 'grad_year',
     'school2', 'degree2', 'major2',
     'school3', 'degree3', 'major3',
-    'standardized_degree', 'standardized_major',
+    'standardized_degree', 'standardized_major', 'standardized_major_alt',
     'standardized_degree2', 'standardized_major2',
     'standardized_degree3', 'standardized_major3',
     'discipline',

@@ -29,7 +29,7 @@ try:
     from job_title_normalization import normalize_title_deterministic, normalize_title_with_groq
     from company_normalization import normalize_company_deterministic, normalize_company_with_groq
     from degree_normalization import standardize_degree
-    from major_normalization import standardize_major
+    from major_normalization import standardize_major, standardize_major_list
     from discipline_classification import infer_discipline
     _NORM_AVAILABLE = True
 except ImportError as err:
@@ -748,9 +748,14 @@ class LinkedInScraper:
                     self._append_standardization_log("standardized_degree.txt", raw_deg, std_deg)
 
                 if raw_maj:
-                    std_maj = standardize_major(raw_maj, data.get("job_title", ""))
-                    data[std_maj_key] = std_maj
-                    self._append_standardization_log("standardized_major.txt", raw_maj, std_maj)
+                    if suffix == "":
+                        majors = standardize_major_list(raw_maj, data.get("job_title", ""))
+                        data[std_maj_key] = majors[0]
+                        if len(majors) > 1:
+                            data["standardized_major_alt"] = majors[1]
+                    else:
+                        data[std_maj_key] = standardize_major(raw_maj, data.get("job_title", ""))
+                    self._append_standardization_log("standardized_major.txt", raw_maj, data[std_maj_key])
 
             education_entries = []
             for suffix in ("", "2", "3"):
