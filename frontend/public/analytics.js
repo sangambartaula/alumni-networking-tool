@@ -19,8 +19,17 @@ let selectedAnalyticsDegrees = new Set();
 let selectedAnalyticsSeniorities = new Set();
 let analyticsExportDiagramCounter = 0;
 
-const ANALYTICS_DEGREE_OPTIONS = ['Undergraduate', 'Graduate', 'PhD'];
+const ANALYTICS_DEGREE_OPTIONS = ['Bachelors', 'Masters', 'PhD'];
 const ANALYTICS_SENIORITY_OPTIONS = ['Intern', 'Mid', 'Senior', 'Manager', 'Executive'];
+
+function normalizeDegreeToFilterLabel(value) {
+  const normalized = (value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'undergraduate' || normalized === 'bachelors') return 'Bachelors';
+  if (normalized === 'graduate' || normalized === 'masters') return 'Masters';
+  if (normalized === 'phd') return 'PhD';
+  return '';
+}
 
 const analyticsExportState = {
   mode: 'full',
@@ -182,7 +191,13 @@ function loadHiddenFiltersFromStorage() {
     const savedMajors = localStorage.getItem('analyticsSelectedMajors');
     if (savedMajors) selectedAnalyticsMajors = new Set(JSON.parse(savedMajors));
     const savedDegrees = localStorage.getItem('analyticsSelectedDegrees');
-    if (savedDegrees) selectedAnalyticsDegrees = new Set(JSON.parse(savedDegrees));
+    if (savedDegrees) {
+      selectedAnalyticsDegrees = new Set(
+        JSON.parse(savedDegrees)
+          .map(normalizeDegreeToFilterLabel)
+          .filter(Boolean)
+      );
+    }
     const savedSeniorities = localStorage.getItem('analyticsSelectedSeniorities');
     if (savedSeniorities) selectedAnalyticsSeniorities = new Set(JSON.parse(savedSeniorities));
   } catch (error) {
@@ -799,7 +814,7 @@ function filterAlumniData(data) {
     }
 
     if (selectedAnalyticsDegrees.size > 0) {
-      const degree = (alumni.degree || '').trim();
+      const degree = normalizeDegreeToFilterLabel(alumni.degree);
       if (!selectedAnalyticsDegrees.has(degree)) return false;
     }
 

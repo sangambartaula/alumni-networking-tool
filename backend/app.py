@@ -1936,7 +1936,7 @@ def get_heatmap_data():
         elif d in ('phd',):
             heatmap_degree_filter_set.add('PhD')
         else:
-            return jsonify({"error": "Invalid degree. Use Undergraduate, Graduate, or PhD."}), 400
+            return jsonify({"error": "Invalid degree. Use Bachelors, Masters, or PhD."}), 400
 
     try:
         heatmap_seniority_filters = _parse_seniority_filters(heatmap_seniority_filters_raw)

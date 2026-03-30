@@ -26,8 +26,17 @@ let selectedHeatmapMajors = new Set();
 let selectedHeatmapDegrees = new Set();
 let selectedHeatmapSeniorities = new Set();
 
-const HEATMAP_DEGREE_OPTIONS = ['Undergraduate', 'Graduate', 'PhD'];
+const HEATMAP_DEGREE_OPTIONS = ['Bachelors', 'Masters', 'PhD'];
 const HEATMAP_SENIORITY_OPTIONS = ['Intern', 'Mid', 'Senior', 'Manager', 'Executive'];
+
+function normalizeDegreeToFilterLabel(value) {
+  const normalized = (value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'undergraduate' || normalized === 'bachelors') return 'Bachelors';
+  if (normalized === 'graduate' || normalized === 'masters') return 'Masters';
+  if (normalized === 'phd') return 'PhD';
+  return '';
+}
 
 // Track all available locations and companies for autocomplete
 let allLocations = new Set();
@@ -175,7 +184,13 @@ function loadHiddenFiltersFromStorage() {
     const savedMajors = localStorage.getItem('heatmapSelectedMajors');
     if (savedMajors) selectedHeatmapMajors = new Set(JSON.parse(savedMajors));
     const savedDegrees = localStorage.getItem('heatmapSelectedDegrees');
-    if (savedDegrees) selectedHeatmapDegrees = new Set(JSON.parse(savedDegrees));
+    if (savedDegrees) {
+      selectedHeatmapDegrees = new Set(
+        JSON.parse(savedDegrees)
+          .map(normalizeDegreeToFilterLabel)
+          .filter(Boolean)
+      );
+    }
     const savedSeniorities = localStorage.getItem('heatmapSelectedSeniorities');
     if (savedSeniorities) selectedHeatmapSeniorities = new Set(JSON.parse(savedSeniorities));
     filterGradYearFrom = savedGradFrom ? (parseInt(savedGradFrom, 10) || null) : null;
