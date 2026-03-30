@@ -401,9 +401,14 @@ def _update_csv_from_db():
             if url:
                 url_data[url] = row.get('relevant_experience_months')
 
-        # Ensure column exists
+        # Ensure column exists with correct dtype to avoid FutureWarning
         if 'relevant_experience_months' not in df.columns:
-            df['relevant_experience_months'] = ''
+            df['relevant_experience_months'] = pd.array([pd.NA] * len(df), dtype='Int64')
+        else:
+            try:
+                df['relevant_experience_months'] = df['relevant_experience_months'].astype('Int64')
+            except (ValueError, TypeError):
+                pass
 
         # Merge
         csv_updated = 0

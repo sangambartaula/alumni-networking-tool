@@ -328,17 +328,30 @@ def _update_csv_from_db():
             if url:
                 url_data[url] = row
 
-        # Ensure new columns exist in DataFrame
-        new_cols = [
-            'job_1_relevance_score', 'job_2_relevance_score', 'job_3_relevance_score',
-            'job_1_is_relevant', 'job_2_is_relevant', 'job_3_is_relevant',
-            'relevant_experience_months', 'seniority_level',
-        ]
-        for col in new_cols:
+        # Ensure new columns exist in DataFrame with correct dtypes
+        # to avoid FutureWarning about incompatible dtype assignment.
+        _col_dtypes = {
+            'job_1_relevance_score': 'float64',
+            'job_2_relevance_score': 'float64',
+            'job_3_relevance_score': 'float64',
+            'job_1_is_relevant': 'Int64',  # nullable integer
+            'job_2_is_relevant': 'Int64',
+            'job_3_is_relevant': 'Int64',
+            'relevant_experience_months': 'Int64',
+            'seniority_level': 'object',
+        }
+        for col, dtype in _col_dtypes.items():
             if col not in df.columns:
-                # Keep missing numeric values as NA to avoid dtype warnings when
-                # assigning values into existing float columns.
-                df[col] = pd.NA
+                df[col] = pd.array([pd.NA] * len(df), dtype=dtype)
+            else:
+                # Cast existing columns to the correct dtype to avoid
+                # FutureWarning when assigning values row-by-row.
+                try:
+                    df[col] = df[col].astype(dtype)
+                except (ValueError, TypeError):
+                    pass  # keep as-is if cast fails
+
+        new_cols = list(_col_dtypes.keys())
 
         # Merge data
         updated = 0
