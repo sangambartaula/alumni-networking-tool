@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "scraper"))
 from database import (
     get_connection,
     init_db,
+    ensure_education_columns,
     ensure_normalized_job_title_column,
     ensure_normalized_company_column,
 )
@@ -73,6 +74,7 @@ def run_migration() -> None:
     except Exception as e:
         logger.warning(f"init_db() warning: {e}")
 
+    ensure_education_columns()
     ensure_normalized_job_title_column()
     ensure_normalized_company_column()
 

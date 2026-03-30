@@ -1597,6 +1597,7 @@ def seed_alumni_data():
                     std_degree3 = str(row.get('standardized_degree3', '')).strip() if pd.notna(row.get('standardized_degree3')) else None
                     
                     std_major = str(row.get('standardized_major', '')).strip() if pd.notna(row.get('standardized_major')) else None
+                    std_major_alt = str(row.get('standardized_major_alt', '')).strip() if pd.notna(row.get('standardized_major_alt')) else None
                     std_major2 = str(row.get('standardized_major2', '')).strip() if pd.notna(row.get('standardized_major2')) else None
                     std_major3 = str(row.get('standardized_major3', '')).strip() if pd.notna(row.get('standardized_major3')) else None
 
@@ -1624,7 +1625,7 @@ def seed_alumni_data():
                              exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
                              school, school2, school3, degree2, degree3, major2, major3,
                              standardized_degree, standardized_degree2, standardized_degree3,
-                             standardized_major, standardized_major2, standardized_major3,
+                             standardized_major, standardized_major_alt, standardized_major2, standardized_major3,
                              scraped_at, last_updated, normalized_job_title_id, normalized_company_id,
                              job_1_relevance_score, job_2_relevance_score, job_3_relevance_score,
                              job_1_is_relevant, job_2_is_relevant, job_3_is_relevant,
@@ -1634,7 +1635,7 @@ def seed_alumni_data():
                                     %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s,
-                                    %s, %s, %s,
+                                    %s, %s, %s, %s,
                                     %s, %s, %s, %s,
                                     %s, %s, %s,
                                     %s, %s, %s,
@@ -1672,6 +1673,7 @@ def seed_alumni_data():
                                 standardized_degree2=VALUES(standardized_degree2),
                                 standardized_degree3=VALUES(standardized_degree3),
                                 standardized_major=VALUES(standardized_major),
+                                standardized_major_alt=VALUES(standardized_major_alt),
                                 standardized_major2=VALUES(standardized_major2),
                                 standardized_major3=VALUES(standardized_major3),
                                 last_updated=VALUES(last_updated),
@@ -1719,6 +1721,7 @@ def seed_alumni_data():
                             std_degree2,
                             std_degree3,
                             std_major,
+                            std_major_alt,
                             std_major2,
                             std_major3,
                             scraped_at,

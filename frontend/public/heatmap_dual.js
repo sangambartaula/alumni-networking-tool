@@ -1466,7 +1466,53 @@ if (searchButton && searchInput) {
 // FILTER FUNCTIONALITY
 // =====================================================
 
+function populateHeatmapMajorCheckboxes() {
+  const container = document.getElementById('heatmapMajorChecks');
+  if (!container) return;
+
+  const uniqueMajors = new Set();
+  (locationClusters || []).forEach(loc => {
+    (loc.sample_alumni || []).forEach(a => {
+      const sm = (a.standardized_major || '').trim();
+      const sma = (a.standardized_major_alt || '').trim();
+      if (sm && sm !== 'Other') uniqueMajors.add(sm);
+      if (sma && sma !== 'Other') uniqueMajors.add(sma);
+    });
+  });
+
+  const sortedMajors = Array.from(uniqueMajors).sort();
+  container.innerHTML = '';
+  sortedMajors.forEach(m => {
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '6px';
+    label.style.cursor = 'pointer';
+    label.style.fontSize = '0.85rem';
+    label.style.padding = '2px 0';
+    label.innerHTML = `<input type="checkbox" value="${m}" ${selectedHeatmapMajors.has(m) ? 'checked' : ''} /> ${m}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedHeatmapMajors.add(m);
+      } else {
+        selectedHeatmapMajors.delete(m);
+      }
+      saveHiddenFiltersToStorage();
+      updateFilterBadge();
+      reloadMapData();
+    });
+    container.appendChild(label);
+  });
+}
+
+let _filterUIInitialized = false;
+
 function initializeFilterUI() {
+  // Refresh major checkboxes on every call (data may have changed)
+  populateHeatmapMajorCheckboxes();
+
+  if (_filterUIInitialized) return;
+  _filterUIInitialized = true;
   const locationInput = document.getElementById('filterLocationInput');
   const companyInput = document.getElementById('filterCompanyInput');
   const untAlumniStatusSelect = document.getElementById('heatmapUntAlumniStatusSelect');
@@ -1675,43 +1721,6 @@ function initializeFilterUI() {
         e.preventDefault();
         addCompanyBtn.click();
       }
-    });
-  }
-
-  // Populate major checkboxes from loaded alumni data
-  const majorChecksContainer = document.getElementById('heatmapMajorChecks');
-  if (majorChecksContainer) {
-    const uniqueMajors = new Set();
-    (locationClusters || []).forEach(loc => {
-      (loc.sample_alumni || []).forEach(a => {
-        const sm = (a.standardized_major || '').trim();
-        const sma = (a.standardized_major_alt || '').trim();
-        if (sm && sm !== 'Other') uniqueMajors.add(sm);
-        if (sma && sma !== 'Other') uniqueMajors.add(sma);
-      });
-    });
-    const sortedMajors = Array.from(uniqueMajors).sort();
-    majorChecksContainer.innerHTML = '';
-    sortedMajors.forEach(m => {
-      const label = document.createElement('label');
-      label.style.display = 'flex';
-      label.style.alignItems = 'center';
-      label.style.gap = '6px';
-      label.style.cursor = 'pointer';
-      label.style.fontSize = '0.85rem';
-      label.style.padding = '2px 0';
-      label.innerHTML = `<input type="checkbox" value="${m}" ${selectedHeatmapMajors.has(m) ? 'checked' : ''} /> ${m}`;
-      label.querySelector('input').addEventListener('change', (e) => {
-        if (e.target.checked) {
-          selectedHeatmapMajors.add(m);
-        } else {
-          selectedHeatmapMajors.delete(m);
-        }
-        saveHiddenFiltersToStorage();
-        updateFilterBadge();
-        reloadMapData();
-      });
-      majorChecksContainer.appendChild(label);
     });
   }
 
@@ -1970,7 +1979,7 @@ function reloadMapData() {
 
   // If any server-side filters are active, re-fetch from the API so the
   // dataset is correctly filtered at the DB level (grad year, unt status)
-  const needsServerFetch = (filterGradYearFrom != null || filterGradYearTo != null || selectedUntAlumniStatus);
+  const needsServerFetch = (filterGradYearFrom != null || filterGradYearTo != null || selectedUntAlumniStatus || selectedHeatmapMajors.size > 0);
   if (needsServerFetch) {
     loadHeatmapData(buildHeatmapUrl());
     return;

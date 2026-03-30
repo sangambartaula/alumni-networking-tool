@@ -232,36 +232,6 @@ function initializeAnalyticsFilterUI() {
     });
   }
 
-  // Populate major checkboxes
-  const majorChecksContainer = document.getElementById('analyticsMajorChecks');
-  if (majorChecksContainer) {
-    const allMajors = Array.from(new Set(
-      alumniData.flatMap(a => (a.standardized_majors || []).filter(Boolean))
-    )).filter(m => m !== 'Other').sort();
-
-    majorChecksContainer.innerHTML = '';
-    allMajors.forEach(m => {
-      const label = document.createElement('label');
-      label.style.display = 'flex';
-      label.style.alignItems = 'center';
-      label.style.gap = '6px';
-      label.style.cursor = 'pointer';
-      label.style.fontSize = '0.85rem';
-      label.innerHTML = `<input type="checkbox" value="${m}" ${selectedAnalyticsMajors.has(m) ? 'checked' : ''} /> ${m}`;
-      label.querySelector('input').addEventListener('change', (e) => {
-        if (e.target.checked) {
-          selectedAnalyticsMajors.add(m);
-        } else {
-          selectedAnalyticsMajors.delete(m);
-        }
-        saveHiddenFiltersToStorage();
-        updateAnalyticsFilterUI();
-        renderAnalytics();
-      });
-      majorChecksContainer.appendChild(label);
-    });
-  }
-
   // Toggle filter panel
   toggleBtn?.addEventListener('click', () => {
     panel?.classList.add('active');
@@ -811,10 +781,42 @@ function filterAlumniData(data) {
   });
 }
 
+function populateAnalyticsMajorCheckboxes() {
+  const container = document.getElementById('analyticsMajorChecks');
+  if (!container) return;
+
+  const allMajors = Array.from(new Set(
+    alumniData.flatMap(a => (a.standardized_majors || []).filter(Boolean))
+  )).filter(m => m !== 'Other').sort();
+
+  container.innerHTML = '';
+  allMajors.forEach(m => {
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '6px';
+    label.style.cursor = 'pointer';
+    label.style.fontSize = '0.85rem';
+    label.innerHTML = `<input type="checkbox" value="${m}" ${selectedAnalyticsMajors.has(m) ? 'checked' : ''} /> ${m}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedAnalyticsMajors.add(m);
+      } else {
+        selectedAnalyticsMajors.delete(m);
+      }
+      saveHiddenFiltersToStorage();
+      updateAnalyticsFilterUI();
+      renderAnalytics();
+    });
+    container.appendChild(label);
+  });
+}
+
 async function loadAnalyticsData() {
   try {
     alumniData = await fetchAllAnalyticsAlumni();
     buildAnalyticsAutocomplete(alumniData);
+    populateAnalyticsMajorCheckboxes();
     updateAnalyticsFilterUI();
     renderAnalytics();
     updateHeatmapButtonUrl();
