@@ -124,18 +124,53 @@ Primary code path:
 
 - `scraper/major_normalization.py`
 
+Degree-agnostic normalized majors list (v2):
+
+- Artificial Intelligence
+- Biomedical Engineering
+- Computer Engineering
+- Computer Science
+- Construction Engineering Technology
+- Construction Management
+- Cybersecurity
+- Data Engineering
+- Electrical Engineering
+- Engineering Management
+- Geographic Information Systems + Computer Science
+- Information Technology
+- Materials Science and Engineering
+- Mechanical and Energy Engineering
+- Mechanical Engineering Technology
+- Semiconductor Manufacturing Engineering
+- Other
+
 Rules:
 
 - output must be one of `UNT_ALLOWED_MAJORS` or `Other`
 - strip minor/concentration/certificate noise before matching
 - then apply:
-- exact alias map (`_EXACT_MAJOR_MAP`)
-- direct canonical match
-- ordered regex patterns (`_MAJOR_PATTERNS`)
-- optional Groq fallback controlled by:
-- `MAJOR_USE_GROQ_FALLBACK` (default enabled)
-- `GROQ_API_KEY` (must be present)
+  - exact alias map (`_EXACT_MAJOR_MAP`)
+  - direct canonical match
+  - ordered regex patterns (`_MAJOR_PATTERNS`)
+  - optional Groq fallback controlled by:
+    - `MAJOR_USE_GROQ_FALLBACK` (default enabled)
+    - `GROQ_API_KEY` (must be present)
 - if unresolved or invalid => `Other`
+
+Multi-entry mapping (CS&E):
+
+- "Computer Science and Engineering" is the only raw major that maps to two canonical majors:
+  `standardized_major = "Computer Science"` and `standardized_major_alt = "Computer Engineering"`
+- `standardize_major_list()` returns a list (length 2 for CS&E, length 1 for all others)
+- `standardize_major()` remains backward-compatible and returns only the primary entry
+- In the dashboard filter: selecting CS or CE alone shows all matching entries (including dual-mapped CS&E);
+  selecting both CS and CE together shows only entries mapped to both (i.e., CS&E entries)
+
+"Other" fallback:
+
+- Any raw major text that cannot be resolved through aliases, regex patterns, or LLM fallback
+  is mapped to "Other"
+- "Other" entries are still stored in the database and displayed but excluded from major filter checkboxes
 
 LLM contract:
 
