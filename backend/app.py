@@ -261,13 +261,17 @@ _SENIORITY_FILTER_LABELS = {
     "intern": "Intern",
     "mid": "Mid",
     "senior": "Senior",
+    "manager": "Manager",
     "executive": "Executive",
 }
 
 _SENIORITY_EXECUTIVE_PATTERN = re.compile(
-    r"\b(?:director|head|vice president|president|chief|cxo|c[a-z]o|partner|founder|co founder|owner|"
-    r"manager|supervisor|team lead|tech lead|lead engineer|engineering lead|"
-    r"project manager|program manager|scrum master)\b",
+    r"\b(?:director|head|vice president|president|chief|cxo|c[a-z]o|partner|founder|co founder|owner"
+    r")\b",
+    re.IGNORECASE,
+)
+_SENIORITY_MANAGER_PATTERN = re.compile(
+    r"\b(?:manager|supervisor|project manager|program manager|scrum master)\b",
     re.IGNORECASE,
 )
 _SENIORITY_SENIOR_PATTERN = re.compile(
@@ -314,7 +318,7 @@ def classify_seniority_bucket(job_title, relevant_experience_months=None):
     """
     Classify alumni into UI buckets from the current title only.
 
-    Buckets: Intern / Mid / Senior / Executive.
+    Buckets: Intern / Mid / Senior / Manager / Executive.
     - Title keywords are the sole driver.
     - Relevant experience months do not change the bucket; they are only used
       for warnings/flags elsewhere (see seniority_detector).
@@ -326,6 +330,8 @@ def classify_seniority_bucket(job_title, relevant_experience_months=None):
 
     if _SENIORITY_EXECUTIVE_PATTERN.search(normalized_title):
         return "Executive"
+    if _SENIORITY_MANAGER_PATTERN.search(normalized_title):
+        return "Manager"
     if _SENIORITY_SENIOR_PATTERN.search(normalized_title):
         return "Senior"
     if _SENIORITY_MID_PATTERN.search(normalized_title):
@@ -345,7 +351,7 @@ def _parse_seniority_filters(raw_values):
         if not key:
             continue
         if key not in _SENIORITY_FILTER_LABELS:
-            raise ValueError("Invalid seniority. Use Intern, Mid, Senior, or Executive.")
+            raise ValueError("Invalid seniority. Use Intern, Mid, Senior, Manager, or Executive.")
         if key in seen:
             continue
         seen.add(key)
