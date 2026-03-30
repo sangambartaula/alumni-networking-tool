@@ -170,9 +170,17 @@ def compute_months_from_row(row):
     """
     from database import _parse_bool
     intervals = []
+    has_relevant_job = False
+    relevance_flags = [
+        row.get('job_1_is_relevant'),
+        row.get('job_2_is_relevant'),
+        row.get('job_3_is_relevant'),
+    ]
+    flags_known = any(f is not None and str(f).strip() != '' for f in relevance_flags)
 
     # ── Job 1 ──
     if _parse_bool(row.get('job_1_is_relevant')):
+        has_relevant_job = True
         start = _parse_date_to_month_year(row.get('job_start_date', ''))
         end = _parse_date_to_month_year(row.get('job_end_date', ''))
 
@@ -187,6 +195,7 @@ def compute_months_from_row(row):
 
     # ── Job 2 ──
     if _parse_bool(row.get('job_2_is_relevant')):
+        has_relevant_job = True
         dates2 = row.get('exp2_dates', '') or ''
         start_str, end_str = _split_date_range(dates2)
         start = _parse_date_to_month_year(start_str)
@@ -202,6 +211,7 @@ def compute_months_from_row(row):
 
     # ── Job 3 ──
     if _parse_bool(row.get('job_3_is_relevant')):
+        has_relevant_job = True
         dates3 = row.get('exp3_dates', '') or ''
         start_str, end_str = _split_date_range(dates3)
         start = _parse_date_to_month_year(start_str)
@@ -216,6 +226,9 @@ def compute_months_from_row(row):
             intervals.append((start, end))
 
     if not intervals:
+        # Missing flags or relevant jobs with unusable dates should remain unknown.
+        if not flags_known or has_relevant_job:
+            return None
         return 0
 
     # Merge overlapping intervals and sum months

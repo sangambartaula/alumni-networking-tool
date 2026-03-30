@@ -2386,6 +2386,13 @@ body {
   accent-color: var(--brand) !important;
 }
 
+
+.input-warning {
+  min-height: 16px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b91c1c;
+}
 .toggle-btn:hover {
   background: var(--brand-light) !important;
   color: var(--brand) !important;

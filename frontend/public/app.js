@@ -892,6 +892,7 @@ function collectQueryState() {
   const sortSelect = document.getElementById('sortSelect');
   const expMinInput = document.getElementById('expMin');
   const expMaxInput = document.getElementById('expMax');
+  const includeUnknownExperienceInput = document.getElementById('includeUnknownExperience');
 
   const term = q ? q.value.trim() : '';
   const loc = Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value);
@@ -912,6 +913,7 @@ function collectQueryState() {
   const expMaxYears = expMaxInput && expMaxInput.value.trim() !== '' ? parseInt(expMaxInput.value, 10) : null;
   const expMin = Number.isFinite(expMinYears) && expMinYears >= 0 ? expMinYears * 12 : null;
   const expMax = Number.isFinite(expMaxYears) && expMaxYears >= 0 ? expMaxYears * 12 : null;
+  const includeUnknownExperience = Boolean(includeUnknownExperienceInput && includeUnknownExperienceInput.checked);
 
   const sortValue = sortSelect ? (sortSelect.value || '') : '';
   const bookmarkedOnly = sortValue === 'bookmarked';
@@ -931,6 +933,7 @@ function collectQueryState() {
     untAlumniStatus,
     expMin,
     expMax,
+    includeUnknownExperience,
     sort,
     bookmarkedOnly,
     direction: sortDirection,
@@ -958,6 +961,7 @@ function buildAlumniQueryParams(queryState, offset, limit) {
   if (queryState.bookmarkedOnly) params.set('bookmarked_only', '1');
   if (queryState.expMin != null) params.set('exp_min', String(queryState.expMin));
   if (queryState.expMax != null) params.set('exp_max', String(queryState.expMax));
+  if (queryState.includeUnknownExperience) params.set('include_unknown_experience', '1');
 
   return params;
 }
@@ -1073,9 +1077,64 @@ function setupFiltering() {
   const sortSelect = document.getElementById('sortSelect');
   const sortReverseBtn = document.getElementById('sortReverseBtn');
   const clearBtn = document.getElementById('clear-filters');
+  const expMinInput = document.getElementById('expMin');
+  const expMaxInput = document.getElementById('expMax');
+  const expRangeWarning = document.getElementById('expRangeWarning');
+  const includeUnknownExperience = document.getElementById('includeUnknownExperience');
 
   let searchDebounce = null;
+  const setRangeWarning = (el, message) => {
+    if (!el) return;
+    el.textContent = message || '';
+  };
+
+  const enforceIntegerOnly = (input, warningEl) => {
+    if (!input) return;
+    input.addEventListener('beforeinput', (e) => {
+      if (e.data == null) return;
+      if (e.data === '.') {
+        e.preventDefault();
+        setRangeWarning(warningEl, 'Integer values only.');
+        return;
+      }
+      if (!/^\d+$/.test(e.data)) {
+        e.preventDefault();
+        setRangeWarning(warningEl, 'Integer values only.');
+      }
+    });
+
+    input.addEventListener('input', () => {
+      const original = input.value;
+      const sanitized = original.replace(/[^\d]/g, '');
+      if (sanitized !== original) {
+        input.value = sanitized;
+        setRangeWarning(warningEl, 'Integer values only.');
+      } else if (warningEl && warningEl.textContent === 'Integer values only.') {
+        setRangeWarning(warningEl, '');
+      }
+    });
+  };
+
+  const validateExperienceRange = () => {
+    const minVal = expMinInput && expMinInput.value.trim() !== '' ? parseInt(expMinInput.value, 10) : null;
+    const maxVal = expMaxInput && expMaxInput.value.trim() !== '' ? parseInt(expMaxInput.value, 10) : null;
+    if (minVal != null && maxVal != null && minVal > maxVal) {
+      setRangeWarning(expRangeWarning, 'Min cannot be greater than max.');
+      return false;
+    }
+    if (expRangeWarning && expRangeWarning.textContent === 'Min cannot be greater than max.') {
+      setRangeWarning(expRangeWarning, '');
+    }
+    return true;
+  };
+
+  enforceIntegerOnly(expMinInput, expRangeWarning);
+  enforceIntegerOnly(expMaxInput, expRangeWarning);
+
   const applyFilters = async () => {
+    if (!validateExperienceRange()) {
+      return;
+    }
     await fetchAlumniPage({ reset: true });
   };
 
@@ -1092,6 +1151,8 @@ function setupFiltering() {
       const expMaxInput = document.getElementById('expMax');
       if (expMinInput) expMinInput.value = '';
       if (expMaxInput) expMaxInput.value = '';
+      if (includeUnknownExperience) includeUnknownExperience.checked = false;
+      setRangeWarning(expRangeWarning, '');
       await applyFilters();
     });
   }
@@ -1106,7 +1167,7 @@ function setupFiltering() {
   }
 
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax, #includeUnknownExperience')) {
       applyFilters();
     }
   });

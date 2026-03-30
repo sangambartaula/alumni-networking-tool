@@ -1132,6 +1132,13 @@
   box-shadow: 0 0 0 3px rgba(16,185,129,0.12);
 }
 
+.input-warning {
+  min-height: 16px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b91c1c;
+}
+
 .analytics-filter-action-btn {
   padding: 9px 16px;
   background: linear-gradient(135deg, var(--emerald-500), var(--emerald-700));

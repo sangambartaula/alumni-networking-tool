@@ -992,6 +992,8 @@ def api_get_alumni():
         # Experience range filter (in months)
         exp_min_raw = request.args.get('exp_min', '')
         exp_max_raw = request.args.get('exp_max', '')
+        include_unknown_experience_raw = (request.args.get('include_unknown_experience', '0') or '0').strip().lower()
+        include_unknown_experience = include_unknown_experience_raw in {'1', 'true', 'yes'}
         exp_min = None
         exp_max = None
         try:
@@ -1125,11 +1127,20 @@ def api_get_alumni():
                     )
 
                 # Experience range filter (values in months)
-                if exp_min is not None and exp_min > 0:
-                    where_clauses.append("CAST(COALESCE(NULLIF(a.relevant_experience_months, ''), 0) AS INTEGER) >= %s")
+                experience_expr = "CAST(NULLIF(a.relevant_experience_months, '') AS INTEGER)"
+                experience_unknown_expr = "NULLIF(a.relevant_experience_months, '') IS NULL"
+
+                if exp_min is not None and exp_min >= 0:
+                    if include_unknown_experience:
+                        where_clauses.append(f"(({experience_expr} >= %s) OR ({experience_unknown_expr}))")
+                    else:
+                        where_clauses.append(f"{experience_expr} >= %s")
                     params.append(exp_min)
                 if exp_max is not None and exp_max >= 0:
-                    where_clauses.append("CAST(COALESCE(NULLIF(a.relevant_experience_months, ''), 0) AS INTEGER) <= %s")
+                    if include_unknown_experience:
+                        where_clauses.append(f"(({experience_expr} <= %s) OR ({experience_unknown_expr}))")
+                    else:
+                        where_clauses.append(f"{experience_expr} <= %s")
                     params.append(exp_max)
 
                 if bookmarked_only:

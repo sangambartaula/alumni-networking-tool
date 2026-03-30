@@ -31,6 +31,59 @@ function normalizeDegreeToFilterLabel(value) {
   return '';
 }
 
+function setInputWarning(warningEl, message) {
+  if (!warningEl) return;
+  warningEl.textContent = message || '';
+}
+
+function enforceIntegerOnlyInput(inputEl, warningEl) {
+  if (!inputEl) return;
+
+  inputEl.addEventListener('beforeinput', (e) => {
+    if (e.data == null) return;
+    if (e.data === '.') {
+      e.preventDefault();
+      setInputWarning(warningEl, 'Integer values only.');
+      return;
+    }
+    if (!/^\d+$/.test(e.data)) {
+      e.preventDefault();
+      setInputWarning(warningEl, 'Integer values only.');
+    }
+  });
+
+  inputEl.addEventListener('input', () => {
+    const original = inputEl.value;
+    const sanitized = original.replace(/[^\d]/g, '');
+    if (sanitized !== original) {
+      inputEl.value = sanitized;
+      setInputWarning(warningEl, 'Integer values only.');
+      return;
+    }
+    if (warningEl && warningEl.textContent === 'Integer values only.') {
+      setInputWarning(warningEl, '');
+    }
+  });
+}
+
+function parseValidatedIntegerRange(minInputEl, maxInputEl, warningEl) {
+  const minRaw = minInputEl ? minInputEl.value.trim() : '';
+  const maxRaw = maxInputEl ? maxInputEl.value.trim() : '';
+  const minVal = minRaw !== '' ? parseInt(minRaw, 10) : null;
+  const maxVal = maxRaw !== '' ? parseInt(maxRaw, 10) : null;
+
+  if (minVal != null && maxVal != null && minVal > maxVal) {
+    setInputWarning(warningEl, 'Min cannot be greater than max.');
+    return { valid: false, min: null, max: null };
+  }
+
+  if (warningEl && warningEl.textContent === 'Min cannot be greater than max.') {
+    setInputWarning(warningEl, '');
+  }
+
+  return { valid: true, min: minVal, max: maxVal };
+}
+
 const analyticsExportState = {
   mode: 'full',
   isExporting: false,
@@ -124,12 +177,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const lineToInput   = document.getElementById('lineChartYearTo');
   const lineApplyBtn  = document.getElementById('lineChartApplyRangeBtn');
   const lineResetBtn  = document.getElementById('lineChartResetRangeBtn');
+  const lineChartYearWarning = document.getElementById('lineChartYearWarning');
+
+  enforceIntegerOnlyInput(lineFromInput, lineChartYearWarning);
+  enforceIntegerOnlyInput(lineToInput, lineChartYearWarning);
 
   function applyLineChartRange() {
-    const fromVal = lineFromInput ? lineFromInput.value.trim() : '';
-    const toVal   = lineToInput   ? lineToInput.value.trim()   : '';
-    lineChartViewMin = fromVal !== '' ? parseInt(fromVal, 10) : null;
-    lineChartViewMax = toVal   !== '' ? parseInt(toVal,   10) : null;
+    const parsed = parseValidatedIntegerRange(lineFromInput, lineToInput, lineChartYearWarning);
+    if (!parsed.valid) return;
+    lineChartViewMin = parsed.min;
+    lineChartViewMax = parsed.max;
     // Re-render graduation chart for the same year window
     const filteredData = filterAlumniData(alumniData);
     renderGraduationLineChart(filteredData);
@@ -147,6 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lineChartViewMax = null;
     if (lineFromInput) lineFromInput.value = '';
     if (lineToInput)   lineToInput.value   = '';
+    setInputWarning(lineChartYearWarning, '');
     const filteredData = filterAlumniData(alumniData);
     renderGraduationLineChart(filteredData);
     updateHeatmapButtonUrl();
@@ -227,6 +285,7 @@ function initializeAnalyticsFilterUI() {
   const addLocationBtn = document.getElementById('analyticsAddLocationFilterBtn');
   const addCompanyBtn = document.getElementById('analyticsAddCompanyFilterBtn');
   const untAlumniStatusSelect = document.getElementById('analyticsUntAlumniStatusSelect');
+  const gradYearWarning = document.getElementById('analyticsGradYearWarning');
 
   if (untAlumniStatusSelect) {
     untAlumniStatusSelect.value = selectedUntAlumniStatus || '';
@@ -241,12 +300,16 @@ function initializeAnalyticsFilterUI() {
   // Grad Year Range inputs
   const gradYearMinInput = document.getElementById('analyticsGradYearMin');
   const gradYearMaxInput = document.getElementById('analyticsGradYearMax');
+  enforceIntegerOnlyInput(gradYearMinInput, gradYearWarning);
+  enforceIntegerOnlyInput(gradYearMaxInput, gradYearWarning);
 
   if (gradYearMinInput) {
     if (gradYearRangeMin != null) gradYearMinInput.value = gradYearRangeMin;
     gradYearMinInput.addEventListener('change', () => {
-      const v = gradYearMinInput.value;
-      gradYearRangeMin = v !== '' ? parseInt(v, 10) : null;
+      const parsed = parseValidatedIntegerRange(gradYearMinInput, gradYearMaxInput, gradYearWarning);
+      if (!parsed.valid) return;
+      gradYearRangeMin = parsed.min;
+      gradYearRangeMax = parsed.max;
       saveHiddenFiltersToStorage();
       updateAnalyticsFilterUI();
       renderAnalytics();
@@ -256,8 +319,10 @@ function initializeAnalyticsFilterUI() {
   if (gradYearMaxInput) {
     if (gradYearRangeMax != null) gradYearMaxInput.value = gradYearRangeMax;
     gradYearMaxInput.addEventListener('change', () => {
-      const v = gradYearMaxInput.value;
-      gradYearRangeMax = v !== '' ? parseInt(v, 10) : null;
+      const parsed = parseValidatedIntegerRange(gradYearMinInput, gradYearMaxInput, gradYearWarning);
+      if (!parsed.valid) return;
+      gradYearRangeMin = parsed.min;
+      gradYearRangeMax = parsed.max;
       saveHiddenFiltersToStorage();
       updateAnalyticsFilterUI();
       renderAnalytics();
@@ -303,6 +368,7 @@ function initializeAnalyticsFilterUI() {
     const maxInput = document.getElementById('analyticsGradYearMax');
     if (minInput) minInput.value = '';
     if (maxInput) maxInput.value = '';
+    setInputWarning(gradYearWarning, '');
     document.querySelectorAll('#analyticsMajorChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
     document.querySelectorAll('#analyticsDegreeChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
     document.querySelectorAll('#analyticsSeniorityChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
@@ -654,6 +720,8 @@ function updateAnalyticsFilterUI() {
   const locationCountSpan = document.getElementById('analyticsLocationFilterCount');
   const companyCountSpan = document.getElementById('analyticsCompanyFilterCount');
   const untAlumniStatusTag = document.getElementById('analyticsUntAlumniStatusTag');
+  const seniorityTagsContainer = document.getElementById('analyticsSeniorityFilterTags');
+  const degreeTagsContainer = document.getElementById('analyticsDegreeFilterTags');
   const badge = document.getElementById('analyticsFilterBadge');
   const clearBtn = document.getElementById('analyticsClearAllFiltersBtn');
 
@@ -740,6 +808,52 @@ function updateAnalyticsFilterUI() {
       `;
     }
   }
+
+  if (seniorityTagsContainer) {
+    if (selectedAnalyticsSeniorities.size === 0) {
+      seniorityTagsContainer.innerHTML = '<span class="empty-analytics-filters-message">All levels</span>';
+    } else {
+      seniorityTagsContainer.innerHTML = Array.from(selectedAnalyticsSeniorities)
+        .map(level => `
+          <span class="analytics-filter-tag">
+            <span>${level}</span>
+            <button class="analytics-filter-tag-remove" onclick="removeAnalyticsSeniorityFilter('${level.replace(/'/g, "\\'")}')">×</button>
+          </span>
+        `).join('');
+    }
+  }
+
+  if (degreeTagsContainer) {
+    if (selectedAnalyticsDegrees.size === 0) {
+      degreeTagsContainer.innerHTML = '<span class="empty-analytics-filters-message">All degrees</span>';
+    } else {
+      degreeTagsContainer.innerHTML = Array.from(selectedAnalyticsDegrees)
+        .map(level => `
+          <span class="analytics-filter-tag">
+            <span>${level}</span>
+            <button class="analytics-filter-tag-remove" onclick="removeAnalyticsDegreeFilter('${level.replace(/'/g, "\\'")}')">×</button>
+          </span>
+        `).join('');
+    }
+  }
+}
+
+function removeAnalyticsSeniorityFilter(level) {
+  selectedAnalyticsSeniorities.delete(level);
+  const input = document.querySelector(`#analyticsSeniorityChecks input[value="${CSS.escape(level)}"]`);
+  if (input) input.checked = false;
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
+}
+
+function removeAnalyticsDegreeFilter(level) {
+  selectedAnalyticsDegrees.delete(level);
+  const input = document.querySelector(`#analyticsDegreeChecks input[value="${CSS.escape(level)}"]`);
+  if (input) input.checked = false;
+  saveHiddenFiltersToStorage();
+  updateAnalyticsFilterUI();
+  renderAnalytics();
 }
 
 function clearUntAlumniStatusFilter() {
@@ -756,8 +870,10 @@ function clearGradYearRangeFilter() {
   gradYearRangeMax = null;
   const minInput = document.getElementById('analyticsGradYearMin');
   const maxInput = document.getElementById('analyticsGradYearMax');
+  const gradYearWarning = document.getElementById('analyticsGradYearWarning');
   if (minInput) minInput.value = '';
   if (maxInput) maxInput.value = '';
+  setInputWarning(gradYearWarning, '');
   saveHiddenFiltersToStorage();
   updateAnalyticsFilterUI();
   renderAnalytics();

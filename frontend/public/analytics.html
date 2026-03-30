@@ -137,6 +137,7 @@
             <input id="analyticsGradYearMax" type="number" placeholder="To (e.g. 2020)"
               class="analytics-filter-input" min="1900" max="2100" style="flex:1;" />
           </div>
+          <div id="analyticsGradYearWarning" class="input-warning" aria-live="polite"></div>
         </div>
 
         <div class="analytics-filter-group">
@@ -197,6 +198,22 @@
           </span>
           <div class="analytics-filter-tags" id="analyticsGradYearRangeTag">
             <span class="empty-analytics-filters-message">All years</span>
+          </div>
+        </div>
+        <div style="margin-top: 16px;">
+          <span class="analytics-filter-tags-label">
+            <i class="fas fa-user-tie"></i> Seniority
+          </span>
+          <div class="analytics-filter-tags" id="analyticsSeniorityFilterTags">
+            <span class="empty-analytics-filters-message">All levels</span>
+          </div>
+        </div>
+        <div style="margin-top: 16px;">
+          <span class="analytics-filter-tags-label">
+            <i class="fas fa-scroll"></i> Degree
+          </span>
+          <div class="analytics-filter-tags" id="analyticsDegreeFilterTags">
+            <span class="empty-analytics-filters-message">All degrees</span>
           </div>
         </div>
       </div>
@@ -375,6 +392,7 @@
                 <i class="fas fa-map-marked-alt"></i> Show Heatmap
               </a>
             </div>
+            <div id="lineChartYearWarning" class="input-warning" aria-live="polite"></div>
           </div>
           <div id="gradChartRangeIndicator" class="grad-chart-range-indicator" style="display:none;"></div>
           <div class="chart-wrapper">

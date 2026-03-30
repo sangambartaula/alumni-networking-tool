@@ -38,6 +38,59 @@ function normalizeDegreeToFilterLabel(value) {
   return '';
 }
 
+function setInputWarning(warningEl, message) {
+  if (!warningEl) return;
+  warningEl.textContent = message || '';
+}
+
+function enforceIntegerOnlyInput(inputEl, warningEl) {
+  if (!inputEl) return;
+
+  inputEl.addEventListener('beforeinput', (e) => {
+    if (e.data == null) return;
+    if (e.data === '.') {
+      e.preventDefault();
+      setInputWarning(warningEl, 'Integer values only.');
+      return;
+    }
+    if (!/^\d+$/.test(e.data)) {
+      e.preventDefault();
+      setInputWarning(warningEl, 'Integer values only.');
+    }
+  });
+
+  inputEl.addEventListener('input', () => {
+    const original = inputEl.value;
+    const sanitized = original.replace(/[^\d]/g, '');
+    if (sanitized !== original) {
+      inputEl.value = sanitized;
+      setInputWarning(warningEl, 'Integer values only.');
+      return;
+    }
+    if (warningEl && warningEl.textContent === 'Integer values only.') {
+      setInputWarning(warningEl, '');
+    }
+  });
+}
+
+function parseValidatedIntegerRange(minInputEl, maxInputEl, warningEl) {
+  const minRaw = minInputEl ? minInputEl.value.trim() : '';
+  const maxRaw = maxInputEl ? maxInputEl.value.trim() : '';
+  const minVal = minRaw !== '' ? parseInt(minRaw, 10) : null;
+  const maxVal = maxRaw !== '' ? parseInt(maxRaw, 10) : null;
+
+  if (minVal != null && maxVal != null && minVal > maxVal) {
+    setInputWarning(warningEl, 'Min cannot be greater than max.');
+    return { valid: false, min: null, max: null };
+  }
+
+  if (warningEl && warningEl.textContent === 'Min cannot be greater than max.') {
+    setInputWarning(warningEl, '');
+  }
+
+  return { valid: true, min: minVal, max: maxVal };
+}
+
 // Track all available locations and companies for autocomplete
 let allLocations = new Set();
 let allCompanies = new Set();
@@ -1775,8 +1828,10 @@ function initializeFilterUI() {
       if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
       const gradFromEl = document.getElementById('heatmapGradYearFrom');
       const gradToEl   = document.getElementById('heatmapGradYearTo');
+      const gradYearWarning = document.getElementById('heatmapGradYearWarning');
       if (gradFromEl) gradFromEl.value = '';
       if (gradToEl)   gradToEl.value   = '';
+      setInputWarning(gradYearWarning, '');
       document.querySelectorAll('#heatmapMajorChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
       document.querySelectorAll('#heatmapDegreeChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
       document.querySelectorAll('#heatmapSeniorityChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
@@ -1791,6 +1846,10 @@ function initializeFilterUI() {
   const applyGradYearBtn = document.getElementById('applyGradYearFilterBtn');
   const gradFromEl = document.getElementById('heatmapGradYearFrom');
   const gradToEl   = document.getElementById('heatmapGradYearTo');
+  const gradYearWarning = document.getElementById('heatmapGradYearWarning');
+
+  enforceIntegerOnlyInput(gradFromEl, gradYearWarning);
+  enforceIntegerOnlyInput(gradToEl, gradYearWarning);
 
   // Pre-populate inputs from URL params or localStorage
   if (gradFromEl && filterGradYearFrom != null) gradFromEl.value = String(filterGradYearFrom);
@@ -1798,10 +1857,10 @@ function initializeFilterUI() {
 
   if (applyGradYearBtn) {
     applyGradYearBtn.addEventListener('click', () => {
-      const rawFrom = gradFromEl ? gradFromEl.value.trim() : '';
-      const rawTo   = gradToEl   ? gradToEl.value.trim()   : '';
-      filterGradYearFrom = rawFrom ? (parseInt(rawFrom, 10) || null) : null;
-      filterGradYearTo   = rawTo   ? (parseInt(rawTo,   10) || null) : null;
+      const parsed = parseValidatedIntegerRange(gradFromEl, gradToEl, gradYearWarning);
+      if (!parsed.valid) return;
+      filterGradYearFrom = parsed.min;
+      filterGradYearTo = parsed.max;
       saveHiddenFiltersToStorage();
       updateFilterUI();
       updateFilterBadge();
@@ -1955,6 +2014,8 @@ function updateFilterUI() {
 
   // Graduation year tag
   const gradYearTag = document.getElementById('heatmapGradYearTag');
+  const seniorityTag = document.getElementById('heatmapSeniorityTag');
+  const degreeTag = document.getElementById('heatmapDegreeTag');
   if (gradYearTag) {
     if (filterGradYearFrom == null && filterGradYearTo == null) {
       gradYearTag.innerHTML = '<span class="empty-analytics-filters-message">All years</span>';
@@ -1969,6 +2030,36 @@ function updateFilterUI() {
           <button class="analytics-filter-tag-remove" onclick="clearGradYearInlineFilter()">×</button>
         </span>
       `;
+    }
+  }
+
+  if (seniorityTag) {
+    if (selectedHeatmapSeniorities.size === 0) {
+      seniorityTag.innerHTML = '<span class="empty-analytics-filters-message">All levels</span>';
+    } else {
+      seniorityTag.innerHTML = Array.from(selectedHeatmapSeniorities)
+        .map((level) => `
+          <span class="analytics-filter-tag">
+            <span>${escapeHtml(level)}</span>
+            <button class="analytics-filter-tag-remove" onclick="removeHeatmapSeniorityFilter('${level.replace(/'/g, "\\'")}')">×</button>
+          </span>
+        `)
+        .join('');
+    }
+  }
+
+  if (degreeTag) {
+    if (selectedHeatmapDegrees.size === 0) {
+      degreeTag.innerHTML = '<span class="empty-analytics-filters-message">All degrees</span>';
+    } else {
+      degreeTag.innerHTML = Array.from(selectedHeatmapDegrees)
+        .map((level) => `
+          <span class="analytics-filter-tag">
+            <span>${escapeHtml(level)}</span>
+            <button class="analytics-filter-tag-remove" onclick="removeHeatmapDegreeFilter('${level.replace(/'/g, "\\'")}')">×</button>
+          </span>
+        `)
+        .join('');
     }
   }
 }
@@ -1990,6 +2081,28 @@ function clearGradYearInlineFilter() {
   const gradToEl   = document.getElementById('heatmapGradYearTo');
   if (gradFromEl) gradFromEl.value = '';
   if (gradToEl)   gradToEl.value   = '';
+  const gradYearWarning = document.getElementById('heatmapGradYearWarning');
+  setInputWarning(gradYearWarning, '');
+  saveHiddenFiltersToStorage();
+  updateFilterUI();
+  updateFilterBadge();
+  reloadMapData();
+}
+
+function removeHeatmapSeniorityFilter(level) {
+  selectedHeatmapSeniorities.delete(level);
+  const input = document.querySelector(`#heatmapSeniorityChecks input[value="${CSS.escape(level)}"]`);
+  if (input) input.checked = false;
+  saveHiddenFiltersToStorage();
+  updateFilterUI();
+  updateFilterBadge();
+  reloadMapData();
+}
+
+function removeHeatmapDegreeFilter(level) {
+  selectedHeatmapDegrees.delete(level);
+  const input = document.querySelector(`#heatmapDegreeChecks input[value="${CSS.escape(level)}"]`);
+  if (input) input.checked = false;
   saveHiddenFiltersToStorage();
   updateFilterUI();
   updateFilterBadge();
