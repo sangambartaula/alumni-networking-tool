@@ -250,6 +250,7 @@ class ConnectionManager:
                     standardized_major TEXT,
                     standardized_major2 TEXT,
                     standardized_major3 TEXT,
+                    standardized_major_alt TEXT,
                     job_1_relevance_score REAL,
                     job_2_relevance_score REAL,
                     job_3_relevance_score REAL,
@@ -402,6 +403,8 @@ class ConnectionManager:
             ("updated_at", "TEXT"),
             # Discipline classification
             ("discipline", "TEXT"),
+            # Secondary major for multi-entry mapping (CS&E -> CS + CE)
+            ("standardized_major_alt", "TEXT"),
         ]
         for col_name, col_type in _migration_cols:
             try:

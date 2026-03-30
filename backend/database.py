@@ -18,23 +18,22 @@ APPROVED_ENGINEERING_DISCIPLINES = {
 }
 
 UNT_ALLOWED_MAJORS = {
-    "Autonomous Systems",
+    "Artificial Intelligence",
     "Biomedical Engineering",
     "Computer Engineering",
     "Computer Science",
-    "Computer Science and Engineering",
+    "Construction Engineering Technology",
     "Construction Management",
     "Cybersecurity",
     "Data Engineering",
     "Electrical Engineering",
     "Engineering Management",
-    "Engineering Technology",
+    "Geographic Information Systems + Computer Science",
     "Information Technology",
-    "Machine Learning",
-    "Materials Science",
     "Materials Science and Engineering",
     "Mechanical and Energy Engineering",
     "Mechanical Engineering Technology",
+    "Semiconductor Manufacturing Engineering",
     "Other",
 }
 
@@ -847,6 +846,8 @@ def ensure_education_columns():
         ("standardized_major",    "VARCHAR(255) DEFAULT NULL"),
         ("standardized_major2",   "VARCHAR(255) DEFAULT NULL"),
         ("standardized_major3",   "VARCHAR(255) DEFAULT NULL"),
+        # Secondary major for multi-entry mapping (CS&E -> CS + CE)
+        ("standardized_major_alt","VARCHAR(255) DEFAULT NULL"),
     ]
     conn = None
     try:

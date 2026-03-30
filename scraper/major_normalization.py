@@ -2,68 +2,95 @@
 Major Normalization Module
 
 Strictly maps raw major text to an approved UNT major list or "Other".
+
+Multi-entry handling:
+  "Computer Science and Engineering" is the only raw major that maps to TWO
+  canonical majors: "Computer Science" AND "Computer Engineering".  The helper
+  ``standardize_major_list()`` returns a list (length 1 for normal majors,
+  length 2 for the CS&E case).  The legacy ``standardize_major()`` keeps its
+  single-string return for backward compatibility (returns the primary entry).
 """
 
 import json
 import logging
 import os
 import re
+from typing import List
 
 logger = logging.getLogger(__name__)
 
-# Allowed UNT majors provided by product requirements.
+# ── Degree-agnostic normalized majors list (product requirements v2) ─────────
 UNT_ALLOWED_MAJORS = [
-    "Autonomous Systems",
+    "Artificial Intelligence",
     "Biomedical Engineering",
     "Computer Engineering",
     "Computer Science",
-    "Computer Science and Engineering",
+    "Construction Engineering Technology",
     "Construction Management",
     "Cybersecurity",
     "Data Engineering",
     "Electrical Engineering",
     "Engineering Management",
-    "Engineering Technology",
+    "Geographic Information Systems + Computer Science",
     "Information Technology",
-    "Machine Learning",
-    "Materials Science",
     "Materials Science and Engineering",
     "Mechanical and Energy Engineering",
     "Mechanical Engineering Technology",
+    "Semiconductor Manufacturing Engineering",
     "Other",
 ]
+
+# Internal sentinel for the only multi-entry raw major.
+_CSE_MULTI = "__CSE_MULTI__"
 
 # For LLM ID mapping (exclude Other; 0 means Other).
 CANONICAL_MAJORS = [m for m in UNT_ALLOWED_MAJORS if m != "Other"]
 _CANONICAL_MAJOR_BY_LOWER = {m.lower(): m for m in CANONICAL_MAJORS}
 
 # High-signal exact aliases.
+# Values may be a canonical string OR ``_CSE_MULTI`` for the dual-mapped case.
 _EXACT_MAJOR_MAP = {
-    "cse": "Computer Science and Engineering",
+    "cse": _CSE_MULTI,
+    "cs&e": _CSE_MULTI,
+    "computer science and engineering": _CSE_MULTI,
     "ece": "Electrical Engineering",
+    "ee": "Electrical Engineering",
     "computer and information sciences": "Computer Science",
     "computer and information sciences and support services": "Computer Science",
     "computer and information sciences, general": "Computer Science",
-    "computer and information systems security/information assurance": "Computer Science",
+    "computer and information systems security/information assurance": "Cybersecurity",
+    "gis": "Geographic Information Systems + Computer Science",
+    "geographic information systems": "Geographic Information Systems + Computer Science",
+    "geographic information science": "Geographic Information Systems + Computer Science",
+    "semiconductor manufacturing": "Semiconductor Manufacturing Engineering",
+    "semiconductor engineering": "Semiconductor Manufacturing Engineering",
+    "autonomous systems": "Other",
+    "robotics": "Other",
+    "machine learning": "Artificial Intelligence",
+    "materials science": "Materials Science and Engineering",
+    "engineering technology": "Mechanical Engineering Technology",
     "btech": "Other",
     "student": "Other",
     "other": "Other",
 }
 
 # Ordered regex mapping; first match wins.
+# Values may be a canonical string OR ``_CSE_MULTI``.
 _MAJOR_PATTERNS = [
-    # Autonomous/robotics
-    (re.compile(r"\b(autonomous\s+systems?|robotics(\s+engineering)?)\b", re.I), "Autonomous Systems"),
+    # CS&E multi-entry (must precede CS / CE patterns)
+    (re.compile(r"\b(computer\s+science\s+and\s+engineering|c\.?\s*s\.?\s*and\s*e\.?|cs\s*&\s*e)\b", re.I), _CSE_MULTI),
 
     # Computer stack
-    (re.compile(r"\b(computer\s+science\s+and\s+engineering|c\.?\s*s\.?\s*and\s*e\.?|cs\s*&\s*e)\b", re.I), "Computer Science and Engineering"),
     (re.compile(r"\b(computer\s+engineering|comp\.?\s*eng|computer\s*hardware\s*engineering)\b", re.I), "Computer Engineering"),
     (re.compile(r"\b(computer\s+science|computer\s+and\s+information\s+sciences?(?:\s+and\s+support\s+services)?(?:,\s*general)?|computer\s+programming(?:,\s*specific\s+applications)?|c\.?\s*s\.?\b)\b", re.I), "Computer Science"),
 
     # Security / data / AI
-    (re.compile(r"\b(cyber\s*security|infosec)\b", re.I), "Cybersecurity"),
+    (re.compile(r"\b(cyber\s*security|infosec|information\s+assurance)\b", re.I), "Cybersecurity"),
     (re.compile(r"\b(data\s+engineering|data\s+science|visual\s+analytics|health\s+data)\b", re.I), "Data Engineering"),
-    (re.compile(r"\b(machine\s+learning|artificial\s+intelligence|ai)\b", re.I), "Machine Learning"),
+    (re.compile(r"\b(artificial\s+intelligence|machine\s+learning|ai(?:\s+engineering)?)\b", re.I), "Artificial Intelligence"),
+
+    # GIS + CS
+    (re.compile(r"\b(geographic\s+information\s+(?:systems?|science)|gis)\b", re.I), "Geographic Information Systems + Computer Science"),
 
     # IT / info systems
     (re.compile(r"\b(information\s+technology|information\s+systems?\s*(?:and|&)\s*technolog(?:y|ies)|information\s+systems?|information\s+science(?:\s*/\s*information\s+systems)?|information\s+science\/studies|informations\s+systems\s+and\s+technologies)\b", re.I), "Information Technology"),
@@ -71,15 +98,19 @@ _MAJOR_PATTERNS = [
     # Core engineering
     (re.compile(r"\b(biomedical\s+engineering|biomedical\s+sciences?)\b", re.I), "Biomedical Engineering"),
     (re.compile(r"\b(electrical\s+engineering|electronics\s+engineering|microwaves?\s+and\s+communication)\b", re.I), "Electrical Engineering"),
-    (re.compile(r"\b(materials?\s+science\s+and\s+engineering)\b", re.I), "Materials Science and Engineering"),
-    (re.compile(r"\b(materials?\s+science)\b", re.I), "Materials Science"),
+    (re.compile(r"\b(materials?\s+science\s+and\s+engineering|materials?\s+science)\b", re.I), "Materials Science and Engineering"),
     (re.compile(r"\b(mechanical\s*(?:and|&)\s*energy\s*engineering|mechanical\s+engineering)\b", re.I), "Mechanical and Energy Engineering"),
-    (re.compile(r"\b(mechanical\s+engineering\s+technology|engineering\s+technology)\b", re.I), "Mechanical Engineering Technology"),
-    (re.compile(r"\b(construction\s+management|construction\s+engineering\s+technology|building\s+construction\s+technology)\b", re.I), "Construction Management"),
+    (re.compile(r"\b(mechanical\s+engineering\s+technology)\b", re.I), "Mechanical Engineering Technology"),
+    (re.compile(r"\b(construction\s+engineering\s+technology|building\s+construction\s+technology)\b", re.I), "Construction Engineering Technology"),
+    (re.compile(r"\b(construction\s+management)\b", re.I), "Construction Management"),
+    (re.compile(r"\b(semiconductor\s+(?:manufacturing\s+)?engineering)\b", re.I), "Semiconductor Manufacturing Engineering"),
 
     # Management
     (re.compile(r"\b(engineering\s+management|engineering\s*/\s*industrial\s*management|engineering\s*technology\s*&\s*management|industrial\s+management)\b", re.I), "Engineering Management"),
 ]
+
+# The two canonical majors that "Computer Science and Engineering" expands to.
+_CSE_EXPANSION = ["Computer Science", "Computer Engineering"]
 
 
 def _strip_minor_noise(text: str) -> str:
@@ -157,38 +188,58 @@ def _coerce_llm_major_choice(payload: dict | None) -> str:
     return "Other"
 
 
-def standardize_major(raw_major: str, job_title: str = "") -> str:
+def standardize_major_list(raw_major: str, job_title: str = "") -> List[str]:
     """
-    Map raw major to one of UNT_ALLOWED_MAJORS, else "Other".
+    Map *raw_major* to one or more canonical UNT majors.
+
+    Returns a **list** -- normally length-1.  The only multi-entry case is
+    ``"Computer Science and Engineering"`` which expands to
+    ``["Computer Science", "Computer Engineering"]``.
+
+    If the raw text cannot be resolved, returns ``["Other"]``.
     """
     if not raw_major or not raw_major.strip():
-        return "Other"
+        return ["Other"]
 
     text = _strip_minor_noise(raw_major)
     if not text:
-        return "Other"
+        return ["Other"]
+
+    def _resolve(value):
+        if value == _CSE_MULTI:
+            return list(_CSE_EXPANSION)
+        return [value]
 
     exact = _EXACT_MAJOR_MAP.get(text.lower())
     if exact:
-        return exact
+        return _resolve(exact)
 
     direct = _CANONICAL_MAJOR_BY_LOWER.get(text.lower())
     if direct:
-        return direct
+        return _resolve(direct)
 
     for pattern, canonical in _MAJOR_PATTERNS:
         if pattern.search(text):
-            return canonical
+            return _resolve(canonical)
 
-    # LLM fallback is strict (major_id only) and enabled by default.
-    # Any non-integer/invalid output still resolves to "Other".
     use_llm_fallback = os.getenv("MAJOR_USE_GROQ_FALLBACK", "1") == "1"
     if use_llm_fallback and os.getenv("GROQ_API_KEY"):
         llm_result = _standardize_major_with_llm(text, job_title)
         if llm_result in UNT_ALLOWED_MAJORS:
-            return llm_result
+            return [llm_result]
 
-    return "Other"
+    return ["Other"]
+
+
+def standardize_major(raw_major: str, job_title: str = "") -> str:
+    """
+    Backward-compatible wrapper: returns the **primary** canonical major.
+
+    For the CS&E multi-entry case this returns ``"Computer Science"``
+    (the first element).  Use ``standardize_major_list()`` when you need
+    the full expansion.
+    """
+    return standardize_major_list(raw_major, job_title)[0]
 
 
 def _standardize_major_with_llm(raw_major: str, job_title: str) -> str:
