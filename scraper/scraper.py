@@ -748,13 +748,10 @@ class LinkedInScraper:
                     self._append_standardization_log("standardized_degree.txt", raw_deg, std_deg)
 
                 if raw_maj:
-                    if suffix == "":
-                        majors = standardize_major_list(raw_maj, data.get("job_title", ""))
-                        data[std_maj_key] = majors[0]
-                        if len(majors) > 1:
-                            data["standardized_major_alt"] = majors[1]
-                    else:
-                        data[std_maj_key] = standardize_major(raw_maj, data.get("job_title", ""))
+                    majors = standardize_major_list(raw_maj, data.get("job_title", ""))
+                    data[std_maj_key] = majors[0]
+                    if suffix == "" and len(majors) > 1:
+                        data["standardized_major_alt"] = majors[1]
                     self._append_standardization_log("standardized_major.txt", raw_maj, data[std_maj_key])
 
             education_entries = []
