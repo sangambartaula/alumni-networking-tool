@@ -10,9 +10,10 @@ fi
 
 # Force clear old cached builds
 echo "Clearing old build cache..."
-rm -rf "build/UNT Alumni Scraper"
+rm -rf "build"
 rm -rf "dist/UNT Alumni Scraper.app"
-rm -f "UNT Alumni Scraper.spec"
+rm -rf "dist/Alumni Scraper App.app"
+rm -f *.spec
 
 # Install requirements
 echo "Installing PyQt6 and PyInstaller..."
@@ -21,7 +22,7 @@ pip install PyQt6 pyinstaller python-dotenv
 # Build using PyInstaller
 echo "Bundling App..."
 pyinstaller --clean \
-            --name "UNT Alumni Scraper" \
+            --name "Alumni Scraper App" \
             --windowed \
             --noconfirm \
             scraper_gui.py
