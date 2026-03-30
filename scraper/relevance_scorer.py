@@ -1,34 +1,45 @@
 """
 Groq-based job relevance scoring and experience months computation.
 
-=== SCORING LOGIC ===
-For each of a person's jobs (up to 3), this module asks the Groq LLM to rate
-how relevant that job is to the person's field of study (major/standardized_major).
-The LLM returns a single float in [0, 1]:
-    0.0 = completely unrelated
-    0.5 = somewhat related
-    1.0 = perfectly aligned
+=== CONTEXT ===
+This tool serves College of Engineering / STEM alumni. The main goal is to
+count career-relevant experience while **filtering obvious non-career jobs**
+(e.g. cashier, retail, warehouse-only roles). Technical and adjacent real-world
+roles (engineering, software, lab/R&D, technical sales, field service
+engineering, etc.) should score as relevant.
 
-=== THRESHOLD REASONING ===
-RELEVANCE_THRESHOLD = 0.8
-We use 0.8 as the boolean cutoff because:
-  - It avoids false positives from tangentially related roles
-  - It aligns with the user's requirement (>= 0.8 → relevant)
-  - Scores 0.6–0.79 are "maybe related" — too noisy to count as relevant
-  - The LLM tends to give ~0.5 for loosely related jobs and ~0.85-1.0 for
-    genuinely field-aligned jobs, so 0.8 sits in the natural gap
+=== SCORING LOGIC ===
+Order: **junk check → LLM (non-junk only) → additive boosts → floors → clamp [0,1]**
+
+1) **Junk titles** (cashier, retail associate, etc.): score **0.10**, no LLM.
+   Technical-looking titles are never treated as junk.
+
+2) **LLM**: Groq returns the base relevance in [0, 1]. If Groq is unavailable
+   or fails, there is no base score unless a **floor** below applies.
+
+3) **Heuristic boosts** (only when LLM returned a score):
+   - Engineering-style title → **+0.05**
+   - Non-empty major matches STEM/engineering patterns → **+0.05**
+
+4) **Floors** (minimum on the boosted score):
+   - TA / RA / grad assistant / peer tutor patterns → minimum **0.65**
+   - Engineering-style title with **no major** stored → minimum **0.60**
+
+5) **Clamp** the final value to **[0, 1]**.
+
+When major is missing, the LLM still runs with a default prompt: assume a
+College-of-Engineering / STEM cohort.
+
+=== THRESHOLD ===
+RELEVANCE_THRESHOLD_RELEVANT = 0.6
+is_relevant is True when score >= 0.6. This keeps solid engineering paths while
+still excluding junk titles (typically <= 0.15).
 
 === RETRY LOGIC ===
 Each job is scored independently with up to MAX_RETRIES=3 attempts.
-On each attempt, the LLM output is strictly validated: it must parse as a
-single float in [0.0, 1.0]. If validation fails, a retry is triggered.
 
 === INPUT / OUTPUT ===
-Input: profile_data dict with job titles, companies, dates, and major
-Output: dict with per-job scores and booleans, plus total relevant months
-
-Structured JSON output is available via get_relevance_json() — returns a list
-of dicts ready for the Experience Engine:
+Structured JSON via get_relevance_json() for the Experience Engine:
     [{"title": "...", "company": "...", "score": 0.82, "is_relevant": true,
       "start_date": "...", "end_date": "..."}, ...]
 
@@ -39,63 +50,170 @@ import re
 from datetime import datetime
 from config import logger
 
-from groq_client import (
-    _get_client, is_groq_available, GROQ_MODEL,
-    parse_groq_json_response, parse_groq_date,
-)
+from groq_client import _get_client, is_groq_available, GROQ_MODEL, parse_groq_date
 
 # ── Relevance Thresholds ──────────────────────────────────────
-# >= 0.8 = relevant (boolean True), < 0.8 = not relevant (boolean False)
-# See module docstring for reasoning.
-RELEVANCE_THRESHOLD_RELEVANT = 0.8
-RELEVANCE_THRESHOLD_UNSURE = 0.4     # 0.4-0.8 = unsure, < 0.4 = not relevant
+# >= 0.6 = relevant (boolean True), < 0.6 = not relevant (boolean False)
+RELEVANCE_THRESHOLD_RELEVANT = 0.6
+RELEVANCE_THRESHOLD_UNSURE = 0.35  # narrative band: below ~0.6 = not relevant
 MAX_RETRIES = 3
 
+# LLM context when major is absent from the profile
+DEFAULT_MAJOR_CONTEXT_FOR_LLM = (
+    "Not listed — assume College of Engineering / STEM alumni; "
+    "favor typical engineering, technology, and applied-science careers."
+)
 
-def score_job_relevance(title, company, major):
+_JUNK_TITLE = re.compile(
+    r'\b('
+    r'cashier|barista|(?:fast[\s-]?food|line)\s+cook|fry\s+cook'
+    r'|server\b|waiter|waitress|host(?:ess)?|busboy|bartender'
+    r'|dishwasher|janitor|custodian|housekeeper|landscaper'
+    r'|security\s+guard|parking\s+attendant'
+    r'|retail\s+associate|stock(?:er| clerk)?|stocker\b|merchandiser'
+    r'|warehouse\s+associate|package\s+handler|picker\b|packer\b'
+    r'|forklift|material\s+handler'
+    r'|delivery\s+driver|(?:uber|lyft|doordash|grubhub)\s+driver'
+    r'|crew\s+member|sandwich\s+artist'
+    r'|customer\s+service\s+rep|call\s+center'
+    r')\b',
+    re.I,
+)
+
+# Technical / engineering-ish titles (College of Engineering oriented)
+_ENGINEERING_TITLE = re.compile(
+    r'\b('
+    r'engineer(?:ing)?'
+    r'|developer|programmer'
+    r'|\b(?:swe|sde|sre)\b|devops|technologist'
+    r'|(?:software|systems|network|security|cloud|data|solutions|platform|'
+    r'infrastructure|machine[\s-]learning|ml)\s+architect'
+    r'|(?:data|research|applied|staff)\s+scientist'
+    r'|research\s+engineer'
+    r'|(?:hardware|firmware|embedded|pcb|asic)\b'
+    r'|(?:qa|quality|validation|test(?:ing)?)\s+engineer'
+    r'|automation\s+engineer'
+    r'|(?:field|applications|manufacturing|process|plant|sales)\s+engineer'
+    r'|(?:mechanical|electrical|civil|chemical|software|systems)\s+engineer'
+    r'|(?:it|technical|technology)\s+(?:analyst|specialist|consultant)'
+    r'|lab\s+(?:technician|engineer|tech)|r\s*&\s*d\b'
+    r')\b',
+    re.I,
+)
+
+_STEM_MAJOR = re.compile(
+    r'\b('
+    r'engineering|engineer\b'
+    r'|computer|software|electrical|mechanical|civil|chemical'
+    r'|aerospace|biomedical|materials|industrial|systems'
+    r'|physics|mathematics|statistics|informatics|technology\b'
+    r'|data\s+science|\bcs\b|\bce\b|\bece\b'
+    r')\b',
+    re.I,
+)
+
+_TA_TITLE = re.compile(
+    r'\b('
+    r'teaching\s+assistant|research\s+assistant|graduate\s+assistant'
+    r'|instructional\s+assistant|academic\s+assistant|learning\s+assistant'
+    r'|(?:under)?graduate\s+researcher|student\s+researcher'
+    r'|peer\s+tutor|\bta\b|\bra\b'
+    r')\b',
+    re.I,
+)
+
+_SCORE_CAP_JUNK = 0.10
+_FLOOR_TA = 0.65
+_FLOOR_ENG_NO_MAJOR_CONTEXT = 0.60
+_BOOST_ENGINEERING_TITLE = 0.05
+_BOOST_STEM_MAJOR_MATCH = 0.05
+
+
+def _is_obviously_non_career_title(title: str) -> bool:
+    t = (title or "").strip()
+    if not t:
+        return False
+    if _ENGINEERING_TITLE.search(t):
+        return False
+    return bool(_JUNK_TITLE.search(t))
+
+
+def apply_relevance_adjustments(title, company, major, llm_score):
     """
-    Use Groq LLM to score how relevant a job is to the person's major/field.
-    
+    Apply boosts and floors to the LLM base score (non-junk titles only).
+
+    Order: additive boosts on LLM base → floors → single clamp to [0, 1].
+    Boosts apply only when ``llm_score`` is not None.
+
     Args:
-        title: Job title (original, not normalized)
-        company: Company name
-        major: Person's field of study / major
-        
+        title: job title
+        company: company name (unused; kept for API stability)
+        major: stored major string (may be empty)
+        llm_score: float from Groq or None if unavailable / invalid
+
     Returns:
-        float between 0.0 and 1.0, or None if scoring fails after retries
-        
-    Edge cases:
-        - Empty/None title or major → returns None (can't score without both)
-        - Empty company → still scores (company is optional context)
-        - LLM returns garbage → retries up to MAX_RETRIES times
+        float in [0, 1], or None if there is no LLM score and no floor applies
     """
-    if not title or not major:
+    _ = company
+    title = (title or "").strip()
+    major = (major or "").strip()
+    m_lower = major.lower()
+
+    if _is_obviously_non_career_title(title):
+        if llm_score is None:
+            return round(_SCORE_CAP_JUNK, 2)
+        return round(min(float(llm_score), _SCORE_CAP_JUNK + 0.05), 2)
+
+    if llm_score is not None:
+        score = float(llm_score)
+        if _ENGINEERING_TITLE.search(title):
+            score += _BOOST_ENGINEERING_TITLE
+        if major and _STEM_MAJOR.search(m_lower):
+            score += _BOOST_STEM_MAJOR_MATCH
+    else:
+        score = 0.0
+
+    t_lower = title.lower()
+    if _TA_TITLE.search(t_lower):
+        score = max(score, _FLOOR_TA)
+    if (not major) and _ENGINEERING_TITLE.search(title):
+        score = max(score, _FLOOR_ENG_NO_MAJOR_CONTEXT)
+
+    score = min(1.0, max(0.0, score))
+
+    if llm_score is None and score == 0.0:
         return None
-    
+
+    return round(score, 2)
+
+
+def _llm_score_job_relevance(title, company, major_for_prompt):
+    """
+    Call Groq and return a validated float in [0, 1], or None.
+    major_for_prompt must be non-empty (use DEFAULT_MAJOR_CONTEXT_FOR_LLM if needed).
+    """
     client = _get_client()
     if not client:
-        logger.debug("Groq not available, skipping relevance scoring")
         return None
-    
-    title = str(title).strip()
+
     company = str(company).strip() if company else ""
-    major = str(major).strip()
-    
+    major_for_prompt = str(major_for_prompt).strip()
+
     prompt = f"""Rate how relevant this job is to the person's field of study.
 
 Job Title: {title}
 Company: {company}
-Field of Study / Major: {major}
+Field of Study / Major: {major_for_prompt}
 
 Consider:
-- Does the job title align with skills typically learned in this major?
-- Is the company in an industry related to this field?
-- Would this job realistically be held by someone with this degree?
+- Does the job title align with skills typical for this major or for engineering/tech alumni?
+- Is the work technical, analytical, or in an industry where this major is common?
+- Adjacent roles (lab, R&D, technical sales, manufacturing engineering, internships) may be highly relevant.
 
 Return ONLY a single number between 0 and 1 (e.g. 0.85).
-- 0.0 = completely unrelated (e.g. fast food worker with Computer Science degree)
-- 0.5 = somewhat related (e.g. IT support with Computer Science degree)
-- 1.0 = perfectly aligned (e.g. Software Engineer with Computer Science degree)
+- 0.0 = clearly unrelated (e.g. cashier, fast food, generic retail with no technical overlap)
+- 0.5 = loosely related
+- 1.0 = strongly aligned (e.g. software developer with Computer Science)
 
 Return ONLY the number. No text, no explanation, no JSON."""
 
@@ -107,47 +225,87 @@ Return ONLY the number. No text, no explanation, no JSON."""
                     {
                         "role": "system",
                         "content": (
-                            "You are a career relevance evaluator. "
+                            "You are a career relevance evaluator for STEM and engineering graduates. "
                             "You MUST respond with ONLY a single decimal number between 0 and 1. "
                             "No words, no explanation, no formatting. Just the number."
-                        )
+                        ),
                     },
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0,
                 max_tokens=10,
             )
-            
+
             result_text = response.choices[0].message.content.strip()
-            
-            # Validate: extract a float from the response
             score = _extract_score(result_text)
             if score is not None:
-                logger.debug(f"Relevance score for '{title}' vs '{major}': {score:.2f}")
+                logger.debug(
+                    "Relevance score for '%s' vs '%s': %.2f", title, major_for_prompt, score
+                )
                 return score
-            
+
             logger.warning(
-                f"⚠️ Groq returned invalid score (attempt {attempt + 1}/{MAX_RETRIES}): '{result_text}'"
+                "⚠️ Groq returned invalid score (attempt %s/%s): '%s'",
+                attempt + 1,
+                MAX_RETRIES,
+                result_text,
             )
-            
+
         except Exception as e:
-            logger.warning(f"⚠️ Groq relevance scoring failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
-    
-    logger.warning(f"❌ Failed to score relevance for '{title}' after {MAX_RETRIES} attempts")
+            logger.warning(
+                "⚠️ Groq relevance scoring failed (attempt %s/%s): %s",
+                attempt + 1,
+                MAX_RETRIES,
+                e,
+            )
+
+    logger.warning("❌ Failed to score relevance for '%s' after %s attempts", title, MAX_RETRIES)
     return None
+
+
+def score_job_relevance(title, company, major):
+    """
+    Score how relevant a job is to the person's major / CoE cohort.
+
+    Args:
+        title: Job title (original, not normalized)
+        company: Company name
+        major: Person's field of study / major (may be empty — LLM uses default context)
+
+    Returns:
+        float between 0.0 and 1.0, or None if no title or no usable signal
+
+    Edge cases:
+        - Empty/None title → None
+        - Empty major → still scored (default alumni context + heuristic floors)
+        - Obvious service/retail titles → low fixed score (no Groq call)
+        - LLM failure → TA / engineering-without-major floors may still yield a score
+    """
+    if not title or not str(title).strip():
+        return None
+
+    title = str(title).strip()
+    company = str(company).strip() if company else ""
+    major_stored = str(major).strip() if major else ""
+
+    if _is_obviously_non_career_title(title):
+        return round(_SCORE_CAP_JUNK, 2)
+
+    major_for_prompt = major_stored if major_stored else DEFAULT_MAJOR_CONTEXT_FOR_LLM
+    llm_score = _llm_score_job_relevance(title, company, major_for_prompt)
+    return apply_relevance_adjustments(title, company, major_stored, llm_score)
 
 
 def _extract_score(text):
     """
     Extract a float between 0 and 1 from LLM output.
-    
+
     Strict validation: output must be a single number in [0, 1].
     Returns None if invalid (triggers retry in caller).
     """
     if not text:
         return None
-    
-    # Try direct float parse first
+
     text = text.strip()
     try:
         val = float(text)
@@ -156,8 +314,7 @@ def _extract_score(text):
         return None
     except ValueError:
         pass
-    
-    # Fallback: find a decimal number in text
+
     match = re.search(r'(\d+\.?\d*)', text)
     if match:
         try:
@@ -166,18 +323,18 @@ def _extract_score(text):
                 return round(val, 2)
         except ValueError:
             pass
-    
+
     return None
 
 
 def is_job_relevant(score, threshold=RELEVANCE_THRESHOLD_RELEVANT):
     """
     Check if a relevance score meets the threshold for 'relevant'.
-    
+
     Args:
         score: float in [0, 1], or None
-        threshold: cutoff value (default 0.8)
-        
+        threshold: cutoff value (default RELEVANCE_THRESHOLD_RELEVANT, 0.6)
+
     Returns:
         True if score >= threshold, False if score < threshold, None if score is None
     """
@@ -189,94 +346,79 @@ def is_job_relevant(score, threshold=RELEVANCE_THRESHOLD_RELEVANT):
 def compute_relevant_experience_months(jobs):
     """
     Compute total months of relevant work experience.
-    
+
     Merges overlapping date ranges and sums only months from relevant jobs.
-    
+
     Args:
         jobs: list of dicts with keys:
             - start_date: str like "Jan 2020" or "2020"
-            - end_date: str like "Dec 2022", "Present", or "2022"  
+            - end_date: str like "Dec 2022", "Present", or "2022"
             - is_relevant: bool
-            
+
     Returns:
         int: total months of relevant experience, or None if no data
     """
     if not jobs:
         return None
-    
-    # Collect date ranges for relevant jobs only
+
     intervals = []
     for job in jobs:
         if not job.get('is_relevant'):
             continue
-        
+
         start = _parse_date_to_month_year(job.get('start_date', ''))
         end = _parse_date_to_month_year(job.get('end_date', ''))
-        
+
         if start is None:
             continue
         if end is None:
-            # If no end date, assume present
             now = datetime.now()
             end = (now.year, now.month)
-        
-        # Ensure start <= end
+
         if start > end:
             start, end = end, start
-        
+
         intervals.append((start, end))
-    
+
     if not intervals:
         return 0
-    
-    # Merge overlapping intervals
+
     merged = _merge_intervals(intervals)
-    
-    # Sum months
+
     total_months = 0
     for (start_year, start_month), (end_year, end_month) in merged:
         months = (end_year - start_year) * 12 + (end_month - start_month)
-        # Add 1 to include the end month
         total_months += max(months, 0) + 1
-    
+
     return total_months
 
 
 def _parse_date_to_month_year(date_str):
-    """
-    Parse a date string to (year, month) tuple.
-    
-    Uses parse_groq_date() from groq_client.py for consistency.
-    
-    Returns:
-        (year, month) tuple or None
-    """
+    """Parse a date string to (year, month) tuple using parse_groq_date()."""
     if not date_str:
         return None
-    
+
     date_str = str(date_str).strip()
     if not date_str:
         return None
-    
-    # Check for "Present"
+
     if date_str.lower() == "present":
         now = datetime.now()
         return (now.year, now.month)
-    
+
     parsed = parse_groq_date(date_str)
     if parsed is None:
         return None
-    
+
     year = parsed.get('year')
     if year is None or year == 9999:
-        # 9999 means "Present"
         now = datetime.now()
         return (now.year, now.month)
-    
+
     month = parsed.get('month')
     if month is None:
-        month = 1  # Default to January if no month
-    
+        month = 1
+
     return (year, month)
 
 
@@ -284,65 +426,53 @@ def _merge_intervals(intervals):
     """Merge overlapping or adjacent (year, month) intervals."""
     if not intervals:
         return []
-    
-    # Sort by start
+
     sorted_intervals = sorted(intervals, key=lambda x: x[0])
-    
+
     def _to_months(ym):
         return ym[0] * 12 + ym[1]
-    
+
     merged = [sorted_intervals[0]]
     for start, end in sorted_intervals[1:]:
         prev_start, prev_end = merged[-1]
-        
-        # Overlapping or adjacent: start <= prev_end + 1 month
+
         if _to_months(start) <= _to_months(prev_end) + 1:
-            # Merge: extend the end to the later date
             new_end = max(prev_end, end)
             merged[-1] = (prev_start, new_end)
         else:
             merged.append((start, end))
-    
+
     return merged
 
 
 def analyze_profile_relevance(profile_data):
     """
     Analyze all jobs in a profile for relevance and compute experience months.
-    
-    Handles up to 3 jobs per person. Edge cases:
-      - No major → returns empty dict (can't assess relevance without major)
-      - 0 jobs → returns empty dict
-      - 1-3 jobs, none relevant → all is_relevant=False, relevant_experience_months=0
-      - Jobs with missing title/company → skipped
-    
-    Args:
-        profile_data: dict with job titles, companies, dates, and major
-        
-    Returns:
-        dict with keys like job_1_relevance_score, job_1_is_relevant, etc.
+
+    Handles up to 3 jobs per person. Major may be missing — engineering titles
+    still receive heuristic scores and LLM context defaults to CoE/STEM.
+
+    Edge cases:
+      - No jobs → empty dict
+      - No major → still scores jobs when titles exist
+      - 1–3 jobs, none relevant → all is_relevant=False, relevant_experience_months=0
     """
     major = (
         profile_data.get('standardized_major')
         or profile_data.get('major')
         or ''
     ).strip()
-    
-    if not major:
-        logger.debug("No major found, skipping relevance analysis")
-        return {}
-    
+
     result = {}
     jobs_for_experience = []
-    
-    # Job 1 (most recent)
+
     title1 = profile_data.get('title') or profile_data.get('current_job_title') or ''
     company1 = profile_data.get('company') or ''
     if title1.strip():
         score1 = score_job_relevance(title1, company1, major)
         result['job_1_relevance_score'] = score1
         result['job_1_is_relevant'] = is_job_relevant(score1)
-        
+
         start1 = profile_data.get('job_start') or profile_data.get('job_start_date') or ''
         end1 = profile_data.get('job_end') or profile_data.get('job_end_date') or ''
         jobs_for_experience.append({
@@ -350,15 +480,14 @@ def analyze_profile_relevance(profile_data):
             'end_date': end1,
             'is_relevant': result['job_1_is_relevant'],
         })
-    
-    # Job 2
+
     title2 = profile_data.get('exp_2_title') or profile_data.get('exp2_title') or ''
     company2 = profile_data.get('exp_2_company') or profile_data.get('exp2_company') or ''
     if title2.strip():
         score2 = score_job_relevance(title2, company2, major)
         result['job_2_relevance_score'] = score2
         result['job_2_is_relevant'] = is_job_relevant(score2)
-        
+
         dates2 = profile_data.get('exp_2_dates') or profile_data.get('exp2_dates') or ''
         start2, end2 = _split_date_range(dates2)
         jobs_for_experience.append({
@@ -366,15 +495,14 @@ def analyze_profile_relevance(profile_data):
             'end_date': end2,
             'is_relevant': result['job_2_is_relevant'],
         })
-    
-    # Job 3
+
     title3 = profile_data.get('exp_3_title') or profile_data.get('exp3_title') or ''
     company3 = profile_data.get('exp_3_company') or profile_data.get('exp3_company') or ''
     if title3.strip():
         score3 = score_job_relevance(title3, company3, major)
         result['job_3_relevance_score'] = score3
         result['job_3_is_relevant'] = is_job_relevant(score3)
-        
+
         dates3 = profile_data.get('exp_3_dates') or profile_data.get('exp3_dates') or ''
         start3, end3 = _split_date_range(dates3)
         jobs_for_experience.append({
@@ -382,55 +510,34 @@ def analyze_profile_relevance(profile_data):
             'end_date': end3,
             'is_relevant': result['job_3_is_relevant'],
         })
-    
-    # Compute total relevant experience months
+
+    if not result:
+        return {}
+
     result['relevant_experience_months'] = compute_relevant_experience_months(jobs_for_experience)
-    
+
     return result
 
 
 def get_relevance_json(profile_data):
     """
-    Get structured JSON output for all jobs in a profile.
-    
-    This is the primary output format for the Experience Engine.
-    Returns a list of dicts (up to 3), one per job, with score and boolean.
-    
-    Args:
-        profile_data: dict with job titles, companies, dates, and major
-        
-    Returns:
-        list of dicts, each with:
-            - title (str)
-            - company (str)
-            - score (float or None)
-            - is_relevant (bool or None)
-            - start_date (str)
-            - end_date (str)
-            
-    Edge cases:
-        - Person has 0 jobs → returns []
-        - Person has no major → returns [] (can't score)
-        - Jobs with missing title → skipped
-        - Score is None (Groq failed) → score=None, is_relevant=None
+    Structured JSON for the Experience Engine (up to 3 jobs).
+
+    Major may be missing; jobs are still scored with default alumni context.
     """
     major = (
         profile_data.get('standardized_major')
         or profile_data.get('major')
         or ''
     ).strip()
-    
-    if not major:
-        return []
-    
-    # Define job field mappings for up to 3 jobs
+
     job_specs = [
         {
             'title_keys': ['title', 'current_job_title'],
             'company_keys': ['company'],
             'start_keys': ['job_start', 'job_start_date'],
             'end_keys': ['job_end', 'job_end_date'],
-            'dates_key': None,  # Job 1 has separate start/end fields
+            'dates_key': None,
         },
         {
             'title_keys': ['exp_2_title', 'exp2_title'],
@@ -447,28 +554,25 @@ def get_relevance_json(profile_data):
             'dates_key': ['exp_3_dates', 'exp3_dates'],
         },
     ]
-    
+
     results = []
-    
+
     for spec in job_specs:
-        # Get title
         title = ''
         for key in spec['title_keys']:
             title = profile_data.get(key) or ''
             if title.strip():
                 break
-        
+
         if not title.strip():
-            continue  # Skip jobs with no title
-        
-        # Get company
+            continue
+
         company = ''
         for key in spec['company_keys']:
             company = profile_data.get(key) or ''
             if company.strip():
                 break
-        
-        # Get dates
+
         if spec['dates_key']:
             dates_str = ''
             for key in spec['dates_key']:
@@ -487,10 +591,9 @@ def get_relevance_json(profile_data):
                 end_date = profile_data.get(key) or ''
                 if end_date.strip():
                     break
-        
-        # Score this job
+
         score = score_job_relevance(title.strip(), company.strip(), major)
-        
+
         results.append({
             'title': title.strip(),
             'company': company.strip(),
@@ -499,29 +602,24 @@ def get_relevance_json(profile_data):
             'start_date': start_date.strip() if start_date else '',
             'end_date': end_date.strip() if end_date else '',
         })
-    
+
     return results
 
 
 def _split_date_range(date_range_str):
     """
     Split a date range string like "Mar 2020 - Dec 2022" into (start, end).
-    
+
     Handles various separators: " - ", " – ", " — ", " to "
-    
-    Returns:
-        (start_str, end_str) tuple. Both empty strings if input is empty.
     """
     if not date_range_str:
         return ('', '')
-    
+
     text = str(date_range_str).strip()
-    
-    # Try various separators
+
     for sep in [' - ', ' – ', ' — ', ' to ']:
         if sep in text:
             parts = text.split(sep, 1)
             return (parts[0].strip(), parts[1].strip())
-    
-    # Fallback: single date, treat as both start and end
+
     return (text, text)

@@ -13,6 +13,10 @@ Usage:
     python scripts/backfill_experience_analysis.py
     python scripts/backfill_experience_analysis.py --dry-run
     python scripts/backfill_experience_analysis.py --force   # Re-process all, even already-computed rows
+
+Each run logs **old → new** relevance scores per job (at INFO) when Groq scoring runs,
+unless ``--quiet-relevance-audit`` is set. Use this to audit historical rows after changing
+``relevance_scorer.py``.
 """
 
 import os
@@ -38,7 +42,43 @@ except ImportError:
     logger.warning("dotenv not installed — assuming env vars are already set")
 
 
-def run_backfill(dry_run=False, force=False):
+def _norm_relevance_scalar(val):
+    """Normalize DB/CSV score for display; None if missing."""
+    if val is None or val == '':
+        return None
+    try:
+        return round(float(val), 4)
+    except (TypeError, ValueError):
+        return val
+
+
+def _relevance_audit_message(alumni_id, display_name, row, relevance, rel_flags):
+    """
+    Build one-line old→new relevance audit for three jobs + flags.
+
+    rel_flags: (job_1_is_relevant, job_2_is_relevant, job_3_is_relevant) after scoring.
+    """
+    parts = []
+    for i in range(1, 4):
+        sk = f'job_{i}_relevance_score'
+        fk = f'job_{i}_is_relevant'
+        old_s = _norm_relevance_scalar(row.get(sk))
+        new_s = _norm_relevance_scalar(relevance.get(sk))
+        old_f = row.get(fk)
+        new_f = rel_flags[i - 1] if i - 1 < len(rel_flags) else None
+        parts.append(
+            f"j{i}: {old_s}→{new_s} rel:{old_f}→{new_f}"
+        )
+    months_old = row.get('relevant_experience_months')
+    months_new = relevance.get('relevant_experience_months')
+    parts.append(f"months: {months_old}→{months_new}")
+    return (
+        f"[relevance-audit] id={alumni_id} name={display_name!r} | "
+        + " | ".join(parts)
+    )
+
+
+def run_backfill(dry_run=False, force=False, quiet_relevance_audit=False):
     """Main backfill entry point."""
     from database import get_connection, ensure_experience_analysis_columns
 
@@ -131,7 +171,23 @@ def run_backfill(dry_run=False, force=False):
                     relevance = {}
                     if groq_ready:
                         relevance = analyze_profile_relevance(profile_data)
-                    
+
+                    rel_flags = (
+                        relevance.get('job_1_is_relevant'),
+                        relevance.get('job_2_is_relevant'),
+                        relevance.get('job_3_is_relevant'),
+                    )
+                    if groq_ready and relevance and not quiet_relevance_audit:
+                        display_name = (
+                            f"{row.get('first_name', '')} {row.get('last_name', '')}"
+                            .strip() or f"#{alumni_id}"
+                        )
+                        logger.info(
+                            _relevance_audit_message(
+                                alumni_id, display_name, row, relevance, rel_flags
+                            )
+                        )
+
                     # Seniority detection (keyword-based, no LLM needed)
                     experience_months = relevance.get('relevant_experience_months')
                     seniority = analyze_seniority(profile_data, experience_months)
@@ -322,9 +378,18 @@ def parse_args():
         '--force', action='store_true',
         help='Re-process all alumni, even those already computed'
     )
+    parser.add_argument(
+        '--quiet-relevance-audit',
+        action='store_true',
+        help='Disable per-row [relevance-audit] INFO logs (old→new scores)',
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_backfill(dry_run=args.dry_run, force=args.force)
+    run_backfill(
+        dry_run=args.dry_run,
+        force=args.force,
+        quiet_relevance_audit=args.quiet_relevance_audit,
+    )

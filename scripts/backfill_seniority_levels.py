@@ -36,8 +36,9 @@ def run_backfill():
     logger.info("=" * 70)
 
     try:
-        from backend.database import get_connection
-        from scraper.seniority_detector import analyze_seniority
+        # Paths above add backend/ and scraper/ — import modules by their leaf names
+        from database import get_connection
+        from seniority_detector import analyze_seniority
     except ImportError as e:
         logger.error(f"Failed to import required modules: {e}")
         sys.exit(1)

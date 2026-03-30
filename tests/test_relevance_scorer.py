@@ -4,7 +4,7 @@ Tests for the relevance scoring engine.
 
 Tests cover:
   - _extract_score: valid/invalid LLM outputs
-  - is_job_relevant: threshold boundary at 0.8
+  - is_job_relevant: threshold boundary at 0.6
   - analyze_profile_relevance: 0/1/3 jobs, missing major, edge cases
   - get_relevance_json: structured JSON output shape
   - compute_relevant_experience_months: overlapping intervals, no relevant jobs
@@ -91,10 +91,10 @@ def test_extract_score_rounding():
 # =====================================================================
 
 def test_is_job_relevant_threshold():
-    """Threshold boundary: 0.80 = relevant, 0.79 = not relevant."""
-    assert RELEVANCE_THRESHOLD_RELEVANT == 0.8
-    assert is_job_relevant(0.80) is True
-    assert is_job_relevant(0.79) is False
+    """Threshold boundary: 0.60 = relevant, 0.59 = not relevant."""
+    assert RELEVANCE_THRESHOLD_RELEVANT == 0.6
+    assert is_job_relevant(0.60) is True
+    assert is_job_relevant(0.59) is False
     assert is_job_relevant(1.0) is True
     assert is_job_relevant(0.0) is False
     assert is_job_relevant(None) is None
@@ -201,11 +201,13 @@ def _mock_score(*args, **kwargs):
     return 0.3
 
 
-def test_analyze_no_major():
-    """No major → empty dict."""
+@patch.object(relevance_scorer, 'score_job_relevance', side_effect=_mock_score)
+def test_analyze_no_major(mock_score):
+    """No major → still scores jobs (CoE default context + heuristics)."""
     profile = {'title': 'Software Engineer', 'company': 'Google'}
     result = analyze_profile_relevance(profile)
-    assert result == {}
+    assert result.get('job_1_relevance_score') == 0.92
+    assert result.get('job_1_is_relevant') is True
     print("✅ test_analyze_no_major passed")
 
 
@@ -332,10 +334,13 @@ def test_get_relevance_json_shape(mock_score):
     print("✅ test_get_relevance_json_shape passed")
 
 
-def test_get_relevance_json_no_major():
-    """No major → empty list."""
-    result = get_relevance_json({'title': 'Engineer'})
-    assert result == []
+@patch.object(relevance_scorer, '_get_client', return_value=None)
+def test_get_relevance_json_no_major(mock_client):
+    """No major → still returns jobs with heuristic floor (no Groq)."""
+    result = get_relevance_json({'title': 'Mechanical Engineer', 'company': 'Acme'})
+    assert len(result) == 1
+    assert result[0]['score'] == 0.6
+    assert result[0]['is_relevant'] is True
     print("✅ test_get_relevance_json_no_major passed")
 
 
@@ -366,7 +371,8 @@ def test_score_job_relevance_success(mock_get_client):
     mock_get_client.return_value = mock_client
     
     score = score_job_relevance("Software Engineer", "Google", "Computer Science")
-    assert score == 0.85
+    # 0.85 LLM + 0.05 engineering title + 0.05 STEM major
+    assert score == 0.95
     print("✅ test_score_job_relevance_success passed")
 
 
@@ -394,18 +400,39 @@ def test_score_job_relevance_all_fail(mock_get_client):
     mock_client.chat.completions.create.side_effect = Exception("API Error")
     mock_get_client.return_value = mock_client
     
-    score = score_job_relevance("Engineer", "Company", "CS")
-    assert score is None
+    # No LLM: floors only — ME + listed major has no floor; TA does
+    assert score_job_relevance("Mechanical Engineer", "Company", "Mechanical Engineering") is None
+    score = score_job_relevance("Teaching Assistant", "UNT", "Mechanical Engineering")
+    assert score == 0.65
     print("✅ test_score_job_relevance_all_fail passed")
 
 
-def test_score_job_relevance_missing_inputs():
-    """Missing title or major → None without calling Groq."""
+@patch.object(relevance_scorer, '_get_client', return_value=None)
+def test_score_job_relevance_missing_inputs(mock_client):
+    """Missing title → None. Missing major → heuristic floor still applies."""
     assert score_job_relevance("", "Google", "CS") is None
-    assert score_job_relevance("Engineer", "Google", "") is None
     assert score_job_relevance(None, "Google", "CS") is None
-    assert score_job_relevance("Engineer", "Google", None) is None
+    assert score_job_relevance("Software Engineer", "Google", "") == 0.6
+    assert score_job_relevance("Software Engineer", "Google", None) == 0.6
     print("✅ test_score_job_relevance_missing_inputs passed")
+
+
+@patch.object(relevance_scorer, '_get_client')
+def test_junk_title_does_not_call_groq(mock_get_client):
+    """Cashier and similar titles return a low score without calling Groq."""
+    score = score_job_relevance("Cashier", "Groceries", "Computer Science")
+    assert score == 0.1
+    mock_get_client.assert_not_called()
+    print("✅ test_junk_title_does_not_call_groq passed")
+
+
+@patch.object(relevance_scorer, '_get_client', return_value=None)
+def test_teaching_assistant_floor_without_groq(mock_client):
+    """TA / RA roles get a relevance floor without LLM."""
+    score = score_job_relevance("Teaching Assistant", "UNT", "")
+    assert score == 0.65
+    assert is_job_relevant(score) is True
+    print("✅ test_teaching_assistant_floor_without_groq passed")
 
 
 # =====================================================================
@@ -443,6 +470,8 @@ if __name__ == '__main__':
         test_score_job_relevance_retry,
         test_score_job_relevance_all_fail,
         test_score_job_relevance_missing_inputs,
+        test_junk_title_does_not_call_groq,
+        test_teaching_assistant_floor_without_groq,
     ]
     
     print("=" * 60)
