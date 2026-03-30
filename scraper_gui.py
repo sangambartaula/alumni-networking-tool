@@ -112,6 +112,48 @@ class ScraperWorker(QThread):
             self.process.terminate()
             self.output_signal.emit("\nSent termination signal...\n")
 
+class DatabaseWorker(QThread):
+    output_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(int)
+    
+    def __init__(self):
+        super().__init__()
+        self.process = None
+
+    def run(self):
+        base_dir = get_base_dir()
+            
+        if sys.platform == "win32":
+            python_exec = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+            if not os.path.exists(python_exec): python_exec = "python"
+        else:
+            python_exec = os.path.join(base_dir, "venv", "bin", "python")
+            if not os.path.exists(python_exec): python_exec = "python3"
+                
+        check_db_script = os.path.join(base_dir, 'check_db.py')
+        
+        try:
+            self.output_signal.emit(f"Launching Database Sync: {python_exec} check_db.py\n")
+            self.process = subprocess.Popen(
+                [python_exec, check_db_script],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=base_dir
+            )
+            
+            for line in iter(self.process.stdout.readline, ''):
+                self.output_signal.emit(line)
+                
+            self.process.stdout.close()
+            self.process.wait()
+            self.output_signal.emit(f"\nDatabase Sync finished with exit code {self.process.returncode}\n")
+        except Exception as e:
+            self.output_signal.emit(f"\nError starting database sync: {e}\n")
+        finally:
+            self.finished_signal.emit(0)
+
 class FlagManagerDialog(QDialog):
     def __init__(self, base_dir, parent=None):
         super().__init__(parent)
@@ -128,18 +170,19 @@ class FlagManagerDialog(QDialog):
     def init_ui(self):
         layout = QVBoxLayout(self)
         
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Flag", "Date Scraped", "Name", "Profile URL"])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Review", "Date Scraped", "Name", "Reason Flagged", "Profile URL"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         
         layout.addWidget(self.table)
         
         btn_layout = QHBoxLayout()
         self.sel_all_btn = QPushButton("Select All")
-        self.clear_all_btn = QPushButton("Clear All")
+        self.clear_all_btn = QPushButton("Accept All (Clear Flags)")
         self.save_btn = QPushButton("Save Flags")
         
         self.sel_all_btn.clicked.connect(self.select_all)
@@ -154,12 +197,20 @@ class FlagManagerDialog(QDialog):
         layout.addLayout(btn_layout)
         
     def load_data(self):
-        flagged_urls = set()
+        flagged_urls = {}
         if os.path.exists(self.txt_path):
             with open(self.txt_path, 'r', encoding='utf-8') as f:
                 for line in f:
-                    url = line.split('#')[0].strip().rstrip('/').lower()
-                    if url: flagged_urls.add(url)
+                    parts = line.split('#')
+                    url = parts[0].strip().rstrip('/').lower()
+                    reason = ""
+                    if len(parts) > 2:
+                        reason = parts[-1].strip()  # Scraper injects reason as the 2nd comment part
+                    elif len(parts) == 2 and not (" " in parts[1].strip() and len(parts[1].strip().split()) <= 3):
+                        # Catch if there is only 1 comment part and it looks like a reason not a name
+                        reason = parts[1].strip()
+                        
+                    if url: flagged_urls[url] = reason
                     
         profiles = []
         if os.path.exists(self.csv_path):
@@ -181,8 +232,10 @@ class FlagManagerDialog(QDialog):
         self.table.setRowCount(len(profiles))
         for i, p in enumerate(profiles):
             cb = QCheckBox()
-            is_flagged = p['url'].lower() in flagged_urls
+            url_key = p['url'].lower()
+            is_flagged = url_key in flagged_urls
             cb.setChecked(is_flagged)
+            reason_text = flagged_urls.get(url_key, "") if is_flagged else ""
             
             # Center checkbox
             cb_widget = QWidget()
@@ -194,7 +247,8 @@ class FlagManagerDialog(QDialog):
             self.table.setCellWidget(i, 0, cb_widget)
             self.table.setItem(i, 1, QTableWidgetItem(p['date'][:10] if p['date'] else "Unknown"))
             self.table.setItem(i, 2, QTableWidgetItem(p['name']))
-            self.table.setItem(i, 3, QTableWidgetItem(p['url']))
+            self.table.setItem(i, 3, QTableWidgetItem(reason_text))
+            self.table.setItem(i, 4, QTableWidgetItem(p['url']))
             
     def select_all(self):
         for i in range(self.table.rowCount()):
@@ -211,9 +265,14 @@ class FlagManagerDialog(QDialog):
         for i in range(self.table.rowCount()):
             cb_widget = self.table.cellWidget(i, 0)
             if cb_widget and cb_widget.layout().itemAt(0).widget().isChecked():
-                url = self.table.item(i, 3).text()
+                url = self.table.item(i, 4).text()
                 name = self.table.item(i, 2).text()
-                flagged.append(f"{url} # {name}")
+                reason = self.table.item(i, 3).text()
+                
+                line = f"{url} # {name}"
+                if reason:
+                    line += f" # {reason}"
+                flagged.append(line)
                 
         os.makedirs(os.path.dirname(self.txt_path), exist_ok=True)
         with open(self.txt_path, 'w', encoding='utf-8') as f:
@@ -369,19 +428,6 @@ class ScraperApp(QMainWindow):
         limit_group.setLayout(limit_layout)
         left_layout.addWidget(limit_group)
         
-        # 5. Data Flags
-        flag_group = QGroupBox("Missing Data Flags")
-        flag_layout = QVBoxLayout()
-        self.flag_grad = QCheckBox("Flag missing graduation year")
-        self.flag_deg = QCheckBox("Flag missing degree info")
-        self.flag_exp = QCheckBox("Flag missing experience data")
-        self.flag_exp.setChecked(True)
-        flag_layout.addWidget(self.flag_grad)
-        flag_layout.addWidget(self.flag_deg)
-        flag_layout.addWidget(self.flag_exp)
-        flag_group.setLayout(flag_layout)
-        left_layout.addWidget(flag_group)
-        
         # Connect Buttons
         btn_layout = QHBoxLayout()
         self.start_btn = QPushButton("Start Scraper")
@@ -396,6 +442,12 @@ class ScraperApp(QMainWindow):
         btn_layout.addWidget(self.start_btn)
         btn_layout.addWidget(self.stop_btn)
         left_layout.addLayout(btn_layout)
+        
+        self.upload_db_btn = QPushButton("Upload && Geocode to Database")
+        self.upload_db_btn.setMinimumHeight(40)
+        self.upload_db_btn.setStyleSheet("background-color: #005A9C; color: white; font-weight: bold;")
+        self.upload_db_btn.clicked.connect(self.upload_to_db)
+        left_layout.addWidget(self.upload_db_btn)
         
         left_panel.setFixedWidth(380)
         main_layout.addWidget(left_panel)
@@ -565,10 +617,6 @@ class ScraperApp(QMainWindow):
         update_env("MIN_DELAY", self.min_delay.text())
         update_env("MAX_DELAY", self.max_delay.text())
         
-        update_env("FLAG_MISSING_GRAD_YEAR", str(self.flag_grad.isChecked()).lower())
-        update_env("FLAG_MISSING_DEGREE", str(self.flag_deg.isChecked()).lower())
-        update_env("FLAG_MISSING_EXPERIENCE_DATA", str(self.flag_exp.isChecked()).lower())
-        
         update_env("GUI_MAX_PROFILES", self.max_profiles.text())
         
         try:
@@ -585,12 +633,25 @@ class ScraperApp(QMainWindow):
         
         self.console.clear()
         self.start_btn.setEnabled(False)
+        self.upload_db_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         
         self.worker = ScraperWorker()
         self.worker.output_signal.connect(self.append_console)
         self.worker.finished_signal.connect(self.on_scraper_finished)
         self.worker.start()
+
+    def upload_to_db(self):
+        self.save_all_settings_to_env()
+        self.console.clear()
+        self.start_btn.setEnabled(False)
+        self.upload_db_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+        
+        self.db_worker = DatabaseWorker()
+        self.db_worker.output_signal.connect(self.append_console)
+        self.db_worker.finished_signal.connect(self.on_scraper_finished)
+        self.db_worker.start()
 
     def stop_scraper(self):
         if self.worker:
@@ -599,6 +660,7 @@ class ScraperApp(QMainWindow):
 
     def on_scraper_finished(self):
         self.start_btn.setEnabled(True)
+        self.upload_db_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
 
 if __name__ == "__main__":
