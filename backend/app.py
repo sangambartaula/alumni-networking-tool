@@ -144,23 +144,22 @@ _APPROVED_DISCIPLINES_SET = set(APPROVED_ENGINEERING_DISCIPLINES)
 
 # Canonical UNT major labels (must stay aligned with scraper/major_normalization.py).
 APPROVED_UNT_MAJORS = [
-    "Autonomous Systems",
+    "Artificial Intelligence",
     "Biomedical Engineering",
     "Computer Engineering",
     "Computer Science",
-    "Computer Science and Engineering",
+    "Construction Engineering Technology",
     "Construction Management",
     "Cybersecurity",
     "Data Engineering",
     "Electrical Engineering",
     "Engineering Management",
-    "Engineering Technology",
+    "Geographic Information Systems + Computer Science",
     "Information Technology",
-    "Machine Learning",
-    "Materials Science",
     "Materials Science and Engineering",
     "Mechanical and Energy Engineering",
     "Mechanical Engineering Technology",
+    "Semiconductor Manufacturing Engineering",
     "Other",
 ]
 _APPROVED_UNT_MAJORS_SET = set(APPROVED_UNT_MAJORS)
@@ -197,6 +196,21 @@ def _resolve_major(row):
     if raw_major in _APPROVED_UNT_MAJORS_SET:
         return raw_major
     return ''
+
+
+def _resolve_majors_list(row):
+    """
+    Return all canonical majors for this alumni as a list.
+    Includes standardized_major_alt for multi-entry cases (CS&E -> CS + CE).
+    """
+    majors = []
+    primary = _resolve_major(row)
+    if primary:
+        majors.append(primary)
+    alt = (row.get('standardized_major_alt') or '').strip()
+    if alt and alt in _APPROVED_UNT_MAJORS_SET and alt not in majors:
+        majors.append(alt)
+    return majors
 
 
 def _resolve_full_major(row):
@@ -968,6 +982,7 @@ def api_get_alumni():
         role_filters = _parse_multi_value_param('role')
         company_filters = _parse_multi_value_param('company')
         discipline_filters = _parse_multi_value_param('major')
+        major_filters = _parse_multi_value_param('standardized_major')
         degree_filters = [d.lower() for d in _parse_multi_value_param('degree')]
         grad_year_filters = _parse_int_list_param('grad_year')
         working_while_studying_filter = (request.args.get('working_while_studying', '') or '').strip().lower()
@@ -1065,6 +1080,13 @@ def api_get_alumni():
                     where_clauses.append(f"a.discipline IN ({placeholders})")
                     params.extend(discipline_filters)
 
+                if major_filters:
+                    mf_conditions = []
+                    for mf in major_filters:
+                        mf_conditions.append("(a.standardized_major = %s OR a.standardized_major_alt = %s)")
+                        params.extend([mf, mf])
+                    where_clauses.append("(" + " OR ".join(mf_conditions) + ")")
+
                 if grad_year_filters:
                     placeholders = ",".join(["%s"] * len(grad_year_filters))
                     where_clauses.append(f"a.grad_year IN ({placeholders})")
@@ -1130,7 +1152,8 @@ def api_get_alumni():
                     order_clause = f"LOWER(a.first_name) {sort_direction}, LOWER(a.last_name) {sort_direction}"
 
                 select_sql = f"""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline,
+                           a.standardized_major, a.standardized_major_alt,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at, njt.normalized_title, nc.normalized_company,
                            a.working_while_studying, a.working_while_studying_status,
@@ -1199,6 +1222,7 @@ def api_get_alumni():
                 degree_level = classify_degree(full_degree, r.get('headline', ''))
                 major = _resolve_major(r)
                 full_major = _resolve_full_major(r)
+                standardized_majors = _resolve_majors_list(r)
                 discipline = _resolve_discipline(r)
                 seniority_bucket = (
                     r.get('_computed_seniority_bucket')
@@ -1220,6 +1244,7 @@ def api_get_alumni():
                     "company": r.get('company'),
                     "grad_year": r.get('grad_year'),
                     "major": major,
+                    "standardized_majors": standardized_majors,
                     "discipline": discipline,
 
                     # Keep raw role text for card display.
@@ -1306,7 +1331,8 @@ def api_get_alumni_detail(alumni_id):
         try:
             with conn.cursor(dictionary=True) as cur:
                 cur.execute("""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.standardized_major,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major,
+                           a.standardized_major, a.standardized_major_alt,
                            a.linkedin_url, a.current_job_title, a.company, a.location, a.headline,
                            a.updated_at,
                            a.school, a.school2, a.school3,
@@ -1881,13 +1907,14 @@ def get_heatmap_data():
         except (ValueError, TypeError): return None
     grad_year_from = _safe_int(request.args.get("grad_year_from"))
     grad_year_to   = _safe_int(request.args.get("grad_year_to"))
+    heatmap_major_filters = _parse_multi_value_param('standardized_major')
 
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
             return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
-    # Skip cache for year-filtered requests (ephemeral analytical view)
-    use_cache = (grad_year_from is None and grad_year_to is None)
+    # Skip cache for filtered requests (ephemeral analytical view)
+    use_cache = (grad_year_from is None and grad_year_to is None and not heatmap_major_filters)
 
     # --- Check cache ---
     cache_key = (
@@ -1913,6 +1940,13 @@ def get_heatmap_data():
                     year_clauses.append("grad_year <= %s")
                     year_params.append(grad_year_to)
 
+                if heatmap_major_filters:
+                    mf_parts = []
+                    for mf in heatmap_major_filters:
+                        mf_parts.append("(standardized_major = %s OR standardized_major_alt = %s)")
+                        year_params.extend([mf, mf])
+                    year_clauses.append("(" + " OR ".join(mf_parts) + ")")
+
                 where_sql = " AND ".join(year_clauses)
                 cur.execute(f"""
                     SELECT id,
@@ -1935,7 +1969,9 @@ def get_heatmap_data():
                            degree3,
                            major,
                            major2,
-                           major3
+                           major3,
+                           standardized_major,
+                           standardized_major_alt
                     FROM alumni
                     WHERE {where_sql}
                     ORDER BY location ASC
@@ -2259,7 +2295,8 @@ def api_filter_alumni():
                 where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
                 query = f"""
-                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline, a.standardized_major, a.linkedin_url,
+                    SELECT a.id, a.first_name, a.last_name, a.grad_year, a.degree, a.major, a.discipline,
+                           a.standardized_major, a.standardized_major_alt, a.linkedin_url,
                            a.current_job_title, a.company, a.location, a.headline,
                            njt.normalized_title, nc.normalized_company,
                            a.school, a.school2, a.school3,
@@ -2283,6 +2320,7 @@ def api_filter_alumni():
                     degree_level = classify_degree(full_degree, r.get('headline', ''))
                     major = _resolve_major(r)
                     full_major = _resolve_full_major(r)
+                    standardized_majors = _resolve_majors_list(r)
                     discipline = _resolve_discipline(r)
 
                     # Apply discipline filter in Python.
@@ -2296,6 +2334,7 @@ def api_filter_alumni():
                         "company": r.get('company'),
                         "grad_year": r.get('grad_year'),
                         "major": major,
+                        "standardized_majors": standardized_majors,
                         "discipline": discipline,
                         "role": r.get('current_job_title'),
                         "headline": r.get('headline'),
