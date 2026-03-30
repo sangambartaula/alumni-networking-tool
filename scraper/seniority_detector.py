@@ -30,12 +30,12 @@ SENIORITY_PATTERNS = [
     )),
     # Manager level
     ("Manager", re.compile(
-        r'\b(Manager|Supervisor|Team\s+Lead|Tech\s+Lead|Lead\s+Engineer|'
-        r'Engineering\s+Lead|Project\s+Lead|Program\s+Manager|Scrum\s+Master)\b', re.IGNORECASE
+        r'\b(Manager|Supervisor|Program\s+Manager|Scrum\s+Master)\b', re.IGNORECASE
     )),
     # Senior level
     ("Senior", re.compile(
-        r'\b(Senior|Sr\.?|Staff|Distinguished|Fellow)\b', re.IGNORECASE
+        r'\b(Senior|Sr\.?|Staff|Distinguished|Fellow|Team\s+Lead|Tech\s+Lead|Lead\s+Engineer|'
+        r'Engineering\s+Lead|Project\s+Lead|Lead)\b', re.IGNORECASE
     )),
     # Junior level (Associate only when NOT followed by senior-role words)
     ("Junior", re.compile(
@@ -58,7 +58,7 @@ SENIORITY_MIN_EXPERIENCE = {
 
 
 def _merge_seniority_level(seniority: str) -> str:
-    """Merge fine-grained seniority into UI buckets: Intern/Mid/Senior/Executive."""
+    """Merge fine-grained seniority into UI buckets: Intern/Mid/Senior/Manager/Executive."""
     s = (seniority or "").strip()
     if s == "Intern":
         return "Intern"
@@ -66,7 +66,9 @@ def _merge_seniority_level(seniority: str) -> str:
         return "Mid"
     if s == "Senior":
         return "Senior"
-    if s in {"Manager", "Director", "Executive"}:
+    if s == "Manager":
+        return "Manager"
+    if s in {"Director", "Executive"}:
         return "Executive"
     # Safe default: if we ever get an unknown value, treat as Mid.
     return "Mid"

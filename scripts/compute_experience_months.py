@@ -168,10 +168,11 @@ def compute_months_from_row(row):
     Returns:
         int: total relevant experience months (0 if no relevant jobs)
     """
+    from database import _parse_bool
     intervals = []
 
     # ── Job 1 ──
-    if row.get('job_1_is_relevant'):
+    if _parse_bool(row.get('job_1_is_relevant')):
         start = _parse_date_to_month_year(row.get('job_start_date', ''))
         end = _parse_date_to_month_year(row.get('job_end_date', ''))
 
@@ -185,7 +186,7 @@ def compute_months_from_row(row):
             intervals.append((start, end))
 
     # ── Job 2 ──
-    if row.get('job_2_is_relevant'):
+    if _parse_bool(row.get('job_2_is_relevant')):
         dates2 = row.get('exp2_dates', '') or ''
         start_str, end_str = _split_date_range(dates2)
         start = _parse_date_to_month_year(start_str)
@@ -200,7 +201,7 @@ def compute_months_from_row(row):
             intervals.append((start, end))
 
     # ── Job 3 ──
-    if row.get('job_3_is_relevant'):
+    if _parse_bool(row.get('job_3_is_relevant')):
         dates3 = row.get('exp3_dates', '') or ''
         start_str, end_str = _split_date_range(dates3)
         start = _parse_date_to_month_year(start_str)
@@ -401,21 +402,25 @@ def _update_csv_from_db():
             if url:
                 url_data[url] = row.get('relevant_experience_months')
 
-        # Ensure column exists with correct dtype to avoid FutureWarning
+        # Ensure column exists and is numeric to avoid FutureWarning and type errors
         if 'relevant_experience_months' not in df.columns:
             df['relevant_experience_months'] = pd.array([pd.NA] * len(df), dtype='Int64')
         else:
-            try:
-                df['relevant_experience_months'] = df['relevant_experience_months'].astype('Int64')
-            except (ValueError, TypeError):
-                pass
+            df['relevant_experience_months'] = pd.to_numeric(df['relevant_experience_months'], errors='coerce').astype('Int64')
 
         # Merge
         csv_updated = 0
         for idx, row in df.iterrows():
             url = str(row.get('linkedin_url', '')).strip().rstrip('/')
             if url in url_data:
-                df.at[idx, 'relevant_experience_months'] = url_data[url]
+                val = url_data[url]
+                if val is not None:
+                    try:
+                        df.at[idx, 'relevant_experience_months'] = int(float(val))
+                    except (ValueError, TypeError):
+                        df.at[idx, 'relevant_experience_months'] = pd.NA
+                else:
+                    df.at[idx, 'relevant_experience_months'] = pd.NA
                 csv_updated += 1
 
         df.to_csv(csv_path, index=False, encoding='utf-8')

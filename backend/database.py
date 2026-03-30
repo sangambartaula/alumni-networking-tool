@@ -91,9 +91,9 @@ def _parse_bool(value):
             return None
         return bool(value)
     text = str(value).strip().lower()
-    if text in {"true", "1", "yes"}:
+    if text in {"true", "1", "1.0", "yes"}:
         return True
-    if text in {"false", "0", "no"}:
+    if text in {"false", "0", "0.0", "no"}:
         return False
     return None
 
