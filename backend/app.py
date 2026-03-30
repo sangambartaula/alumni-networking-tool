@@ -1367,7 +1367,9 @@ def api_get_alumni_detail(alumni_id):
                 # Education 1 (UNT primary)
                 "school": r.get('school') or 'University of North Texas',
                 "degree": r.get('degree_raw'),
-                "major": _resolve_full_major(r),
+                "major": _resolve_major(r),
+                "full_major": _resolve_full_major(r),
+                "standardized_majors": _resolve_majors_list(r),
                 "grad_year": r.get('grad_year'),
                 "school_start_date": r.get('school_start_date'),
 
@@ -2017,7 +2019,9 @@ def get_heatmap_data():
                     "company": row["company"],
                     "linkedin": row["linkedin_url"],
                     "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), 'isoformat') else row.get("created_at"),
-                    "unt_alumni_status": unt_alumni_status
+                    "unt_alumni_status": unt_alumni_status,
+                    "standardized_major": (row.get("standardized_major") or "").strip(),
+                    "standardized_major_alt": (row.get("standardized_major_alt") or "").strip(),
                 })
 
                 if "location_counts" not in location_details[cluster_key]:
