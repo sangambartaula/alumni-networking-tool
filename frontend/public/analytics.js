@@ -15,7 +15,12 @@ const analyticsChunkSize = 500;
 let gradYearRangeMin = null;
 let gradYearRangeMax = null;
 let selectedAnalyticsMajors = new Set();
+let selectedAnalyticsDegrees = new Set();
+let selectedAnalyticsSeniorities = new Set();
 let analyticsExportDiagramCounter = 0;
+
+const ANALYTICS_DEGREE_OPTIONS = ['Undergraduate', 'Graduate', 'PhD'];
+const ANALYTICS_SENIORITY_OPTIONS = ['Intern', 'Mid', 'Senior', 'Manager', 'Executive'];
 
 const analyticsExportState = {
   mode: 'full',
@@ -146,6 +151,8 @@ function saveHiddenFiltersToStorage() {
   localStorage.setItem('analyticsGradYearMin', gradYearRangeMin != null ? String(gradYearRangeMin) : '');
   localStorage.setItem('analyticsGradYearMax', gradYearRangeMax != null ? String(gradYearRangeMax) : '');
   localStorage.setItem('analyticsSelectedMajors', JSON.stringify(Array.from(selectedAnalyticsMajors)));
+  localStorage.setItem('analyticsSelectedDegrees', JSON.stringify(Array.from(selectedAnalyticsDegrees)));
+  localStorage.setItem('analyticsSelectedSeniorities', JSON.stringify(Array.from(selectedAnalyticsSeniorities)));
 }
 
 /**
@@ -174,6 +181,10 @@ function loadHiddenFiltersFromStorage() {
     if (savedGradYearMax) gradYearRangeMax = parseInt(savedGradYearMax, 10);
     const savedMajors = localStorage.getItem('analyticsSelectedMajors');
     if (savedMajors) selectedAnalyticsMajors = new Set(JSON.parse(savedMajors));
+    const savedDegrees = localStorage.getItem('analyticsSelectedDegrees');
+    if (savedDegrees) selectedAnalyticsDegrees = new Set(JSON.parse(savedDegrees));
+    const savedSeniorities = localStorage.getItem('analyticsSelectedSeniorities');
+    if (savedSeniorities) selectedAnalyticsSeniorities = new Set(JSON.parse(savedSeniorities));
   } catch (error) {
     console.error('Error loading filters from storage:', error);
     hiddenLocations = new Set();
@@ -181,6 +192,9 @@ function loadHiddenFiltersFromStorage() {
     selectedUntAlumniStatus = '';
     gradYearRangeMin = null;
     gradYearRangeMax = null;
+    selectedAnalyticsMajors = new Set();
+    selectedAnalyticsDegrees = new Set();
+    selectedAnalyticsSeniorities = new Set();
   }
 }
 
@@ -268,11 +282,15 @@ function initializeAnalyticsFilterUI() {
     gradYearRangeMin = null;
     gradYearRangeMax = null;
     selectedAnalyticsMajors.clear();
+    selectedAnalyticsDegrees.clear();
+    selectedAnalyticsSeniorities.clear();
     const minInput = document.getElementById('analyticsGradYearMin');
     const maxInput = document.getElementById('analyticsGradYearMax');
     if (minInput) minInput.value = '';
     if (maxInput) maxInput.value = '';
     document.querySelectorAll('#analyticsMajorChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#analyticsDegreeChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#analyticsSeniorityChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
     saveHiddenFiltersToStorage();
     updateAnalyticsFilterUI();
     renderAnalytics();
@@ -626,7 +644,7 @@ function updateAnalyticsFilterUI() {
 
   // Update badge count
   const hasGradYearRange = gradYearRangeMin != null || gradYearRangeMax != null;
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + (hasGradYearRange ? 1 : 0) + selectedAnalyticsMajors.size;
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + (hasGradYearRange ? 1 : 0) + selectedAnalyticsMajors.size + selectedAnalyticsDegrees.size + selectedAnalyticsSeniorities.size;
   if (badge) {
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'inline-block' : 'none';
@@ -780,6 +798,16 @@ function filterAlumniData(data) {
       if (!hasMatch) return false;
     }
 
+    if (selectedAnalyticsDegrees.size > 0) {
+      const degree = (alumni.degree || '').trim();
+      if (!selectedAnalyticsDegrees.has(degree)) return false;
+    }
+
+    if (selectedAnalyticsSeniorities.size > 0) {
+      const seniority = (alumni.seniority_bucket || alumni.seniority_level || '').trim();
+      if (!selectedAnalyticsSeniorities.has(seniority)) return false;
+    }
+
     return true;
   });
 }
@@ -815,11 +843,67 @@ function populateAnalyticsMajorCheckboxes() {
   });
 }
 
+function populateAnalyticsDegreeCheckboxes() {
+  const container = document.getElementById('analyticsDegreeChecks');
+  if (!container) return;
+
+  container.innerHTML = '';
+  ANALYTICS_DEGREE_OPTIONS.forEach(degree => {
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '6px';
+    label.style.cursor = 'pointer';
+    label.style.fontSize = '0.85rem';
+    label.innerHTML = `<input type="checkbox" value="${degree}" ${selectedAnalyticsDegrees.has(degree) ? 'checked' : ''} /> ${degree}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedAnalyticsDegrees.add(degree);
+      } else {
+        selectedAnalyticsDegrees.delete(degree);
+      }
+      saveHiddenFiltersToStorage();
+      updateAnalyticsFilterUI();
+      renderAnalytics();
+    });
+    container.appendChild(label);
+  });
+}
+
+function populateAnalyticsSeniorityCheckboxes() {
+  const container = document.getElementById('analyticsSeniorityChecks');
+  if (!container) return;
+
+  container.innerHTML = '';
+  ANALYTICS_SENIORITY_OPTIONS.forEach(level => {
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '6px';
+    label.style.cursor = 'pointer';
+    label.style.fontSize = '0.85rem';
+    label.innerHTML = `<input type="checkbox" value="${level}" ${selectedAnalyticsSeniorities.has(level) ? 'checked' : ''} /> ${level}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedAnalyticsSeniorities.add(level);
+      } else {
+        selectedAnalyticsSeniorities.delete(level);
+      }
+      saveHiddenFiltersToStorage();
+      updateAnalyticsFilterUI();
+      renderAnalytics();
+    });
+    container.appendChild(label);
+  });
+}
+
 async function loadAnalyticsData() {
   try {
     alumniData = await fetchAllAnalyticsAlumni();
     buildAnalyticsAutocomplete(alumniData);
     populateAnalyticsMajorCheckboxes();
+    populateAnalyticsDegreeCheckboxes();
+    populateAnalyticsSeniorityCheckboxes();
     updateAnalyticsFilterUI();
     renderAnalytics();
     updateHeatmapButtonUrl();
