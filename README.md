@@ -198,3 +198,9 @@ For detailed normalization/classification logic (job titles, companies, majors, 
 For information about the automatic seniority level classification feature, flagging logic, and how to populate existing records, see:
 
 [SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md)
+
+## 11. Relevance Engine & Experience Scoring
+
+The Relevance Engine scores each alumni job as a **professional career** vs a **non-career service job**, using Groq LLM + heuristic rules. Professional roles (director, manager, analyst, engineer, etc.) are scored as relevant; HS-level jobs (cashier, crew member, etc.) are excluded. For full details, scoring logic, thresholds, and retroactive computation commands, see:
+
+[RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md)

@@ -410,10 +410,60 @@ def flag_profile_for_review(profile_data):
     """
     Flag profiles with incomplete data for manual review.
     Appends to flagged_for_review.txt with descriptive comments.
-    (Currently disabled based on user preference to prevent false-positives on standard missing data).
+
+    Flags when one of title/company is present but the other is missing
+    for any experience slot (1, 2, 3). This catches genuine data mismatches,
+    not profiles that simply have no work experience listed.
     """
-    pass
-    
+    from config import FLAGGED_PROFILES_FILE
+
+    url = profile_data.get('profile_url', '')
+    if not url:
+        return
+    url = url.strip().rstrip('/')
+
+    issues = []
+
+    from config import FLAG_MISSING_EXPERIENCE_DATA, FLAG_MISSING_GRAD_YEAR, FLAG_MISSING_DEGREE
+
+    if FLAG_MISSING_EXPERIENCE_DATA:
+        # Experience 1
+        job_title = profile_data.get('job_title', '').strip()
+        company = profile_data.get('company', '').strip()
+        if job_title and not company:
+            issues.append("Missing Company but Job Title Present")
+        elif company and not job_title:
+            issues.append("Missing Job Title but Company Present")
+
+        # Experience 2
+        exp2_title = profile_data.get('exp2_title', '').strip()
+        exp2_company = profile_data.get('exp2_company', '').strip()
+        if exp2_title and not exp2_company:
+            issues.append("Missing Company but Job Title Present for Experience 2")
+        elif exp2_company and not exp2_title:
+            issues.append("Missing Job Title but Company Present for Experience 2")
+
+        # Experience 3
+        exp3_title = profile_data.get('exp3_title', '').strip()
+        exp3_company = profile_data.get('exp3_company', '').strip()
+        if exp3_title and not exp3_company:
+            issues.append("Missing Company but Job Title Present for Experience 3")
+        elif exp3_company and not exp3_title:
+            issues.append("Missing Job Title but Company Present for Experience 3")
+
+    # Conditional flagging for education data
+    graduation_year = profile_data.get('graduation_year', '')
+    major = profile_data.get('major', '').strip()
+
+    if FLAG_MISSING_GRAD_YEAR and not graduation_year:
+        issues.append("Missing Grad Year")
+
+    if FLAG_MISSING_DEGREE and not major:
+        issues.append("Missing Degree/Major Information")
+
+    if not issues:
+        return  # Nothing to flag
+
     # Format: URL # Issue1; Issue2
     flag_line = f"{url} # {'; '.join(issues)}\n"
     

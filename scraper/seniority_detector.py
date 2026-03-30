@@ -121,31 +121,10 @@ def detect_seniority(job_title, employment_type=None):
 
 def adjust_and_flag_seniority(seniority, experience_months, linkedin_url):
     """
-    Validate seniority against experience months and flag mismatches.
-    
-    Does NOT change the seniority assignment — just flags for manual review
-    if there's a mismatch.
-    
-    Args:
-        seniority: The detected seniority level
-        experience_months: Total relevant experience months (can be None)
-        linkedin_url: LinkedIn profile URL for flagging
-        
-    Returns:
-        str: The same seniority level (unchanged)
+    Previously validated seniority against experience months.
+    Now disabled — seniority flagging removed per user request.
+    Returns the seniority level unchanged.
     """
-    if experience_months is None or not linkedin_url:
-        return seniority
-    
-    min_exp = SENIORITY_MIN_EXPERIENCE.get(seniority)
-    if min_exp is None:
-        return seniority
-    
-    if experience_months < min_exp:
-        _flag_seniority_mismatch(
-            linkedin_url, seniority, experience_months, min_exp
-        )
-    
     return seniority
 
 

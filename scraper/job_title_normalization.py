@@ -79,7 +79,7 @@ TITLE_MAP = {
     "vice president lead software engineer": "Software Engineer",
     "principal systems engineer": "Software Engineer",
     "lead systems engineer": "Software Engineer",
-    "sr. director of software engineering": "VP",
+    "sr. director of software engineering": "Director",
     "vp of software engineering": "VP",
     "developer": "Software Engineer",
     "application developer": "Software Engineer",
@@ -151,8 +151,8 @@ TITLE_MAP = {
     "data architect": "Data Engineer",
     "data owner": "Data Analyst",
     "operations & data engineer": "Data Engineer",
-    "database administrator": "Software Engineer",
-    "dba": "Software Engineer",
+    "database administrator": "Database Administrator",
+    "dba": "Database Administrator",
     "business analyst": "Data Analyst",
     "product analyst": "Data Analyst",
     "business intelligence analyst": "Data Analyst",
@@ -180,12 +180,12 @@ TITLE_MAP = {
     "cloud architect": "DevOps Engineer",
     "solutions architect": "Software Engineer",
     "jr. system architect": "Software Engineer",
-    "systems administrator": "Software Engineer",
-    "system administrator": "Software Engineer",
-    "sys admin": "Software Engineer",
-    "sysadmin": "Software Engineer",
-    "network engineer": "Software Engineer",
-    "network administrator": "Software Engineer",
+    "systems administrator": "Systems Administrator",
+    "system administrator": "Systems Administrator",
+    "sys admin": "Systems Administrator",
+    "sysadmin": "Systems Administrator",
+    "network engineer": "Network Engineer",
+    "network administrator": "Network Engineer",
 
     # ── Systems Engineering ──
     "system engineer": "Software Engineer",
@@ -227,17 +227,17 @@ TITLE_MAP = {
     "mechanical engineering intern": "Mechanical Engineer",
     "mechanical development engineer": "Mechanical Engineer",
     "development engineer - mechanical": "Mechanical Engineer",
-    "civil engineer": "Mechanical Engineer",
-    "civil enginnering co-op/intern": "Mechanical Engineer",
-    "structural engineer": "Mechanical Engineer",
+    "civil engineer": "Civil Engineer",
+    "civil enginnering co-op/intern": "Civil Engineer",
+    "structural engineer": "Civil Engineer",
     "piping engineer": "Mechanical Engineer",
     "process engineer": "Mechanical Engineer",
     "manufacturing engineer": "Mechanical Engineer",
     "industrial engineer": "Mechanical Engineer",
     "controls engineer": "Mechanical Engineer",
-    "field engineer": "Mechanical Engineer",
-    "feo project engineer": "Project Manager",
-    "project engineer": "Project Manager",
+    "field engineer": "Field Engineer",
+    "feo project engineer": "Project Engineer",
+    "project engineer": "Project Engineer",
     "engineering technician": "Mechanical Engineer",
     "senior technical engineer": "Mechanical Engineer",
     "senior materials engineer": "Mechanical Engineer",
@@ -271,11 +271,17 @@ TITLE_MAP = {
     "scrum master": "Manager",
     "vp of engineering": "VP",
     "vice president of engineering": "VP",
-    "cto": "VP",
-    "chief technology officer": "VP",
-    "coo": "VP",
-    "chief operations officer": "VP",
-    "director of engineering": "Manager",
+    "ceo": "CEO",
+    "chief executive officer": "CEO",
+    "cto": "CTO",
+    "chief technology officer": "CTO",
+    "coo": "COO",
+    "chief operations officer": "COO",
+    "cfo": "CFO",
+    "chief financial officer": "CFO",
+    "cmo": "CMO",
+    "chief marketing officer": "CMO",
+    "director of engineering": "Director",
     "manager": "Manager",
     "senior manager": "Manager",
     "regional manager": "Manager",
@@ -289,12 +295,12 @@ TITLE_MAP = {
     "procurement manager": "Manager",
     "executive vice president of operations": "VP",
     "executive vice president of operations and human resources": "VP",
-    "director of southwest region": "Manager",
-    "director of strategic initiatives": "Manager",
-    "director of employee experience": "Manager",
-    "senior director, assurance & enterprise risk management": "Manager",
-    "partner and executive director": "Manager",
-    "founder and director": "Manager",
+    "director of southwest region": "Director",
+    "director of strategic initiatives": "Director",
+    "director of employee experience": "Director",
+    "senior director, assurance & enterprise risk management": "Director",
+    "partner and executive director": "Director",
+    "founder and director": "Director",
     "co-owner & operations head": "Manager",
     "owner": "Manager",
     "managing director": "Manager",
@@ -504,11 +510,17 @@ _PREFERRED_TITLE_BUCKETS = [
     "Data Analyst",
     "DevOps Engineer",
     "Mechanical Engineer",
+    "Civil Engineer",
+    "Field Engineer",
+    "Project Engineer",
     "Researcher",
     "Graduate Assistant",
     "Student",
     "Project Manager",
     "Application Engineer",
+    "Database Administrator",
+    "Systems Administrator",
+    "Network Engineer",
     "Accountant",
     "Manager",
     "Customer Service",
@@ -517,6 +529,11 @@ _PREFERRED_TITLE_BUCKETS = [
     "Human Resources",
     "Finance / Accounting",
     "Consultant",
+    "CEO",
+    "CTO",
+    "COO",
+    "CFO",
+    "CMO",
     "VP",
     "Director",
     "Professor",
@@ -567,36 +584,56 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     # Regex-driven compaction for common families.
     low = (source or raw).lower()
 
-    # 1. Executive / C-Level mapped to VP
-    if re.search(r"\b(vp|vice president|president|chief|cto|cfo|coo|cio|ciso|executive vice|evp|svp)\b", low):
+    # 1. Executive / C-Level — map to specific CxO buckets first
+    if re.search(r"\b(ceo|chief executive officer)\b", low):
+        return "CEO"
+    if re.search(r"\b(cto|chief technology officer)\b", low):
+        return "CTO"
+    if re.search(r"\b(coo|chief operating officer|chief operations officer)\b", low):
+        return "COO"
+    if re.search(r"\b(cfo|chief financial officer)\b", low):
+        return "CFO"
+    if re.search(r"\b(cmo|chief marketing officer)\b", low):
+        return "CMO"
+    if re.search(r"\b(vp|vice president|president|cio|ciso|executive vice|evp|svp)\b", low):
         return "VP"
-        
+
     # 2. Engineering & Tech Roles (Specific before generic)
     if re.search(r"\b(ai|artificial intelligence|machine learning|\bml\b)\b", low):
         return "AI / ML Engineer"
     if re.search(r"\b(cloud|devops|dev ops|sre|site reliability|infrastructure)\b", low):
         return "DevOps Engineer"
-    if re.search(r"\b(software|frontend|front-end|backend|back-end|fullstack|full-stack|web developer|mainframe|syteline|sdet|qa\b|quality assurance|test engineer|systems? engineer|systems? administrator|sysadmin|network engineer|security engineer|cybersecurity|solutions architect)\b", low):
+
+    # 2b. IT Infrastructure — distinct titles
+    if re.search(r"\b(database administrator|\bdba\b)\b", low):
+        return "Database Administrator"
+    if re.search(r"\b(systems? administrator|sysadmin|sys admin)\b", low):
+        return "Systems Administrator"
+    if re.search(r"\b(network engineer|network administrator)\b", low):
+        return "Network Engineer"
+
+    if re.search(r"\b(software|frontend|front-end|backend|back-end|fullstack|full-stack|web developer|mainframe|syteline|sdet|qa\b|quality assurance|test engineer|systems? engineer|security engineer|cybersecurity|solutions architect)\b", low):
         return "Software Engineer"
-        
-    # 4. Data Roles
+
+    # 3. Data Roles
     if re.search(r"\bdata engineer\b", low):
         return "Data Engineer"
     if re.search(r"\bdata scientist\b", low):
         return "Data Scientist"
     if re.search(r"\b(data analyst|business analyst|product analyst|bi analyst|business intelligence|data owner)\b", low):
         return "Data Analyst"
-        
-        
-    # 5. Directors / Managers / Project Managers
+
+    # 4. Directors / Managers / Project Managers
     if re.search(r"\b(director|managing director)\b", low):
         return "Director"
-    if re.search(r"\b(project manager|project coordinator|project engineer|program manager)\b", low):
+    if re.search(r"\b(project manager|project coordinator|program manager)\b", low):
         return "Project Manager"
+    if re.search(r"\bproject engineer\b", low):
+        return "Project Engineer"
     if re.search(r"\b(manager|team lead|supervisor|coordinator|office staff|head of|owner|founder)\b", low):
         return "Manager"
-        
-    # 6. Core Operational/Support
+
+    # 5. Core Operational/Support
     if re.search(r"\b(recruiter|human resources|talent|hr\b)\b", low):
         return "Human Resources"
     if re.search(r"\b(accountant|financial|finance|banker|title clerk|due diligence)\b", low):
@@ -607,20 +644,26 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
         return "Sales"
     if re.search(r"\b(operations|operations analyst|operations officer|technology officer|lead operations|business process|process analyst|scrum master)\b", low):
         return "Operations"
-        
-    # 7. Mechanical / Traditional Engineering (Tightened)
-    if re.search(r"\b(mechanical|manufacturing|industrial|civil|structural|piping|controls|field engineer|design engineer|engineering technician|assembly|drafter|cad)\b", low):
+
+    # 6. Civil / Field Engineering — distinct from Mechanical
+    if re.search(r"\b(civil|structural)\b", low):
+        return "Civil Engineer"
+    if re.search(r"\bfield engineer\b", low):
+        return "Field Engineer"
+
+    # 7. Mechanical / Traditional Engineering
+    if re.search(r"\b(mechanical|manufacturing|industrial|piping|controls|design engineer|engineering technician|assembly|drafter|cad)\b", low):
         return "Mechanical Engineer"
-        
-    # 7. Customer Service (Now includes IT support/help desk)
+
+    # 8. Customer Service (includes IT support/help desk)
     if re.search(r"\b(customer service|customer support|client service|front desk|cashier|crew member|server trainer|patient access|it support|help desk|technical support|desktop support)\b", low):
         return "Customer Service"
-        
-    # 8. Consulting
+
+    # 9. Consulting
     if re.search(r"\b(consultant)\b", low):
         return "Consultant"
 
-    # 9. Academic Hierarchy Structure
+    # 10. Academic Hierarchy Structure
     if re.search(r"\bprofessor\b", low):
         return "Professor"
     if re.search(r"\bpostdoc\b", low):
@@ -629,8 +672,8 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
         return "Researcher"
     if re.search(r"\b(graduate assistant|teaching assistant|instructional assistant|supplemental instructor)\b", low):
         return "Graduate Assistant"
-        
-    # 10. Student Catch-all
+
+    # 11. Student Catch-all
     if re.search(r"\bambassador\b", low):
         return "Ambassador"
     if re.search(r"\b(peer mentor|peer tutor)\b", low):
@@ -639,22 +682,6 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
         return "Technician"
     if re.search(r"\b(student|\bpeer\b|\bgrader\b)\b", low):
         return "Student"
-
-    if re.search(r"\b(vp|vice president|chief|head of|director|pres)\b", low):
-        # VP / C-Level mapping
-        if re.search(r"\b(vp|vice president|chief|c[a-z]o)\b", low):
-            return "VP"
-        
-        # Ensure HR / Human Resources directors are mapped to Director, not HR string
-        if re.search(r"\b(director of human resources|hr director)\b", low):
-            return "Director"
-
-        if re.search(r"\b(head of human resources)\b", low):
-            return "Human Resources"
-        
-        # Explicitly map Directors
-        if "director" in low:
-            return "Director"
 
     return source or raw
 
@@ -887,21 +914,27 @@ def normalize_title_with_groq(raw_title: str, existing_titles: list) -> str:
 
     preferred_list = "\n".join(f"- {t}" for t in _PREFERRED_TITLE_BUCKETS)
 
-    prompt = f"""You are a job-title normalization engine.
+    prompt = f"""You are a job-title normalization engine. Accuracy matters above all.
 
 Task:
-Given a raw job title and existing normalized titles, produce one normalized title.
+Given a raw job title and existing normalized titles, produce one standardized normalized title.
 
 Rules:
 1. If an existing title is semantically equivalent, return that EXACT existing string.
 2. Prefer one of these canonical buckets when semantically equivalent:
 {preferred_list}
-3. Otherwise return a new concise base function title (1-4 words).
+3. Otherwise return a new concise base function title (1-4 words). Do NOT return "Other" unless there is absolutely no way to infer a role.
 4. Remove seniority/level modifiers (Senior, Junior, II, III, Intern, Lead, etc.).
 5. Remove org-specific fragments (department names, "at <university/company>").
 6. Keep common technical acronyms when core to the role (QA, SRE, DevOps, UI/UX).
 7. If raw title is empty/noise (N/A, unknown), return an empty string.
 8. For memberships/officer roles in student clubs/orgs (e.g., WiCyS), normalize to "Student".
+9. "Member of Technical Staff" is a software engineering role → "Software Engineer".
+10. Executive titles: "CEO" → "CEO", "CTO" → "CTO", "COO" → "COO", "CFO" → "CFO", "CMO" → "CMO". VP/Vice President → "VP".
+11. "Database Administrator", "Systems Administrator", "Network Engineer" should remain their own specific titles.
+12. Civil Engineer, Field Engineer, Project Engineer remain distinct titles.
+13. Graduate students in experience sections with no assistant title → "Student".
+14. If the title is ambiguous, create a reasonable standardized title for a professional dashboard — do NOT default to "Other".
 
 Existing normalized titles:
 {titles_list}

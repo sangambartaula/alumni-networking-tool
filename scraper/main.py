@@ -146,6 +146,12 @@ force_exit = False
 _exit_listener_active = False
 session_profiles_scraped = 0
 
+# GUI Limits
+GUI_MAX_PROFILES = int(os.getenv("GUI_MAX_PROFILES", "0"))
+GUI_MAX_RUNTIME_MINUTES = int(os.getenv("GUI_MAX_RUNTIME_MINUTES", "0"))
+SCRIPT_START_TIME = datetime.now()
+global_profiles_tracked_for_gui = 0
+
 
 def _exit_listener():
     global exit_requested, force_exit, _exit_listener_active
@@ -381,6 +387,19 @@ def _submit_discipline_keywords(scraper, keyword_query):
 
 
 def wait_between_profiles():
+    global global_profiles_tracked_for_gui
+    global_profiles_tracked_for_gui += 1
+    
+    if GUI_MAX_PROFILES > 0 and global_profiles_tracked_for_gui >= GUI_MAX_PROFILES:
+        logger.info(f"🛑 Reached GUI Max Profiles limit ({GUI_MAX_PROFILES}). Exiting gracefully.")
+        sys.exit(0)
+        
+    if GUI_MAX_RUNTIME_MINUTES > 0:
+        elapsed_mins = (datetime.now() - SCRIPT_START_TIME).total_seconds() / 60
+        if elapsed_mins >= GUI_MAX_RUNTIME_MINUTES:
+            logger.info(f"🛑 Reached GUI Max Runtime limit ({GUI_MAX_RUNTIME_MINUTES} mins). Exiting gracefully.")
+            sys.exit(0)
+
     delay = random.uniform(config.MIN_DELAY, config.MAX_DELAY)
     logger.info(f"Next profile in {delay:.0f}s")
 

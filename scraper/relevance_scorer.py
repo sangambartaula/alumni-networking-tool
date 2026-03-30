@@ -2,38 +2,40 @@
 Groq-based job relevance scoring and experience months computation.
 
 === CONTEXT ===
-This tool serves College of Engineering / STEM alumni. The main goal is to
-count career-relevant experience while **filtering obvious non-career jobs**
-(e.g. cashier, retail, warehouse-only roles). Technical and adjacent real-world
-roles (engineering, software, lab/R&D, technical sales, field service
-engineering, etc.) should score as relevant.
+This tool serves College of Engineering alumni. The main goal is to
+count **professional post-college career experience** while filtering
+obvious non-career / high-school-level jobs (cashier, retail associate,
+warehouse picker, fast food, etc.).
+
+Any legitimate professional career job should be counted as relevant —
+not just STEM/engineering roles. Directors, managers, analysts, designers,
+architects, consultants, etc. are ALL relevant. Engineering and STEM titles
+get a slight boost but are NOT required for relevance.
 
 === SCORING LOGIC ===
 Order: **junk check → LLM (non-junk only) → additive boosts → floors → clamp [0,1]**
 
 1) **Junk titles** (cashier, retail associate, etc.): score **0.10**, no LLM.
-   Technical-looking titles are never treated as junk.
+   Professional-sounding titles are never treated as junk.
 
-2) **LLM**: Groq returns the base relevance in [0, 1]. If Groq is unavailable
-   or fails, there is no base score unless a **floor** below applies.
+2) **LLM**: Groq returns the base career-level score in [0, 1]. If Groq is
+   unavailable or fails, there is no base score unless a **floor** applies.
 
 3) **Heuristic boosts** (only when LLM returned a score):
-   - Engineering-style title → **+0.05**
+   - Engineering/STEM-style title → **+0.05**
    - Non-empty major matches STEM/engineering patterns → **+0.05**
 
 4) **Floors** (minimum on the boosted score):
    - TA / RA / grad assistant / peer tutor patterns → minimum **0.65**
    - Engineering-style title with **no major** stored → minimum **0.60**
+   - Professional title (director, manager, VP, etc.) → minimum **0.60**
 
 5) **Clamp** the final value to **[0, 1]**.
 
-When major is missing, the LLM still runs with a default prompt: assume a
-College-of-Engineering / STEM cohort.
-
 === THRESHOLD ===
-RELEVANCE_THRESHOLD_RELEVANT = 0.6
-is_relevant is True when score >= 0.6. This keeps solid engineering paths while
-still excluding junk titles (typically <= 0.15).
+RELEVANCE_THRESHOLD_RELEVANT = 0.45
+is_relevant is True when score >= 0.45. This keeps all professional-level
+careers while excluding obvious HS-level service jobs (typically <= 0.15).
 
 === RETRY LOGIC ===
 Each job is scored independently with up to MAX_RETRIES=3 attempts.
@@ -51,17 +53,18 @@ from datetime import datetime
 from config import logger
 
 from groq_client import _get_client, is_groq_available, GROQ_MODEL, parse_groq_date
+import groq_retry_patch  # noqa: F401 — apply 5s retry backoff for Groq API calls
 
 # ── Relevance Thresholds ──────────────────────────────────────
-# >= 0.6 = relevant (boolean True), < 0.6 = not relevant (boolean False)
-RELEVANCE_THRESHOLD_RELEVANT = 0.6
-RELEVANCE_THRESHOLD_UNSURE = 0.35  # narrative band: below ~0.6 = not relevant
+# >= 0.45 = relevant (boolean True), < 0.45 = not relevant (boolean False)
+RELEVANCE_THRESHOLD_RELEVANT = 0.45
+RELEVANCE_THRESHOLD_UNSURE = 0.25  # narrative band
 MAX_RETRIES = 3
 
 # LLM context when major is absent from the profile
 DEFAULT_MAJOR_CONTEXT_FOR_LLM = (
-    "Not listed — assume College of Engineering / STEM alumni; "
-    "favor typical engineering, technology, and applied-science careers."
+    "Not listed — assume a university graduate; any professional-level "
+    "career counts as relevant. Only exclude obvious non-career service jobs."
 )
 
 _JUNK_TITLE = re.compile(
@@ -75,7 +78,28 @@ _JUNK_TITLE = re.compile(
     r'|forklift|material\s+handler'
     r'|delivery\s+driver|(?:uber|lyft|doordash|grubhub)\s+driver'
     r'|crew\s+member|sandwich\s+artist'
-    r'|customer\s+service\s+rep|call\s+center'
+    r'|personal\s+shopper|front\s+desk\s+staff'
+    r'|courtesy\s+clerk|bagger\b'
+    r')\b',
+    re.I,
+)
+
+# Professional-level titles that are always relevant regardless of major
+_PROFESSIONAL_TITLE = re.compile(
+    r'\b('
+    r'director|manager|president|vice\s+president|\bvp\b'
+    r'|\bceo\b|\bcto\b|\bcoo\b|\bcfo\b|\bcmo\b|\bcio\b'
+    r'|architect|consultant|advisor|analyst|strategist'
+    r'|designer|product\s+(?:manager|owner|designer)'
+    r'|project\s+manager|program\s+manager|scrum\s+master'
+    r'|recruiter|talent|human\s+resources|\bhr\b'
+    r'|accountant|auditor|controller|financial'
+    r'|attorney|lawyer|counsel|paralegal'
+    r'|nurse|physician|pharmacist|therapist|clinician'
+    r'|professor|lecturer|instructor|teacher'
+    r'|founder|co-?founder|entrepreneur|owner'
+    r'|solutions?\s+(?:architect|engineer|consultant)'
+    r'|operations|procurement|supply\s+chain|logistics'
     r')\b',
     re.I,
 )
@@ -125,6 +149,7 @@ _TA_TITLE = re.compile(
 _SCORE_CAP_JUNK = 0.10
 _FLOOR_TA = 0.65
 _FLOOR_ENG_NO_MAJOR_CONTEXT = 0.60
+_FLOOR_PROFESSIONAL = 0.60
 _BOOST_ENGINEERING_TITLE = 0.05
 _BOOST_STEM_MAJOR_MATCH = 0.05
 
@@ -134,6 +159,8 @@ def _is_obviously_non_career_title(title: str) -> bool:
     if not t:
         return False
     if _ENGINEERING_TITLE.search(t):
+        return False
+    if _PROFESSIONAL_TITLE.search(t):
         return False
     return bool(_JUNK_TITLE.search(t))
 
@@ -178,6 +205,8 @@ def apply_relevance_adjustments(title, company, major, llm_score):
         score = max(score, _FLOOR_TA)
     if (not major) and _ENGINEERING_TITLE.search(title):
         score = max(score, _FLOOR_ENG_NO_MAJOR_CONTEXT)
+    if _PROFESSIONAL_TITLE.search(title):
+        score = max(score, _FLOOR_PROFESSIONAL)
 
     score = min(1.0, max(0.0, score))
 
@@ -199,22 +228,26 @@ def _llm_score_job_relevance(title, company, major_for_prompt):
     company = str(company).strip() if company else ""
     major_for_prompt = str(major_for_prompt).strip()
 
-    prompt = f"""Rate how relevant this job is to the person's field of study.
+    prompt = f"""Rate whether this is a legitimate professional career-level job.
 
 Job Title: {title}
 Company: {company}
 Field of Study / Major: {major_for_prompt}
 
-Consider:
-- Does the job title align with skills typical for this major or for engineering/tech alumni?
-- Is the work technical, analytical, or in an industry where this major is common?
-- Adjacent roles (lab, R&D, technical sales, manufacturing engineering, internships) may be highly relevant.
+Scoring guide:
+- 0.0-0.15 = Obvious non-career / high-school-level job (cashier, fast food, retail associate, warehouse picker, crew member)
+- 0.3-0.5 = Entry-level or loosely professional (customer service, office assistant, front desk)
+- 0.5-0.7 = Legitimate professional career not directly in their field (operations manager, recruiter, accountant, product designer)
+- 0.7-0.85 = Professional career in a broadly related area (technical sales, project manager for engineering firm, data analyst)
+- 0.85-1.0 = Directly aligned professional role (software engineer with CS degree, mechanical engineer with ME degree)
 
-Return ONLY a single number between 0 and 1 (e.g. 0.85).
-- 0.0 = clearly unrelated (e.g. cashier, fast food, generic retail with no technical overlap)
-- 0.5 = loosely related
-- 1.0 = strongly aligned (e.g. software developer with Computer Science)
+IMPORTANT:
+- ANY director, VP, manager, architect, consultant, analyst, designer, or executive role is AT LEAST 0.6
+- Engineering/STEM roles score 0.85+
+- Student internships in professional fields score 0.6+
+- Only score below 0.3 for obvious non-career service/retail jobs
 
+Return ONLY a single number between 0 and 1 (e.g. 0.75).
 Return ONLY the number. No text, no explanation, no JSON."""
 
     for attempt in range(MAX_RETRIES):
@@ -225,7 +258,8 @@ Return ONLY the number. No text, no explanation, no JSON."""
                     {
                         "role": "system",
                         "content": (
-                            "You are a career relevance evaluator for STEM and engineering graduates. "
+                            "You are a career-level evaluator for university graduates. "
+                            "You distinguish professional careers from non-career service jobs. "
                             "You MUST respond with ONLY a single decimal number between 0 and 1. "
                             "No words, no explanation, no formatting. Just the number."
                         ),

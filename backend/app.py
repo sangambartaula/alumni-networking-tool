@@ -1120,13 +1120,11 @@ def api_get_alumni():
 
                 # Experience range filter (values in months)
                 if exp_min is not None and exp_min > 0:
-                    where_clauses.append("COALESCE(a.relevant_experience_months, 0) >= %s")
+                    where_clauses.append("CAST(COALESCE(NULLIF(a.relevant_experience_months, ''), 0) AS INTEGER) >= %s")
                     params.append(exp_min)
-                if exp_max is not None:
-                    # 360 months = 30 years; when max is 360 treat as "30+" → no upper bound
-                    if exp_max < 360:
-                        where_clauses.append("COALESCE(a.relevant_experience_months, 0) <= %s")
-                        params.append(exp_max)
+                if exp_max is not None and exp_max >= 0:
+                    where_clauses.append("CAST(COALESCE(NULLIF(a.relevant_experience_months, ''), 0) AS INTEGER) <= %s")
+                    params.append(exp_max)
 
                 if bookmarked_only:
                     where_clauses.append(

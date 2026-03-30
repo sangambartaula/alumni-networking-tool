@@ -15,9 +15,10 @@ import os
 import sys
 from pathlib import Path
 
-# Ensure backend is importable
-BACKEND_DIR = Path(__file__).resolve().parent.parent / 'backend'
-sys.path.insert(0, str(BACKEND_DIR))
+# Ensure backend and scraper are importable
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR / 'backend'))
+sys.path.insert(0, str(ROOT_DIR / 'scraper'))
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
