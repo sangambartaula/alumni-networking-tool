@@ -310,10 +310,13 @@ def _coerce_int(value):
 
 def classify_seniority_bucket(job_title, relevant_experience_months=None):
     """
-    Classify alumni into UI buckets: Intern / Mid / Senior / Executive.
-    - Title keywords are primary.
-    - Experience is used only as a tiebreaker when title has no keywords.
-    - Missing title falls back to internal "Others".
+    Classify alumni into UI buckets from the current title only.
+
+    Buckets: Intern / Mid / Senior / Executive.
+    - Title keywords are the sole driver.
+    - Relevant experience months do not change the bucket; they are only used
+      for warnings/flags elsewhere (see seniority_detector).
+    - Missing or empty title falls back to internal "Others".
     """
     normalized_title = _normalize_title_for_seniority(job_title)
     if not normalized_title:
@@ -328,17 +331,8 @@ def classify_seniority_bucket(job_title, relevant_experience_months=None):
     if _SENIORITY_INTERN_PATTERN.search(normalized_title):
         return "Intern"
 
-    # Title did not match known keywords: use experience only as a fallback tiebreaker.
-    exp_months = _coerce_int(relevant_experience_months)
-    if exp_months is None:
-        return "Mid"
-    if exp_months >= 180:
-        return "Executive"
-    if exp_months >= 72:
-        return "Senior"
-    if exp_months >= 12:
-        return "Mid"
-    return "Intern"
+    # No seniority keywords in the title: default to Mid.
+    return "Mid"
 
 
 def _parse_seniority_filters(raw_values):
