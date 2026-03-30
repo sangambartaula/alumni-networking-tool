@@ -13,15 +13,27 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
 
-# Update .env utility
-def update_env(key, value):
-    # Determine base directory depending on if frozen by PyInstaller
+def get_base_dir():
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
         if sys.platform == 'darwin':
             base_dir = os.path.abspath(os.path.join(base_dir, '../../..'))
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+    # If the app is sitting inside a 'dist' folder, find the actual project root
+    temp_dir = base_dir
+    for _ in range(3):
+        if os.path.exists(os.path.join(temp_dir, 'scraper', 'main.py')):
+            return temp_dir
+        temp_dir = os.path.dirname(temp_dir)
+        
+    return base_dir
+
+# Update .env utility
+def update_env(key, value):
+    # Determine base directory depending on if frozen by PyInstaller
+    base_dir = get_base_dir()
         
     env_path = os.path.join(base_dir, '.env')
     lines = []
@@ -54,12 +66,7 @@ class ScraperWorker(QThread):
         self._is_stopped = False
 
     def run(self):
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-            if sys.platform == 'darwin': # Mac App Bundle
-                base_dir = os.path.abspath(os.path.join(base_dir, '../../..'))
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = get_base_dir()
             
         # Target the virtual environment python directly to maintain Selenium/Groq dependencies
         if sys.platform == "win32":
@@ -426,25 +433,8 @@ class ScraperApp(QMainWindow):
         if file_path:
             self.csv_path_input.setText(file_path)
 
-    def get_base_dir(self):
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-            if sys.platform == 'darwin':
-                base_dir = os.path.abspath(os.path.join(base_dir, '../../..'))
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            
-        # If the app is sitting inside a 'dist' folder, find the actual project root
-        temp_dir = base_dir
-        for _ in range(3):
-            if os.path.exists(os.path.join(temp_dir, 'scraper', 'main.py')):
-                return temp_dir
-            temp_dir = os.path.dirname(temp_dir)
-            
-        return base_dir
-
     def load_settings_from_env(self):
-        base_dir = self.get_base_dir()
+        base_dir = get_base_dir()
             
         env_path = os.path.join(base_dir, '.env')
         if not os.path.exists(env_path):
@@ -507,11 +497,11 @@ class ScraperApp(QMainWindow):
         )
 
     def open_flag_manager(self):
-        dialog = FlagManagerDialog(self.get_base_dir(), self)
+        dialog = FlagManagerDialog(get_base_dir(), self)
         dialog.exec()
 
     def validate_inputs(self):
-        base_dir = self.get_base_dir()
+        base_dir = get_base_dir()
         mode = self.mode_combo.currentText()
         if mode == "review":
             txt_path = os.path.join(base_dir, 'scraper', 'output', 'flagged_for_review.txt')
