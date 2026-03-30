@@ -771,13 +771,18 @@ class LinkedInScraper:
                 if not any([school, degree, major, standardized_degree, standardized_major]):
                     continue
 
-                education_entries.append({
+                entry = {
                     "school": school,
                     "degree": degree,
                     "major": major,
                     "standardized_degree": standardized_degree,
                     "standardized_major": standardized_major,
-                })
+                }
+                if suffix == "":
+                    alt = data.get("standardized_major_alt", "")
+                    if alt:
+                        entry["standardized_major_alt"] = alt
+                education_entries.append(entry)
 
             data["discipline"] = infer_discipline(
                 f"{data.get('degree', '')} {data.get('major', '')}",

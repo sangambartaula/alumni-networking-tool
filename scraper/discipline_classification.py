@@ -29,7 +29,7 @@ UNT_CENG_MAJORS = {
     "Software, Data & AI Engineering": [
         "B.A. Information Technology", "B.S. Computer Engineering", "B.S. Computer Science", "B.S. Cybersecurity",
         "M.S. Computer Engineering", "M.S. Computer Science", "M.S. Cybersecurity", "M.S. Data Engineering",
-        "M.S. Artificial Intelligence", "M.S. Data Engineering",
+        "M.S. Artificial Intelligence",
         "B.S. Geographic Information Systems + Computer Science",
         "Ph.D. Computer Science and Engineering"
     ],
@@ -387,6 +387,7 @@ def _combined_education_text(entry: dict) -> str:
     ]
     major_bits = [
         (entry.get("standardized_major") or "").strip(),
+        (entry.get("standardized_major_alt") or "").strip(),
         (entry.get("major") or "").strip(),
     ]
     return " ".join(part for part in (*degree_bits, *major_bits) if part).strip()
