@@ -29,27 +29,13 @@ The project is still in active development and is expected to be finalized in ab
 - Alumni data is shared across all authorized users.
 - Notes remain private to each individual staff account.
 
-## 4. Client Desktop Setup (Dean's Office)
+## 4. Setup and Installation
 
-This tool can run entirely on its own as a Native Desktop App (Mac or Windows), but it requires a **one-time** initial setup before it works forever.
+All first-time setup and installation steps are maintained in [SETUP.md](SETUP.md).
 
-**Prerequisites:**
-You must have [Python](https://www.python.org/downloads/) installed on your computer.
+Use README as the project overview, and use setup/user docs for operational details.
 
-**One-Time Setup:**
-1. Download this entire project folder and place it somewhere permanent on your computer (e.g., your Desktop or Documents folder).
-2. Open your project folder and double-click the setup script for your operating system:
-   - **Mac Users**: double-click `build_mac_app.command` (if it says you lack permissions, open Terminal and run `chmod +x build_mac_app.command`).
-   - **Windows Users**: double-click `build_windows_app.bat`.
-3. Wait for the terminal window to finish downloading the internal requirements and building your App.
-4. Once it finishes, look inside the **`dist/`** folder. You will find your permanent **UNT Alumni Scraper** Desktop App!
-
-You only ever have to do this once! From now on, whenever you need to scrape data, just double-click that `.app` or `.exe` file! 
-*(Note: Keep the app loosely inside the project folder so it can securely access your saved data).*
-
----
-
-## 5. Running the Dashboard (If Already Installed)
+## 5. Running the Dashboard
 
 ```bash
 python backend/app.py
@@ -63,7 +49,7 @@ http://127.0.0.1:5000
 
 The terminal startup output also shows the active URL. Use the terminal output as the source of truth.
 
-## 5. Running the Scraper via Terminal (Command Line Version)
+## 6. Running the Scraper via Terminal
 
 ```bash
 python scraper/main.py
@@ -73,39 +59,18 @@ The scraper uses cookie-first login. If a valid saved session cookie exists, it 
 
 For detailed scraper GUI and operating instructions, use [USER_GUIDE.md](USER_GUIDE.md) and [SETUP.md](SETUP.md).
 
-## 6. Important Limitations
+## 7. Documentation Index
+
+- Setup and installation: [SETUP.md](SETUP.md)
+- Day-to-day usage: [USER_GUIDE.md](USER_GUIDE.md)
+- Data rules and normalization: [NORMALIZATION_RULES.md](NORMALIZATION_RULES.md)
+- Seniority classification details: [SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md)
+- Relevance engine details: [RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md)
+
+## 8. Important Limitations
 
 - LinkedIn can enforce verification checks and rate limits.
 - Aggressive scraper settings increase challenge and lock risk.
 - A valid LinkedIn session is required.
 - This is an internal UNT tool only.
 
-## 7. Link to Setup Guide
-
-For full installation instructions, see SETUP.md.
-
-[SETUP.md](SETUP.md)
-
-## 8. User Guide / Tutorial
-
-For day-to-day run and usage instructions (filters, alumni status behavior, working-while-studying behavior), see:
-
-[USER_GUIDE.md](USER_GUIDE.md)
-
-## 9. Data Rules Reference
-
-For detailed normalization/classification logic (job titles, companies, majors, degrees, discipline inference, alumni status, and working-while-studying), see:
-
-[NORMALIZATION_RULES.md](NORMALIZATION_RULES.md)
-
-## 10. Seniority Level Classification
-
-For information about the automatic seniority level classification feature, flagging logic, and how to populate existing records, see:
-
-[SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md)
-
-## 11. Relevance Engine & Experience Scoring
-
-For full technical details used by developers, see:
-
-[RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md)
