@@ -43,7 +43,27 @@ UNT alumni status is computed from UNT education data using this logic:
 - Alumni data is shared across all authorized users.
 - Notes remain private to each individual staff account.
 
-## 4. Running the Dashboard (If Already Installed)
+## 4. Client Desktop Setup (Dean's Office)
+
+This tool can run entirely on its own as a Native Desktop App (Mac or Windows), but it requires a **one-time** initial setup before it works forever.
+
+**Prerequisites:**
+You must have [Python](https://www.python.org/downloads/) installed on your computer.
+
+**One-Time Setup:**
+1. Download this entire project folder and place it somewhere permanent on your computer (e.g., your Desktop or Documents folder).
+2. Open your project folder and double-click the setup script for your operating system:
+   - **Mac Users**: double-click `build_mac_app.command` (if it says you lack permissions, open Terminal and run `chmod +x build_mac_app.command`).
+   - **Windows Users**: double-click `build_windows_app.bat`.
+3. Wait for the terminal window to finish downloading the internal requirements and building your App.
+4. Once it finishes, look inside the **`dist/`** folder. You will find your permanent **UNT Alumni Scraper** Desktop App!
+
+You only ever have to do this once! From now on, whenever you need to scrape data, just double-click that `.app` or `.exe` file! 
+*(Note: Keep the app loosely inside the project folder so it can securely access your saved data).*
+
+---
+
+## 5. Running the Dashboard (If Already Installed)
 
 ```bash
 python backend/app.py

@@ -433,6 +433,14 @@ class ScraperApp(QMainWindow):
                 base_dir = os.path.abspath(os.path.join(base_dir, '../../..'))
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+        # If the app is sitting inside a 'dist' folder, find the actual project root
+        temp_dir = base_dir
+        for _ in range(3):
+            if os.path.exists(os.path.join(temp_dir, 'scraper', 'main.py')):
+                return temp_dir
+            temp_dir = os.path.dirname(temp_dir)
+            
         return base_dir
 
     def load_settings_from_env(self):
