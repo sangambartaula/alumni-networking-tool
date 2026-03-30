@@ -48,6 +48,20 @@ Current-year class handling:
 - Before May 15 of that year: status resolves to `No`.
 - On/after May 15 of that year: status resolves to `Yes`.
 
+### Alumni Directory Filters (Current)
+
+- Search by name, role, and company.
+- Multi-select filters: Location, Job Title, Company, Seniority, Engineering Discipline, Major, Degree.
+- Graduation year filter.
+- Working-while-studying and UNT alumni status filters.
+- Relevant experience range (years) filter with an option to include unknown experience profiles.
+
+### Validation Behavior
+
+- Min/max filters enforce integer-only input.
+- Decimal points and non-numeric input are blocked and show an inline warning.
+- If min > max, filter application is blocked and an inline warning is shown.
+
 ## 4. Use Working-While-Studying Signals
 
 Use the `Working While Studying` filter:
@@ -60,7 +74,53 @@ Use the `Working While Studying` filter:
 
 The backend supports both boolean and status-string representations and normalizes them for filtering.
 
-## 5. Troubleshooting
+## 5. Analytics and Heatmap Filters
+
+### Analytics
+
+- Supports filter panel controls for:
+	- Hidden locations and companies
+	- UNT alumni status
+	- Graduation year range
+	- Major, Degree, Seniority
+- Degree and seniority selections are shown as removable active tags.
+- The graduation line chart has its own view-range controls with integer/range validation.
+- Analytics supports PDF export (full dashboard or selected diagrams) via the Download PDF action.
+
+### Heatmap
+
+- Supports filter panel controls for:
+	- Hidden locations and companies
+	- UNT alumni status
+	- Graduation year range
+	- Major, Degree, Seniority
+- Degree and seniority selections are shown as removable active tags.
+- Integer-only and min/max validation is applied to graduation year range input.
+- Heatmap supports both 2D and 3D modes and can open pre-filtered from Analytics year ranges.
+
+## 6. Scraper GUI Highlights
+
+- Browse button for selecting LinkedIn `Connections.csv` in Connections mode.
+- Help dialog for LinkedIn data export steps.
+- Manage Flags dialog for review workflows.
+- Delay presets and custom anti-ban timing controls.
+- Delay validation blocks invalid values (non-integer, negative, or max < min).
+- Auto-save of key GUI settings to `.env` on close.
+- Check DB upload/geocode action from the GUI.
+- Built app path resolution improvements for running from `dist` bundles on macOS/Windows.
+- Stop action uses terminate then forced kill fallback so scraper subprocesses do not hang.
+
+## 7. Seniority Buckets
+
+Current UI/API buckets are:
+
+- Intern
+- Mid
+- Senior
+- Manager
+- Executive
+
+## 8. Troubleshooting
 
 - Missing data in filters: confirm scraper output is being imported into the active DB.
 - LLM extraction not active: confirm `GROQ_API_KEY` is configured.

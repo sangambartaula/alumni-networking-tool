@@ -194,10 +194,59 @@ Optional scraper run:
 python scraper/main.py
 ```
 
-## 11. Production Deployment Notes
+## 11. Scraper GUI Setup and Use
+
+The desktop GUI (`scraper_gui.py`) supports:
+
+- Scraper mode selection (`search`, `review`, `connections`)
+- Connections CSV browsing with file picker
+- Review flag management dialog
+- Delay presets and custom delay ranges
+- Auto-save of GUI settings into `.env`
+- Database upload/geocode action from GUI
+
+Run locally:
+
+```bash
+python scraper_gui.py
+```
+
+Built desktop apps from `build_mac_app.command` and `build_windows_app.bat` include path-resolution fixes so worker subprocesses can find project scripts when launched from packaged `dist` outputs.
+
+## 12. Production Deployment Notes
 
 - Run a single centrally hosted UNT application instance.
 - Use one shared MySQL database for all staff users.
 - Do not run multiple disconnected production instances.
 - Restrict scraper runs to authorized operators and scheduled windows.
 - Monitor logs for verification or rate-limit events and pause scraper activity when triggered.
+
+## 13. API Validation and Error Contract
+
+For developer-facing API clients, numeric filters are validated strictly and return HTTP 400 on invalid inputs.
+
+Structured validation errors use this shape:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "exp_min cannot be greater than exp_max.",
+    "field": "exp_min"
+  }
+}
+```
+
+Current strict numeric validation includes:
+
+- `/api/alumni`
+  - `exp_min`, `exp_max`: optional non-negative integers; if both exist then `exp_min <= exp_max`
+  - `grad_year`: repeated/comma-separated integer list; invalid values return HTTP 400
+- `/api/heatmap`
+  - `grad_year_from`, `grad_year_to`: optional non-negative integers; if both exist then `grad_year_from <= grad_year_to`
+
+Notes for client implementations:
+
+- Do not assume invalid values are ignored; requests now fail fast with HTTP 400.
+- Surface `error.message` directly in UI when possible.
+- Use `error.field` to map server-side validation feedback to the correct form input.
