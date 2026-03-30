@@ -275,9 +275,16 @@ Rules:
 - If start_year or end_year are missing, set them to ""
 - DO NOT invent data — if something is not present in the text, leave it blank
 - For major_raw, exclude minors/concentrations/certificates (keep the primary major only)
-- IGNORE activity/society lists, grades, and descriptions
 - IMPORTANT: LinkedIn education entries are NEVER nested. Unlike jobs which can be grouped under a company, each education entry is independent with its own school name. Each entry = one school + one degree.
-- DO NOT extract degree information from descriptions or activity lines below the main entry. Only use the structured degree/major fields.
+- DESCRIPTION / SUBTEXT (use only when the headline major is misleading):
+  LinkedIn often shows a summary line like "BS, Computer and Information Sciences, General" with a separate
+  description line naming the real program (e.g. "Bachelors of Data Science" or "Major: Cybersecurity").
+  If the headline field of study is overly generic or umbrella-only — e.g. contains "General", "Undeclared",
+  "Interdisciplinary", or is a broad label like "Computer and Information Sciences" without a specific
+  discipline — AND a non-activity description line clearly states a concrete major or named program,
+  set major_raw to that specific discipline (e.g. "Data Science"), not the generic headline.
+  Still IGNORE: "Activities and societies", honors lists, clubs, GPA, grade level lines ("Grade: Senior"),
+  dean's list fluff, and unrelated narrative. Do not invent a major if the description does not clearly name one.
 - Each entry should represent ONE school attendance
 - If a single entry mentions a degree and then repeats it or a similar one in the description (e.g. "Masters in X" ... "MS in Y"), treat it as ONE degree. DO NOT split into two entries unless the SCHOOL NAME is different.
 - If duplicate information appears (e.g. parent item + child detail item), merge them into one entry.
