@@ -935,6 +935,26 @@ def ensure_experience_analysis_columns():
                 pass
 
 
+def ensure_all_alumni_schema_migrations():
+    """
+    Apply every idempotent ALTER TABLE migration for the `alumni` table.
+
+    Call this after init_db() whenever the web app (or CLI) starts. init_db()
+    only creates missing tables; it does not add new columns to existing DBs.
+    When you introduce a new alumni column, add it via a dedicated ensure_*
+    function above, then register that function here so startup stays in sync
+    with SELECT/INSERT in app code.
+    """
+    ensure_alumni_timestamp_columns()
+    ensure_alumni_work_school_date_columns()
+    ensure_alumni_major_column()
+    ensure_education_columns()
+    ensure_normalized_job_title_column()
+    ensure_normalized_degree_column()
+    ensure_normalized_company_column()
+    ensure_experience_analysis_columns()
+
+
 # ============================================================
 # VISITED PROFILES FUNCTIONS
 # ============================================================
@@ -2033,14 +2053,9 @@ if __name__ == "__main__":
         logger.info("🚀 Starting database initialization...")
         logger.info(f"📦 Database '{MYSQL_DATABASE}' ensured")
 
-        # Initialize tables
+        # Initialize tables and apply alumni column migrations (same as Flask startup)
         init_db()
-        ensure_alumni_timestamp_columns()
-        ensure_alumni_work_school_date_columns()
-        ensure_alumni_major_column()
-        ensure_education_columns()
-        ensure_normalized_job_title_column()
-        ensure_experience_analysis_columns()
+        ensure_all_alumni_schema_migrations()
 
         run_seed_mode = os.getenv("DB_RUN_SEED", "1").strip().lower()
         run_seed = run_seed_mode in {"1", "true", "yes", "sync", "force"}

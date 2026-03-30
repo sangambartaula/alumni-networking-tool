@@ -2400,21 +2400,13 @@ if __name__ == "__main__":
         has_alumni_records,
         normalize_existing_grad_years,
         normalize_single_date_education_semantics,
-        ensure_education_columns,
-        ensure_normalized_job_title_column,
-        ensure_normalized_degree_column,
-        ensure_normalized_company_column,
-        ensure_experience_analysis_columns,
+        ensure_all_alumni_schema_migrations,
     )
     if not DISABLE_DB:
         try:
             init_db()
-            # Ensure migration columns exist (safe to call repeatedly)
-            ensure_education_columns()
-            ensure_normalized_job_title_column()
-            ensure_normalized_degree_column()
-            ensure_normalized_company_column()
-            ensure_experience_analysis_columns()
+            # ALTER TABLE migrations for existing DBs (idempotent; see database.py)
+            ensure_all_alumni_schema_migrations()
             # Startup seed strategy:
             # - Default ("0"): skip CSV sync in app startup for faster boot.
             # - "auto": seed only when alumni table is empty.
