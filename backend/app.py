@@ -982,7 +982,7 @@ def api_get_alumni():
         role_filters = _parse_multi_value_param('role')
         company_filters = _parse_multi_value_param('company')
         discipline_filters = _parse_multi_value_param('major')
-        major_filters = _parse_multi_value_param('standardized_major')
+        major_filters = [m for m in _parse_multi_value_param('standardized_major') if m in _APPROVED_UNT_MAJORS_SET]
         degree_filters = [d.lower() for d in _parse_multi_value_param('degree')]
         grad_year_filters = _parse_int_list_param('grad_year')
         working_while_studying_filter = (request.args.get('working_while_studying', '') or '').strip().lower()
@@ -1440,6 +1440,8 @@ def get_notes(alumni_id):
     """Get notes for a specific alumni (for current logged-in user)"""
     try:
         user_id = get_current_user_id()
+        if not user_id:
+            return jsonify({"error": "User not found"}), 401
         
         if DISABLE_DB:
             if not USE_SQLITE_FALLBACK:
@@ -1512,6 +1514,8 @@ def get_all_notes():
     """Get all notes for the current logged-in user, grouped by alumni_id"""
     try:
         user_id = get_current_user_id()
+        if not user_id:
+            return jsonify({"error": "User not found"}), 401
         
         if DISABLE_DB:
             if not USE_SQLITE_FALLBACK:
@@ -1671,7 +1675,12 @@ def save_notes(alumni_id):
     """Save or update notes for a specific alumni"""
     try:
         user_id = get_current_user_id()
+        if not user_id:
+            return jsonify({"error": "User not found"}), 401
+
         data = request.get_json()
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid JSON body"}), 400
         note_content = data.get('note_content', '')
         
         if DISABLE_DB:
@@ -1909,7 +1918,7 @@ def get_heatmap_data():
         except (ValueError, TypeError): return None
     grad_year_from = _safe_int(request.args.get("grad_year_from"))
     grad_year_to   = _safe_int(request.args.get("grad_year_to"))
-    heatmap_major_filters = _parse_multi_value_param('standardized_major')
+    heatmap_major_filters = [m for m in _parse_multi_value_param('standardized_major') if m in _APPROVED_UNT_MAJORS_SET]
 
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
