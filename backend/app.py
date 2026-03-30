@@ -1989,11 +1989,19 @@ def get_heatmap_data():
         return jsonify({"error": str(e)}), 400
 
     # Optional graduation year range filter (passed from Analytics page redirect)
-    def _safe_int(val):
-        try: return int(val) if val else None
-        except (ValueError, TypeError): return None
-    grad_year_from = _safe_int(request.args.get("grad_year_from"))
-    grad_year_to   = _safe_int(request.args.get("grad_year_to"))
+    try:
+        grad_year_from = _parse_optional_non_negative_int("grad_year_from")
+        grad_year_to = _parse_optional_non_negative_int("grad_year_to")
+        _validate_min_max(grad_year_from, grad_year_to, "grad_year_from", "grad_year_to")
+    except ValueError as e:
+        message = str(e)
+        if "grad_year_from" in message:
+            field = "grad_year_from"
+        elif "grad_year_to" in message:
+            field = "grad_year_to"
+        else:
+            field = "grad_year_from"
+        return _validation_error(message, field=field)
     heatmap_major_filters = [m for m in _parse_multi_value_param('standardized_major') if m in _APPROVED_UNT_MAJORS_SET]
     heatmap_degree_filters_raw = [d.strip().lower() for d in _parse_multi_value_param('degree') if (d or '').strip()]
     heatmap_seniority_filters_raw = _parse_multi_value_param('seniority')
