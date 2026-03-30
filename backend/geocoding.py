@@ -287,6 +287,7 @@ def verify_and_update_all_coordinates() -> int:
 
 
 if __name__ == "__main__":
+    import argparse
     import os
     from dotenv import load_dotenv
     
@@ -299,13 +300,28 @@ if __name__ == "__main__":
     )
     
     logger.info("Starting geocoding process...")
-    
-    # Ask user what mode to run
-    print("\nSelect Mode:")
-    print("1. Populate missing coordinates only (Fast)")
-    print("2. Verify and update ALL coordinates (Slow - checks for mismatches)")
-    choice = input("Enter 1 or 2: ").strip()
-    
+
+    parser = argparse.ArgumentParser(description="Geocode alumni location coordinates")
+    parser.add_argument(
+        "--mode",
+        choices=["missing", "verify"],
+        help="missing=populate missing coordinates only, verify=verify and update all coordinates",
+    )
+    args = parser.parse_args()
+
+    choice = None
+    if args.mode == "verify":
+        choice = "2"
+    elif args.mode == "missing":
+        choice = "1"
+
+    if choice is None:
+        # Interactive fallback for manual CLI use.
+        print("\nSelect Mode:")
+        print("1. Populate missing coordinates only (Fast)")
+        print("2. Verify and update ALL coordinates (Slow - checks for mismatches)")
+        choice = input("Enter 1 or 2: ").strip()
+
     if choice == '2':
         logger.info("Running full verification...")
         verify_and_update_all_coordinates()

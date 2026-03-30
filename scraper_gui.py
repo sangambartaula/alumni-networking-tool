@@ -169,17 +169,21 @@ class DatabaseWorker(QThread):
             python_exec = os.path.join(base_dir, "venv", "bin", "python")
             if not os.path.exists(python_exec): python_exec = "python3"
                 
-        check_db_script = os.path.join(base_dir, 'check_db.py')
+        db_script = os.path.join(base_dir, 'backend', 'database.py')
         
         try:
-            self.output_signal.emit(f"Launching Database Sync: {python_exec} check_db.py\n")
+            self.output_signal.emit(f"Launching Database Upload: {python_exec} backend/database.py\n")
+            env = os.environ.copy()
+            env.setdefault("DB_RUN_SEED", "1")
+            env.setdefault("DB_RUN_MAINTENANCE", "0")
             self.process = subprocess.Popen(
-                [python_exec, check_db_script],
+                [python_exec, db_script],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                cwd=base_dir
+                cwd=base_dir,
+                env=env,
             )
             
             for line in iter(self.process.stdout.readline, ''):
@@ -187,11 +191,58 @@ class DatabaseWorker(QThread):
                 
             self.process.stdout.close()
             self.process.wait()
-            self.output_signal.emit(f"\nDatabase Sync finished with exit code {self.process.returncode}\n")
+            self.output_signal.emit(f"\nDatabase Upload finished with exit code {self.process.returncode}\n")
         except Exception as e:
-            self.output_signal.emit(f"\nError starting database sync: {e}\n")
+            self.output_signal.emit(f"\nError starting database upload: {e}\n")
         finally:
-            self.finished_signal.emit(0)
+            code = self.process.returncode if self.process else 1
+            self.finished_signal.emit(code)
+
+
+class GeocodeWorker(QThread):
+    output_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.process = None
+
+    def run(self):
+        base_dir = get_base_dir()
+
+        if sys.platform == "win32":
+            python_exec = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+            if not os.path.exists(python_exec):
+                python_exec = "python"
+        else:
+            python_exec = os.path.join(base_dir, "venv", "bin", "python")
+            if not os.path.exists(python_exec):
+                python_exec = "python3"
+
+        geocode_script = os.path.join(base_dir, 'backend', 'geocoding.py')
+
+        try:
+            self.output_signal.emit(f"Launching Geocoding: {python_exec} backend/geocoding.py --mode missing\n")
+            self.process = subprocess.Popen(
+                [python_exec, geocode_script, '--mode', 'missing'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=base_dir,
+            )
+
+            for line in iter(self.process.stdout.readline, ''):
+                self.output_signal.emit(line)
+
+            self.process.stdout.close()
+            self.process.wait()
+            self.output_signal.emit(f"\nGeocoding finished with exit code {self.process.returncode}\n")
+        except Exception as e:
+            self.output_signal.emit(f"\nError starting geocoding: {e}\n")
+        finally:
+            code = self.process.returncode if self.process else 1
+            self.finished_signal.emit(code)
 
 class FlagManagerDialog(QDialog):
     def __init__(self, base_dir, parent=None):
@@ -328,6 +379,9 @@ class ScraperApp(QMainWindow):
         self.resize(850, 650)
         
         self.worker = None
+        self.db_worker = None
+        self.geocode_worker = None
+        self._pending_upload_after_geocode = False
         self.init_ui()
 
     def init_ui(self):
@@ -482,11 +536,21 @@ class ScraperApp(QMainWindow):
         btn_layout.addWidget(self.stop_btn)
         left_layout.addLayout(btn_layout)
         
-        self.upload_db_btn = QPushButton("Upload && Geocode to Database")
+        sync_btn_layout = QHBoxLayout()
+
+        self.geocode_btn = QPushButton("Geocode Locations")
+        self.geocode_btn.setMinimumHeight(40)
+        self.geocode_btn.setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold;")
+        self.geocode_btn.clicked.connect(self.run_geocode)
+
+        self.upload_db_btn = QPushButton("Upload to Database")
         self.upload_db_btn.setMinimumHeight(40)
         self.upload_db_btn.setStyleSheet("background-color: #005A9C; color: white; font-weight: bold;")
         self.upload_db_btn.clicked.connect(self.upload_to_db)
-        left_layout.addWidget(self.upload_db_btn)
+
+        sync_btn_layout.addWidget(self.geocode_btn)
+        sync_btn_layout.addWidget(self.upload_db_btn)
+        left_layout.addLayout(sync_btn_layout)
         
         left_panel.setFixedWidth(380)
         main_layout.addWidget(left_panel)
@@ -684,6 +748,7 @@ class ScraperApp(QMainWindow):
         
         self.console.clear()
         self.start_btn.setEnabled(False)
+        self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         
@@ -692,16 +757,50 @@ class ScraperApp(QMainWindow):
         self.worker.finished_signal.connect(self.on_scraper_finished)
         self.worker.start()
 
-    def upload_to_db(self):
+    def run_geocode(self):
         self.save_all_settings_to_env()
         self.console.clear()
         self.start_btn.setEnabled(False)
+        self.geocode_btn.setEnabled(False)
+        self.upload_db_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+
+        self.geocode_worker = GeocodeWorker()
+        self.geocode_worker.output_signal.connect(self.append_console)
+        self.geocode_worker.finished_signal.connect(self.on_geocode_finished)
+        self.geocode_worker.start()
+
+    def upload_to_db(self):
+        was_pending_after_geocode = self._pending_upload_after_geocode
+        if not self._pending_upload_after_geocode:
+            choice = QMessageBox.question(
+                self,
+                "Geocode Before Upload?",
+                "Do you want to geocode locations before uploading to the database?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes,
+            )
+
+            if choice == QMessageBox.StandardButton.Cancel:
+                return
+
+            if choice == QMessageBox.StandardButton.Yes:
+                self._pending_upload_after_geocode = True
+                self.run_geocode()
+                return
+
+        self._pending_upload_after_geocode = False
+        self.save_all_settings_to_env()
+        if not was_pending_after_geocode:
+            self.console.clear()
+        self.start_btn.setEnabled(False)
+        self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         
         self.db_worker = DatabaseWorker()
         self.db_worker.output_signal.connect(self.append_console)
-        self.db_worker.finished_signal.connect(self.on_scraper_finished)
+        self.db_worker.finished_signal.connect(self.on_db_finished)
         self.db_worker.start()
 
     def stop_scraper(self):
@@ -709,8 +808,28 @@ class ScraperApp(QMainWindow):
             self.worker.stop()
             self.stop_btn.setEnabled(False)
 
+    def on_geocode_finished(self, exit_code):
+        if exit_code != 0:
+            self._pending_upload_after_geocode = False
+            self.on_sync_finished()
+            return
+        if self._pending_upload_after_geocode:
+            self.upload_to_db()
+            return
+        self.on_sync_finished()
+
+    def on_db_finished(self, _exit_code):
+        self.on_sync_finished()
+
+    def on_sync_finished(self):
+        self.start_btn.setEnabled(True)
+        self.geocode_btn.setEnabled(True)
+        self.upload_db_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+
     def on_scraper_finished(self):
         self.start_btn.setEnabled(True)
+        self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
 
