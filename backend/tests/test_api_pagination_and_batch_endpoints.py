@@ -275,6 +275,7 @@ def test_api_alumni_classifies_seniority_buckets_from_title(client, monkeypatch)
         _alumni_row(2, "Junior", "Case", job_title="Junior Engineer"),
         _alumni_row(3, "Senior", "Case", job_title="Senior Staff Specialist"),
         _alumni_row(4, "Director", "Case", job_title="Director of Engineering"),
+        _alumni_row(6, "Manager", "Case", job_title="Engineering Manager"),
         _alumni_row(5, "Unknown", "Case", job_title=None),
     ]
     monkeypatch.setattr(
@@ -292,6 +293,7 @@ def test_api_alumni_classifies_seniority_buckets_from_title(client, monkeypatch)
     assert items_by_id[2]["seniority_level"] == "Mid"
     assert items_by_id[3]["seniority_level"] == "Senior"
     assert items_by_id[4]["seniority_level"] == "Executive"
+    assert items_by_id[6]["seniority_level"] == "Executive"
     assert items_by_id[5]["seniority_level"] == "Others"
 
 

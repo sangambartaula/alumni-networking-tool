@@ -4,7 +4,8 @@ Seniority level detection from job titles.
 Determines seniority from the MOST RECENT job title (original, not normalized),
 then validates against relevant experience months. Flags mismatches for review.
 
-Buckets: Intern, Junior, Mid, Senior, Manager, Director, Executive
+External output buckets (merged):
+  Intern / Mid / Senior / Executive
 """
 
 import re
@@ -54,6 +55,21 @@ SENIORITY_MIN_EXPERIENCE = {
     "Director": 36,    # Flag if Director but < 36 months
     "Executive": 48,   # Flag if Executive but < 48 months
 }
+
+
+def _merge_seniority_level(seniority: str) -> str:
+    """Merge fine-grained seniority into UI buckets: Intern/Mid/Senior/Executive."""
+    s = (seniority or "").strip()
+    if s == "Intern":
+        return "Intern"
+    if s in {"Junior", "Mid"}:
+        return "Mid"
+    if s == "Senior":
+        return "Senior"
+    if s in {"Manager", "Director", "Executive"}:
+        return "Executive"
+    # Safe default: if we ever get an unknown value, treat as Mid.
+    return "Mid"
 
 _EMP_TYPE_INTERN = re.compile(
     r"\b(intern(ship)?|co-?op|trainee|student\s+worker|student\s+employee)\b",
@@ -195,7 +211,7 @@ def analyze_seniority(profile_data, relevant_experience_months=None):
         or ''
     ).strip()
     
-    seniority = detect_seniority(title, employment_type)
-    seniority = adjust_and_flag_seniority(seniority, relevant_experience_months, linkedin_url)
-    
-    return seniority
+    raw_seniority = detect_seniority(title, employment_type)
+    # Flag mismatches using the fine-grained label, but return the merged bucket.
+    validated = adjust_and_flag_seniority(raw_seniority, relevant_experience_months, linkedin_url)
+    return _merge_seniority_level(validated)

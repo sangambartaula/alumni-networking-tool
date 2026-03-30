@@ -265,7 +265,9 @@ _SENIORITY_FILTER_LABELS = {
 }
 
 _SENIORITY_EXECUTIVE_PATTERN = re.compile(
-    r"\b(?:director|head|vice president|president|chief|cxo|c[a-z]o|partner|founder|co founder|owner)\b",
+    r"\b(?:director|head|vice president|president|chief|cxo|c[a-z]o|partner|founder|co founder|owner|"
+    r"manager|supervisor|team lead|tech lead|lead engineer|engineering lead|"
+    r"project manager|program manager|scrum master)\b",
     re.IGNORECASE,
 )
 _SENIORITY_SENIOR_PATTERN = re.compile(

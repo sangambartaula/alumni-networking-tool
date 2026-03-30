@@ -6,17 +6,14 @@ The alumni networking tool now automatically classifies each alumni profile into
 
 ## Seniority Level Buckets
 
-The system classifies profiles into the following buckets:
+The system classifies profiles into these buckets (used by the API filter UI):
 
 | Level | Description | Examples |
 |-------|-------------|----------|
 | **Intern** | Student/early career during studies | Intern, Co-op, Research Assistant, Teaching Assistant, Trainee |
-| **Junior** | Early career professional | Junior Software Engineer, Associate Manager, Entry-Level Analyst |
-| **Mid** | Mid-level professional | Software Engineer, Data Analyst, Product Manager (generic), Architect |
+| **Mid** | Early-to-mid professional | Software Engineer, Data Analyst, Entry-Level Analyst |
 | **Senior** | Experienced professional | Senior Engineer, Staff Engineer, Distinguished Engineer, Fellow |
-| **Manager** | Management/leadership role | Engineering Manager, Team Lead, Supervisor, Scrum Master, Project Manager |
-| **Director** | Director or senior leadership | Director of Engineering, Head of Product, Principal Engineer |
-| **Executive** | C-suite or top leadership | CEO, CTO, VP, President, Founder, Chief Technology Officer |
+| **Executive** | Management / director / C-suite | Engineering Manager, Director of Engineering, VP, CEO |
 
 ## How It Works
 
@@ -82,13 +79,15 @@ https://linkedin.com/in/username # Seniority mismatch: Senior but only 11 months
 
 ### Mismatch Thresholds
 
-| Seniority | Min Experience | Notes |
-|-----------|-----------------|-------|
-| Manager | 18 months | Flags if less than 18 months |
-| Director | 36 months | Flags if less than 3 years |
-| Executive | 48 months | Flags if less than 4 years |
-| Senior | 12 months | Flags if less than 1 year |
-| Mid/Junior/Intern | N/A | Never flagged on experience |
+The stored label is merged into `Intern/Mid/Senior/Executive`. For auditing, the system still
+uses the fine-grained internal categories (Manager/Director/Executive) to decide how to flag
+low `relevant_experience_months` (it does not change the final bucket).
+
+| Seniority (stored bucket) | Min Experience used for flagging | Notes |
+|----------------------------|-------------------------------------|-------|
+| Senior | 12 months | Flags if less than 12 months |
+| Executive | varies (manager vs director vs executive) | Uses fine-grained expected minimums |
+| Intern/Mid | N/A | Never flagged on experience |
 
 ### Important: Flagging Does NOT Block Processing
 

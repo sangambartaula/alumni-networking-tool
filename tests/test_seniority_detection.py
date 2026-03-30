@@ -36,23 +36,23 @@ TEST_CASES = [
     ("VP of Product", "Executive"),
     
     # Director level
-    ("Director of Engineering", "Director"),
-    ("Director of Sales", "Director"),
-    ("Head of Product Development", "Director"),
-    ("Principal Engineer", "Director"),
+    ("Director of Engineering", "Executive"),
+    ("Director of Sales", "Executive"),
+    ("Head of Product Development", "Executive"),
+    ("Principal Engineer", "Executive"),
     
     # Manager level
-    ("Engineering Manager", "Manager"),
-    ("Project Manager", "Manager"),
-    ("Product Manager", "Manager"),  # Product Manager typically implies management
-    ("Manager of Operations", "Manager"),
-    ("Tech Lead", "Manager"),
-    ("Team Lead - Software", "Manager"),
-    ("Engineering Lead", "Manager"),  # Engineering Lead pattern matches
-    ("Program Manager", "Manager"),
-    ("Scrum Master", "Manager"),
-    ("Supervisor of QA", "Manager"),
-    ("Associate Product Manager", "Manager"),  # "Manager" keyword triggers Manager
+    ("Engineering Manager", "Executive"),
+    ("Project Manager", "Executive"),
+    ("Product Manager", "Executive"),  # Product Manager typically implies management
+    ("Manager of Operations", "Executive"),
+    ("Tech Lead", "Executive"),
+    ("Team Lead - Software", "Executive"),
+    ("Engineering Lead", "Executive"),
+    ("Program Manager", "Executive"),
+    ("Scrum Master", "Executive"),
+    ("Supervisor of QA", "Executive"),
+    ("Associate Product Manager", "Executive"),
     
     # Senior level
     ("Senior Software Engineer", "Senior"),
@@ -62,10 +62,10 @@ TEST_CASES = [
     ("Distinguished Engineer", "Senior"),
     ("Fellow, Research", "Senior"),
     
-    # Junior level
-    ("Junior Software Engineer", "Junior"),
-    ("Entry-Level Accountant", "Junior"),
-    ("Apprentice", "Junior"),
+    # Junior level (merged into Mid)
+    ("Junior Software Engineer", "Mid"),
+    ("Entry-Level Accountant", "Mid"),
+    ("Apprentice", "Mid"),
     
     # Intern level
     ("Intern", "Intern"),
@@ -94,7 +94,14 @@ def test_seniority_detection():
     results = []
     
     for job_title, expected in TEST_CASES:
-        actual = detect_seniority(job_title)
+        actual = analyze_seniority(
+            {
+                "title": job_title,
+                "linkedin_url": "https://linkedin.com/in/test",
+                "job_employment_type": "",
+            },
+            relevant_experience_months=None,
+        )
         status = "PASS" if actual == expected else "FAIL"
         
         if actual == expected:
