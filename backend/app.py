@@ -129,11 +129,8 @@ def is_authorized_user(email):
     
     # Check database whitelist first (allows specific exceptions)
     try:
-        from database import get_authorized_emails
-        authorized_emails = get_authorized_emails()
-        authorized_email_list = [e['email'].lower() for e in authorized_emails]
-        
-        if email_lower in authorized_email_list:
+        from database import is_email_authorized
+        if is_email_authorized(email_lower):
             app.logger.info(f"User {email_lower} authorized via database whitelist")
             return True
     except Exception as e:

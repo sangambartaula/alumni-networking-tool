@@ -1242,6 +1242,41 @@ def get_authorized_emails():
                 pass
 
 
+def is_email_authorized(email):
+    """
+    Fast existence check for authorized email whitelist membership.
+    Returns True if email exists in authorized_emails, otherwise False.
+    """
+    if not email:
+        return False
+
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        if use_sqlite:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM authorized_emails WHERE LOWER(email) = LOWER(?) LIMIT 1", (email,))
+            row = cursor.fetchone()
+        else:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM authorized_emails WHERE LOWER(email) = LOWER(%s) LIMIT 1", (email,))
+                row = cur.fetchone()
+
+        return bool(row)
+    except Exception as err:
+        logger.error(f"Error checking authorized email {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def add_authorized_email(email, added_by_user_id=None, notes=None):
     """
     Add an email to the authorized emails list.
