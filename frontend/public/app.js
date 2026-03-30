@@ -764,6 +764,9 @@ function populateFilters(list) {
   const majors = Array.from(new Set(list.map(x => x.discipline).filter(Boolean)))
     .filter(m => APPROVED_ENGINEERING_DISCIPLINES.includes(m))
     .sort();
+  const stdMajors = Array.from(new Set(
+    list.flatMap(x => (x.standardized_majors || []).filter(Boolean))
+  )).filter(m => m !== 'Other').sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
   const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
     list.some(x => x.degree === level && isValid(level))
@@ -773,6 +776,7 @@ function populateFilters(list) {
   const selectedRoles = new Set(Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value));
   const selectedCompanies = new Set(Array.from(document.querySelectorAll('input[name="company"]:checked')).map(i => i.value));
   const selectedMajors = new Set(Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value));
+  const selectedStdMajors = new Set(Array.from(document.querySelectorAll('input[name="standardized_major"]:checked')).map(i => i.value));
   const selectedDegrees = new Set(Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value));
   const currentYearValue = (document.getElementById('gradSelect') || {}).value || '';
 
@@ -780,6 +784,7 @@ function populateFilters(list) {
   const roleChecks = document.getElementById('roleChecks');
   const companyChecks = document.getElementById('companyChecks');
   const majorChecks = document.getElementById('majorChecks');
+  const stdMajorChecks = document.getElementById('stdMajorChecks');
   const gradSelect = document.getElementById('gradSelect');
   const degreeChecks = document.getElementById('degreeChecks');
 
@@ -823,6 +828,16 @@ function populateFilters(list) {
     });
   }
 
+  if (stdMajorChecks) {
+    stdMajorChecks.innerHTML = '';
+    stdMajors.forEach(v => {
+      const label = document.createElement('label');
+      label.className = 'check';
+      label.innerHTML = `<input type="checkbox" name="standardized_major" value="${v}" ${selectedStdMajors.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
+      stdMajorChecks.appendChild(label);
+    });
+  }
+
   if (gradSelect) {
     gradSelect.innerHTML = '<option value="">All years</option>';
     years.forEach(y => {
@@ -860,6 +875,7 @@ function mapAlumniRecord(a) {
     full_degree: a.full_degree || '',
     full_major: a.full_major || '',
     major: a.major || '',
+    standardized_majors: a.standardized_majors || [],
     discipline: a.discipline || '',
     updated_at: a.updated_at || '',
     working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
@@ -883,6 +899,7 @@ function collectQueryState() {
   const company = Array.from(document.querySelectorAll('input[name="company"]:checked')).map(i => i.value);
   const seniority = Array.from(document.querySelectorAll('input[name="seniority"]:checked')).map(i => i.value);
   const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
+  const standardized_major = Array.from(document.querySelectorAll('input[name="standardized_major"]:checked')).map(i => i.value);
   const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
   const year = gradSelect ? gradSelect.value : '';
   const wwsRadio = document.querySelector('input[name="workingWhileStudying"]:checked');
@@ -907,6 +924,7 @@ function collectQueryState() {
     company,
     seniority,
     major,
+    standardized_major,
     degree,
     year,
     wws,
@@ -930,6 +948,7 @@ function buildAlumniQueryParams(queryState, offset, limit) {
   queryState.company.forEach(v => params.append('company', v));
   queryState.seniority.forEach(v => params.append('seniority', v));
   queryState.major.forEach(v => params.append('major', v));
+  queryState.standardized_major.forEach(v => params.append('standardized_major', v));
   queryState.degree.forEach(v => params.append('degree', v));
   if (queryState.year) params.set('grad_year', queryState.year);
   if (queryState.wws) params.set('working_while_studying', queryState.wws);
@@ -1062,7 +1081,7 @@ function setupFiltering() {
 
   if (clearBtn) {
     clearBtn.addEventListener('click', async () => {
-      document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="degree"]').forEach(cb => cb.checked = false);
+      document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"]').forEach(cb => cb.checked = false);
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
       const wwsAll = document.querySelector('input[name="workingWhileStudying"][value=""]');
@@ -1087,7 +1106,7 @@ function setupFiltering() {
   }
 
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax')) {
       applyFilters();
     }
   });
