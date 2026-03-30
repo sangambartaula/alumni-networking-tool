@@ -1,6 +1,7 @@
 import sys
 import os
 import subprocess
+import signal
 import threading
 import csv
 from datetime import datetime
@@ -82,13 +83,22 @@ class ScraperWorker(QThread):
         
         try:
             self.output_signal.emit(f"Launching using: {python_exec}\n")
+            popen_kwargs = {
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.STDOUT,
+                "text": True,
+                "bufsize": 1,
+                "cwd": base_dir,
+            }
+
+            if sys.platform == "win32":
+                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                popen_kwargs["start_new_session"] = True
+
             self.process = subprocess.Popen(
                 [python_exec, scraper_script],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                cwd=base_dir
+                **popen_kwargs
             )
             
             for line in iter(self.process.stdout.readline, ''):
@@ -108,9 +118,38 @@ class ScraperWorker(QThread):
             
     def stop(self):
         self._is_stopped = True
-        if self.process:
-            self.process.terminate()
-            self.output_signal.emit("\nSent termination signal...\n")
+        proc = self.process
+        if not proc or proc.poll() is not None:
+            return
+
+        self.output_signal.emit("\nSent termination signal...\n")
+        try:
+            if sys.platform == "win32":
+                proc.terminate()
+            else:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except Exception:
+                    proc.terminate()
+
+            proc.wait(timeout=8)
+            return
+        except subprocess.TimeoutExpired:
+            self.output_signal.emit("\nProcess did not exit in time. Forcing kill...\n")
+        except Exception as e:
+            self.output_signal.emit(f"\nError while terminating scraper: {e}\n")
+
+        try:
+            if sys.platform == "win32":
+                proc.kill()
+            else:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    proc.kill()
+            proc.wait(timeout=5)
+        except Exception as e:
+            self.output_signal.emit(f"\nUnable to force kill scraper process: {e}\n")
 
 class DatabaseWorker(QThread):
     output_signal = pyqtSignal(str)
