@@ -151,6 +151,7 @@ function saveHiddenFiltersToStorage() {
   localStorage.setItem('heatmapUntAlumniStatus', selectedUntAlumniStatus || '');
   localStorage.setItem('heatmapGradYearFrom', filterGradYearFrom != null ? String(filterGradYearFrom) : '');
   localStorage.setItem('heatmapGradYearTo',   filterGradYearTo   != null ? String(filterGradYearTo)   : '');
+  localStorage.setItem('heatmapSelectedMajors', JSON.stringify(Array.from(selectedHeatmapMajors)));
 }
 
 function loadHiddenFiltersFromStorage() {
@@ -164,6 +165,8 @@ function loadHiddenFiltersFromStorage() {
     hiddenLocations = new Set(savedLocations);
     hiddenCompanies = new Set(savedCompanies);
     selectedUntAlumniStatus = savedUntAlumniStatus;
+    const savedMajors = localStorage.getItem('heatmapSelectedMajors');
+    if (savedMajors) selectedHeatmapMajors = new Set(JSON.parse(savedMajors));
     filterGradYearFrom = savedGradFrom ? (parseInt(savedGradFrom, 10) || null) : null;
     filterGradYearTo   = savedGradTo   ? (parseInt(savedGradTo,   10) || null) : null;
   } catch (e) {
@@ -182,6 +185,7 @@ function clearHiddenFiltersFromStorage() {
   localStorage.removeItem('heatmapUntAlumniStatus');
   localStorage.removeItem('heatmapGradYearFrom');
   localStorage.removeItem('heatmapGradYearTo');
+  localStorage.removeItem('heatmapSelectedMajors');
 }
 
 function escapeAttribute(value) {
@@ -1795,7 +1799,7 @@ function updateFilterBadge() {
 
 function updateFilterUI() {
   const gradYearActive = (filterGradYearFrom != null || filterGradYearTo != null) ? 1 : 0;
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive;
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive + selectedHeatmapMajors.size;
   const clearAllBtn = document.getElementById('clearAllFiltersBtn');
   if (clearAllBtn) {
     clearAllBtn.disabled = totalFilters === 0;

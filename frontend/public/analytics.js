@@ -145,6 +145,7 @@ function saveHiddenFiltersToStorage() {
   localStorage.setItem('analyticsUntAlumniStatus', selectedUntAlumniStatus || '');
   localStorage.setItem('analyticsGradYearMin', gradYearRangeMin != null ? String(gradYearRangeMin) : '');
   localStorage.setItem('analyticsGradYearMax', gradYearRangeMax != null ? String(gradYearRangeMax) : '');
+  localStorage.setItem('analyticsSelectedMajors', JSON.stringify(Array.from(selectedAnalyticsMajors)));
 }
 
 /**
@@ -171,6 +172,8 @@ function loadHiddenFiltersFromStorage() {
     }
     if (savedGradYearMin) gradYearRangeMin = parseInt(savedGradYearMin, 10);
     if (savedGradYearMax) gradYearRangeMax = parseInt(savedGradYearMax, 10);
+    const savedMajors = localStorage.getItem('analyticsSelectedMajors');
+    if (savedMajors) selectedAnalyticsMajors = new Set(JSON.parse(savedMajors));
   } catch (error) {
     console.error('Error loading filters from storage:', error);
     hiddenLocations = new Set();
