@@ -2400,6 +2400,7 @@ if __name__ == "__main__":
         has_alumni_records,
         normalize_existing_grad_years,
         normalize_single_date_education_semantics,
+        ensure_education_columns,
         ensure_normalized_job_title_column,
         ensure_normalized_degree_column,
         ensure_normalized_company_column,
@@ -2409,6 +2410,7 @@ if __name__ == "__main__":
         try:
             init_db()
             # Ensure migration columns exist (safe to call repeatedly)
+            ensure_education_columns()
             ensure_normalized_job_title_column()
             ensure_normalized_degree_column()
             ensure_normalized_company_column()
