@@ -450,9 +450,8 @@ def init_db():
                     last_name VARCHAR(100),
                     grad_year INT,
                     degree VARCHAR(255),
-                    # 'major' stores the student's major (not engineering discipline).
-                    # Discipline is stored separately in the `discipline` column.
                     major VARCHAR(255) DEFAULT NULL,
+                    discipline VARCHAR(255) DEFAULT NULL,
                     linkedin_url VARCHAR(500) NOT NULL,
                     current_job_title VARCHAR(255),
                     company VARCHAR(255),
@@ -848,6 +847,7 @@ def ensure_education_columns():
         ("standardized_major3",   "VARCHAR(255) DEFAULT NULL"),
         # Secondary major for multi-entry mapping (CS&E -> CS + CE)
         ("standardized_major_alt","VARCHAR(255) DEFAULT NULL"),
+        ("discipline",            "VARCHAR(255) DEFAULT NULL"),
     ]
     conn = None
     try:
