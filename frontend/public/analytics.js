@@ -14,6 +14,7 @@ let filteredTableRenderToken = 0;
 const analyticsChunkSize = 500;
 let gradYearRangeMin = null;
 let gradYearRangeMax = null;
+let selectedAnalyticsMajors = new Set();
 let analyticsExportDiagramCounter = 0;
 
 const analyticsExportState = {
@@ -231,6 +232,36 @@ function initializeAnalyticsFilterUI() {
     });
   }
 
+  // Populate major checkboxes
+  const majorChecksContainer = document.getElementById('analyticsMajorChecks');
+  if (majorChecksContainer) {
+    const allMajors = Array.from(new Set(
+      alumniData.flatMap(a => (a.standardized_majors || []).filter(Boolean))
+    )).filter(m => m !== 'Other').sort();
+
+    majorChecksContainer.innerHTML = '';
+    allMajors.forEach(m => {
+      const label = document.createElement('label');
+      label.style.display = 'flex';
+      label.style.alignItems = 'center';
+      label.style.gap = '6px';
+      label.style.cursor = 'pointer';
+      label.style.fontSize = '0.85rem';
+      label.innerHTML = `<input type="checkbox" value="${m}" ${selectedAnalyticsMajors.has(m) ? 'checked' : ''} /> ${m}`;
+      label.querySelector('input').addEventListener('change', (e) => {
+        if (e.target.checked) {
+          selectedAnalyticsMajors.add(m);
+        } else {
+          selectedAnalyticsMajors.delete(m);
+        }
+        saveHiddenFiltersToStorage();
+        updateAnalyticsFilterUI();
+        renderAnalytics();
+      });
+      majorChecksContainer.appendChild(label);
+    });
+  }
+
   // Toggle filter panel
   toggleBtn?.addEventListener('click', () => {
     panel?.classList.add('active');
@@ -263,10 +294,12 @@ function initializeAnalyticsFilterUI() {
     if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
     gradYearRangeMin = null;
     gradYearRangeMax = null;
+    selectedAnalyticsMajors.clear();
     const minInput = document.getElementById('analyticsGradYearMin');
     const maxInput = document.getElementById('analyticsGradYearMax');
     if (minInput) minInput.value = '';
     if (maxInput) maxInput.value = '';
+    document.querySelectorAll('#analyticsMajorChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
     saveHiddenFiltersToStorage();
     updateAnalyticsFilterUI();
     renderAnalytics();
@@ -620,7 +653,7 @@ function updateAnalyticsFilterUI() {
 
   // Update badge count
   const hasGradYearRange = gradYearRangeMin != null || gradYearRangeMax != null;
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + (hasGradYearRange ? 1 : 0);
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + (hasGradYearRange ? 1 : 0) + selectedAnalyticsMajors.size;
   if (badge) {
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'inline-block' : 'none';
@@ -765,6 +798,13 @@ function filterAlumniData(data) {
     }
     if (gradYearRangeMax != null && alumni.grad_year != null && Number(alumni.grad_year) > gradYearRangeMax) {
       return false;
+    }
+
+    // Filter by major
+    if (selectedAnalyticsMajors.size > 0) {
+      const alumniMajors = alumni.standardized_majors || [];
+      const hasMatch = alumniMajors.some(m => selectedAnalyticsMajors.has(m));
+      if (!hasMatch) return false;
     }
 
     return true;
