@@ -768,7 +768,7 @@ function populateFilters(list) {
     list.flatMap(x => (x.standardized_majors || []).filter(Boolean))
   )).filter(m => m !== 'Other').sort();
   const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
-  const degrees = ['Undergraduate', 'Graduate', 'PhD'].filter(level =>
+  const degrees = ['Bachelors', 'Masters', 'PhD'].filter(level =>
     list.some(x => x.degree === level && isValid(level))
   );
 

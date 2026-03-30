@@ -239,18 +239,18 @@ def classify_degree(degree_field, headline=''):
     degree_lower = (degree_field or '').lower()
     if degree_lower:
         if any(t in degree_lower for t in ['bachelor', 'b.s.', 'b.a.', 'b.sc', 'undergraduate']):
-            return 'Undergraduate'
+            return 'Bachelors'
         if any(t in degree_lower for t in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc', 'graduate']):
-            return 'Graduate'
+            return 'Masters'
         if any(t in degree_lower for t in ['doctor', 'ph.d', 'phd', 'doctorate']):
             return 'PhD'
 
     headline_lower = (headline or '').lower()
     if headline_lower:
         if any(t in headline_lower for t in ['bachelor', 'b.s.', 'b.a.', 'b.sc']):
-            return 'Undergraduate'
+            return 'Bachelors'
         if any(t in headline_lower for t in ['master', 'm.s.', 'm.a.', 'mba', 'm.sc']):
-            return 'Graduate'
+            return 'Masters'
         if any(t in headline_lower for t in ['doctor', 'ph.d', 'phd', 'doctorate']):
             return 'PhD'
 
@@ -1091,12 +1091,12 @@ def api_get_alumni():
                 if degree_filters:
                     degree_sql = []
                     for degree_filter in degree_filters:
-                        if degree_filter == 'undergraduate':
+                        if degree_filter in ('bachelors', 'undergraduate'):
                             degree_sql.append(
                                 "(LOWER(COALESCE(a.degree,'')) LIKE %s OR LOWER(COALESCE(a.headline,'')) LIKE %s)"
                             )
                             params.extend(['%bachelor%', '%bachelor%'])
-                        elif degree_filter == 'graduate':
+                        elif degree_filter in ('masters', 'graduate'):
                             degree_sql.append(
                                 "(LOWER(COALESCE(a.degree,'')) LIKE %s OR LOWER(COALESCE(a.headline,'')) LIKE %s OR LOWER(COALESCE(a.degree,'')) LIKE %s)"
                             )
@@ -2298,9 +2298,9 @@ def api_filter_alumni():
                     where_clauses.append("a.grad_year = %s")
                     params.append(grad_year)
                 if degree_filter:
-                    if degree_filter.lower() == 'undergraduate':
+                    if degree_filter.lower() in ('bachelors', 'undergraduate'):
                         where_clauses.append("(a.degree LIKE '%Bachelor%' OR a.degree LIKE '%B.S.%' OR a.degree LIKE '%B.A.%')")
-                    elif degree_filter.lower() == 'graduate':
+                    elif degree_filter.lower() in ('masters', 'graduate'):
                         where_clauses.append("(a.degree LIKE '%Master%' OR a.degree LIKE '%M.S.%' OR a.degree LIKE '%MBA%')")
                     elif degree_filter.lower() == 'phd':
                         where_clauses.append("(a.degree LIKE '%Ph.D%' OR a.degree LIKE '%PhD%' OR a.degree LIKE '%Doctor%')")
