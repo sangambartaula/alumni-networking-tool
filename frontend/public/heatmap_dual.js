@@ -440,9 +440,16 @@ function showGradYearBanner(from, to) {
 function clearGradYearFilter() {
   heatmapGradYearFrom = null;
   heatmapGradYearTo   = null;
+  filterGradYearFrom  = null;
+  filterGradYearTo    = null;
+  const gradFromEl = document.getElementById('heatmapGradYearFrom');
+  const gradToEl   = document.getElementById('heatmapGradYearTo');
+  if (gradFromEl) gradFromEl.value = '';
+  if (gradToEl)   gradToEl.value   = '';
   const banner = document.getElementById('gradYearFilterBanner');
   if (banner) banner.remove();
-  // Reload without params so the map shows all alumni
+  saveHiddenFiltersToStorage();
+  updateFilterBadge();
   window.history.replaceState({}, '', '/heatmap');
   reloadMapData();
 }
