@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QGroupBox, QLabel, QLineEdit, QComboBox, 
     QCheckBox, QPushButton, QTextEdit, QMessageBox, QDialog,
-    QTableWidget, QTableWidgetItem, QHeaderView
+    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
@@ -277,7 +277,22 @@ class ScraperApp(QMainWindow):
         
         target_layout.addLayout(mode_row, 0, 1)
         
-        target_layout.addWidget(QLabel("Disciplines:"), 1, 0, Qt.AlignmentFlag.AlignTop)
+        # Connections file picker
+        self.csv_path_label = QLabel("Connections CSV:")
+        target_layout.addWidget(self.csv_path_label, 1, 0)
+        
+        csv_row = QHBoxLayout()
+        self.csv_path_input = QLineEdit()
+        self.csv_path_input.setPlaceholderText("Browse for Connections.csv...")
+        csv_row.addWidget(self.csv_path_input)
+        
+        self.browse_csv_btn = QPushButton("Browse")
+        self.browse_csv_btn.clicked.connect(self.browse_csv)
+        csv_row.addWidget(self.browse_csv_btn)
+        
+        target_layout.addLayout(csv_row, 1, 1)
+        
+        target_layout.addWidget(QLabel("Disciplines:"), 2, 0, Qt.AlignmentFlag.AlignTop)
         
         disc_widget = QWidget()
         disc_layout = QGridLayout(disc_widget)
@@ -293,7 +308,7 @@ class ScraperApp(QMainWindow):
                 col = 0
                 row += 1
         
-        target_layout.addWidget(disc_widget, 1, 1)
+        target_layout.addWidget(disc_widget, 2, 1)
         target_group.setLayout(target_layout)
         left_layout.addWidget(target_group)
         
@@ -393,8 +408,23 @@ class ScraperApp(QMainWindow):
         
         main_layout.addWidget(right_panel)
         
+        # Hook mode change to layout visibility
+        self.mode_combo.currentTextChanged.connect(self.on_mode_change)
+        self.on_mode_change(self.mode_combo.currentText())
+        
         # Auto-load existing config
         self.load_settings_from_env()
+
+    def on_mode_change(self, mode):
+        is_conn = (mode == "connections")
+        self.csv_path_label.setVisible(is_conn)
+        self.csv_path_input.setVisible(is_conn)
+        self.browse_csv_btn.setVisible(is_conn)
+
+    def browse_csv(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Connections.csv", "", "CSV Files (*.csv);;All Files (*)")
+        if file_path:
+            self.csv_path_input.setText(file_path)
 
     def get_base_dir(self):
         if getattr(sys, 'frozen', False):
@@ -425,6 +455,8 @@ class ScraperApp(QMainWindow):
                         self.email_input.setText(val)
                     elif key == "LINKEDIN_PASSWORD" and val:
                         self.password_input.setText(val)
+                    elif key == "CONNECTIONS_CSV" and val:
+                        self.csv_path_input.setText(val)
                     elif key == "GUI_MAX_PROFILES" and val:
                         self.max_profiles.setText(val)
                     elif key == "GUI_MAX_RUNTIME_MINUTES" and val:
@@ -457,13 +489,13 @@ class ScraperApp(QMainWindow):
         scrollbar.setValue(scrollbar.maximum())
 
     def show_help(self):
-        QMessageBox.information(self, "Connections Mode Help", 
-            "To use Connections Mode, you must download your LinkedIn Connections archive.\n\n"
-            "1. Go to LinkedIn -> Settings & Privacy -> Data Privacy\n"
-            "2. Click 'Get a copy of your data'\n"
-            "3. Select 'Connections' and download the archive.\n"
-            "4. Extract the zip file and place the 'Connections.csv' file directly into this project directory.\n\n"
-            "Ensure the file contains the standard First Name, Last Name, and URL columns."
+        QMessageBox.information(self, "How to Download Connections.csv", 
+            "1. Visit: https://www.linkedin.com/mypreferences/d/download-my-data\n"
+            "2. Select 'Download larger data archive' (including connections, verifications, etc.)\n"
+            "3. Click 'Request archive' and wait for LinkedIn to email you.\n"
+            "4. When available, download the data and extract the zip file.\n"
+            "5. Open the folder and find the 'Connections.csv' file. This contains all your connections with their URLs.\n"
+            "6. Click the 'Browse' button in this app to select that exact file wherever you saved it!"
         )
 
     def open_flag_manager(self):
@@ -480,19 +512,19 @@ class ScraperApp(QMainWindow):
                 return False
                 
         if mode == "connections":
-            csv_path = os.path.join(base_dir, 'Connections.csv')
+            csv_path = self.csv_path_input.text() or os.path.join(base_dir, 'Connections.csv')
             if not os.path.exists(csv_path):
-                QMessageBox.critical(self, "Missing File", "Connections Mode selected, but 'Connections.csv' was not found in the root directory!\n\nClick the (?) button for instructions.")
+                QMessageBox.critical(self, "Missing File", f"Connections file not found at:\n{csv_path}\n\nClick 'Browse' to select your Connections.csv file or click the (?) icon for download instructions.")
                 return False
             try:
                 import csv
                 with open(csv_path, 'r', encoding='utf-8') as f:
                     header = next(csv.reader(f))
                     if not any("url" in c.lower() for c in header):
-                        QMessageBox.critical(self, "Invalid Format", "Connections.csv does not contain a recognizable 'URL' column!\nPlease ensure you downloaded the correct Connections archive from LinkedIn.")
+                        QMessageBox.critical(self, "Invalid Format", "The selected file does not contain a recognizable 'URL' column!\nPlease ensure you downloaded the correct Connections archive from LinkedIn.")
                         return False
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to read Connections.csv: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to read CSV: {e}")
                 return False
 
         try:
@@ -529,6 +561,8 @@ class ScraperApp(QMainWindow):
         
         selected_discs = [d for d, cb in self.discs.items() if cb.isChecked()]
         update_env("SEARCH_DISCIPLINES", ",".join(selected_discs) if selected_discs else "")
+        
+        update_env("CONNECTIONS_CSV", self.csv_path_input.text() or "Connections.csv")
         
         update_env("MIN_DELAY", self.min_delay.text())
         update_env("MAX_DELAY", self.max_delay.text())

@@ -88,11 +88,12 @@ The scraper uses cookie-first login. If a valid saved session cookie exists, it 
 
 ### How to Export Connections.csv from LinkedIn
 
-If you run the scraper in **Connections Mode**, you must provide your LinkedIn connections archive:
-1. Open LinkedIn and click your profile picture (Me) > **Settings & Privacy**.
-2. Go to **Data Privacy** > **Get a copy of your data**.
-3. Select **Connections** and click **Request archive**.
-4. LinkedIn will email you a `.zip` file. Extract it and place the included **`Connections.csv`** file directly in the root directory of this project before starting Connections Mode in the GUI.
+If you run the scraper in **Connections Mode**, you must provide your LinkedIn connections archive.
+1. Visit: [https://www.linkedin.com/mypreferences/d/download-my-data](https://www.linkedin.com/mypreferences/d/download-my-data)
+2. Select **Download larger data archive**, including connections, verifications, contacts, account history, and information we infer about you based on your profile and activity.
+3. When available, download the data and extract the `.zip` file natively on your computer.
+4. Open the extracted folder and locate the **`Connections.csv`** file. This includes all your connections with first name, last name, URLs, etc.
+5. Inside the newly updated Scraper Desktop application, select **Connections** Mode, click the **Browse** button, and select this downloaded `.csv` file. You no longer need to move it around your drive!
 
 ### Discipline-Targeted UNT Search (`SEARCH_DISCIPLINES`)
 
