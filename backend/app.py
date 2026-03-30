@@ -458,10 +458,24 @@ def _parse_multi_value_param(param_name):
     return values
 
 
-def _parse_int_list_param(param_name):
+def _validation_error(message, field=None, code="validation_error", details=None, status=400):
+    payload = {
+        "error": {
+            "code": code,
+            "message": message,
+        }
+    }
+    if field:
+        payload["error"]["field"] = field
+    if details:
+        payload["error"]["details"] = details
+    return jsonify(payload), status
+
+
+def _parse_int_list_param(param_name, strict=False):
     """
     Parse repeated or comma-separated integer query params.
-    Invalid values are ignored.
+    Invalid values are ignored unless strict=True.
     """
     values = []
     for raw in request.args.getlist(param_name):
@@ -472,8 +486,30 @@ def _parse_int_list_param(param_name):
             try:
                 values.append(int(cleaned))
             except Exception:
+                if strict:
+                    raise ValueError(f"Invalid integer value for {param_name}: {cleaned}")
                 continue
     return values
+
+
+def _parse_optional_non_negative_int(param_name):
+    raw_value = (request.args.get(param_name, "") or "").strip()
+    if not raw_value:
+        return None
+    try:
+        value = int(raw_value)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid integer value for {param_name}: {raw_value}")
+    if value < 0:
+        raise ValueError(f"{param_name} must be non-negative.")
+    return value
+
+
+def _validate_min_max(min_value, max_value, min_name, max_name):
+    if min_value is None or max_value is None:
+        return
+    if min_value > max_value:
+        raise ValueError(f"{min_name} cannot be greater than {max_name}.")
 
 
 # =============================================================================
@@ -1015,26 +1051,22 @@ def api_get_alumni():
         discipline_filters = _parse_multi_value_param('major')
         major_filters = [m for m in _parse_multi_value_param('standardized_major') if m in _APPROVED_UNT_MAJORS_SET]
         degree_filters = [d.lower() for d in _parse_multi_value_param('degree')]
-        grad_year_filters = _parse_int_list_param('grad_year')
+        try:
+            grad_year_filters = _parse_int_list_param('grad_year', strict=True)
+        except ValueError as e:
+            return _validation_error(str(e), field='grad_year')
         working_while_studying_filter = (request.args.get('working_while_studying', '') or '').strip().lower()
 
         # Experience range filter (in months)
-        exp_min_raw = request.args.get('exp_min', '')
-        exp_max_raw = request.args.get('exp_max', '')
         include_unknown_experience_raw = (request.args.get('include_unknown_experience', '0') or '0').strip().lower()
         include_unknown_experience = include_unknown_experience_raw in {'1', 'true', 'yes'}
-        exp_min = None
-        exp_max = None
         try:
-            if exp_min_raw and exp_min_raw.strip():
-                exp_min = int(exp_min_raw)
-        except (ValueError, TypeError):
-            pass
-        try:
-            if exp_max_raw and exp_max_raw.strip():
-                exp_max = int(exp_max_raw)
-        except (ValueError, TypeError):
-            pass
+            exp_min = _parse_optional_non_negative_int('exp_min')
+            exp_max = _parse_optional_non_negative_int('exp_max')
+            _validate_min_max(exp_min, exp_max, 'exp_min', 'exp_max')
+        except ValueError as e:
+            field = 'exp_min' if 'exp_min' in str(e) else 'exp_max'
+            return _validation_error(str(e), field=field)
 
         sort_key = (request.args.get('sort', 'name') or 'name').strip().lower()
         sort_direction = (request.args.get('direction', 'asc') or 'asc').strip().lower()
@@ -1159,13 +1191,13 @@ def api_get_alumni():
                 experience_expr = "CAST(NULLIF(a.relevant_experience_months, '') AS INTEGER)"
                 experience_unknown_expr = "NULLIF(a.relevant_experience_months, '') IS NULL"
 
-                if exp_min is not None and exp_min >= 0:
+                if exp_min is not None:
                     if include_unknown_experience:
                         where_clauses.append(f"(({experience_expr} >= %s) OR ({experience_unknown_expr}))")
                     else:
                         where_clauses.append(f"{experience_expr} >= %s")
                     params.append(exp_min)
-                if exp_max is not None and exp_max >= 0:
+                if exp_max is not None:
                     if include_unknown_experience:
                         where_clauses.append(f"(({experience_expr} <= %s) OR ({experience_unknown_expr}))")
                     else:
