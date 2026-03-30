@@ -115,16 +115,9 @@ def run_backfill(dry_run=False, force=False, quiet_relevance_audit=False):
     conn = get_connection()
     try:
         with conn.cursor(dictionary=True) as cur:
-            if force:
-                cur.execute("SELECT * FROM alumni ORDER BY id ASC")
-            else:
-                # Only process rows that haven't been analyzed yet
-                cur.execute("""
-                    SELECT * FROM alumni
-                    WHERE seniority_level IS NULL
-                       OR (job_1_relevance_score IS NULL AND current_job_title IS NOT NULL AND current_job_title != '')
-                    ORDER BY id ASC
-                """)
+            # Process ALL alumni rows (not only missing/empty fields).
+            # Use --force to re-run even if values already exist.
+            cur.execute("SELECT * FROM alumni ORDER BY id ASC")
             rows = cur.fetchall() or []
     except Exception as e:
         logger.error(f"❌ Error fetching alumni: {e}")
@@ -343,7 +336,9 @@ def _update_csv_from_db():
         ]
         for col in new_cols:
             if col not in df.columns:
-                df[col] = ''
+                # Keep missing numeric values as NA to avoid dtype warnings when
+                # assigning values into existing float columns.
+                df[col] = pd.NA
 
         # Merge data
         updated = 0
@@ -356,7 +351,7 @@ def _update_csv_from_db():
                     if val is not None:
                         df.at[idx, col] = val
                     else:
-                        df.at[idx, col] = ''
+                        df.at[idx, col] = pd.NA
                 updated += 1
 
         df.to_csv(csv_path, index=False, encoding='utf-8')

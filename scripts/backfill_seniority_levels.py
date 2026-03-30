@@ -49,12 +49,11 @@ def run_backfill():
         
         with conn.cursor(dictionary=True) as cur:
             # Step 1: Fetch all alumni without seniority_level
-            logger.info("\nStep 1: Fetching alumni records without seniority_level...")
+            logger.info("\nStep 1: Fetching ALL alumni records for seniority backfill...")
             cur.execute("""
-                SELECT id, current_job_title, exp2_title, exp3_title, 
+                SELECT id, current_job_title, exp2_title, exp3_title,
                        linkedin_url, relevant_experience_months, seniority_level
                 FROM alumni
-                WHERE (seniority_level IS NULL OR seniority_level = '')
                 ORDER BY id ASC
             """)
             rows = cur.fetchall()
