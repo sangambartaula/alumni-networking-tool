@@ -55,7 +55,36 @@ app = Flask(
     static_url_path=""
 )
 
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret_key')
+def _is_production_mode():
+    """
+    Detect production-like runtime where we must not allow insecure defaults.
+    """
+    env_value = (
+        os.getenv('APP_ENV')
+        or os.getenv('FLASK_ENV')
+        or os.getenv('ENV')
+        or ''
+    ).strip().lower()
+    return env_value in {'prod', 'production'}
+
+
+def _configure_secret_key(flask_app):
+    secret_key = (os.getenv('SECRET_KEY') or '').strip()
+    is_production = _is_production_mode()
+
+    if is_production:
+        if not secret_key:
+            raise RuntimeError("SECRET_KEY environment variable is required in production.")
+        if len(secret_key) < 32:
+            raise RuntimeError("SECRET_KEY must be at least 32 characters in production.")
+        flask_app.config['SECRET_KEY'] = secret_key
+        return
+
+    # Local/dev fallback to keep setup friction low without shipping a static key.
+    flask_app.config['SECRET_KEY'] = secret_key or secrets.token_urlsafe(32)
+
+
+_configure_secret_key(app)
 
 # Development toggle: set DISABLE_DB=1 in .env to skip all DB work (useful when RDS is down)
 # This allows the backend to serve the frontend and static assets even without a database.
