@@ -23,6 +23,11 @@ let selectedUntAlumniStatus = '';
 let filterGradYearFrom = null;  // number | null
 let filterGradYearTo   = null;  // number | null
 let selectedHeatmapMajors = new Set();
+let selectedHeatmapDegrees = new Set();
+let selectedHeatmapSeniorities = new Set();
+
+const HEATMAP_DEGREE_OPTIONS = ['Undergraduate', 'Graduate', 'PhD'];
+const HEATMAP_SENIORITY_OPTIONS = ['Intern', 'Mid', 'Senior', 'Manager', 'Executive'];
 
 // Track all available locations and companies for autocomplete
 let allLocations = new Set();
@@ -152,6 +157,8 @@ function saveHiddenFiltersToStorage() {
   localStorage.setItem('heatmapGradYearFrom', filterGradYearFrom != null ? String(filterGradYearFrom) : '');
   localStorage.setItem('heatmapGradYearTo',   filterGradYearTo   != null ? String(filterGradYearTo)   : '');
   localStorage.setItem('heatmapSelectedMajors', JSON.stringify(Array.from(selectedHeatmapMajors)));
+  localStorage.setItem('heatmapSelectedDegrees', JSON.stringify(Array.from(selectedHeatmapDegrees)));
+  localStorage.setItem('heatmapSelectedSeniorities', JSON.stringify(Array.from(selectedHeatmapSeniorities)));
 }
 
 function loadHiddenFiltersFromStorage() {
@@ -167,6 +174,10 @@ function loadHiddenFiltersFromStorage() {
     selectedUntAlumniStatus = savedUntAlumniStatus;
     const savedMajors = localStorage.getItem('heatmapSelectedMajors');
     if (savedMajors) selectedHeatmapMajors = new Set(JSON.parse(savedMajors));
+    const savedDegrees = localStorage.getItem('heatmapSelectedDegrees');
+    if (savedDegrees) selectedHeatmapDegrees = new Set(JSON.parse(savedDegrees));
+    const savedSeniorities = localStorage.getItem('heatmapSelectedSeniorities');
+    if (savedSeniorities) selectedHeatmapSeniorities = new Set(JSON.parse(savedSeniorities));
     filterGradYearFrom = savedGradFrom ? (parseInt(savedGradFrom, 10) || null) : null;
     filterGradYearTo   = savedGradTo   ? (parseInt(savedGradTo,   10) || null) : null;
   } catch (e) {
@@ -176,6 +187,9 @@ function loadHiddenFiltersFromStorage() {
     selectedUntAlumniStatus = '';
     filterGradYearFrom = null;
     filterGradYearTo   = null;
+    selectedHeatmapMajors = new Set();
+    selectedHeatmapDegrees = new Set();
+    selectedHeatmapSeniorities = new Set();
   }
 }
 
@@ -186,6 +200,8 @@ function clearHiddenFiltersFromStorage() {
   localStorage.removeItem('heatmapGradYearFrom');
   localStorage.removeItem('heatmapGradYearTo');
   localStorage.removeItem('heatmapSelectedMajors');
+  localStorage.removeItem('heatmapSelectedDegrees');
+  localStorage.removeItem('heatmapSelectedSeniorities');
 }
 
 function escapeAttribute(value) {
@@ -1516,11 +1532,69 @@ function populateHeatmapMajorCheckboxes() {
   });
 }
 
+function populateHeatmapDegreeCheckboxes() {
+  const container = document.getElementById('heatmapDegreeChecks');
+  if (!container) return;
+
+  container.innerHTML = '';
+  HEATMAP_DEGREE_OPTIONS.forEach(degree => {
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '6px';
+    label.style.cursor = 'pointer';
+    label.style.fontSize = '0.85rem';
+    label.style.padding = '2px 0';
+    label.innerHTML = `<input type="checkbox" value="${degree}" ${selectedHeatmapDegrees.has(degree) ? 'checked' : ''} /> ${degree}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedHeatmapDegrees.add(degree);
+      } else {
+        selectedHeatmapDegrees.delete(degree);
+      }
+      saveHiddenFiltersToStorage();
+      updateFilterBadge();
+      reloadMapData();
+    });
+    container.appendChild(label);
+  });
+}
+
+function populateHeatmapSeniorityCheckboxes() {
+  const container = document.getElementById('heatmapSeniorityChecks');
+  if (!container) return;
+
+  container.innerHTML = '';
+  HEATMAP_SENIORITY_OPTIONS.forEach(level => {
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '6px';
+    label.style.cursor = 'pointer';
+    label.style.fontSize = '0.85rem';
+    label.style.padding = '2px 0';
+    label.innerHTML = `<input type="checkbox" value="${level}" ${selectedHeatmapSeniorities.has(level) ? 'checked' : ''} /> ${level}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedHeatmapSeniorities.add(level);
+      } else {
+        selectedHeatmapSeniorities.delete(level);
+      }
+      saveHiddenFiltersToStorage();
+      updateFilterBadge();
+      reloadMapData();
+    });
+    container.appendChild(label);
+  });
+}
+
 let _filterUIInitialized = false;
 
 function initializeFilterUI() {
   // Refresh major checkboxes on every call (data may have changed)
   populateHeatmapMajorCheckboxes();
+  populateHeatmapDegreeCheckboxes();
+  populateHeatmapSeniorityCheckboxes();
 
   if (_filterUIInitialized) return;
   _filterUIInitialized = true;
@@ -1681,12 +1755,16 @@ function initializeFilterUI() {
       filterGradYearFrom = null;
       filterGradYearTo   = null;
       selectedHeatmapMajors.clear();
+      selectedHeatmapDegrees.clear();
+      selectedHeatmapSeniorities.clear();
       if (untAlumniStatusSelect) untAlumniStatusSelect.value = '';
       const gradFromEl = document.getElementById('heatmapGradYearFrom');
       const gradToEl   = document.getElementById('heatmapGradYearTo');
       if (gradFromEl) gradFromEl.value = '';
       if (gradToEl)   gradToEl.value   = '';
       document.querySelectorAll('#heatmapMajorChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
+      document.querySelectorAll('#heatmapDegreeChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
+      document.querySelectorAll('#heatmapSeniorityChecks input[type="checkbox"]').forEach(cb => cb.checked = false);
       clearHiddenFiltersFromStorage();
       updateFilterUI();
       updateFilterBadge();
@@ -1739,7 +1817,7 @@ function initializeFilterUI() {
   updateFilterBadge();
 
   // Apply saved filters if any were loaded
-  if (hiddenLocations.size > 0 || hiddenCompanies.size > 0 || selectedUntAlumniStatus) {
+  if (hiddenLocations.size > 0 || hiddenCompanies.size > 0 || selectedUntAlumniStatus || selectedHeatmapMajors.size > 0 || selectedHeatmapDegrees.size > 0 || selectedHeatmapSeniorities.size > 0 || filterGradYearFrom != null || filterGradYearTo != null) {
     console.log('Applying saved filters from localStorage');
     reloadMapData();
   }
@@ -1791,7 +1869,7 @@ function updateFilterBadge() {
   const badge = document.getElementById('filterBadge');
   if (badge) {
     const gradYearActive = (filterGradYearFrom != null || filterGradYearTo != null) ? 1 : 0;
-    const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive + selectedHeatmapMajors.size;
+    const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive + selectedHeatmapMajors.size + selectedHeatmapDegrees.size + selectedHeatmapSeniorities.size;
     badge.textContent = totalFilters;
     badge.style.display = totalFilters > 0 ? 'flex' : 'none';
   }
@@ -1799,7 +1877,7 @@ function updateFilterBadge() {
 
 function updateFilterUI() {
   const gradYearActive = (filterGradYearFrom != null || filterGradYearTo != null) ? 1 : 0;
-  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive + selectedHeatmapMajors.size;
+  const totalFilters = hiddenLocations.size + hiddenCompanies.size + (selectedUntAlumniStatus ? 1 : 0) + gradYearActive + selectedHeatmapMajors.size + selectedHeatmapDegrees.size + selectedHeatmapSeniorities.size;
   const clearAllBtn = document.getElementById('clearAllFiltersBtn');
   if (clearAllBtn) {
     clearAllBtn.disabled = totalFilters === 0;
@@ -1980,6 +2058,8 @@ function buildHeatmapUrl() {
   if (filterGradYearTo   != null) params.set('grad_year_to',   String(filterGradYearTo));
   if (selectedUntAlumniStatus) params.set('unt_alumni_status', selectedUntAlumniStatus);
   selectedHeatmapMajors.forEach(m => params.append('standardized_major', m));
+  selectedHeatmapDegrees.forEach(d => params.append('degree', d));
+  selectedHeatmapSeniorities.forEach(s => params.append('seniority', s));
   return params.toString() ? `/api/heatmap?${params}` : '/api/heatmap';
 }
 
@@ -1990,7 +2070,7 @@ function reloadMapData() {
 
   // If any server-side filters are active, re-fetch from the API so the
   // dataset is correctly filtered at the DB level (grad year, unt status)
-  const needsServerFetch = (filterGradYearFrom != null || filterGradYearTo != null || selectedUntAlumniStatus || selectedHeatmapMajors.size > 0);
+  const needsServerFetch = (filterGradYearFrom != null || filterGradYearTo != null || selectedUntAlumniStatus || selectedHeatmapMajors.size > 0 || selectedHeatmapDegrees.size > 0 || selectedHeatmapSeniorities.size > 0);
   if (needsServerFetch) {
     loadHeatmapData(buildHeatmapUrl());
     return;

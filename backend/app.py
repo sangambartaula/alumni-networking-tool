@@ -1923,13 +1923,39 @@ def get_heatmap_data():
     grad_year_from = _safe_int(request.args.get("grad_year_from"))
     grad_year_to   = _safe_int(request.args.get("grad_year_to"))
     heatmap_major_filters = [m for m in _parse_multi_value_param('standardized_major') if m in _APPROVED_UNT_MAJORS_SET]
+    heatmap_degree_filters_raw = [d.strip().lower() for d in _parse_multi_value_param('degree') if (d or '').strip()]
+    heatmap_seniority_filters_raw = _parse_multi_value_param('seniority')
+
+    # Normalize degree filters to UI bucket labels used by classify_degree.
+    heatmap_degree_filter_set = set()
+    for d in heatmap_degree_filters_raw:
+        if d in ('undergraduate', 'bachelors'):
+            heatmap_degree_filter_set.add('Undergraduate')
+        elif d in ('graduate', 'masters'):
+            heatmap_degree_filter_set.add('Graduate')
+        elif d in ('phd',):
+            heatmap_degree_filter_set.add('PhD')
+        else:
+            return jsonify({"error": "Invalid degree. Use Undergraduate, Graduate, or PhD."}), 400
+
+    try:
+        heatmap_seniority_filters = _parse_seniority_filters(heatmap_seniority_filters_raw)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    heatmap_seniority_filter_set = set(heatmap_seniority_filters)
 
     if DISABLE_DB:
         if not USE_SQLITE_FALLBACK:
             return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
     # Skip cache for filtered requests (ephemeral analytical view)
-    use_cache = (grad_year_from is None and grad_year_to is None and not heatmap_major_filters)
+    use_cache = (
+        grad_year_from is None
+        and grad_year_to is None
+        and not heatmap_major_filters
+        and not heatmap_degree_filter_set
+        and not heatmap_seniority_filter_set
+    )
 
     # --- Check cache ---
     cache_key = (
@@ -2003,6 +2029,14 @@ def get_heatmap_data():
                 if unt_alumni_status_filter and unt_alumni_status != unt_alumni_status_filter:
                     continue
 
+                degree_level = classify_degree(row.get("degree"), row.get("headline", ""))
+                if heatmap_degree_filter_set and degree_level not in heatmap_degree_filter_set:
+                    continue
+
+                seniority_bucket = classify_seniority_bucket(row.get("current_job_title"), None)
+                if heatmap_seniority_filter_set and seniority_bucket not in heatmap_seniority_filter_set:
+                    continue
+
                 lat = row["latitude"]
                 lon = row["longitude"]
 
@@ -2033,6 +2067,9 @@ def get_heatmap_data():
                     "linkedin": row["linkedin_url"],
                     "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), 'isoformat') else row.get("created_at"),
                     "unt_alumni_status": unt_alumni_status,
+                    "degree": degree_level,
+                    "seniority_level": seniority_bucket,
+                    "seniority_bucket": seniority_bucket,
                     "standardized_major": (row.get("standardized_major") or "").strip(),
                     "standardized_major_alt": (row.get("standardized_major_alt") or "").strip(),
                 })
