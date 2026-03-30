@@ -583,6 +583,18 @@ class ScraperApp(QMainWindow):
         except ValueError:
             QMessageBox.critical(self, "Error", "Delay values must be valid integers.")
             return False
+
+        if min_d < 0 or max_d < 0:
+            QMessageBox.critical(self, "Invalid Delay", "Delay values must be non-negative integers.")
+            return False
+
+        if max_d < min_d:
+            QMessageBox.critical(
+                self,
+                "Invalid Delay Range",
+                "Maximum delay must be greater than or equal to minimum delay."
+            )
+            return False
             
         if self.delay_combo.currentText() == "Custom":
             if min_d < 15:
