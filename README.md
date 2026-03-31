@@ -63,6 +63,7 @@ For detailed scraper GUI and operating instructions, use [USER_GUIDE.md](USER_GU
 
 - Setup and installation: [SETUP.md](SETUP.md)
 - Day-to-day usage: [USER_GUIDE.md](USER_GUIDE.md)
+- Testing and regression commands: [TESTING.md](TESTING.md)
 - Data rules and normalization: [NORMALIZATION_RULES.md](NORMALIZATION_RULES.md)
 - Seniority classification details: [SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md)
 - Relevance engine details: [RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md)
@@ -73,4 +74,3 @@ For detailed scraper GUI and operating instructions, use [USER_GUIDE.md](USER_GU
 - Aggressive scraper settings increase challenge and lock risk.
 - A valid LinkedIn session is required.
 - This is an internal UNT tool only.
-
