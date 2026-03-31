@@ -244,3 +244,51 @@ def test_canonicalize_search_base_url_strips_sid_and_page():
     assert "sid=" not in normalized
     assert "page=" not in normalized
     assert "keywords=software" in normalized
+
+
+def test_save_and_track_increments_scraper_activity_with_config_email(monkeypatch):
+    calls = []
+
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda email: calls.append(email))
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+
+    ok = scraper_main._save_and_track(
+        {"profile_url": "https://www.linkedin.com/in/test-user"},
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert calls == ["scraper@unt.edu"]
+
+
+def test_save_and_track_passes_blank_email_through_to_increment(monkeypatch):
+    calls = []
+
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda email: calls.append(email))
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "")
+
+    ok = scraper_main._save_and_track(
+        {"profile_url": "https://www.linkedin.com/in/test-user"},
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert calls == [""]

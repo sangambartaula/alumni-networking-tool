@@ -665,6 +665,10 @@ class ScraperApp(QMainWindow):
     def validate_inputs(self):
         base_dir = get_base_dir()
         mode = self.mode_combo.currentText()
+        if not self.email_input.text().strip():
+            QMessageBox.critical(self, "Missing Email", "LinkedIn email is required so scraper activity can be tracked.")
+            return False
+
         if mode == "review":
             txt_path = os.path.join(base_dir, 'scraper', 'output', 'flagged_for_review.txt')
             if not os.path.exists(txt_path) or os.path.getsize(txt_path) == 0:
@@ -725,7 +729,7 @@ class ScraperApp(QMainWindow):
         event.accept()
 
     def save_all_settings_to_env(self):
-        update_env("LINKEDIN_EMAIL", self.email_input.text())
+        update_env("LINKEDIN_EMAIL", self.email_input.text().strip().lower())
         if self.password_input.text():
             update_env("LINKEDIN_PASSWORD", self.password_input.text())
             
