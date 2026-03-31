@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QGroupBox, QLabel, QLineEdit, QComboBox, 
     QCheckBox, QPushButton, QTextEdit, QMessageBox, QDialog,
-    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QSizePolicy
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
@@ -457,15 +457,22 @@ class ScraperApp(QMainWindow):
         disc_layout = QGridLayout(disc_widget)
         disc_layout.setContentsMargins(0,0,0,0)
         self.discs = {}
-        row, col = 0, 0
-        for d in ["software", "cybersecurity", "embedded", "mechanical", "construction", "biomedical"]:
-            cb = QCheckBox(d)
-            self.discs[d] = cb
-            disc_layout.addWidget(cb, row, col)
-            col += 1
-            if col > 1:
-                col = 0
-                row += 1
+        row = 0
+        discipline_options = [
+            ("software", "Software, Data, AI & Cybersecurity"),
+            ("embedded", "Embedded, Electrical & Hardware Engineering"),
+            ("mechanical", "Mechanical Engineering & Manufacturing (includes Energy + Materials)"),
+            ("construction", "Construction & Engineering Management"),
+            ("biomedical", "Biomedical Engineering"),
+        ]
+        disc_layout.setHorizontalSpacing(4)
+        disc_layout.setVerticalSpacing(6)
+        for discipline_key, discipline_label in discipline_options:
+            cb = QCheckBox(discipline_label)
+            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            self.discs[discipline_key] = cb
+            disc_layout.addWidget(cb, row, 0)
+            row += 1
         
         target_layout.addWidget(disc_widget, 2, 1)
         target_group.setLayout(target_layout)
@@ -552,7 +559,7 @@ class ScraperApp(QMainWindow):
         sync_btn_layout.addWidget(self.upload_db_btn)
         left_layout.addLayout(sync_btn_layout)
         
-        left_panel.setFixedWidth(380)
+        left_panel.setFixedWidth(460)
         main_layout.addWidget(left_panel)
         
         # Right Panel (Console)

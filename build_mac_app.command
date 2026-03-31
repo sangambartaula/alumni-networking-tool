@@ -11,8 +11,10 @@ fi
 # Force clear old cached builds
 echo "Clearing old build cache..."
 rm -rf "build"
+rm -rf "build/Alumni Scraper App"
 rm -rf "dist/UNT Alumni Scraper.app"
 rm -rf "dist/Alumni Scraper App.app"
+rm -rf "dist/Alumni Scraper App"
 rm -f *.spec
 
 # Install requirements

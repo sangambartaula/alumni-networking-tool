@@ -9,8 +9,10 @@ if exist venv\Scripts\activate.bat (
 :: Clear old build caches
 echo Clearing old build cache...
 if exist "build" rmdir /s /q "build"
+if exist "build\Alumni Scraper App" rmdir /s /q "build\Alumni Scraper App"
 if exist "dist\UNT Alumni Scraper.exe" del /f /q "dist\UNT Alumni Scraper.exe"
 if exist "dist\Alumni Scraper App.exe" del /f /q "dist\Alumni Scraper App.exe"
+if exist "dist\Alumni Scraper App" rmdir /s /q "dist\Alumni Scraper App"
 del /f /q *.spec
 
 :: Install requirements
