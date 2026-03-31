@@ -458,7 +458,7 @@ class ScraperApp(QMainWindow):
         disc_layout.setContentsMargins(0,0,0,0)
         self.discs = {}
         row, col = 0, 0
-        for d in ["software", "embedded", "mechanical", "construction", "biomedical", "materials"]:
+        for d in ["software", "cybersecurity", "embedded", "mechanical", "construction", "biomedical"]:
             cb = QCheckBox(d)
             self.discs[d] = cb
             disc_layout.addWidget(cb, row, col)

@@ -206,10 +206,18 @@ _TEMP_SEARCH_QUERY_KEYS = {"sid", "origin", "position", "trackingId", "searchId"
 DISCIPLINE_ALIAS_LABELS = {
     "software": "Software, Data & AI Engineering",
     "embedded": "Embedded, Electrical & Hardware Engineering",
-    "mechanical": "Mechanical & Energy Engineering",
+    "mechanical": "Mechanical Engineering & Manufacturing",
     "construction": "Construction & Engineering Management",
     "biomedical": "Biomedical Engineering",
-    "materials": "Materials Science & Manufacturing",
+    "cybersecurity": "Software, Data & AI Engineering",
+}
+
+DISCIPLINE_ALIAS_REDIRECTS = {
+    # Backward compatibility with previous alias taxonomy.
+    "materials": "mechanical",
+    "cyber": "cybersecurity",
+    "infosec": "cybersecurity",
+    "security": "cybersecurity",
 }
 
 DISCIPLINE_KEYWORD_BUCKETS = {
@@ -217,19 +225,19 @@ DISCIPLINE_KEYWORD_BUCKETS = {
         "software, developer, programmer, software engineer, backend, frontend, full stack, web "
         "developer, computer science, computer engineering, information technology, cybersecurity, "
         "data, data engineer, data science, data scientist, analytics, machine learning, artificial "
-        "intelligence, ai, python, java, c++, javascript, cloud"
+        "intelligence, ai, python, java, c++, javascript, cloud, infosec, network security, "
+        "penetration testing, security analyst, soc analyst, ethical hacker, vulnerability assessment"
+    ),
+    "cybersecurity": (
+        "cybersecurity, infosec, information security, network security, security operations center, "
+        "soc analyst, security analyst, penetration testing, pentest, ethical hacker, blue team, red "
+        "team, vulnerability assessment, incident response, threat intelligence, iam, siem"
     ),
     "embedded": (
         "embedded, firmware, embedded systems, hardware, hardware engineer, electronics, electrical "
         "engineering, electrical engineer, pcb, circuit design, circuits, fpga, verilog, vhdl, "
         "semiconductor, microcontroller, arm, stm32, esp32, signal processing, power systems, "
         "matlab, simulink, c, c++"
-    ),
-    "mechanical": (
-        "mechanical engineering, mechanical engineer, mechanical design, cad, solidworks, autocad, "
-        "ansys, manufacturing, manufacturing engineering, thermodynamics, heat transfer, fluid "
-        "mechanics, hvac, energy, energy systems, renewable energy, finite element analysis, fea, "
-        "structural analysis, stress analysis, machine design, robotics, matlab, simulink, catia"
     ),
     "construction": (
         "construction engineering, construction management, construction engineer, civil engineering, "
@@ -244,12 +252,15 @@ DISCIPLINE_KEYWORD_BUCKETS = {
         "biotechnology, mri, ct scan, ultrasound, clinical engineering, tissue engineering, neural "
         "engineering, rehabilitation engineering, fda, medical informatics, health informatics"
     ),
-    "materials": (
-        "materials science, materials engineering, materials engineer, nanotechnology, nanomaterials, "
-        "polymers, composites, metallurgy, ceramics, materials characterization, additive "
-        "manufacturing, 3d printing, sem, tem, xrd, corrosion, heat treatment, thin films, "
-        "crystallography, semiconductor materials, process engineering, quality engineering, six "
-        "sigma, failure analysis, powder metallurgy"
+    "mechanical": (
+        "mechanical engineering, mechanical engineer, mechanical design, cad, solidworks, autocad, "
+        "ansys, manufacturing, manufacturing engineering, thermodynamics, heat transfer, fluid "
+        "mechanics, hvac, energy, energy systems, renewable energy, finite element analysis, fea, "
+        "structural analysis, stress analysis, machine design, robotics, matlab, simulink, catia, "
+        "materials science, materials engineering, nanotechnology, nanomaterials, polymers, composites, "
+        "metallurgy, ceramics, materials characterization, additive manufacturing, 3d printing, sem, "
+        "tem, xrd, corrosion, heat treatment, thin films, crystallography, semiconductor materials, "
+        "process engineering, quality engineering, six sigma, failure analysis, powder metallurgy"
     ),
 }
 
@@ -277,6 +288,7 @@ def _parse_search_disciplines(raw_value):
         alias = token.strip().lower()
         if not alias:
             continue
+        alias = DISCIPLINE_ALIAS_REDIRECTS.get(alias, alias)
         if alias in DISCIPLINE_KEYWORD_BUCKETS:
             if alias not in seen:
                 selected.append(alias)

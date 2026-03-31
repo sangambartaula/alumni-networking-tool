@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 APPROVED_ENGINEERING_DISCIPLINES = [
     'Software, Data & AI Engineering',
     'Embedded, Electrical & Hardware Engineering',
-    'Mechanical & Energy Engineering',
+    'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering',
-    'Materials Science & Manufacturing',
     'Construction & Engineering Management',
     'Other'
 ]
@@ -36,15 +35,13 @@ UNT_CENG_MAJORS = {
     "Embedded, Electrical & Hardware Engineering": [
         "B.S. Electrical Engineering", "M.S. Electrical Engineering", "Ph.D. Electrical Engineering"
     ],
-    "Materials Science & Manufacturing": [
+    "Mechanical Engineering & Manufacturing": [
         "B.S. Materials Science and Engineering", "M.S. Materials Science and Engineering", 
         "Ph.D. Materials Science and Engineering",
-        "M.S. Semiconductor Manufacturing Engineering"
-    ],
-    "Mechanical & Energy Engineering": [
         "B.S. Mechanical and Energy Engineering", "B.S.E.T. Mechanical Engineering Technology",
         "M.S. Mechanical and Energy Engineering", "M.S. Engineering Management (General, Energy)",
-        "Ph.D. Mechanical and Energy Engineering", "Mechanical Engineering"
+        "Ph.D. Mechanical and Energy Engineering", "Mechanical Engineering",
+        "M.S. Semiconductor Manufacturing Engineering"
     ],
     "Construction & Engineering Management": [
         "B.S. Construction Management", "B.S. Construction Engineering Technology",
@@ -83,7 +80,9 @@ DISCIPLINES = [
         "bi developer", "ui developer", "ux developer", "ui/ux", "web design",
         "machine learning", "ml", "artificial intelligence", "ai",
         "deep learning", "cyber", "cybersecurity", "information technology",
-        "it", "infosec", "appsec", "security engineer", "computer applications",
+        "it", "infosec", "appsec", "security engineer", "security analyst",
+        "soc analyst", "ethical hacker", "penetration testing", "network security",
+        "vulnerability assessment", "computer applications",
         "computer engineering", "autonomous systems"
     ]),
     # 2. EMBEDDED, ELECTRICAL & HARDWARE ENGINEERING
@@ -99,8 +98,8 @@ DISCIPLINES = [
         "linux kernel", "robotics", "controls engineer", "mechatronics",
         "signal processing", "digital design", "analog design", "power systems",
     ]),
-    # 3. MECHANICAL & ENERGY ENGINEERING
-    ("Mechanical & Energy Engineering", [
+    # 3. MECHANICAL ENGINEERING & MANUFACTURING
+    ("Mechanical Engineering & Manufacturing", [
         "mechanical engineering", "mechanical engineer", "mech engineer",
         "mechanics", "machine design", "cad", "solidworks", "catia",
         "autocad", "ansys", "manufacturing engineer", "manufacturing engineering",
@@ -112,6 +111,16 @@ DISCIPLINES = [
         "industrial engineer", "industrial", "manufacturing engineer", 
         "manufacturing engineering", "manufacturing", "plant engineer",
         "mechanical and energy engineering", "engineering management", "engineering technology",
+        "materials science", "materials engineering", "materials engineer",
+        "metallurgy", "metallurgical engineering", "polymers", "polymer science",
+        "ceramics", "composites", "nanomaterials", "nanotechnology",
+        "thin films", "surface science", "crystallography", "solid state materials",
+        "semiconductor materials", "process engineering", "process engineer",
+        "manufacturing science", "manufacturing process", "quality engineering",
+        "quality engineer", "quality", "six sigma", "lean manufacturing", 
+        "failure analysis", "corrosion",
+        "heat treatment", "additive manufacturing", "3d printing",
+        "powder metallurgy", "materials characterization", "xrd", "sem", "tem",
     ]),
     # 4. BIOMEDICAL ENGINEERING
     ("Biomedical Engineering", [
@@ -128,20 +137,7 @@ DISCIPLINES = [
         "tissue engineering", "biomaterials", "physiological systems",
         "regulatory affairs", "fda",
     ]),
-    # 5. MATERIALS SCIENCE & MANUFACTURING
-    ("Materials Science & Manufacturing", [
-        "materials science", "materials engineering", "materials engineer",
-        "metallurgy", "metallurgical engineering", "polymers", "polymer science",
-        "ceramics", "composites", "nanomaterials", "nanotechnology",
-        "thin films", "surface science", "crystallography", "solid state materials",
-        "semiconductor materials", "process engineering", "process engineer",
-        "manufacturing science", "manufacturing process", "quality engineering",
-        "quality engineer", "quality", "six sigma", "lean manufacturing", 
-        "failure analysis", "corrosion",
-        "heat treatment", "additive manufacturing", "3d printing",
-        "powder metallurgy", "materials characterization", "xrd", "sem", "tem",
-    ]),
-    # 6. CONSTRUCTION & ENGINEERING MANAGEMENT
+    # 5. CONSTRUCTION & ENGINEERING MANAGEMENT
     ("Construction & Engineering Management", [
         "construction management", "construction manager", "construction engineer",
         "civil engineering", "civil engineer", "structural engineering",
@@ -333,7 +329,7 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
     matches = []
     for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
         # Safety Check: Business/Sculpture + Materials Science safeguard
-        if current_priority == 'degree' and discipline_name == "Materials Science & Manufacturing":
+        if current_priority == 'degree' and discipline_name == "Mechanical Engineering & Manufacturing":
             if any(kw in text_lower for kw in ["business", "sculpture"]) and "engineering" not in text_lower:
                 continue
 
