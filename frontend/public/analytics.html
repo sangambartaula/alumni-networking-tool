@@ -67,7 +67,7 @@
         <span>Filters</span>
         <span id="analyticsFilterBadge" class="analytics-filter-badge">0</span>
       </button>
-      <button id="analyticsDownloadBtn" class="analytics-download-toggle analytics-export-exclude" title="Download PDF">
+      <button id="analyticsDownloadBtn" class="analytics-download-toggle analytics-export-exclude" title="Download Analytics">
         <i class="fas fa-download"></i>
         <span>Download</span>
       </button>
@@ -475,7 +475,7 @@
       </div>
     </section>
 
-    <!-- PDF Export Modal -->
+    <!-- Analytics Export Modal -->
     <div id="analyticsExportBackdrop" class="analytics-export-backdrop analytics-export-exclude"></div>
     <div
       id="analyticsExportModal"
@@ -487,19 +487,35 @@
     >
       <div class="analytics-export-modal-content">
         <div class="analytics-export-modal-header">
-          <h3 id="analyticsExportTitle">Download Analytics PDF</h3>
+          <h3 id="analyticsExportTitle">Download Analytics</h3>
           <button id="analyticsCloseExportBtn" class="analytics-export-close-btn" aria-label="Close export modal">&times;</button>
         </div>
         <div class="analytics-export-modal-body">
-          <div class="analytics-export-mode">
-            <label class="analytics-export-mode-option">
-              <input type="radio" name="analyticsExportMode" value="full" checked />
-              <span>Full page</span>
-            </label>
-            <label class="analytics-export-mode-option">
-              <input type="radio" name="analyticsExportMode" value="selected" />
-              <span>Select diagrams</span>
-            </label>
+          <div class="analytics-export-section">
+            <p class="analytics-export-section-label">What to export</p>
+            <div class="analytics-export-mode">
+              <label class="analytics-export-mode-option">
+                <input type="radio" name="analyticsExportMode" value="full" checked />
+                <span>Full page</span>
+              </label>
+              <label class="analytics-export-mode-option">
+                <input type="radio" name="analyticsExportMode" value="selected" />
+                <span>Select diagrams</span>
+              </label>
+            </div>
+          </div>
+          <div class="analytics-export-section">
+            <p class="analytics-export-section-label">Format</p>
+            <div class="analytics-export-format">
+              <label class="analytics-export-mode-option">
+                <input type="radio" name="analyticsExportFormat" value="pdf" checked />
+                <span>PDF</span>
+              </label>
+              <label class="analytics-export-mode-option">
+                <input type="radio" name="analyticsExportFormat" value="png" />
+                <span>PNG</span>
+              </label>
+            </div>
           </div>
           <div id="analyticsDiagramSelectionPanel" class="analytics-diagram-selection-panel" hidden>
             <div class="analytics-diagram-selection-actions">
