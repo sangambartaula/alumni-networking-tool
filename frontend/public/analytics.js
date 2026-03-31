@@ -1524,6 +1524,9 @@ async function captureAnalyticsElementToCanvas(element) {
     scale,
     useCORS: true,
     logging: false,
+    onclone: (clonedDocument) => {
+      clonedDocument.body.classList.add('analytics-exporting');
+    },
     ignoreElements: shouldIgnoreElementDuringAnalyticsExport
   });
 }

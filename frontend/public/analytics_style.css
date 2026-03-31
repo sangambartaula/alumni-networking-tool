@@ -91,6 +91,11 @@
   pointer-events: none;
 }
 
+/* Export clone only: remove the subtle grid to prevent PDF hairline artifacts. */
+.analytics-exporting .analytics-header::before {
+  display: none;
+}
+
 /* bottom glow line */
 .analytics-header::after {
   content: "";
