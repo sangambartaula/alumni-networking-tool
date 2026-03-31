@@ -3,11 +3,12 @@
 ## Purpose
 
 This document summarizes how to run the main automated tests for the UNT Alumni
-Networking Tool and highlights the Sprint 6 coverage areas.
+Networking Tool and highlights the current high-value coverage areas for the
+Dean's Office dashboard.
 
 ## Core Commands
 
-Run the targeted Sprint 6 coverage:
+Run targeted backend/API coverage:
 
 ```bash
 pytest -q backend/tests/test_sprint_white_black_box.py
@@ -20,15 +21,17 @@ Run the full regression suite:
 pytest -q
 ```
 
-## Sprint 6 Coverage
+## Current Coverage
 
-Sprint 6 testing focuses on:
+Current automated coverage includes:
 
 - graduation year range validation
 - seniority filter validation
 - years-of-experience edge cases
 - major filter parsing for comma-containing values
 - discipline classification and search behavior
+- alumni filter API behavior
+- general regression coverage across backend and scraper modules
 
 ## Notes
 
