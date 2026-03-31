@@ -3,9 +3,8 @@
 const APPROVED_ENGINEERING_DISCIPLINES = [
   'Software, Data & AI Engineering',
   'Embedded, Electrical & Hardware Engineering',
-  'Mechanical & Energy Engineering',
+  'Mechanical Engineering & Manufacturing',
   'Biomedical Engineering',
-  'Materials Science & Manufacturing',
   'Construction & Engineering Management',
 ];
 // Fake alumni data (fallback). Backend will be queried first; if it fails we use this local list.
@@ -902,6 +901,8 @@ function collectQueryState() {
   const major = Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value);
   const standardized_major = Array.from(document.querySelectorAll('input[name="standardized_major"]:checked')).map(i => i.value);
   const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
+  const majorLogicInput = document.querySelector('input[name="majorLogic"]:checked');
+  const majorLogic = majorLogicInput ? majorLogicInput.value : 'and';
   const year = gradSelect ? gradSelect.value : '';
   const wwsRadio = document.querySelector('input[name="workingWhileStudying"]:checked');
   const wws = wwsRadio ? wwsRadio.value : '';
@@ -928,6 +929,7 @@ function collectQueryState() {
     major,
     standardized_major,
     degree,
+    majorLogic,
     year,
     wws,
     untAlumniStatus,
@@ -952,6 +954,9 @@ function buildAlumniQueryParams(queryState, offset, limit) {
   queryState.seniority.forEach(v => params.append('seniority', v));
   queryState.major.forEach(v => params.append('major', v));
   queryState.standardized_major.forEach(v => params.append('standardized_major', v));
+  if (queryState.major.length && queryState.standardized_major.length) {
+    params.set('major_logic', queryState.majorLogic || 'and');
+  }
   queryState.degree.forEach(v => params.append('degree', v));
   if (queryState.year) params.set('grad_year', queryState.year);
   if (queryState.wws) params.set('working_while_studying', queryState.wws);
@@ -1081,6 +1086,7 @@ function setupFiltering() {
   const expMaxInput = document.getElementById('expMax');
   const expRangeWarning = document.getElementById('expRangeWarning');
   const includeUnknownExperience = document.getElementById('includeUnknownExperience');
+  const majorLogicHint = document.getElementById('majorLogicHint');
 
   let searchDebounce = null;
   const setRangeWarning = (el, message) => {
@@ -1138,9 +1144,20 @@ function setupFiltering() {
     await fetchAlumniPage({ reset: true });
   };
 
+  const updateMajorLogicHint = () => {
+    if (!majorLogicHint) return;
+    const selected = document.querySelector('input[name="majorLogic"]:checked');
+    const logic = selected ? selected.value : 'and';
+    majorLogicHint.textContent = logic === 'or'
+      ? 'Matching results from either filter type.'
+      : 'Matching results from both filter types.';
+  };
+
   if (clearBtn) {
     clearBtn.addEventListener('click', async () => {
       document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"]').forEach(cb => cb.checked = false);
+      const majorLogicAnd = document.querySelector('input[name="majorLogic"][value="and"]');
+      if (majorLogicAnd) majorLogicAnd.checked = true;
       if (gradSelect) gradSelect.value = '';
       if (q) q.value = '';
       const wwsAll = document.querySelector('input[name="workingWhileStudying"][value=""]');
@@ -1153,6 +1170,7 @@ function setupFiltering() {
       if (expMaxInput) expMaxInput.value = '';
       if (includeUnknownExperience) includeUnknownExperience.checked = false;
       setRangeWarning(expRangeWarning, '');
+      updateMajorLogicHint();
       await applyFilters();
     });
   }
@@ -1167,7 +1185,10 @@ function setupFiltering() {
   }
 
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax, #includeUnknownExperience')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"], input[name="majorLogic"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax, #includeUnknownExperience')) {
+      if (e.target.matches('input[name="majorLogic"]')) {
+        updateMajorLogicHint();
+      }
       applyFilters();
     }
   });
@@ -1188,6 +1209,7 @@ function setupFiltering() {
   }
 
   window.applyFiltersAndSort = applyFilters;
+  updateMajorLogicHint();
   updateSortLabel();
 }
 

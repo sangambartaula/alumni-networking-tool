@@ -161,12 +161,35 @@ def is_authorized_user(email):
 APPROVED_ENGINEERING_DISCIPLINES = [
     'Software, Data & AI Engineering',
     'Embedded, Electrical & Hardware Engineering',
-    'Mechanical & Energy Engineering',
+    'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering',
-    'Materials Science & Manufacturing',
     'Construction & Engineering Management',
 ]
 _APPROVED_DISCIPLINES_SET = set(APPROVED_ENGINEERING_DISCIPLINES)
+
+# Keep legacy labels readable while converging to canonical discipline names.
+_DISCIPLINE_CANONICAL_MAP = {
+    'Software, Data & AI Engineering': 'Software, Data & AI Engineering',
+    'Embedded, Electrical & Hardware Engineering': 'Embedded, Electrical & Hardware Engineering',
+    'Mechanical Engineering & Manufacturing': 'Mechanical Engineering & Manufacturing',
+    'Biomedical Engineering': 'Biomedical Engineering',
+    'Construction & Engineering Management': 'Construction & Engineering Management',
+    # Legacy values
+    'Mechanical & Energy Engineering': 'Mechanical Engineering & Manufacturing',
+    'Materials Science & Manufacturing': 'Mechanical Engineering & Manufacturing',
+}
+
+_CANONICAL_TO_EQUIVALENT_DISCIPLINES = {
+    'Software, Data & AI Engineering': ['Software, Data & AI Engineering'],
+    'Embedded, Electrical & Hardware Engineering': ['Embedded, Electrical & Hardware Engineering'],
+    'Mechanical Engineering & Manufacturing': [
+        'Mechanical Engineering & Manufacturing',
+        'Mechanical & Energy Engineering',
+        'Materials Science & Manufacturing',
+    ],
+    'Biomedical Engineering': ['Biomedical Engineering'],
+    'Construction & Engineering Management': ['Construction & Engineering Management'],
+}
 
 # Canonical UNT major labels (must stay aligned with scraper/major_normalization.py).
 APPROVED_UNT_MAJORS = [
@@ -197,14 +220,32 @@ def _resolve_discipline(row):
     Fallback to legacy storage where discipline was incorrectly kept in major.
     """
     discipline = (row.get('discipline') or '').strip()
-    if discipline in _APPROVED_DISCIPLINES_SET:
-        return discipline
+    if discipline:
+        canonical = _DISCIPLINE_CANONICAL_MAP.get(discipline)
+        if canonical in _APPROVED_DISCIPLINES_SET:
+            return canonical
 
     legacy_major = (row.get('major') or '').strip()
-    if legacy_major in _APPROVED_DISCIPLINES_SET:
-        return legacy_major
+    if legacy_major:
+        canonical = _DISCIPLINE_CANONICAL_MAP.get(legacy_major)
+        if canonical in _APPROVED_DISCIPLINES_SET:
+            return canonical
 
     return 'Other'
+
+
+def _normalize_requested_discipline(value):
+    canonical = _DISCIPLINE_CANONICAL_MAP.get((value or '').strip())
+    return canonical or ''
+
+
+def _expand_discipline_filter_values(canonical_disciplines):
+    expanded = []
+    for canonical in canonical_disciplines:
+        for alias in _CANONICAL_TO_EQUIVALENT_DISCIPLINES.get(canonical, [canonical]):
+            if alias not in expanded:
+                expanded.append(alias)
+    return expanded
 
 
 def _resolve_major(row):
@@ -217,7 +258,7 @@ def _resolve_major(row):
         return standardized_major
 
     raw_major = (row.get('major') or '').strip()
-    if raw_major in _APPROVED_DISCIPLINES_SET:
+    if raw_major in _DISCIPLINE_CANONICAL_MAP:
         return ''
     if raw_major in _APPROVED_UNT_MAJORS_SET:
         return raw_major
@@ -249,7 +290,7 @@ def _resolve_full_major(row):
         return canonical_major
 
     raw_major = (row.get('major') or '').strip()
-    if raw_major and raw_major not in _APPROVED_DISCIPLINES_SET:
+    if raw_major and raw_major not in _DISCIPLINE_CANONICAL_MAP:
         return raw_major
     return ''
 
@@ -1045,7 +1086,21 @@ def api_get_alumni():
         location_filters = _parse_multi_value_param('location')
         role_filters = _parse_multi_value_param('role')
         company_filters = _parse_multi_value_param('company')
-        discipline_filters = _parse_multi_value_param('major')
+        discipline_filter_logic = (request.args.get('major_logic', 'and') or 'and').strip().lower()
+        if discipline_filter_logic not in {'and', 'or'}:
+            return _validation_error("Invalid major_logic. Use 'and' or 'or'.", field='major_logic')
+
+        raw_discipline_filters = _parse_multi_value_param('major')
+        discipline_filters = []
+        invalid_disciplines = []
+        for value in raw_discipline_filters:
+            canonical = _normalize_requested_discipline(value)
+            if not canonical:
+                invalid_disciplines.append(value)
+                continue
+            if canonical not in discipline_filters:
+                discipline_filters.append(canonical)
+
         major_filters = [m for m in _parse_multi_value_param('standardized_major') if m in _APPROVED_UNT_MAJORS_SET]
         degree_filters = [d.lower() for d in _parse_multi_value_param('degree')]
         try:
@@ -1080,10 +1135,8 @@ def api_get_alumni():
             return jsonify({"error": str(e)}), 400
         seniority_filter_set = set(seniority_filters)
 
-        if discipline_filters:
-            invalid_disciplines = [m for m in discipline_filters if m not in _APPROVED_DISCIPLINES_SET]
-            if invalid_disciplines:
-                return jsonify({"error": f"Invalid engineering discipline: {invalid_disciplines[0]}"}), 400
+        if invalid_disciplines:
+            return jsonify({"error": f"Invalid engineering discipline: {invalid_disciplines[0]}"}), 400
 
         user_id_for_bookmark_filter = None
         if bookmarked_only:
@@ -1137,17 +1190,39 @@ def api_get_alumni():
                         params.extend([company_like, company_like])
                     where_clauses.append("(" + " OR ".join(company_conditions) + ")")
 
+                discipline_clause = None
+                discipline_params = []
                 if discipline_filters:
-                    placeholders = ",".join(["%s"] * len(discipline_filters))
-                    where_clauses.append(f"a.discipline IN ({placeholders})")
-                    params.extend(discipline_filters)
+                    expanded_disciplines = _expand_discipline_filter_values(discipline_filters)
+                    placeholders = ",".join(["%s"] * len(expanded_disciplines))
+                    discipline_clause = f"a.discipline IN ({placeholders})"
+                    discipline_params.extend(expanded_disciplines)
 
+                major_clause = None
+                major_params = []
                 if major_filters:
                     mf_conditions = []
                     for mf in major_filters:
                         mf_conditions.append("(a.standardized_major = %s OR a.standardized_major_alt = %s)")
-                        params.extend([mf, mf])
-                    where_clauses.append("(" + " OR ".join(mf_conditions) + ")")
+                        major_params.extend([mf, mf])
+                    major_clause = "(" + " OR ".join(mf_conditions) + ")"
+
+                if discipline_clause and major_clause:
+                    if discipline_filter_logic == 'or':
+                        where_clauses.append(f"({discipline_clause} OR {major_clause})")
+                        params.extend(discipline_params)
+                        params.extend(major_params)
+                    else:
+                        where_clauses.append(discipline_clause)
+                        params.extend(discipline_params)
+                        where_clauses.append(major_clause)
+                        params.extend(major_params)
+                elif discipline_clause:
+                    where_clauses.append(discipline_clause)
+                    params.extend(discipline_params)
+                elif major_clause:
+                    where_clauses.append(major_clause)
+                    params.extend(major_params)
 
                 if grad_year_filters:
                     placeholders = ",".join(["%s"] * len(grad_year_filters))
@@ -2365,7 +2440,7 @@ def api_filter_alumni():
 
     try:
         # Get filter parameters
-        discipline_filter = request.args.get('major', '').strip()
+        discipline_filter = _normalize_requested_discipline(request.args.get('major', '').strip())
         location = request.args.get('location', '').strip()
         company = request.args.get('company', '').strip()
         job_title = request.args.get('job_title', '').strip()
@@ -2382,8 +2457,9 @@ def api_filter_alumni():
             return jsonify({"error": str(e)}), 400
 
         # Validate engineering discipline filter.
-        if discipline_filter and discipline_filter not in _APPROVED_DISCIPLINES_SET:
-            return jsonify({"error": f"Invalid engineering discipline: {discipline_filter}"}), 400
+        raw_discipline_filter = request.args.get('major', '').strip()
+        if raw_discipline_filter and not discipline_filter:
+            return jsonify({"error": f"Invalid engineering discipline: {raw_discipline_filter}"}), 400
 
         try:
             limit = int(request.args.get('limit', 10000))

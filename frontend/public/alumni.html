@@ -178,6 +178,29 @@
         <div class="checklist" id="stdMajorChecks"></div>
       </div>
 
+      <div class="group" id="discipline-major-logic-group">
+        <div class="label">
+          <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 6h13"></path>
+            <path d="M8 12h13"></path>
+            <path d="M8 18h13"></path>
+            <circle cx="4" cy="6" r="1"></circle>
+            <circle cx="4" cy="12" r="1"></circle>
+            <circle cx="4" cy="18" r="1"></circle>
+          </svg>
+          Discipline + Major Logic
+        </div>
+        <div class="wws-toggle-group">
+          <label class="check">
+            <input type="radio" name="majorLogic" value="and" checked /> <span>Match Both</span>
+          </label>
+          <label class="check">
+            <input type="radio" name="majorLogic" value="or" /> <span>Match Either</span>
+          </label>
+        </div>
+        <div id="majorLogicHint" class="logic-hint" aria-live="polite"></div>
+      </div>
+
       <div class="group" id="grad-group">
         <div class="label">
           <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

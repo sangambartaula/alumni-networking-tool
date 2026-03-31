@@ -238,7 +238,8 @@ body {
   position: sticky;
   top: 100px;
   max-height: calc(100vh - 180px);
-  overflow-y: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   box-shadow: var(--shadow-sm);
@@ -313,10 +314,11 @@ body {
 
 .checklist {
   display: grid;
-  gap: 10px;
-  max-height: none;
-  overflow: visible;
-  padding-right: 6px;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  margin-right: 10px;
+  padding-right: 4px;
 }
 
 .check {
@@ -400,6 +402,12 @@ select:focus {
 
 .wws-toggle-group input[type="radio"] {
   display: none;
+}
+
+.logic-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* ===== EXPERIENCE RANGE FILTER ===== */
