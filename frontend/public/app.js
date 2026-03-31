@@ -1,7 +1,7 @@
 // app.js
 // Approved engineering disciplines (must match backend APPROVED_ENGINEERING_DISCIPLINES)
 const APPROVED_ENGINEERING_DISCIPLINES = [
-  'Software, Data, AI & Cybersecurity Engineering',
+  'Software, Data, AI & Cybersecurity',
   'Embedded, Electrical & Hardware Engineering',
   'Mechanical Engineering & Manufacturing',
   'Biomedical Engineering',
@@ -766,7 +766,6 @@ function populateFilters(list) {
   const stdMajors = Array.from(new Set(
     list.flatMap(x => (x.standardized_majors || []).filter(Boolean))
   )).filter(m => m !== 'Other').sort();
-  const years = Array.from(new Set(list.map(x => x.class).filter(Boolean))).sort((a, b) => b - a);
   const degrees = ['Bachelors', 'Masters', 'PhD'].filter(level =>
     list.some(x => x.degree === level && isValid(level))
   );
@@ -777,14 +776,11 @@ function populateFilters(list) {
   const selectedMajors = new Set(Array.from(document.querySelectorAll('input[name="major"]:checked')).map(i => i.value));
   const selectedStdMajors = new Set(Array.from(document.querySelectorAll('input[name="standardized_major"]:checked')).map(i => i.value));
   const selectedDegrees = new Set(Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value));
-  const currentYearValue = (document.getElementById('gradSelect') || {}).value || '';
-
   const locChecks = document.getElementById('locChecks');
   const roleChecks = document.getElementById('roleChecks');
   const companyChecks = document.getElementById('companyChecks');
   const majorChecks = document.getElementById('majorChecks');
   const stdMajorChecks = document.getElementById('stdMajorChecks');
-  const gradSelect = document.getElementById('gradSelect');
   const degreeChecks = document.getElementById('degreeChecks');
 
   if (locChecks) {
@@ -837,17 +833,6 @@ function populateFilters(list) {
     });
   }
 
-  if (gradSelect) {
-    gradSelect.innerHTML = '<option value="">All years</option>';
-    years.forEach(y => {
-      const opt = document.createElement('option');
-      opt.value = y;
-      opt.textContent = y;
-      gradSelect.appendChild(opt);
-    });
-    gradSelect.value = currentYearValue;
-  }
-
   if (degreeChecks) {
     degreeChecks.innerHTML = '';
     degrees.forEach(v => {
@@ -887,7 +872,8 @@ function mapAlumniRecord(a) {
 
 function collectQueryState() {
   const q = document.getElementById('q');
-  const gradSelect = document.getElementById('gradSelect');
+  const gradYearFromInput = document.getElementById('gradYearFrom');
+  const gradYearToInput = document.getElementById('gradYearTo');
   const sortSelect = document.getElementById('sortSelect');
   const expMinInput = document.getElementById('expMin');
   const expMaxInput = document.getElementById('expMax');
@@ -903,7 +889,12 @@ function collectQueryState() {
   const degree = Array.from(document.querySelectorAll('input[name="degree"]:checked')).map(i => i.value);
   const majorLogicInput = document.querySelector('input[name="majorLogic"]:checked');
   const majorLogic = majorLogicInput ? majorLogicInput.value : 'and';
-  const year = gradSelect ? gradSelect.value : '';
+  const gradYearFrom = gradYearFromInput && gradYearFromInput.value.trim() !== ''
+    ? parseInt(gradYearFromInput.value, 10)
+    : null;
+  const gradYearTo = gradYearToInput && gradYearToInput.value.trim() !== ''
+    ? parseInt(gradYearToInput.value, 10)
+    : null;
   const wwsRadio = document.querySelector('input[name="workingWhileStudying"]:checked');
   const wws = wwsRadio ? wwsRadio.value : '';
   const untAlumniStatusRadio = document.querySelector('input[name="untAlumniStatus"]:checked');
@@ -930,7 +921,8 @@ function collectQueryState() {
     standardized_major,
     degree,
     majorLogic,
-    year,
+    gradYearFrom,
+    gradYearTo,
     wws,
     untAlumniStatus,
     expMin,
@@ -958,7 +950,8 @@ function buildAlumniQueryParams(queryState, offset, limit) {
     params.set('major_logic', queryState.majorLogic || 'and');
   }
   queryState.degree.forEach(v => params.append('degree', v));
-  if (queryState.year) params.set('grad_year', queryState.year);
+  if (queryState.gradYearFrom != null) params.set('grad_year_from', String(queryState.gradYearFrom));
+  if (queryState.gradYearTo != null) params.set('grad_year_to', String(queryState.gradYearTo));
   if (queryState.wws) params.set('working_while_studying', queryState.wws);
   if (queryState.untAlumniStatus) params.set('unt_alumni_status', queryState.untAlumniStatus);
   if (queryState.sort) params.set('sort', queryState.sort);
@@ -1078,7 +1071,9 @@ function updateSortLabel() {
 
 function setupFiltering() {
   const q = document.getElementById('q');
-  const gradSelect = document.getElementById('gradSelect');
+  const gradYearFromInput = document.getElementById('gradYearFrom');
+  const gradYearToInput = document.getElementById('gradYearTo');
+  const gradRangeWarning = document.getElementById('gradRangeWarning');
   const sortSelect = document.getElementById('sortSelect');
   const sortReverseBtn = document.getElementById('sortReverseBtn');
   const clearBtn = document.getElementById('clear-filters');
@@ -1134,11 +1129,26 @@ function setupFiltering() {
     return true;
   };
 
+  const validateGraduationYearRange = () => {
+    const minVal = gradYearFromInput && gradYearFromInput.value.trim() !== '' ? parseInt(gradYearFromInput.value, 10) : null;
+    const maxVal = gradYearToInput && gradYearToInput.value.trim() !== '' ? parseInt(gradYearToInput.value, 10) : null;
+    if (minVal != null && maxVal != null && minVal > maxVal) {
+      setRangeWarning(gradRangeWarning, 'From year cannot be greater than to year.');
+      return false;
+    }
+    if (gradRangeWarning && gradRangeWarning.textContent === 'From year cannot be greater than to year.') {
+      setRangeWarning(gradRangeWarning, '');
+    }
+    return true;
+  };
+
   enforceIntegerOnly(expMinInput, expRangeWarning);
   enforceIntegerOnly(expMaxInput, expRangeWarning);
+  enforceIntegerOnly(gradYearFromInput, gradRangeWarning);
+  enforceIntegerOnly(gradYearToInput, gradRangeWarning);
 
   const applyFilters = async () => {
-    if (!validateExperienceRange()) {
+    if (!validateExperienceRange() || !validateGraduationYearRange()) {
       return;
     }
     await fetchAlumniPage({ reset: true });
@@ -1158,7 +1168,8 @@ function setupFiltering() {
       document.querySelectorAll('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"]').forEach(cb => cb.checked = false);
       const majorLogicAnd = document.querySelector('input[name="majorLogic"][value="and"]');
       if (majorLogicAnd) majorLogicAnd.checked = true;
-      if (gradSelect) gradSelect.value = '';
+      if (gradYearFromInput) gradYearFromInput.value = '';
+      if (gradYearToInput) gradYearToInput.value = '';
       if (q) q.value = '';
       const wwsAll = document.querySelector('input[name="workingWhileStudying"][value=""]');
       if (wwsAll) wwsAll.checked = true;
@@ -1169,6 +1180,7 @@ function setupFiltering() {
       if (expMinInput) expMinInput.value = '';
       if (expMaxInput) expMaxInput.value = '';
       if (includeUnknownExperience) includeUnknownExperience.checked = false;
+      setRangeWarning(gradRangeWarning, '');
       setRangeWarning(expRangeWarning, '');
       updateMajorLogicHint();
       await applyFilters();
@@ -1185,7 +1197,7 @@ function setupFiltering() {
   }
 
   document.addEventListener('change', (e) => {
-    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"], input[name="majorLogic"], #gradSelect, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax, #includeUnknownExperience')) {
+    if (e.target.matches('input[name="location"], input[name="role"], input[name="company"], input[name="seniority"], input[name="major"], input[name="standardized_major"], input[name="degree"], input[name="majorLogic"], #gradYearFrom, #gradYearTo, input[name="workingWhileStudying"], input[name="untAlumniStatus"], #expMin, #expMax, #includeUnknownExperience')) {
       if (e.target.matches('input[name="majorLogic"]')) {
         updateMajorLogicHint();
       }

@@ -159,7 +159,7 @@ def is_authorized_user(email):
 # =============================================================================
 # Approved engineering disciplines for the frontend filter
 APPROVED_ENGINEERING_DISCIPLINES = [
-    'Software, Data, AI & Cybersecurity Engineering',
+    'Software, Data, AI & Cybersecurity',
     'Embedded, Electrical & Hardware Engineering',
     'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering',
@@ -169,8 +169,8 @@ _APPROVED_DISCIPLINES_SET = set(APPROVED_ENGINEERING_DISCIPLINES)
 
 # Keep legacy labels readable while converging to canonical discipline names.
 _DISCIPLINE_CANONICAL_MAP = {
-    'Software, Data, AI & Cybersecurity Engineering': 'Software, Data, AI & Cybersecurity Engineering',
-    'Software, Data & AI Engineering': 'Software, Data, AI & Cybersecurity Engineering',
+    'Software, Data, AI & Cybersecurity': 'Software, Data, AI & Cybersecurity',
+    'Software, Data & AI Engineering': 'Software, Data, AI & Cybersecurity',
     'Embedded, Electrical & Hardware Engineering': 'Embedded, Electrical & Hardware Engineering',
     'Mechanical Engineering & Manufacturing': 'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering': 'Biomedical Engineering',
@@ -181,8 +181,8 @@ _DISCIPLINE_CANONICAL_MAP = {
 }
 
 _CANONICAL_TO_EQUIVALENT_DISCIPLINES = {
-    'Software, Data, AI & Cybersecurity Engineering': [
-        'Software, Data, AI & Cybersecurity Engineering',
+    'Software, Data, AI & Cybersecurity': [
+        'Software, Data, AI & Cybersecurity',
         'Software, Data & AI Engineering',
     ],
     'Embedded, Electrical & Hardware Engineering': ['Embedded, Electrical & Hardware Engineering'],
@@ -478,7 +478,7 @@ def _parse_multi_value_param(param_name):
 
     Notes:
       - Some values legitimately contain commas (e.g. "Austin, TX",
-        "Software, Data, AI & Cybersecurity Engineering"). For these params we preserve
+        "Software, Data, AI & Cybersecurity"). For these params we preserve
         each raw query value as-is and rely on repeated params for multi-select.
     """
     raw_values = [str(raw or "").strip() for raw in request.args.getlist(param_name)]
@@ -1111,6 +1111,13 @@ def api_get_alumni():
             grad_year_filters = _parse_int_list_param('grad_year', strict=True)
         except ValueError as e:
             return _validation_error(str(e), field='grad_year')
+        try:
+            grad_year_from = _parse_optional_non_negative_int('grad_year_from')
+            grad_year_to = _parse_optional_non_negative_int('grad_year_to')
+            _validate_min_max(grad_year_from, grad_year_to, 'grad_year_from', 'grad_year_to')
+        except ValueError as e:
+            field = 'grad_year_from' if 'grad_year_from' in str(e) else 'grad_year_to'
+            return _validation_error(str(e), field=field)
         working_while_studying_filter = (request.args.get('working_while_studying', '') or '').strip().lower()
 
         # Experience range filter (in months)
@@ -1232,6 +1239,14 @@ def api_get_alumni():
                     placeholders = ",".join(["%s"] * len(grad_year_filters))
                     where_clauses.append(f"a.grad_year IN ({placeholders})")
                     params.extend(grad_year_filters)
+
+                if grad_year_from is not None:
+                    where_clauses.append("a.grad_year >= %s")
+                    params.append(grad_year_from)
+
+                if grad_year_to is not None:
+                    where_clauses.append("a.grad_year <= %s")
+                    params.append(grad_year_to)
 
                 if degree_filters:
                     degree_sql = []

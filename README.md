@@ -9,7 +9,7 @@ The project is still in active development and is expected to be finalized in ab
 ## 2. What Staff Can Do
 
 - Search alumni records.
-- Filter alumni by major, degree, seniority, graduation year, and location.
+- Filter alumni by major, degree, seniority, graduation year range, and location.
 - View alumni seniority levels (Intern, Mid, Senior, Manager, Executive).
 - Use analytics dashboards to understand alumni trends.
 - Use the heatmap to view where alumni are located.

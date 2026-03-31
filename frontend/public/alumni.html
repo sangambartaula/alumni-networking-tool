@@ -209,9 +209,15 @@
           </svg>
           Graduation Year
         </div>
-        <select id="gradSelect" aria-label="Graduation year">
-          <option value="">All years</option>
-        </select>
+        <div class="exp-range-group">
+          <div class="exp-range-inputs">
+            <input type="number" id="gradYearFrom" min="0" step="1" value="" placeholder="From" aria-label="From graduation year" />
+            <span class="exp-range-sep">to</span>
+            <input type="number" id="gradYearTo" min="0" step="1" value="" placeholder="To" aria-label="To graduation year" />
+          </div>
+          <div id="gradRangeWarning" class="input-warning" aria-live="polite"></div>
+          <div class="exp-range-hint">Inclusive range (example: 2023 to 2025)</div>
+        </div>
       </div>
 
       <div class="group" id="degree-group">

@@ -16,8 +16,8 @@ def _alumni_row(
         "last_name": last_name,
         "grad_year": grad_year,
         "degree": "Bachelor of Science",
-        "major": "Software, Data, AI & Cybersecurity Engineering",
-        "discipline": "Software, Data, AI & Cybersecurity Engineering",
+        "major": "Software, Data, AI & Cybersecurity",
+        "discipline": "Software, Data, AI & Cybersecurity",
         "standardized_major": "Computer Science",
         "linkedin_url": f"https://www.linkedin.com/in/{first_name.lower()}-{alumni_id}",
         "current_job_title": job_title,
@@ -368,6 +368,41 @@ def test_api_alumni_year_sort_puts_missing_grad_year_last(client, monkeypatch):
     select_query = _latest_select_query(query_log)
     assert "CASE WHEN a.grad_year IS NULL THEN 1 ELSE 0 END ASC" in select_query
     assert "a.grad_year DESC" in select_query
+
+
+def test_api_alumni_applies_inclusive_grad_year_range(client, monkeypatch):
+    rows = [
+        _alumni_row(1, "Past", "Case", grad_year=2022),
+        _alumni_row(2, "Inside", "Case", grad_year=2024),
+        _alumni_row(3, "Future", "Case", grad_year=2026),
+    ]
+    query_log = []
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, query_log)),
+    )
+
+    resp = client.get("/api/alumni?grad_year_from=2023&grad_year_to=2025&limit=10&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+    count_query = next((q for q, _ in query_log if "COUNT(*) AS total" in q), "")
+    assert "a.grad_year >= %s" in count_query
+    assert "a.grad_year <= %s" in count_query
+
+    count_params = next((params for q, params in query_log if "COUNT(*) AS total" in q), ())
+    assert count_params == (2023, 2025)
+
+
+def test_api_alumni_rejects_grad_year_range_when_min_greater_than_max(client):
+    resp = client.get("/api/alumni?grad_year_from=2025&grad_year_to=2023")
+    payload = resp.get_json()
+
+    assert resp.status_code == 400
+    assert payload["error"]["field"] == "grad_year_from"
+    assert payload["error"]["message"] == "grad_year_from cannot be greater than grad_year_to."
 
 
 def test_api_alumni_unt_status_filter_uses_python_side_pagination(client, monkeypatch):

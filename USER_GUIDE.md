@@ -52,10 +52,16 @@ Current-year class handling:
 
 - Search by name, role, and company.
 - Multi-select filters: Location, Job Title, Company, Seniority, Engineering Discipline, Major, Degree.
+- Engineering Discipline categories used in filters:
+	- `Software, Data, AI & Cybersecurity`
+	- `Embedded, Electrical & Hardware Engineering`
+	- `Mechanical Engineering & Manufacturing`
+	- `Biomedical Engineering`
+	- `Construction & Engineering Management`
 - If both Engineering Discipline and Major are selected, choose matching logic:
 	- `Match Both` (AND): returns profiles matching both filter types.
 	- `Match Either` (OR): returns profiles matching either filter type.
-- Graduation year filter.
+- Graduation year range filter (inclusive from/to, e.g., 2023 to 2025 includes 2023, 2024, and 2025).
 - Working-while-studying and UNT alumni status filters.
 - Relevant experience range (years) filter with an option to include unknown experience profiles.
 
@@ -64,6 +70,7 @@ Current-year class handling:
 - Min/max filters enforce integer-only input.
 - Decimal points and non-numeric input are blocked and show an inline warning.
 - If min > max, filter application is blocked and an inline warning is shown.
+- Directory graduation year range uses inclusive bounds (`from` and `to`).
 
 ## 4. Use Working-While-Studying Signals
 
