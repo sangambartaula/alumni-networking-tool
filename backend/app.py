@@ -10,7 +10,7 @@ import requests  # for OAuth token exchange
 import mysql.connector  # for MySQL connection
 import secrets
 from database import get_connection
-from geocoding import geocode_location
+from geocoding import geocode_location, search_location_candidates
 from unt_alumni_status import (
     UNT_ALUMNI_STATUS_VALUES,
     compute_unt_alumni_status_from_row,
@@ -171,6 +171,7 @@ _APPROVED_DISCIPLINES_SET = set(APPROVED_ENGINEERING_DISCIPLINES)
 _DISCIPLINE_CANONICAL_MAP = {
     'Software, Data, AI & Cybersecurity': 'Software, Data, AI & Cybersecurity',
     'Software, Data & AI Engineering': 'Software, Data, AI & Cybersecurity',
+    'Software, Data, AI & Cybersecurity Engineering': 'Software, Data, AI & Cybersecurity',
     'Embedded, Electrical & Hardware Engineering': 'Embedded, Electrical & Hardware Engineering',
     'Mechanical Engineering & Manufacturing': 'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering': 'Biomedical Engineering',
@@ -184,6 +185,7 @@ _CANONICAL_TO_EQUIVALENT_DISCIPLINES = {
     'Software, Data, AI & Cybersecurity': [
         'Software, Data, AI & Cybersecurity',
         'Software, Data & AI Engineering',
+        'Software, Data, AI & Cybersecurity Engineering',
     ],
     'Embedded, Electrical & Hardware Engineering': ['Embedded, Electrical & Hardware Engineering'],
     'Mechanical Engineering & Manufacturing': [
@@ -2308,7 +2310,7 @@ def api_geocode():
     if not query:
         return jsonify({"success": False, "results": []}), 400
 
-    results = geocode_location(query)
+    results = search_location_candidates(query)
 
     return jsonify({
         "success": True,

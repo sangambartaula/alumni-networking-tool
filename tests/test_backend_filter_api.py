@@ -112,7 +112,7 @@ def test_filter_api_selects_major_and_returns_it(monkeypatch):
     assert "a.major" in executed["query"]
     assert executed["params"] == [2022]
     assert payload["alumni"][0]["major"] == "Computer Science"
-    assert payload["alumni"][0]["discipline"] == "Software, Data, AI & Cybersecurity Engineering"
+    assert payload["alumni"][0]["discipline"] == "Software, Data, AI & Cybersecurity"
 
 
 def test_filter_api_combines_location_and_unt_alumni_status(monkeypatch):
@@ -224,7 +224,7 @@ def test_filter_api_accepts_major_with_commas(monkeypatch):
     assert resp.status_code == 200
     assert len(payload["alumni"]) == 1
     assert payload["alumni"][0]["major"] == "Computer Science"
-    assert payload["alumni"][0]["discipline"] == "Software, Data, AI & Cybersecurity Engineering"
+    assert payload["alumni"][0]["discipline"] == "Software, Data, AI & Cybersecurity"
     major_params = [p for p in executed["params"] if isinstance(p, str) and "Software, Data, AI & Cybersecurity Engineering" in p]
     # Query applies the legacy `major` query param as a discipline filter.
     assert len(major_params) == 1
