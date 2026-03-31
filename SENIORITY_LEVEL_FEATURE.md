@@ -13,7 +13,8 @@ The system classifies profiles into these buckets (used by the API filter UI):
 | **Intern** | Student/early career during studies | Intern, Co-op, Research Assistant, Teaching Assistant, Trainee |
 | **Mid** | Early-to-mid professional | Software Engineer, Data Analyst, Entry-Level Analyst |
 | **Senior** | Experienced professional | Senior Engineer, Staff Engineer, Distinguished Engineer, Fellow |
-| **Executive** | Management / director / C-suite | Engineering Manager, Director of Engineering, VP, CEO |
+| **Manager** | People/program/project management roles | Engineering Manager, Program Manager, Project Manager, Supervisor, Scrum Master |
+| **Executive** | Director+ and leadership/executive roles | Director of Engineering, Head of Product, VP, CxO, Founder |
 
 ## How It Works
 
@@ -79,14 +80,13 @@ https://linkedin.com/in/username # Seniority mismatch: Senior but only 11 months
 
 ### Mismatch Thresholds
 
-The stored label is merged into `Intern/Mid/Senior/Executive`. For auditing, the system still
-uses the fine-grained internal categories (Manager/Director/Executive) to decide how to flag
-low `relevant_experience_months` (it does not change the final bucket).
+The stored/API label is now `Intern/Mid/Senior/Manager/Executive`.
 
 | Seniority (stored bucket) | Min Experience used for flagging | Notes |
 |----------------------------|-------------------------------------|-------|
 | Senior | 12 months | Flags if less than 12 months |
-| Executive | varies (manager vs director vs executive) | Uses fine-grained expected minimums |
+| Manager | 18 months | Flags if less than 18 months |
+| Executive | 36+ months depending on title tier | Director/executive leadership expectations |
 | Intern/Mid | N/A | Never flagged on experience |
 
 ### Important: Flagging Does NOT Block Processing
@@ -164,11 +164,9 @@ seniority_level VARCHAR(20) DEFAULT NULL
 
 Possible values:
 - `Intern`
-- `Junior`
 - `Mid`
 - `Senior`
 - `Manager`
-- `Director`
 - `Executive`
 - `NULL` (if not yet determined)
 
@@ -221,7 +219,7 @@ Tests verify:
 ### Incorrect Classifications
 
 The system uses keyword matching, so unusual titles might not classify correctly. For example:
-- "Lead Software Engineer" without "Engineer" immediately after "Lead" may not match the Manager pattern
+- "Lead Software Engineer" may classify as Senior (lead/staff style) rather than Manager when no direct management keywords are present
 - Generic titles like "Engineer Specialist" default to Mid
 
 These cases can be manually reviewed in `flagged_for_review.txt`.

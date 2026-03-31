@@ -188,6 +188,7 @@ python scripts/compute_experience_months.py --force
 | Overlapping date ranges | Merged before summing |
 | Same-month start/end | Counted as 1 month |
 | Year-only date (e.g. "2020") | Defaults to January |
+| Missing/insufficient date signals after relevance | Stored as unknown (`NULL`) in recompute workflows |
 
 ### Frontend Experience Filter
 
@@ -195,3 +196,5 @@ The alumni directory sidebar includes a "Relevant Experience" range filter. Ente
 
 - **Backend**: `exp_min` and `exp_max` query params (in months) on `/api/alumni`
 - **Frontend**: `#expMin` / `#expMax` number inputs converted to months (years × 12)
+- **Unknown handling**: unknown (`NULL`) experience is excluded by default from range filters
+- **Optional include**: set `include_unknown_experience=1` (via sidebar checkbox) to include unknown profiles
