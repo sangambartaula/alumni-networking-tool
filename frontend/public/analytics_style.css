@@ -275,7 +275,26 @@
   background: var(--slate-50);
 }
 
+.analytics-export-section {
+  margin-bottom: 0.9rem;
+}
+
+.analytics-export-section-label {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--slate-600);
+}
+
 .analytics-export-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 0.7rem;
+}
+
+.analytics-export-format {
   display: grid;
   grid-template-columns: repeat(2, minmax(120px, 1fr));
   gap: 0.7rem;
@@ -1382,6 +1401,7 @@
   .analytics-filter-panel { width: 100%; right: -100%; }
   .analytics-export-modal-content { width: 94vw; }
   .analytics-export-mode { grid-template-columns: 1fr; }
+  .analytics-export-format { grid-template-columns: 1fr; }
   .analytics-diagram-selection-list { grid-template-columns: 1fr; }
 }
 
