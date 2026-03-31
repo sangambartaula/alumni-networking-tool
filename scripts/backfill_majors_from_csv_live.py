@@ -17,9 +17,8 @@ from pathlib import Path
 DISCIPLINE_DEFAULTS = {
     "Software, Data & AI Engineering",
     "Embedded, Electrical & Hardware Engineering",
-    "Mechanical & Energy Engineering",
+    "Mechanical Engineering & Manufacturing",
     "Biomedical Engineering",
-    "Materials Science & Manufacturing",
     "Construction & Engineering Management",
 }
 

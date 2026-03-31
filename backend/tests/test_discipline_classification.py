@@ -100,23 +100,23 @@ class TestDisciplineClassification:
         assert result == "Embedded, Electrical & Hardware Engineering"
     
     # ==========================================================================
-    # MECHANICAL & ENERGY ENGINEERING TESTS
+    # MECHANICAL ENGINEERING & MANUFACTURING TESTS
     # ==========================================================================
     
     def test_mechanical_engineer(self):
-        """Mechanical engineer should match Mechanical & Energy."""
+        """Mechanical engineer should match Mechanical Engineering & Manufacturing."""
         result = infer_discipline(None, "Mechanical Engineer", None)
-        assert result == "Mechanical & Energy Engineering"
+        assert result == "Mechanical Engineering & Manufacturing"
     
     def test_hvac_specialist(self):
-        """HVAC should match Mechanical & Energy."""
+        """HVAC should match Mechanical Engineering & Manufacturing."""
         result = infer_discipline(None, "HVAC Specialist", None)
-        assert result == "Mechanical & Energy Engineering"
+        assert result == "Mechanical Engineering & Manufacturing"
     
     def test_solidworks_designer(self):
-        """SolidWorks should match Mechanical & Energy."""
+        """SolidWorks should match Mechanical Engineering & Manufacturing."""
         result = infer_discipline(None, "SolidWorks Designer", None)
-        assert result == "Mechanical & Energy Engineering"
+        assert result == "Mechanical Engineering & Manufacturing"
     
     # ==========================================================================
     # BIOMEDICAL ENGINEERING TESTS
@@ -138,23 +138,23 @@ class TestDisciplineClassification:
         assert result == "Biomedical Engineering"
     
     # ==========================================================================
-    # MATERIALS SCIENCE & MANUFACTURING TESTS
+    # MANUFACTURING/MATERIALS MERGED INTO MECHANICAL TESTS
     # ==========================================================================
     
     def test_materials_engineer(self):
-        """Materials engineer should match Materials Science & Manufacturing."""
+        """Materials engineer should map to Mechanical Engineering & Manufacturing."""
         result = infer_discipline(None, "Materials Engineer", None)
-        assert result == "Materials Science & Manufacturing"
+        assert result == "Mechanical Engineering & Manufacturing"
     
     def test_metallurgy_specialist(self):
-        """Metallurgy should match Materials Science & Manufacturing."""
+        """Metallurgy should map to Mechanical Engineering & Manufacturing."""
         result = infer_discipline(None, "Metallurgy Specialist", None)
-        assert result == "Materials Science & Manufacturing"
+        assert result == "Mechanical Engineering & Manufacturing"
     
     def test_quality_engineer_six_sigma(self):
-        """Six sigma should match Materials Science & Manufacturing."""
+        """Six sigma should map to Mechanical Engineering & Manufacturing."""
         result = infer_discipline(None, "Six Sigma Quality Engineer", None)
-        assert result == "Materials Science & Manufacturing"
+        assert result == "Mechanical Engineering & Manufacturing"
     
     # ==========================================================================
     # CONSTRUCTION & ENGINEERING MANAGEMENT TESTS

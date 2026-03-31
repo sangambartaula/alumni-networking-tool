@@ -52,6 +52,9 @@ Current-year class handling:
 
 - Search by name, role, and company.
 - Multi-select filters: Location, Job Title, Company, Seniority, Engineering Discipline, Major, Degree.
+- If both Engineering Discipline and Major are selected, choose matching logic:
+	- `Match Both` (AND): returns profiles matching both filter types.
+	- `Match Either` (OR): returns profiles matching either filter type.
 - Graduation year filter.
 - Working-while-studying and UNT alumni status filters.
 - Relevant experience range (years) filter with an option to include unknown experience profiles.
