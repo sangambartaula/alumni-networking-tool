@@ -1380,6 +1380,14 @@ async function handleAnalyticsPdfExport() {
 }
 
 async function waitForAnalyticsRenderStability() {
+  if (document.fonts && typeof document.fonts.ready?.then === 'function') {
+    try {
+      await document.fonts.ready;
+    } catch (error) {
+      console.warn('Analytics export proceeded before web fonts fully settled.', error);
+    }
+  }
+
   await waitForNextFrame();
   await waitForNextFrame();
 
@@ -1399,14 +1407,14 @@ function waitForNextFrame() {
 }
 
 async function exportFullAnalyticsPagePdf() {
-  const analyticsPage = document.querySelector('.analytics-page');
-  if (!analyticsPage) {
-    throw new Error('Analytics page container not found.');
+  const fullPageExportRoot = document.querySelector('.analytics-page');
+  if (!fullPageExportRoot) {
+    throw new Error('Analytics export container not found.');
   }
 
-  const canvas = await captureAnalyticsElementToCanvas(analyticsPage);
+  const canvas = await captureAnalyticsElementToCanvas(fullPageExportRoot);
   const pdf = createAnalyticsPdf();
-  addTallCanvasAsPaginatedPdf(pdf, canvas, { marginMm: 8 });
+  addTallCanvasAsPaginatedPdf(pdf, canvas, { marginMm: 0 });
   pdf.save(buildAnalyticsPdfFilename('full'));
 }
 
@@ -1424,7 +1432,7 @@ async function exportSelectedDiagramsPdf() {
   for (let i = 0; i < selectedDiagrams.length; i++) {
     if (i > 0) pdf.addPage();
     const canvas = await captureAnalyticsElementToCanvas(selectedDiagrams[i].element);
-    addCanvasFitToCurrentPage(pdf, canvas, { marginMm: 8 });
+    addCanvasFitToCurrentPage(pdf, canvas, { marginMm: 8, verticalAlign: 'top' });
   }
 
   pdf.save(buildAnalyticsPdfFilename('selected'));
@@ -1449,7 +1457,7 @@ function buildAnalyticsPdfFilename(mode) {
 async function captureAnalyticsElementToCanvas(element) {
   const scale = Math.min(2, Math.max(1.25, window.devicePixelRatio || 1));
   return window.html2canvas(element, {
-    backgroundColor: '#ffffff',
+    backgroundColor: null,
     scale,
     useCORS: true,
     logging: false,
@@ -1466,7 +1474,7 @@ function shouldIgnoreElementDuringAnalyticsExport(element) {
   return Boolean(element.id && analyticsExportIgnoredElementIds.has(element.id));
 }
 
-function addCanvasFitToCurrentPage(pdf, canvas, { marginMm = 8 } = {}) {
+function addCanvasFitToCurrentPage(pdf, canvas, { marginMm = 8, verticalAlign = 'center' } = {}) {
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const maxWidth = pageWidth - (marginMm * 2);
@@ -1476,7 +1484,9 @@ function addCanvasFitToCurrentPage(pdf, canvas, { marginMm = 8 } = {}) {
   const renderWidth = canvas.width * scale;
   const renderHeight = canvas.height * scale;
   const x = (pageWidth - renderWidth) / 2;
-  const y = (pageHeight - renderHeight) / 2;
+  const y = verticalAlign === 'top'
+    ? marginMm
+    : (pageHeight - renderHeight) / 2;
 
   pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, renderWidth, renderHeight, undefined, 'FAST');
 }
