@@ -42,17 +42,17 @@ TEST_CASES = [
     ("Principal Engineer", "Executive"),
     
     # Manager level
-    ("Engineering Manager", "Executive"),
-    ("Project Manager", "Executive"),
-    ("Product Manager", "Executive"),  # Product Manager typically implies management
-    ("Manager of Operations", "Executive"),
-    ("Tech Lead", "Executive"),
-    ("Team Lead - Software", "Executive"),
-    ("Engineering Lead", "Executive"),
-    ("Program Manager", "Executive"),
-    ("Scrum Master", "Executive"),
-    ("Supervisor of QA", "Executive"),
-    ("Associate Product Manager", "Executive"),
+    ("Engineering Manager", "Manager"),
+    ("Project Manager", "Manager"),
+    ("Product Manager", "Manager"),
+    ("Manager of Operations", "Manager"),
+    ("Tech Lead", "Senior"),
+    ("Team Lead - Software", "Senior"),
+    ("Engineering Lead", "Senior"),
+    ("Program Manager", "Manager"),
+    ("Scrum Master", "Manager"),
+    ("Supervisor of QA", "Manager"),
+    ("Associate Product Manager", "Manager"),
     
     # Senior level
     ("Senior Software Engineer", "Senior"),
@@ -129,7 +129,7 @@ def test_seniority_detection():
         print(f"FAILURE: {failed} TEST(S) FAILED")
     print("=" * 70)
     
-    return failed == 0
+    assert failed == 0, f"{failed} seniority classification test case(s) failed"
 
 
 def test_mismatch_flagging():
@@ -166,7 +166,11 @@ def test_mismatch_flagging():
 
 
 if __name__ == '__main__':
-    success = test_seniority_detection()
+    success = True
+    try:
+        test_seniority_detection()
+    except AssertionError:
+        success = False
     test_mismatch_flagging()
     
     sys.exit(0 if success else 1)

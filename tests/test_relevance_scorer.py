@@ -91,10 +91,10 @@ def test_extract_score_rounding():
 # =====================================================================
 
 def test_is_job_relevant_threshold():
-    """Threshold boundary: 0.60 = relevant, 0.59 = not relevant."""
-    assert RELEVANCE_THRESHOLD_RELEVANT == 0.6
-    assert is_job_relevant(0.60) is True
-    assert is_job_relevant(0.59) is False
+    """Threshold boundary: 0.45 = relevant, 0.44 = not relevant."""
+    assert RELEVANCE_THRESHOLD_RELEVANT == 0.45
+    assert is_job_relevant(0.45) is True
+    assert is_job_relevant(0.44) is False
     assert is_job_relevant(1.0) is True
     assert is_job_relevant(0.0) is False
     assert is_job_relevant(None) is None
@@ -260,9 +260,9 @@ def test_analyze_three_jobs(mock_score):
     assert result['job_1_relevance_score'] == 0.92
     assert result['job_1_is_relevant'] is True
     
-    # Job 2: analyst → 0.45 → not relevant
+    # Job 2: analyst → 0.45 → relevant
     assert result['job_2_relevance_score'] == 0.45
-    assert result['job_2_is_relevant'] is False
+    assert result['job_2_is_relevant'] is True
     
     # Job 3: intern → 0.85 → relevant
     assert result['job_3_relevance_score'] == 0.85
@@ -329,7 +329,7 @@ def test_get_relevance_json_shape(mock_score):
     # Job 2
     assert result[1]['title'] == 'Data Analyst'
     assert result[1]['score'] == 0.45
-    assert result[1]['is_relevant'] is False
+    assert result[1]['is_relevant'] is True
     
     print("✅ test_get_relevance_json_shape passed")
 

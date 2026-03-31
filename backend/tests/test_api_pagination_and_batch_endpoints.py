@@ -293,7 +293,7 @@ def test_api_alumni_classifies_seniority_buckets_from_title(client, monkeypatch)
     assert items_by_id[2]["seniority_level"] == "Mid"
     assert items_by_id[3]["seniority_level"] == "Senior"
     assert items_by_id[4]["seniority_level"] == "Executive"
-    assert items_by_id[6]["seniority_level"] == "Executive"
+    assert items_by_id[6]["seniority_level"] == "Manager"
     assert items_by_id[5]["seniority_level"] == "Others"
 
 
@@ -326,7 +326,7 @@ def test_api_alumni_rejects_invalid_seniority_filter(client):
     payload = resp.get_json()
 
     assert resp.status_code == 400
-    assert payload["error"] == "Invalid seniority. Use Intern, Mid, Senior, or Executive."
+    assert payload["error"] == "Invalid seniority. Use Intern, Mid, Senior, Manager, or Executive."
 
 
 def test_api_alumni_name_sort_uses_first_name_then_last_name(client, monkeypatch):
