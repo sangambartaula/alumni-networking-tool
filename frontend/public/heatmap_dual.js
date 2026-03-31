@@ -15,6 +15,8 @@ let currentMode = '2d'; // Start with 2D
 let markers2D = [];
 let entities3D = [];
 let heatLayer2D = null; // New 2D heatmap layer
+let activeHeatmapRequestToken = 0;
+let currentDatasetServerFiltered = false;
 
 // Filter state
 let hiddenLocations = new Set();
@@ -936,9 +938,26 @@ function addLayerControls() {
 // Load heatmap data
 // Load heatmap data
 async function loadHeatmapData(url = '/api/heatmap') {
+  const requestToken = ++activeHeatmapRequestToken;
   try {
     const response = await fetch(url);
     const data = await response.json();
+
+    // Ignore out-of-order responses from older requests.
+    if (requestToken !== activeHeatmapRequestToken) {
+      return;
+    }
+
+    const parsedUrl = new URL(url, window.location.origin);
+    const query = parsedUrl.searchParams;
+    currentDatasetServerFiltered = (
+      query.has('unt_alumni_status')
+      || query.has('grad_year_from')
+      || query.has('grad_year_to')
+      || query.has('standardized_major')
+      || query.has('degree')
+      || query.has('seniority')
+    );
 
     if (!data.success) {
       showError('Failed to load heatmap data');
@@ -2198,9 +2217,10 @@ function reloadMapData() {
 
   // If any server-side filters are active, re-fetch from the API so the
   // dataset is correctly filtered at the DB level (grad year, unt status)
-  const needsServerFetch = (filterGradYearFrom != null || filterGradYearTo != null || selectedUntAlumniStatus || selectedHeatmapMajors.size > 0 || selectedHeatmapDegrees.size > 0 || selectedHeatmapSeniorities.size > 0);
-  if (needsServerFetch) {
-    loadHeatmapData(buildHeatmapUrl());
+  const hasServerFiltersActive = (filterGradYearFrom != null || filterGradYearTo != null || selectedUntAlumniStatus || selectedHeatmapMajors.size > 0 || selectedHeatmapDegrees.size > 0 || selectedHeatmapSeniorities.size > 0);
+  if (hasServerFiltersActive || currentDatasetServerFiltered) {
+    const targetUrl = hasServerFiltersActive ? buildHeatmapUrl() : '/api/heatmap';
+    loadHeatmapData(targetUrl);
     return;
   }
 
