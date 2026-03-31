@@ -1,7 +1,7 @@
 // app.js
 // Approved engineering disciplines (must match backend APPROVED_ENGINEERING_DISCIPLINES)
 const APPROVED_ENGINEERING_DISCIPLINES = [
-  'Software, Data & AI Engineering',
+  'Software, Data, AI & Cybersecurity Engineering',
   'Embedded, Electrical & Hardware Engineering',
   'Mechanical Engineering & Manufacturing',
   'Biomedical Engineering',

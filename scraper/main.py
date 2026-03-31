@@ -204,12 +204,12 @@ UNT_DISCIPLINE_SEARCH_BASE_URL = (
 _TEMP_SEARCH_QUERY_KEYS = {"sid", "origin", "position", "trackingId", "searchId"}
 
 DISCIPLINE_ALIAS_LABELS = {
-    "software": "Software, Data & AI Engineering",
+    "software": "Software, Data, AI & Cybersecurity Engineering",
     "embedded": "Embedded, Electrical & Hardware Engineering",
     "mechanical": "Mechanical Engineering & Manufacturing",
     "construction": "Construction & Engineering Management",
     "biomedical": "Biomedical Engineering",
-    "cybersecurity": "Software, Data & AI Engineering",
+    "cybersecurity": "Software, Data, AI & Cybersecurity Engineering",
 }
 
 DISCIPLINE_ALIAS_REDIRECTS = {

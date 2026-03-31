@@ -159,7 +159,7 @@ def is_authorized_user(email):
 # =============================================================================
 # Approved engineering disciplines for the frontend filter
 APPROVED_ENGINEERING_DISCIPLINES = [
-    'Software, Data & AI Engineering',
+    'Software, Data, AI & Cybersecurity Engineering',
     'Embedded, Electrical & Hardware Engineering',
     'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering',
@@ -169,7 +169,8 @@ _APPROVED_DISCIPLINES_SET = set(APPROVED_ENGINEERING_DISCIPLINES)
 
 # Keep legacy labels readable while converging to canonical discipline names.
 _DISCIPLINE_CANONICAL_MAP = {
-    'Software, Data & AI Engineering': 'Software, Data & AI Engineering',
+    'Software, Data, AI & Cybersecurity Engineering': 'Software, Data, AI & Cybersecurity Engineering',
+    'Software, Data & AI Engineering': 'Software, Data, AI & Cybersecurity Engineering',
     'Embedded, Electrical & Hardware Engineering': 'Embedded, Electrical & Hardware Engineering',
     'Mechanical Engineering & Manufacturing': 'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering': 'Biomedical Engineering',
@@ -180,7 +181,10 @@ _DISCIPLINE_CANONICAL_MAP = {
 }
 
 _CANONICAL_TO_EQUIVALENT_DISCIPLINES = {
-    'Software, Data & AI Engineering': ['Software, Data & AI Engineering'],
+    'Software, Data, AI & Cybersecurity Engineering': [
+        'Software, Data, AI & Cybersecurity Engineering',
+        'Software, Data & AI Engineering',
+    ],
     'Embedded, Electrical & Hardware Engineering': ['Embedded, Electrical & Hardware Engineering'],
     'Mechanical Engineering & Manufacturing': [
         'Mechanical Engineering & Manufacturing',
@@ -474,7 +478,7 @@ def _parse_multi_value_param(param_name):
 
     Notes:
       - Some values legitimately contain commas (e.g. "Austin, TX",
-        "Software, Data & AI Engineering"). For these params we preserve
+        "Software, Data, AI & Cybersecurity Engineering"). For these params we preserve
         each raw query value as-is and rely on repeated params for multi-select.
     """
     raw_values = [str(raw or "").strip() for raw in request.args.getlist(param_name)]

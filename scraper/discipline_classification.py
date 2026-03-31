@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # non-engineering is mapped to 'Other' to maintain a clean, professional filter list
 # while ensuring no alumni are excluded from the database entirely.
 APPROVED_ENGINEERING_DISCIPLINES = [
-    'Software, Data & AI Engineering',
+    'Software, Data, AI & Cybersecurity Engineering',
     'Embedded, Electrical & Hardware Engineering',
     'Mechanical Engineering & Manufacturing',
     'Biomedical Engineering',
@@ -25,7 +25,7 @@ UNT_CENG_MAJORS = {
         "B.S. Biomedical Engineering", "M.S. Biomedical Engineering", 
         "Ph.D. Biomedical Engineering", "Biomedical Engineering (Concentration)"
     ],
-    "Software, Data & AI Engineering": [
+    "Software, Data, AI & Cybersecurity Engineering": [
         "B.A. Information Technology", "B.S. Computer Engineering", "B.S. Computer Science", "B.S. Cybersecurity",
         "M.S. Computer Engineering", "M.S. Computer Science", "M.S. Cybersecurity", "M.S. Data Engineering",
         "M.S. Artificial Intelligence",
@@ -67,7 +67,7 @@ NON_ENGINEERING_DEGREE_KEYWORDS = [
 
 DISCIPLINES = [
     # 1. SOFTWARE, DATA & AI ENGINEERING
-    ("Software, Data & AI Engineering", [
+    ("Software, Data, AI & Cybersecurity Engineering", [
         "cs", "computer science", "computing", "software", "software engineer",
         "software developer", "software architect", "backend engineer",
         "frontend engineer", "full stack", "full-stack", "web developer",
@@ -308,9 +308,9 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
     if any(kw in text_lower for kw in ["information", "analytics"]):
         if any(kw in text_lower for kw in ["health", "clinical", "medical", "bio", "pharma", "drug"]):
             return "Biomedical Engineering"
-        return "Software, Data & AI Engineering"
+        return "Software, Data, AI & Cybersecurity Engineering"
     if "systems" in text_lower and any(kw in text_lower for kw in ["computer", "management", "information"]):
-        return "Software, Data & AI Engineering"
+        return "Software, Data, AI & Cybersecurity Engineering"
 
     # 3. Non-engineering kill list (before LLM to avoid false positive guesses)
     for non_eng_kw in NON_ENGINEERING_DEGREE_KEYWORDS:
