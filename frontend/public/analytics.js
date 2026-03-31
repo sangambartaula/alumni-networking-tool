@@ -86,6 +86,7 @@ function parseValidatedIntegerRange(minInputEl, maxInputEl, warningEl) {
 
 const analyticsExportState = {
   mode: 'full',
+  format: 'pdf',
   isExporting: false,
   visibleDiagrams: [],
   selectedDiagramIds: new Set()
@@ -1148,6 +1149,13 @@ function initializeAnalyticsExportUI() {
     });
   });
 
+  document.querySelectorAll('input[name="analyticsExportFormat"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      analyticsExportState.format = input.value === 'png' ? 'png' : 'pdf';
+      updateAnalyticsExportConfirmState();
+    });
+  });
+
   elements.selectionList?.addEventListener('change', (event) => {
     const target = event.target;
     if (!target || target.tagName !== 'INPUT') return;
@@ -1176,7 +1184,7 @@ function initializeAnalyticsExportUI() {
   });
 
   elements.confirmBtn?.addEventListener('click', () => {
-    void handleAnalyticsPdfExport();
+    void handleAnalyticsExport();
   });
 
   updateAnalyticsExportModeUI();
@@ -1196,6 +1204,10 @@ function openAnalyticsExportModal() {
   analyticsExportState.mode = 'full';
   document.querySelectorAll('input[name="analyticsExportMode"]').forEach((input) => {
     input.checked = input.value === 'full';
+  });
+  analyticsExportState.format = 'pdf';
+  document.querySelectorAll('input[name="analyticsExportFormat"]').forEach((input) => {
+    input.checked = input.value === 'pdf';
   });
 
   refreshAnalyticsExportDiagramOptions({ preserveSelection: false });
@@ -1256,8 +1268,11 @@ function updateAnalyticsExportConfirmState({ preserveExistingValidation = false 
     }
   }
 
+  const selectedFormat = analyticsExportState.format === 'png' ? 'PNG' : 'PDF';
   confirmBtn.disabled = disableConfirm;
-  confirmBtn.textContent = analyticsExportState.isExporting ? 'Generating PDF...' : 'Download PDF';
+  confirmBtn.textContent = analyticsExportState.isExporting
+    ? `Generating ${selectedFormat}...`
+    : `Download ${selectedFormat}`;
   if (!preserveExistingValidation) {
     setAnalyticsExportValidation(validationMessage);
   }
@@ -1348,9 +1363,17 @@ function syncAnalyticsBodyScrollLock() {
   document.body.style.overflow = (alumniModalOpen || isAnalyticsExportModalOpen()) ? 'hidden' : '';
 }
 
-async function handleAnalyticsPdfExport() {
+async function handleAnalyticsExport() {
   if (analyticsExportState.isExporting) return;
-  if (typeof window.html2canvas !== 'function' || !window.jspdf || typeof window.jspdf.jsPDF !== 'function') {
+  if (typeof window.html2canvas !== 'function') {
+    setAnalyticsExportValidation('Export dependencies failed to load. Refresh the page and try again.');
+    return;
+  }
+
+  if (
+    analyticsExportState.format === 'pdf'
+    && (!window.jspdf || typeof window.jspdf.jsPDF !== 'function')
+  ) {
     setAnalyticsExportValidation('PDF dependencies failed to load. Refresh the page and try again.');
     return;
   }
@@ -1362,16 +1385,25 @@ async function handleAnalyticsPdfExport() {
   try {
     await waitForAnalyticsRenderStability();
 
-    if (analyticsExportState.mode === 'selected') {
-      await exportSelectedDiagramsPdf();
+    if (analyticsExportState.mode === 'full') {
+      if (analyticsExportState.format === 'png') {
+        await exportFullAnalyticsPagePng();
+      } else {
+        await exportFullAnalyticsPagePdf();
+      }
     } else {
-      await exportFullAnalyticsPagePdf();
+      if (analyticsExportState.format === 'png') {
+        await exportSelectedDiagramsPng();
+      } else {
+        await exportSelectedDiagramsPdf();
+      }
     }
 
     closeAnalyticsExportModal({ force: true });
   } catch (error) {
-    console.error('Analytics PDF export failed:', error);
-    failedExportMessage = 'Unable to generate PDF. Please try again.';
+    const formatLabel = analyticsExportState.format === 'png' ? 'PNG' : 'PDF';
+    console.error(`Analytics ${formatLabel} export failed:`, error);
+    failedExportMessage = `Unable to generate ${formatLabel}. Please try again.`;
     setAnalyticsExportValidation(failedExportMessage);
   } finally {
     analyticsExportState.isExporting = false;
@@ -1406,19 +1438,29 @@ function waitForNextFrame() {
   return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }
 
-async function exportFullAnalyticsPagePdf() {
+function getAnalyticsPageExportRoot() {
   const fullPageExportRoot = document.querySelector('.analytics-page');
   if (!fullPageExportRoot) {
     throw new Error('Analytics export container not found.');
   }
+  return fullPageExportRoot;
+}
 
+async function exportFullAnalyticsPagePdf() {
+  const fullPageExportRoot = getAnalyticsPageExportRoot();
   const canvas = await captureAnalyticsElementToCanvas(fullPageExportRoot);
   const pdf = createAnalyticsPdf();
   addTallCanvasAsPaginatedPdf(pdf, canvas, { marginMm: 0 });
-  pdf.save(buildAnalyticsPdfFilename('full'));
+  pdf.save(buildAnalyticsExportFilename('full', 'pdf'));
 }
 
-async function exportSelectedDiagramsPdf() {
+async function exportFullAnalyticsPagePng() {
+  const fullPageExportRoot = getAnalyticsPageExportRoot();
+  const canvas = await captureAnalyticsElementToCanvas(fullPageExportRoot);
+  await downloadCanvasAsPng(canvas, buildAnalyticsExportFilename('full', 'png'));
+}
+
+function getSelectedAnalyticsDiagramsForExport() {
   const selectedDiagrams = analyticsExportState.visibleDiagrams.filter(diagram =>
     analyticsExportState.selectedDiagramIds.has(diagram.id)
   );
@@ -1427,6 +1469,11 @@ async function exportSelectedDiagramsPdf() {
     throw new Error('No diagrams selected for export.');
   }
 
+  return selectedDiagrams;
+}
+
+async function exportSelectedDiagramsPdf() {
+  const selectedDiagrams = getSelectedAnalyticsDiagramsForExport();
   const pdf = createAnalyticsPdf();
 
   for (let i = 0; i < selectedDiagrams.length; i++) {
@@ -1435,7 +1482,23 @@ async function exportSelectedDiagramsPdf() {
     addCanvasFitToCurrentPage(pdf, canvas, { marginMm: 8, verticalAlign: 'top' });
   }
 
-  pdf.save(buildAnalyticsPdfFilename('selected'));
+  pdf.save(buildAnalyticsExportFilename('selected', 'pdf'));
+}
+
+async function exportSelectedDiagramsPng() {
+  const selectedDiagrams = getSelectedAnalyticsDiagramsForExport();
+  const canvases = [];
+
+  for (const diagram of selectedDiagrams) {
+    canvases.push(await captureAnalyticsElementToCanvas(diagram.element));
+  }
+
+  const composedCanvas = composeSelectedDiagramCanvases(canvases, {
+    marginPx: 36,
+    spacingPx: 26,
+    backgroundColor: '#f8fafc'
+  });
+  await downloadCanvasAsPng(composedCanvas, buildAnalyticsExportFilename('selected', 'png'));
 }
 
 function createAnalyticsPdf() {
@@ -1448,10 +1511,10 @@ function createAnalyticsPdf() {
   });
 }
 
-function buildAnalyticsPdfFilename(mode) {
+function buildAnalyticsExportFilename(mode, format = 'pdf') {
   const datePart = new Date().toISOString().slice(0, 10);
   const suffix = mode === 'selected' ? 'selected-diagrams' : 'full-page';
-  return `analytics-${suffix}-${datePart}.pdf`;
+  return `analytics-${suffix}-${datePart}.${format}`;
 }
 
 async function captureAnalyticsElementToCanvas(element) {
@@ -1472,6 +1535,60 @@ function shouldIgnoreElementDuringAnalyticsExport(element) {
   }
 
   return Boolean(element.id && analyticsExportIgnoredElementIds.has(element.id));
+}
+
+function composeSelectedDiagramCanvases(canvases, { marginPx = 32, spacingPx = 24, backgroundColor = '#f8fafc' } = {}) {
+  if (!Array.isArray(canvases) || canvases.length === 0) {
+    throw new Error('No diagram canvases available for PNG export.');
+  }
+
+  const contentWidthPx = Math.max(...canvases.map(canvas => canvas.width));
+  const totalHeightPx = canvases.reduce((sum, canvas) => sum + canvas.height, 0);
+  const stackedSpacingPx = spacingPx * Math.max(0, canvases.length - 1);
+  const outputWidthPx = Math.max(1, Math.ceil((marginPx * 2) + contentWidthPx));
+  const outputHeightPx = Math.max(1, Math.ceil((marginPx * 2) + totalHeightPx + stackedSpacingPx));
+  const outputCanvas = document.createElement('canvas');
+  outputCanvas.width = outputWidthPx;
+  outputCanvas.height = outputHeightPx;
+
+  const ctx = outputCanvas.getContext('2d');
+  if (!ctx) throw new Error('Unable to create PNG composition context.');
+
+  ctx.fillStyle = backgroundColor;
+  ctx.fillRect(0, 0, outputWidthPx, outputHeightPx);
+
+  let y = marginPx;
+  for (const canvas of canvases) {
+    const x = Math.round((outputWidthPx - canvas.width) / 2);
+    ctx.drawImage(canvas, x, y, canvas.width, canvas.height);
+    y += canvas.height + spacingPx;
+  }
+
+  return outputCanvas;
+}
+
+async function downloadCanvasAsPng(canvas, filename) {
+  const link = document.createElement('a');
+  link.download = filename;
+
+  if (typeof canvas.toBlob === 'function') {
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob((createdBlob) => resolve(createdBlob), 'image/png');
+    });
+    if (!blob) throw new Error('Failed to generate PNG output.');
+    const objectUrl = URL.createObjectURL(blob);
+    link.href = objectUrl;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    return;
+  }
+
+  link.href = canvas.toDataURL('image/png');
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 function addCanvasFitToCurrentPage(pdf, canvas, { marginMm = 8, verticalAlign = 'center' } = {}) {
