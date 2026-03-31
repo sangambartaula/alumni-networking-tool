@@ -289,7 +289,16 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
 
     text_lower = text.lower()
 
-    # Generic degree labels without specialization should not trigger LLM guesses.
+    # AI-first path: when enabled and API key exists, try LLM classification first
+    # for every non-empty input source (degree/job/headline). If LLM is unavailable
+    # or returns Unknown, we fall back to deterministic rules below.
+    if use_llm and os.getenv("GROQ_API_KEY"):
+        llm_result = _infer_discipline_with_llm(text)
+        if llm_result and llm_result != "Unknown":
+            return llm_result
+
+    # Generic degree labels without specialization should not trigger forced
+    # deterministic discipline guesses.
     if current_priority == "degree" and text_lower.strip() in _GENERIC_DEGREE_MARKERS:
         return "Other"
 
@@ -319,13 +328,7 @@ def _classify_text(text: str, current_priority: str, use_llm: bool = True) -> st
                 continue
             return "Other"
 
-    # 4. LLM Inference (only when the text actually contains engineering signals)
-    if use_llm and _has_engineering_signal(text_lower):
-        llm_result = _infer_discipline_with_llm(text)
-        if llm_result and llm_result != "Unknown":
-            return llm_result
-
-    # Search for all approved disciplines
+    # 4. Search for all approved disciplines
     matches = []
     for cat_index, (discipline_name, keywords) in enumerate(DISCIPLINES):
         # Safety Check: Business/Sculpture + Materials Science safeguard
