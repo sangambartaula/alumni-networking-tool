@@ -435,10 +435,11 @@ def test_save_and_track_records_geocode_miss_without_crashing(monkeypatch):
         },
     )
     monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
-    monkeypatch.setattr(scraper_main, "geocode_location", lambda _location: None)
+    monkeypatch.setattr(scraper_main, "geocode_location_with_status", lambda _location: (None, "unknown_location"))
     monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
     monkeypatch.setattr(scraper_main, "_geocode_failures_this_run", 0)
     monkeypatch.setattr(scraper_main, "_geocode_failure_locations", set())
+    monkeypatch.setattr(scraper_main, "_geocode_network_failures_this_run", 0)
 
     ok = scraper_main._save_and_track(
         {"profile_url": "https://www.linkedin.com/in/test-user", "location": "Eastern Region"},
@@ -448,6 +449,7 @@ def test_save_and_track_records_geocode_miss_without_crashing(monkeypatch):
 
     assert ok is True
     assert scraper_main._geocode_failures_this_run == 1
+    assert scraper_main._geocode_network_failures_this_run == 0
     assert "Eastern Region" in scraper_main._geocode_failure_locations
 
 
@@ -472,12 +474,13 @@ def test_save_and_track_records_geocode_exception_without_crashing(monkeypatch):
     monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
     monkeypatch.setattr(
         scraper_main,
-        "geocode_location",
+        "geocode_location_with_status",
         lambda _location: (_ for _ in ()).throw(RuntimeError("geocode unavailable")),
     )
     monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
     monkeypatch.setattr(scraper_main, "_geocode_failures_this_run", 0)
     monkeypatch.setattr(scraper_main, "_geocode_failure_locations", set())
+    monkeypatch.setattr(scraper_main, "_geocode_network_failures_this_run", 0)
 
     ok = scraper_main._save_and_track(
         {"profile_url": "https://www.linkedin.com/in/test-user", "location": "Eastern Region"},
@@ -486,5 +489,6 @@ def test_save_and_track_records_geocode_exception_without_crashing(monkeypatch):
     )
 
     assert ok is True
-    assert scraper_main._geocode_failures_this_run == 1
-    assert "Eastern Region" in scraper_main._geocode_failure_locations
+    assert scraper_main._geocode_failures_this_run == 0
+    assert scraper_main._geocode_network_failures_this_run == 1
+    assert "Eastern Region" not in scraper_main._geocode_failure_locations

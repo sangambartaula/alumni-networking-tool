@@ -35,35 +35,40 @@ _LOCATION_CACHE: Dict[str, Tuple[float, float]] = {}
 # PRIMARY FUNCTION: Used by the background updater
 # Returns exactly one (lat, lon) tuple for database storage
 # ---------------------------------------------------------
-def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
+def geocode_location_with_status(location_string: str) -> Tuple[Optional[Tuple[float, float]], str]:
     """
-    Convert a location string (e.g., 'Denton, Texas, United States') to lat/lon.
-    Checks in-memory cache first to avoid redundant API calls.
+    Convert a location string to lat/lon and return a status string.
+
+    Status values:
+    - ok
+    - empty_location
+    - unknown_location
+    - network_error
+    - parse_error
     """
     if not location_string or location_string.strip() == '' or location_string.strip().lower() == 'not found':
-        return None
-    
+        return None, "empty_location"
+
     location_string = location_string.strip()
 
     # 1. CHECK CACHE
     if location_string in _LOCATION_CACHE:
-        # logger.debug(f"✓ Cache hit for '{location_string}'") 
-        return _LOCATION_CACHE[location_string]
-    
+        return _LOCATION_CACHE[location_string], "ok"
+
     # 2. CHECK FOR DALLAS-FORT WORTH METROPLEX REGEX
     dfw_pattern = r"(?i)(dallas.*(fort|ft).*worth|dfw.*metroplex)"
     if re.search(dfw_pattern, location_string):
         logger.info(f"✓ Matched DFW Regex for '{location_string}' → Using default {DFW_COORDS}")
         _LOCATION_CACHE[location_string] = DFW_COORDS
-        return DFW_COORDS
-    
+        return DFW_COORDS, "ok"
+
     # 2b. CHECK FOR ATLANTA METROPOLITAN AREA
     ATLANTA_COORDS = (33.7544657, -84.3898151)  # Atlanta, Georgia
     atlanta_pattern = r"(?i)(atlanta.*metro|atlanta.*area)"
     if re.search(atlanta_pattern, location_string):
         logger.info(f"✓ Matched Atlanta Regex for '{location_string}' → Using default {ATLANTA_COORDS}")
         _LOCATION_CACHE[location_string] = ATLANTA_COORDS
-        return ATLANTA_COORDS
+        return ATLANTA_COORDS, "ok"
 
     # 3. CALL API (If not in cache)
     try:
@@ -76,7 +81,7 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
             "limit": 1,
             "countrycodes": "us"  # Bias towards US results for alumni
         }
-        
+
         # If location explicitly mentions another country, remove US bias
         non_us_countries = ['india', 'saudi arabia', 'egypt', 'canada', 'uk', 'china', 'germany', 'australia', 'mexico']
         location_lower = location_string.lower()
@@ -84,7 +89,7 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
             if country in location_lower:
                 del params["countrycodes"]
                 break
-        
+
         response = requests.get(
             NOMINATIM_BASE_URL,
             params=params,
@@ -92,29 +97,38 @@ def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
             timeout=10
         )
         response.raise_for_status()
-        
+
         results = response.json()
-        
+
         if results and len(results) > 0:
             result = results[0]
             lat = float(result.get('lat'))
             lon = float(result.get('lon'))
-            
+
             # Store in cache
             _LOCATION_CACHE[location_string] = (lat, lon)
-            
+
             logger.info(f"✓ Geocoded '{location_string}' → ({lat}, {lon})")
-            return (lat, lon)
-        else:
-            logger.warning(f"✗ No geocoding results for '{location_string}'")
-            return None
-            
+            return (lat, lon), "ok"
+
+        logger.warning(f"✗ No geocoding results for '{location_string}'")
+        return None, "unknown_location"
+
     except requests.exceptions.RequestException as e:
         logger.error(f"✗ Geocoding API error for '{location_string}': {e}")
-        return None
+        return None, "network_error"
     except (ValueError, KeyError) as e:
         logger.error(f"✗ Error parsing geocoding response for '{location_string}': {e}")
-        return None
+        return None, "parse_error"
+
+
+def geocode_location(location_string: str) -> Optional[Tuple[float, float]]:
+    """
+    Convert a location string (e.g., 'Denton, Texas, United States') to lat/lon.
+    Checks in-memory cache first to avoid redundant API calls.
+    """
+    coords, _status = geocode_location_with_status(location_string)
+    return coords
 
 
 # ---------------------------------------------------------

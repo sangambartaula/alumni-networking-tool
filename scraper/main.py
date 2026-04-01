@@ -27,7 +27,7 @@ from config import logger
 # Backend
 from backend.sqlite_fallback import get_connection_manager
 from backend.database import increment_scraper_activity, normalize_url, upsert_scraped_profile
-from backend.geocoding import geocode_location
+from backend.geocoding import geocode_location_with_status
 from defense.navigator import SafeNavigator
 
 
@@ -159,6 +159,7 @@ _cloud_upsert_consecutive_failures = 0
 _cloud_upsert_disabled_for_run = False
 _geocode_failures_this_run = 0
 _geocode_failure_locations = set()
+_geocode_network_failures_this_run = 0
 
 
 def _exit_listener():
@@ -533,6 +534,7 @@ def _save_and_track(data, input_url, history_mgr):
 
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
     global _geocode_failures_this_run, _geocode_failure_locations
+    global _geocode_network_failures_this_run
     
     canonical_url = _normalize_profile_url(data.get("profile_url", input_url))
     input_url = _normalize_profile_url(input_url)
@@ -544,16 +546,16 @@ def _save_and_track(data, input_url, history_mgr):
     if data.get("location") and (data.get("latitude") is None or data.get("longitude") is None):
         location_text = str(data.get("location", "")).strip()
         try:
-            coords = geocode_location(location_text)
+            coords, geocode_status = geocode_location_with_status(location_text)
             if coords:
                 data["latitude"], data["longitude"] = coords
-            elif location_text:
+            elif geocode_status == "unknown_location" and location_text:
                 _geocode_failures_this_run += 1
                 _geocode_failure_locations.add(location_text)
+            elif geocode_status in {"network_error", "parse_error"}:
+                _geocode_network_failures_this_run += 1
         except Exception as geocode_err:
-            if location_text:
-                _geocode_failures_this_run += 1
-                _geocode_failure_locations.add(location_text)
+            _geocode_network_failures_this_run += 1
             logger.debug(f"Auto-geocoding skipped for {canonical_url}: {geocode_err}")
 
     original_url = _normalize_profile_url(data.pop("_original_url", None))  # Remove internal key before save
@@ -995,10 +997,12 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
 def main():
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
     global _geocode_failures_this_run, _geocode_failure_locations
+    global _geocode_network_failures_this_run
     _cloud_upsert_consecutive_failures = 0
     _cloud_upsert_disabled_for_run = False
     _geocode_failures_this_run = 0
     _geocode_failure_locations = set()
+    _geocode_network_failures_this_run = 0
 
     history_mgr = database_handler.HistoryManager()
     history_mgr.sync_with_db()
@@ -1042,14 +1046,28 @@ def main():
                 "PRESS UPLOAD TO CLOUD TO UPLOAD WHEN YOU HAVE A SUITABLE CONNECTION."
             )
 
-        if _geocode_failures_this_run > 0:
+        if _geocode_network_failures_this_run > 0:
             logger.warning(
-                "WARNING: SOME LOCATIONS COULD NOT BE GEOLOCATED DURING THIS SCRAPE RUN (%s profiles, %s unique locations).",
-                _geocode_failures_this_run,
-                len(_geocode_failure_locations),
+                "WARNING: GEOCODING SERVICE OR NETWORK WAS UNAVAILABLE FOR PART OF THIS SCRAPE RUN (%s attempts).",
+                _geocode_network_failures_this_run,
             )
             logger.warning(
                 "PRESS BACKFILL GEOCODE (OPTIONAL) WHEN YOU HAVE A SUITABLE CONNECTION TO RETRY THESE LOCATIONS."
+            )
+
+        if _geocode_failures_this_run > 0:
+            logger.warning(
+                "WARNING: SOME LOCATIONS WERE UNKNOWN AND COULD NOT BE GEOLOCATED (%s profiles, %s unique locations).",
+                _geocode_failures_this_run,
+                len(_geocode_failure_locations),
+            )
+            sample_unknown_locations = sorted(_geocode_failure_locations)[:10]
+            if sample_unknown_locations:
+                logger.warning("Unknown Location(s):")
+                for unknown_location in sample_unknown_locations:
+                    logger.warning("  - %s", unknown_location)
+            logger.warning(
+                "REVIEW OR CLEAN LOCATION TEXT (E.G., REGION-ONLY LABELS) AND RUN BACKFILL GEOCODE (OPTIONAL) TO RETRY."
             )
         stop_exit_listener()
         scraper.quit()
