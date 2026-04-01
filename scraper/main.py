@@ -26,7 +26,7 @@ from config import logger
 
 # Backend
 from backend.sqlite_fallback import get_connection_manager
-from backend.database import increment_scraper_activity, normalize_url
+from backend.database import increment_scraper_activity, normalize_url, upsert_scraped_profile
 from defense.navigator import SafeNavigator
 
 
@@ -204,12 +204,12 @@ UNT_DISCIPLINE_SEARCH_BASE_URL = (
 _TEMP_SEARCH_QUERY_KEYS = {"sid", "origin", "position", "trackingId", "searchId"}
 
 DISCIPLINE_ALIAS_LABELS = {
-    "software": "Software, Data, AI & Cybersecurity Engineering",
+    "software": "Software, Data, AI & Cybersecurity",
     "embedded": "Embedded, Electrical & Hardware Engineering",
     "mechanical": "Mechanical Engineering & Manufacturing",
     "construction": "Construction & Engineering Management",
     "biomedical": "Biomedical Engineering",
-    "cybersecurity": "Software, Data, AI & Cybersecurity Engineering",
+    "cybersecurity": "Software, Data, AI & Cybersecurity",
 }
 
 DISCIPLINE_ALIAS_REDIRECTS = {
@@ -540,6 +540,11 @@ def _save_and_track(data, input_url, history_mgr):
         return False
     
     if database_handler.save_profile_to_csv(data):
+        # Cloud-first persistence with SQLite mirror; CSV remains source backup.
+        try:
+            upsert_scraped_profile(data)
+        except Exception as upsert_err:
+            logger.warning(f"Profile DB upsert failed (kept CSV backup): {upsert_err}")
         # Mark canonical URL as visited
         history_mgr.mark_as_visited(canonical_url, saved=True)
         # If we came through a redirect, remove the old URL from persisted data sources.

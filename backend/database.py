@@ -9,7 +9,7 @@ from pathlib import Path
 load_dotenv()
 
 APPROVED_ENGINEERING_DISCIPLINES = {
-    "Software, Data, AI & Cybersecurity Engineering",
+    "Software, Data, AI & Cybersecurity",
     "Embedded, Electrical & Hardware Engineering",
     "Mechanical Engineering & Manufacturing",
     "Biomedical Engineering",
@@ -1476,6 +1476,289 @@ def get_scraper_activity():
                 conn.close()
             except Exception:
                 pass
+
+
+def _build_alumni_upsert_payload(profile_data):
+    """Normalize a scraped profile dict into the alumni upsert payload."""
+    if not isinstance(profile_data, dict):
+        return None
+
+    profile_url = normalize_url(profile_data.get('profile_url'))
+    name = _normalize_person_name(profile_data.get('name'))
+    if not profile_url or not name:
+        return None
+
+    name_parts = name.split()
+    first_name = name_parts[0] if name_parts else ''
+    last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
+
+    grad_year, school_start_date = _normalize_primary_education_dates(
+        profile_data.get('graduation_year'),
+        profile_data.get('school_start_date'),
+    )
+
+    payload = {
+        'first_name': first_name,
+        'last_name': last_name,
+        'grad_year': grad_year,
+        'degree': _clean_optional_text(profile_data.get('degree')),
+        'major': _clean_optional_text(profile_data.get('major')),
+        'discipline': _clean_optional_text(profile_data.get('discipline')),
+        'linkedin_url': profile_url,
+        'current_job_title': _clean_optional_text(profile_data.get('job_title')),
+        'company': _clean_optional_text(profile_data.get('company')),
+        'location': _clean_optional_text(profile_data.get('location')),
+        'headline': _clean_optional_text(profile_data.get('headline')),
+        'school_start_date': school_start_date,
+        'job_start_date': _clean_optional_text(profile_data.get('job_start_date')),
+        'job_end_date': _clean_optional_text(profile_data.get('job_end_date')),
+        'working_while_studying': _parse_bool(profile_data.get('working_while_studying')),
+        'working_while_studying_status': _clean_optional_text(profile_data.get('working_while_studying_status')),
+        'exp2_title': _clean_optional_text(profile_data.get('exp2_title')),
+        'exp2_company': _clean_optional_text(profile_data.get('exp2_company')),
+        'exp2_dates': _clean_optional_text(profile_data.get('exp2_dates')),
+        'exp3_title': _clean_optional_text(profile_data.get('exp3_title')),
+        'exp3_company': _clean_optional_text(profile_data.get('exp3_company')),
+        'exp3_dates': _clean_optional_text(profile_data.get('exp3_dates')),
+        'job_employment_type': _clean_optional_text(profile_data.get('job_employment_type')),
+        'exp2_employment_type': _clean_optional_text(profile_data.get('exp2_employment_type')),
+        'exp3_employment_type': _clean_optional_text(profile_data.get('exp3_employment_type')),
+        'school': _clean_optional_text(profile_data.get('school') or profile_data.get('education')),
+        'school2': _clean_optional_text(profile_data.get('school2')),
+        'school3': _clean_optional_text(profile_data.get('school3')),
+        'degree2': _clean_optional_text(profile_data.get('degree2')),
+        'degree3': _clean_optional_text(profile_data.get('degree3')),
+        'major2': _clean_optional_text(profile_data.get('major2')),
+        'major3': _clean_optional_text(profile_data.get('major3')),
+        'standardized_degree': _clean_optional_text(profile_data.get('standardized_degree')),
+        'standardized_degree2': _clean_optional_text(profile_data.get('standardized_degree2')),
+        'standardized_degree3': _clean_optional_text(profile_data.get('standardized_degree3')),
+        'standardized_major': _clean_optional_text(profile_data.get('standardized_major')),
+        'standardized_major_alt': _clean_optional_text(profile_data.get('standardized_major_alt')),
+        'standardized_major2': _clean_optional_text(profile_data.get('standardized_major2')),
+        'standardized_major3': _clean_optional_text(profile_data.get('standardized_major3')),
+        'scraped_at': _clean_optional_text(profile_data.get('scraped_at')),
+        'normalized_job_title': _clean_optional_text(profile_data.get('normalized_job_title')),
+        'normalized_company': _clean_optional_text(profile_data.get('normalized_company')),
+        'job_1_relevance_score': _parse_float(profile_data.get('job_1_relevance_score')),
+        'job_2_relevance_score': _parse_float(profile_data.get('job_2_relevance_score')),
+        'job_3_relevance_score': _parse_float(profile_data.get('job_3_relevance_score')),
+        'job_1_is_relevant': _parse_bool(profile_data.get('job_1_is_relevant')),
+        'job_2_is_relevant': _parse_bool(profile_data.get('job_2_is_relevant')),
+        'job_3_is_relevant': _parse_bool(profile_data.get('job_3_is_relevant')),
+        'relevant_experience_months': _parse_int(profile_data.get('relevant_experience_months')),
+        'seniority_level': _clean_optional_text(profile_data.get('seniority_level')),
+    }
+
+    major, discipline, _ = _sanitize_major_and_discipline(
+        major=payload.get('major'),
+        standardized_major=payload.get('standardized_major'),
+        discipline=payload.get('discipline'),
+    )
+    payload['major'] = major
+    payload['discipline'] = discipline
+
+    return payload
+
+
+def _upsert_alumni_payload(cur, payload):
+    """Execute alumni upsert for a normalized payload using an active cursor."""
+    norm_title_id = _get_or_create_normalized_entity(
+        cur,
+        'normalized_job_titles',
+        'normalized_title',
+        payload.get('normalized_job_title'),
+    )
+    norm_company_id = _get_or_create_normalized_entity(
+        cur,
+        'normalized_companies',
+        'normalized_company',
+        payload.get('normalized_company'),
+    )
+
+    cur.execute(
+        """
+        INSERT INTO alumni
+        (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, headline,
+         school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status,
+         exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
+         job_employment_type, exp2_employment_type, exp3_employment_type,
+         school, school2, school3, degree2, degree3, major2, major3,
+         standardized_degree, standardized_degree2, standardized_degree3,
+         standardized_major, standardized_major_alt, standardized_major2, standardized_major3,
+         scraped_at, last_updated, normalized_job_title_id, normalized_company_id,
+         job_1_relevance_score, job_2_relevance_score, job_3_relevance_score,
+         job_1_is_relevant, job_2_is_relevant, job_3_is_relevant,
+         relevant_experience_months, seniority_level)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s)
+        ON DUPLICATE KEY UPDATE
+            first_name=VALUES(first_name),
+            last_name=VALUES(last_name),
+            grad_year=VALUES(grad_year),
+            degree=VALUES(degree),
+            major=VALUES(major),
+            discipline=COALESCE(NULLIF(VALUES(discipline), ''), discipline),
+            current_job_title=VALUES(current_job_title),
+            company=VALUES(company),
+            location=VALUES(location),
+            headline=VALUES(headline),
+            school_start_date=VALUES(school_start_date),
+            job_start_date=VALUES(job_start_date),
+            job_end_date=VALUES(job_end_date),
+            working_while_studying=VALUES(working_while_studying),
+            working_while_studying_status=VALUES(working_while_studying_status),
+            exp2_title=VALUES(exp2_title),
+            exp2_company=VALUES(exp2_company),
+            exp2_dates=VALUES(exp2_dates),
+            exp3_title=VALUES(exp3_title),
+            exp3_company=VALUES(exp3_company),
+            exp3_dates=VALUES(exp3_dates),
+            job_employment_type=VALUES(job_employment_type),
+            exp2_employment_type=VALUES(exp2_employment_type),
+            exp3_employment_type=VALUES(exp3_employment_type),
+            school=VALUES(school),
+            school2=VALUES(school2),
+            school3=VALUES(school3),
+            degree2=VALUES(degree2),
+            degree3=VALUES(degree3),
+            major2=VALUES(major2),
+            major3=VALUES(major3),
+            standardized_degree=VALUES(standardized_degree),
+            standardized_degree2=VALUES(standardized_degree2),
+            standardized_degree3=VALUES(standardized_degree3),
+            standardized_major=VALUES(standardized_major),
+            standardized_major_alt=VALUES(standardized_major_alt),
+            standardized_major2=VALUES(standardized_major2),
+            standardized_major3=VALUES(standardized_major3),
+            last_updated=VALUES(last_updated),
+            normalized_job_title_id=VALUES(normalized_job_title_id),
+            normalized_company_id=VALUES(normalized_company_id),
+            job_1_relevance_score=VALUES(job_1_relevance_score),
+            job_2_relevance_score=VALUES(job_2_relevance_score),
+            job_3_relevance_score=VALUES(job_3_relevance_score),
+            job_1_is_relevant=VALUES(job_1_is_relevant),
+            job_2_is_relevant=VALUES(job_2_is_relevant),
+            job_3_is_relevant=VALUES(job_3_is_relevant),
+            relevant_experience_months=VALUES(relevant_experience_months),
+            seniority_level=VALUES(seniority_level)
+        """,
+        (
+            payload.get('first_name'),
+            payload.get('last_name'),
+            payload.get('grad_year'),
+            payload.get('degree'),
+            payload.get('major'),
+            payload.get('discipline'),
+            payload.get('linkedin_url'),
+            payload.get('current_job_title'),
+            payload.get('company'),
+            payload.get('location'),
+            payload.get('headline'),
+            payload.get('school_start_date'),
+            payload.get('job_start_date'),
+            payload.get('job_end_date'),
+            payload.get('working_while_studying'),
+            payload.get('working_while_studying_status'),
+            payload.get('exp2_title'),
+            payload.get('exp2_company'),
+            payload.get('exp2_dates'),
+            payload.get('exp3_title'),
+            payload.get('exp3_company'),
+            payload.get('exp3_dates'),
+            payload.get('job_employment_type'),
+            payload.get('exp2_employment_type'),
+            payload.get('exp3_employment_type'),
+            payload.get('school'),
+            payload.get('school2'),
+            payload.get('school3'),
+            payload.get('degree2'),
+            payload.get('degree3'),
+            payload.get('major2'),
+            payload.get('major3'),
+            payload.get('standardized_degree'),
+            payload.get('standardized_degree2'),
+            payload.get('standardized_degree3'),
+            payload.get('standardized_major'),
+            payload.get('standardized_major_alt'),
+            payload.get('standardized_major2'),
+            payload.get('standardized_major3'),
+            payload.get('scraped_at'),
+            payload.get('scraped_at'),
+            norm_title_id,
+            norm_company_id,
+            payload.get('job_1_relevance_score'),
+            payload.get('job_2_relevance_score'),
+            payload.get('job_3_relevance_score'),
+            payload.get('job_1_is_relevant'),
+            payload.get('job_2_is_relevant'),
+            payload.get('job_3_is_relevant'),
+            payload.get('relevant_experience_months'),
+            payload.get('seniority_level'),
+        ),
+    )
+
+
+def upsert_scraped_profile(profile_data):
+    """
+    Persist one scraped profile immediately.
+
+    Behavior:
+    - Always attempts to write to cloud/local based on current connection routing.
+    - Also mirrors to local SQLite when fallback module is available, so local backup
+      stays current even when cloud is reachable.
+    """
+    payload = _build_alumni_upsert_payload(profile_data)
+    if not payload:
+        return False
+
+    wrote_primary = False
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            _upsert_alumni_payload(cur, payload)
+        conn.commit()
+        wrote_primary = True
+    except Exception as err:
+        logger.warning(f"Primary DB upsert failed for {payload.get('linkedin_url')}: {err}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # Mirror to local SQLite when possible so offline backup is always fresh.
+    wrote_sqlite_mirror = False
+    try:
+        from sqlite_fallback import get_connection_manager, SQLiteConnectionWrapper
+
+        manager = get_connection_manager()
+        sqlite_conn = SQLiteConnectionWrapper(manager.get_sqlite_connection(), manager)
+        try:
+            with sqlite_conn.cursor() as cur:
+                _upsert_alumni_payload(cur, payload)
+            sqlite_conn.commit()
+            wrote_sqlite_mirror = True
+        finally:
+            try:
+                sqlite_conn.close()
+            except Exception:
+                pass
+    except Exception as err:
+        logger.debug(f"SQLite mirror upsert skipped for {payload.get('linkedin_url')}: {err}")
+
+    return wrote_primary or wrote_sqlite_mirror
 
 
 # ============================================================
