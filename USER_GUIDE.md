@@ -124,6 +124,7 @@ The backend supports both boolean and status-string representations and normaliz
 	- If cloud upload fails for 5 consecutive profiles in one run, cloud attempts are disabled for that run.
 	- End-of-run warning is logged and local backup continues.
 - Automatic geocoding runs during scraping for each profile location when resolvable.
+- If some profile locations cannot be geocoded during a run, scraping continues (no crash) and an end-of-run warning is shown with a reminder to run optional geocode backfill later.
 - `Backfill Geocode (Optional)` button remains useful for older records and repair runs.
 - Built app path resolution improvements for running from `dist` bundles on macOS/Windows.
 - Stop action uses terminate then forced kill fallback so scraper subprocesses do not hang.

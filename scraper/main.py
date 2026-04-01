@@ -157,6 +157,8 @@ global_profiles_tracked_for_gui = 0
 _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES = 5
 _cloud_upsert_consecutive_failures = 0
 _cloud_upsert_disabled_for_run = False
+_geocode_failures_this_run = 0
+_geocode_failure_locations = set()
 
 
 def _exit_listener():
@@ -530,6 +532,7 @@ def _save_and_track(data, input_url, history_mgr):
         return False
 
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
+    global _geocode_failures_this_run, _geocode_failure_locations
     
     canonical_url = _normalize_profile_url(data.get("profile_url", input_url))
     input_url = _normalize_profile_url(input_url)
@@ -539,11 +542,18 @@ def _save_and_track(data, input_url, history_mgr):
         data["profile_url"] = canonical_url
 
     if data.get("location") and (data.get("latitude") is None or data.get("longitude") is None):
+        location_text = str(data.get("location", "")).strip()
         try:
-            coords = geocode_location(data.get("location", ""))
+            coords = geocode_location(location_text)
             if coords:
                 data["latitude"], data["longitude"] = coords
+            elif location_text:
+                _geocode_failures_this_run += 1
+                _geocode_failure_locations.add(location_text)
         except Exception as geocode_err:
+            if location_text:
+                _geocode_failures_this_run += 1
+                _geocode_failure_locations.add(location_text)
             logger.debug(f"Auto-geocoding skipped for {canonical_url}: {geocode_err}")
 
     original_url = _normalize_profile_url(data.pop("_original_url", None))  # Remove internal key before save
@@ -984,8 +994,11 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
 # ============================================================
 def main():
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
+    global _geocode_failures_this_run, _geocode_failure_locations
     _cloud_upsert_consecutive_failures = 0
     _cloud_upsert_disabled_for_run = False
+    _geocode_failures_this_run = 0
+    _geocode_failure_locations = set()
 
     history_mgr = database_handler.HistoryManager()
     history_mgr.sync_with_db()
@@ -1027,6 +1040,16 @@ def main():
             )
             logger.warning(
                 "PRESS UPLOAD TO CLOUD TO UPLOAD WHEN YOU HAVE A SUITABLE CONNECTION."
+            )
+
+        if _geocode_failures_this_run > 0:
+            logger.warning(
+                "WARNING: SOME LOCATIONS COULD NOT BE GEOLOCATED DURING THIS SCRAPE RUN (%s profiles, %s unique locations).",
+                _geocode_failures_this_run,
+                len(_geocode_failure_locations),
+            )
+            logger.warning(
+                "PRESS BACKFILL GEOCODE (OPTIONAL) WHEN YOU HAVE A SUITABLE CONNECTION TO RETRY THESE LOCATIONS."
             )
         stop_exit_listener()
         scraper.quit()

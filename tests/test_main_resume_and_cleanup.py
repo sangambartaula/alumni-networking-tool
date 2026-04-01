@@ -414,3 +414,77 @@ def test_save_and_track_uses_sqlite_only_after_cloud_disabled(monkeypatch):
 
     assert ok is True
     assert cloud_flags == [False]
+
+
+def test_save_and_track_records_geocode_miss_without_crashing(monkeypatch):
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True: {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": True,
+            "sqlite_written": True,
+        },
+    )
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main, "geocode_location", lambda _location: None)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "_geocode_failures_this_run", 0)
+    monkeypatch.setattr(scraper_main, "_geocode_failure_locations", set())
+
+    ok = scraper_main._save_and_track(
+        {"profile_url": "https://www.linkedin.com/in/test-user", "location": "Eastern Region"},
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert scraper_main._geocode_failures_this_run == 1
+    assert "Eastern Region" in scraper_main._geocode_failure_locations
+
+
+def test_save_and_track_records_geocode_exception_without_crashing(monkeypatch):
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True: {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": True,
+            "sqlite_written": True,
+        },
+    )
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(
+        scraper_main,
+        "geocode_location",
+        lambda _location: (_ for _ in ()).throw(RuntimeError("geocode unavailable")),
+    )
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "_geocode_failures_this_run", 0)
+    monkeypatch.setattr(scraper_main, "_geocode_failure_locations", set())
+
+    ok = scraper_main._save_and_track(
+        {"profile_url": "https://www.linkedin.com/in/test-user", "location": "Eastern Region"},
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert scraper_main._geocode_failures_this_run == 1
+    assert "Eastern Region" in scraper_main._geocode_failure_locations
