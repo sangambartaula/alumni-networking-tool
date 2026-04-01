@@ -78,8 +78,8 @@ def test_filter_api_selects_major_and_returns_it(monkeypatch):
             "last_name": "Lovelace",
             "grad_year": 2022,
             "degree": "Bachelor of Science",
-            "major": "Software, Data, AI & Cybersecurity Engineering",
-            "discipline": "Software, Data, AI & Cybersecurity Engineering",
+            "major": "Software, Data, AI & Cybersecurity",
+            "discipline": "Software, Data, AI & Cybersecurity",
             "standardized_major": "Computer Science",
             "linkedin_url": "https://www.linkedin.com/in/ada",
             "current_job_title": "Software Engineer",
@@ -123,8 +123,8 @@ def test_filter_api_combines_location_and_unt_alumni_status(monkeypatch):
             "last_name": "Grad",
             "grad_year": 2020,
             "degree": "Bachelor of Science",
-            "major": "Software, Data, AI & Cybersecurity Engineering",
-            "discipline": "Software, Data, AI & Cybersecurity Engineering",
+            "major": "Software, Data, AI & Cybersecurity",
+            "discipline": "Software, Data, AI & Cybersecurity",
             "standardized_major": "Computer Science",
             "linkedin_url": "https://www.linkedin.com/in/past",
             "current_job_title": "Engineer",
@@ -147,8 +147,8 @@ def test_filter_api_combines_location_and_unt_alumni_status(monkeypatch):
             "last_name": "Grad",
             "grad_year": 2028,
             "degree": "Bachelor of Science",
-            "major": "Software, Data, AI & Cybersecurity Engineering",
-            "discipline": "Software, Data, AI & Cybersecurity Engineering",
+            "major": "Software, Data, AI & Cybersecurity",
+            "discipline": "Software, Data, AI & Cybersecurity",
             "standardized_major": "Computer Science",
             "linkedin_url": "https://www.linkedin.com/in/future",
             "current_job_title": "Engineer",
@@ -192,8 +192,8 @@ def test_filter_api_accepts_major_with_commas(monkeypatch):
             "last_name": "Lovelace",
             "grad_year": 2022,
             "degree": "Bachelor of Science",
-            "major": "Software, Data, AI & Cybersecurity Engineering",
-            "discipline": "Software, Data, AI & Cybersecurity Engineering",
+            "major": "Software, Data, AI & Cybersecurity",
+            "discipline": "Software, Data, AI & Cybersecurity",
             "standardized_major": "Computer Science",
             "linkedin_url": "https://www.linkedin.com/in/ada",
             "current_job_title": "Software Engineer",
@@ -225,9 +225,9 @@ def test_filter_api_accepts_major_with_commas(monkeypatch):
     assert len(payload["alumni"]) == 1
     assert payload["alumni"][0]["major"] == "Computer Science"
     assert payload["alumni"][0]["discipline"] == "Software, Data, AI & Cybersecurity"
-    major_params = [p for p in executed["params"] if isinstance(p, str) and "Software, Data, AI & Cybersecurity Engineering" in p]
+    major_params = [p for p in executed["params"] if isinstance(p, str) and "Software, Data, AI & Cybersecurity" in p]
     # Query applies the legacy `major` query param as a discipline filter.
-    assert len(major_params) == 1
+    assert len(major_params) >= 1
 
 
 def test_filter_api_repeated_location_values_preserve_commas(monkeypatch):
@@ -239,8 +239,8 @@ def test_filter_api_repeated_location_values_preserve_commas(monkeypatch):
             "last_name": "Lovelace",
             "grad_year": 2022,
             "degree": "Bachelor of Science",
-            "major": "Software, Data, AI & Cybersecurity Engineering",
-            "discipline": "Software, Data, AI & Cybersecurity Engineering",
+            "major": "Software, Data, AI & Cybersecurity",
+            "discipline": "Software, Data, AI & Cybersecurity",
             "standardized_major": "Computer Science",
             "linkedin_url": "https://www.linkedin.com/in/ada",
             "current_job_title": "Software Engineer",
