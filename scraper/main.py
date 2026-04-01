@@ -27,6 +27,7 @@ from config import logger
 # Backend
 from backend.sqlite_fallback import get_connection_manager
 from backend.database import increment_scraper_activity, normalize_url, upsert_scraped_profile
+from backend.geocoding import geocode_location
 from defense.navigator import SafeNavigator
 
 
@@ -151,6 +152,11 @@ GUI_MAX_PROFILES = int(os.getenv("GUI_MAX_PROFILES", "0"))
 GUI_MAX_RUNTIME_MINUTES = int(os.getenv("GUI_MAX_RUNTIME_MINUTES", "0"))
 SCRIPT_START_TIME = datetime.now()
 global_profiles_tracked_for_gui = 0
+
+# Cloud write guards for this scraping run.
+_CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES = 5
+_cloud_upsert_consecutive_failures = 0
+_cloud_upsert_disabled_for_run = False
 
 
 def _exit_listener():
@@ -522,6 +528,8 @@ def _save_and_track(data, input_url, history_mgr):
     """
     if not data or data == "PAGE_NOT_FOUND":
         return False
+
+    global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
     
     canonical_url = _normalize_profile_url(data.get("profile_url", input_url))
     input_url = _normalize_profile_url(input_url)
@@ -529,6 +537,14 @@ def _save_and_track(data, input_url, history_mgr):
         canonical_url = input_url
     if canonical_url:
         data["profile_url"] = canonical_url
+
+    if data.get("location") and (data.get("latitude") is None or data.get("longitude") is None):
+        try:
+            coords = geocode_location(data.get("location", ""))
+            if coords:
+                data["latitude"], data["longitude"] = coords
+        except Exception as geocode_err:
+            logger.debug(f"Auto-geocoding skipped for {canonical_url}: {geocode_err}")
 
     original_url = _normalize_profile_url(data.pop("_original_url", None))  # Remove internal key before save
     
@@ -542,8 +558,34 @@ def _save_and_track(data, input_url, history_mgr):
     if database_handler.save_profile_to_csv(data):
         # Cloud-first persistence with SQLite mirror; CSV remains source backup.
         try:
-            upsert_scraped_profile(data)
+            upsert_status = upsert_scraped_profile(
+                data,
+                allow_cloud=(not _cloud_upsert_disabled_for_run),
+            )
+
+            status = upsert_status if isinstance(upsert_status, dict) else {}
+            cloud_attempted = bool(status.get("cloud_attempted"))
+            cloud_written = bool(status.get("cloud_written"))
+            if cloud_attempted:
+                if cloud_written:
+                    _cloud_upsert_consecutive_failures = 0
+                else:
+                    _cloud_upsert_consecutive_failures += 1
+                    logger.warning(
+                        "Cloud upsert failed for profile (%s/%s consecutive failures).",
+                        _cloud_upsert_consecutive_failures,
+                        _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES,
+                    )
+                    if _cloud_upsert_consecutive_failures >= _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES:
+                        _cloud_upsert_disabled_for_run = True
+                        logger.warning(
+                            "Cloud upsert disabled for this scraping run after %s consecutive failures.",
+                            _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES,
+                        )
         except Exception as upsert_err:
+            _cloud_upsert_consecutive_failures += 1
+            if _cloud_upsert_consecutive_failures >= _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES:
+                _cloud_upsert_disabled_for_run = True
             logger.warning(f"Profile DB upsert failed (kept CSV backup): {upsert_err}")
         # Mark canonical URL as visited
         history_mgr.mark_as_visited(canonical_url, saved=True)
@@ -941,6 +983,10 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
 # MAIN
 # ============================================================
 def main():
+    global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
+    _cloud_upsert_consecutive_failures = 0
+    _cloud_upsert_disabled_for_run = False
+
     history_mgr = database_handler.HistoryManager()
     history_mgr.sync_with_db()
 
@@ -975,6 +1021,13 @@ def main():
     except KeyboardInterrupt:
         logger.warning("Stopped by user")
     finally:
+        if _cloud_upsert_disabled_for_run:
+            logger.warning(
+                "WARNING: CLOUD DATABASE WAS UNREACHABLE. SCRAPED INFORMATION WAS STORED IN LOCAL SQLITE DATABASE AND CSV FILE."
+            )
+            logger.warning(
+                "PRESS UPLOAD TO CLOUD TO UPLOAD WHEN YOU HAVE A SUITABLE CONNECTION."
+            )
         stop_exit_listener()
         scraper.quit()
 

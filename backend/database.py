@@ -1508,6 +1508,8 @@ def _build_alumni_upsert_payload(profile_data):
         'current_job_title': _clean_optional_text(profile_data.get('job_title')),
         'company': _clean_optional_text(profile_data.get('company')),
         'location': _clean_optional_text(profile_data.get('location')),
+        'latitude': _parse_float(profile_data.get('latitude')),
+        'longitude': _parse_float(profile_data.get('longitude')),
         'headline': _clean_optional_text(profile_data.get('headline')),
         'school_start_date': school_start_date,
         'job_start_date': _clean_optional_text(profile_data.get('job_start_date')),
@@ -1579,7 +1581,7 @@ def _upsert_alumni_payload(cur, payload):
     cur.execute(
         """
         INSERT INTO alumni
-        (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, headline,
+        (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, latitude, longitude, headline,
          school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status,
          exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
          job_employment_type, exp2_employment_type, exp3_employment_type,
@@ -1590,7 +1592,7 @@ def _upsert_alumni_payload(cur, payload):
          job_1_relevance_score, job_2_relevance_score, job_3_relevance_score,
          job_1_is_relevant, job_2_is_relevant, job_3_is_relevant,
          relevant_experience_months, seniority_level)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s,
                 %s, %s, %s,
@@ -1611,6 +1613,8 @@ def _upsert_alumni_payload(cur, payload):
             current_job_title=VALUES(current_job_title),
             company=VALUES(company),
             location=VALUES(location),
+            latitude=COALESCE(VALUES(latitude), latitude),
+            longitude=COALESCE(VALUES(longitude), longitude),
             headline=VALUES(headline),
             school_start_date=VALUES(school_start_date),
             job_start_date=VALUES(job_start_date),
@@ -1663,6 +1667,8 @@ def _upsert_alumni_payload(cur, payload):
             payload.get('current_job_title'),
             payload.get('company'),
             payload.get('location'),
+            payload.get('latitude'),
+            payload.get('longitude'),
             payload.get('headline'),
             payload.get('school_start_date'),
             payload.get('job_start_date'),
@@ -1708,12 +1714,12 @@ def _upsert_alumni_payload(cur, payload):
     )
 
 
-def upsert_scraped_profile(profile_data):
+def upsert_scraped_profile(profile_data, allow_cloud=True):
     """
     Persist one scraped profile immediately.
 
-    Behavior:
-    - Always attempts to write to cloud/local based on current connection routing.
+        Behavior:
+        - Attempts cloud write when allowed and DISABLE_DB != 1.
     - Also mirrors to local SQLite when fallback module is available, so local backup
       stays current even when cloud is reachable.
     """
@@ -1721,22 +1727,38 @@ def upsert_scraped_profile(profile_data):
     if not payload:
         return False
 
+    status = {
+        "cloud_attempted": False,
+        "cloud_written": False,
+        "sqlite_written": False,
+    }
+
+    disable_db = os.getenv("DISABLE_DB", "0") == "1"
+    should_attempt_cloud = allow_cloud and not disable_db
+
     wrote_primary = False
     conn = None
-    try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            _upsert_alumni_payload(cur, payload)
-        conn.commit()
-        wrote_primary = True
-    except Exception as err:
-        logger.warning(f"Primary DB upsert failed for {payload.get('linkedin_url')}: {err}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+    if should_attempt_cloud:
+        status["cloud_attempted"] = True
+        try:
+            conn = get_connection()
+            is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
+            with conn.cursor() as cur:
+                _upsert_alumni_payload(cur, payload)
+            conn.commit()
+            wrote_primary = True
+            if is_sqlite_routed:
+                status["sqlite_written"] = True
+            else:
+                status["cloud_written"] = True
+        except Exception as err:
+            logger.warning(f"Primary DB upsert failed for {payload.get('linkedin_url')}: {err}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     # Mirror to local SQLite when possible so offline backup is always fresh.
     wrote_sqlite_mirror = False
@@ -1750,6 +1772,7 @@ def upsert_scraped_profile(profile_data):
                 _upsert_alumni_payload(cur, payload)
             sqlite_conn.commit()
             wrote_sqlite_mirror = True
+            status["sqlite_written"] = True
         finally:
             try:
                 sqlite_conn.close()
@@ -1758,7 +1781,9 @@ def upsert_scraped_profile(profile_data):
     except Exception as err:
         logger.debug(f"SQLite mirror upsert skipped for {payload.get('linkedin_url')}: {err}")
 
-    return wrote_primary or wrote_sqlite_mirror
+    if wrote_primary or wrote_sqlite_mirror:
+        return status
+    return status
 
 
 # ============================================================

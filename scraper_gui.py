@@ -545,9 +545,10 @@ class ScraperApp(QMainWindow):
         
         sync_btn_layout = QHBoxLayout()
 
-        self.geocode_btn = QPushButton("Geocode Locations")
+        self.geocode_btn = QPushButton("Backfill Geocode (Optional)")
         self.geocode_btn.setMinimumHeight(40)
         self.geocode_btn.setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold;")
+        self.geocode_btn.setToolTip("Optional: re-geocode existing records in the database.")
         self.geocode_btn.clicked.connect(self.run_geocode)
 
         self.upload_db_btn = QPushButton("Upload to Database")
@@ -787,7 +788,7 @@ class ScraperApp(QMainWindow):
             choice = QMessageBox.question(
                 self,
                 "Geocode Before Upload?",
-                "Do you want to geocode locations before uploading to the database?",
+                "Scraping now auto-geocodes each profile. Run optional geocode backfill before upload?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Yes,
             )

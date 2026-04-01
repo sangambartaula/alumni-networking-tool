@@ -116,7 +116,15 @@ The backend supports both boolean and status-string representations and normaliz
 - Delay presets and custom anti-ban timing controls.
 - Delay validation blocks invalid values (non-integer, negative, or max < min).
 - Auto-save of key GUI settings to `.env` on close.
-- Check DB upload/geocode action from the GUI.
+- Per-profile persistence is now immediate during scraping:
+	- Always saved locally to CSV.
+	- Also written to local SQLite backup.
+	- Cloud DB is attempted per profile when reachable (`DISABLE_DB=0`).
+- Cloud fallback guard:
+	- If cloud upload fails for 5 consecutive profiles in one run, cloud attempts are disabled for that run.
+	- End-of-run warning is logged and local backup continues.
+- Automatic geocoding runs during scraping for each profile location when resolvable.
+- `Backfill Geocode (Optional)` button remains useful for older records and repair runs.
 - Built app path resolution improvements for running from `dist` bundles on macOS/Windows.
 - Stop action uses terminate then forced kill fallback so scraper subprocesses do not hang.
 

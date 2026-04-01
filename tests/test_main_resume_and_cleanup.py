@@ -258,7 +258,15 @@ def test_save_and_track_increments_scraper_activity_with_config_email(monkeypatc
             return None
 
     monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
-    monkeypatch.setattr(scraper_main, "upsert_scraped_profile", lambda data: upsert_calls.append(data.get("profile_url")) or True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda data, allow_cloud=True: upsert_calls.append((data.get("profile_url"), allow_cloud)) or {
+            "cloud_attempted": True,
+            "cloud_written": True,
+            "sqlite_written": True,
+        },
+    )
     monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda email: calls.append(email))
     monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
 
@@ -269,7 +277,7 @@ def test_save_and_track_increments_scraper_activity_with_config_email(monkeypatc
     )
 
     assert ok is True
-    assert upsert_calls == ["https://www.linkedin.com/in/test-user"]
+    assert upsert_calls == [("https://www.linkedin.com/in/test-user", True)]
     assert calls == ["scraper@unt.edu"]
 
 
@@ -285,7 +293,15 @@ def test_save_and_track_passes_blank_email_through_to_increment(monkeypatch):
             return None
 
     monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
-    monkeypatch.setattr(scraper_main, "upsert_scraped_profile", lambda data: upsert_calls.append(data.get("profile_url")) or True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda data, allow_cloud=True: upsert_calls.append((data.get("profile_url"), allow_cloud)) or {
+            "cloud_attempted": True,
+            "cloud_written": True,
+            "sqlite_written": True,
+        },
+    )
     monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda email: calls.append(email))
     monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "")
 
@@ -296,7 +312,7 @@ def test_save_and_track_passes_blank_email_through_to_increment(monkeypatch):
     )
 
     assert ok is True
-    assert upsert_calls == ["https://www.linkedin.com/in/test-user"]
+    assert upsert_calls == [("https://www.linkedin.com/in/test-user", True)]
     assert calls == [""]
 
 
@@ -311,7 +327,11 @@ def test_save_and_track_continues_when_upsert_fails(monkeypatch):
             return None
 
     monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
-    monkeypatch.setattr(scraper_main, "upsert_scraped_profile", lambda _data: (_ for _ in ()).throw(RuntimeError("db down")))
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True: (_ for _ in ()).throw(RuntimeError("db down")),
+    )
     monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda email: calls.append(email))
     monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
 
@@ -324,3 +344,73 @@ def test_save_and_track_continues_when_upsert_fails(monkeypatch):
     # Save remains successful because CSV is authoritative backup path.
     assert ok is True
     assert calls == ["scraper@unt.edu"]
+
+
+def test_save_and_track_disables_cloud_after_five_consecutive_failures(monkeypatch):
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True: {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": False,
+            "sqlite_written": True,
+        },
+    )
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "_cloud_upsert_consecutive_failures", 0)
+    monkeypatch.setattr(scraper_main, "_cloud_upsert_disabled_for_run", False)
+
+    for _ in range(5):
+        ok = scraper_main._save_and_track(
+            {"profile_url": "https://www.linkedin.com/in/test-user"},
+            "https://www.linkedin.com/in/test-user",
+            _History(),
+        )
+        assert ok is True
+
+    assert scraper_main._cloud_upsert_disabled_for_run is True
+
+
+def test_save_and_track_uses_sqlite_only_after_cloud_disabled(monkeypatch):
+    cloud_flags = []
+
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+
+    def _fake_upsert(_data, allow_cloud=True):
+        cloud_flags.append(allow_cloud)
+        return {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": False,
+            "sqlite_written": True,
+        }
+
+    monkeypatch.setattr(scraper_main, "upsert_scraped_profile", _fake_upsert)
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "_cloud_upsert_consecutive_failures", 5)
+    monkeypatch.setattr(scraper_main, "_cloud_upsert_disabled_for_run", True)
+
+    ok = scraper_main._save_and_track(
+        {"profile_url": "https://www.linkedin.com/in/test-user"},
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert cloud_flags == [False]
