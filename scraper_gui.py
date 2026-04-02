@@ -814,6 +814,9 @@ class ScraperApp(QMainWindow):
         self.db_worker = None
         self.geocode_worker = None
         self._pending_upload_after_geocode = False
+        self._manual_intervention_needed = False
+        self._manual_intervention_reason = ""
+        self._suggest_restart_headed = False
         self._run_started_at = None
         self._run_metrics = {}
         self.init_ui()
@@ -1171,6 +1174,19 @@ class ScraperApp(QMainWindow):
                 key, value = payload.split("=", 1)
                 self._run_metrics[key.strip()] = value.strip()
 
+        if stripped.startswith("ACTION|"):
+            payload = stripped.split("ACTION|", 1)[1]
+            if "=" in payload:
+                key, value = payload.split("=", 1)
+                key = key.strip().lower()
+                value = value.strip()
+                if key == "manual_intervention_needed" and value == "1":
+                    self._manual_intervention_needed = True
+                elif key == "reason":
+                    self._manual_intervention_reason = value
+                elif key == "suggest_restart_headed" and value == "1":
+                    self._suggest_restart_headed = True
+
         line_lower = (text or "").lower()
         color = "#D4D4D4"
         if "error" in line_lower or "failed" in line_lower or "critical" in line_lower:
@@ -1339,6 +1355,9 @@ class ScraperApp(QMainWindow):
         self.save_all_settings_to_env()
         
         self.console.clear()
+        self._manual_intervention_needed = False
+        self._manual_intervention_reason = ""
+        self._suggest_restart_headed = False
         self._run_started_at = datetime.now()
         self._reset_run_metrics()
         self._run_metrics["user"] = self.email_input.text().strip().lower()
@@ -1430,6 +1449,25 @@ class ScraperApp(QMainWindow):
         self.stop_btn.setEnabled(False)
         self._append_gui_summary_block()
         self.refresh_preflight_status()
+
+        if self._manual_intervention_needed:
+            reason = self._manual_intervention_reason or "login_or_challenge"
+            message = (
+                "LinkedIn requires manual intervention before scraping can continue.\n\n"
+                f"Reason: {reason}\n\n"
+                "You can restart now with headless disabled to complete verification in a visible browser window."
+            )
+            choice = QMessageBox.question(
+                self,
+                "Manual Intervention Needed",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if choice == QMessageBox.StandardButton.Yes:
+                update_env("HEADLESS", "false")
+                self.append_console("\nMANUAL ACTION: Restarting scraper with HEADLESS=false for verification flow.\n")
+                self.start_scraper()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -1166,7 +1166,13 @@ def main():
 
     try:
         if not scraper.login():
-            logger.error("Login failed")
+            diagnosis = scraper.diagnose_login_state()
+            logger.error("LOGIN FAILURE")
+            logger.error("MANUAL INTERVENTION NEEDED: %s", diagnosis.get("message", "Unknown login issue."))
+            logger.error("If challenge persists, restart with HEADLESS=false and complete verification manually.")
+            logger.error("ACTION|manual_intervention_needed=1")
+            logger.error("ACTION|reason=%s", diagnosis.get("code", "unknown_login_failure"))
+            logger.error("ACTION|suggest_restart_headed=1")
             run_status = "login_failed"
             return
 
@@ -1261,6 +1267,9 @@ def main():
             logger.warning(
                 "PRESS BACKFILL GEOCODE (OPTIONAL) WHEN YOU HAVE A SUITABLE CONNECTION TO RETRY THESE LOCATIONS."
             )
+            logger.warning(
+                "ACTION: RETRY GEO-CODING LATER USING BACKFILL GEOCODE AFTER NETWORK/SERVICE RECOVERS."
+            )
 
         if _geocode_failures_this_run > 0:
             logger.warning(
@@ -1276,6 +1285,7 @@ def main():
             logger.warning(
                 "REVIEW OR CLEAN LOCATION TEXT (E.G., REGION-ONLY LABELS) AND RUN BACKFILL GEOCODE (OPTIONAL) TO RETRY."
             )
+            logger.warning("UNKNOWN_LOCATIONS_LIST: %s", "; ".join(sample_unknown_locations))
         stop_exit_listener()
         scraper.quit()
 

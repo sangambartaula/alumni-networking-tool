@@ -300,6 +300,57 @@ class LinkedInScraper:
             logger.error(f"Login failed: {e}")
             return False
 
+    def diagnose_login_state(self):
+        """
+        Diagnose current browser state after a failed login attempt.
+        Returns a dict with fields: code, message, manual_intervention_required.
+        """
+        try:
+            current_url = (self.driver.current_url or "").lower()
+            title = (self.driver.title or "").lower()
+            page_source = (self.driver.page_source or "").lower()
+        except Exception:
+            return {
+                "code": "unknown_login_failure",
+                "message": "Login failed and browser state could not be inspected.",
+                "manual_intervention_required": True,
+            }
+
+        challenge_markers = [
+            "checkpoint",
+            "challenge",
+            "verify your identity",
+            "security verification",
+            "two-step verification",
+            "authwall",
+            "captcha",
+            "are you human",
+        ]
+
+        if any(marker in current_url for marker in ("checkpoint", "challenge", "authwall")) or any(
+            marker in page_source or marker in title for marker in challenge_markers
+        ):
+            return {
+                "code": "challenge_detected",
+                "message": (
+                    "LinkedIn challenge/checkpoint detected (2FA/security verification likely required)."
+                ),
+                "manual_intervention_required": True,
+            }
+
+        if "login" in current_url or "sign in" in title:
+            return {
+                "code": "invalid_credentials_or_login_block",
+                "message": "Still on LinkedIn login page after submit (credentials or login block issue).",
+                "manual_intervention_required": True,
+            }
+
+        return {
+            "code": "unknown_login_failure",
+            "message": "Login failed for an unknown reason.",
+            "manual_intervention_required": True,
+        }
+
     def quit(self):
         if self.driver:
             self.driver.quit()
