@@ -596,21 +596,61 @@ _heatmap_cache = {}  # key: continent_filter -> {"data": ..., "ts": ...}
 _HEATMAP_CACHE_TTL = 60  # seconds
 
 
+def _is_logged_in():
+    """Return True if a valid session exists (LinkedIn or email/password)."""
+    return 'linkedin_token' in session or 'user_email' in session
+
+
+def _get_session_email():
+    """Return the logged-in user's email regardless of auth method."""
+    if 'user_email' in session:
+        return session['user_email']
+    profile = session.get('linkedin_profile')
+    if profile:
+        return profile.get('email')
+    return None
+
+
 def get_current_user_id():
     """
     Get the current logged-in user's database ID.
+    Supports both LinkedIn OAuth and email/password sessions.
     In development mode (DISABLE_DB=1), returns a stable placeholder ID.
     """
-    if 'linkedin_profile' not in session:
+    if not _is_logged_in():
         return None
 
-    linkedin_profile = session['linkedin_profile']
+    # Email/password session path
+    if 'user_email' in session:
+        email = session['user_email']
+        conn = None
+        try:
+            conn = get_connection()
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", (email,))
+                except Exception:
+                    cur.execute("SELECT id FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
+                result = cur.fetchone()
+                return (result['id'] if isinstance(result, dict) else result[0]) if result else None
+        except Exception as e:
+            app.logger.error(f"Error getting user ID by email: {e}")
+            return None
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    # LinkedIn session path
+    linkedin_profile = session.get('linkedin_profile')
+    if not linkedin_profile:
+        return None
     linkedin_id = linkedin_profile.get('sub')  # LinkedIn's unique ID
 
     if DISABLE_DB:
-        # If SQLite fallback is enabled, try to use it even in DISABLE_DB mode
         if not USE_SQLITE_FALLBACK:
-            # Give APIs a consistent user id during demos with no DB
             session.setdefault('_dev_user_id', 1)
             return session['_dev_user_id']
 
@@ -632,27 +672,64 @@ def get_current_user_id():
                 pass
 
 def login_required(f):
-    """Decorator to require login"""
+    """Decorator to require login (supports both LinkedIn and email/password sessions)."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'linkedin_token' not in session:
-            return redirect(url_for('login_linkedin'))
+        if not _is_logged_in():
+            return redirect('/login')
+        # Enforce must_change_password for page routes
+        if session.get('must_change_password') and request.path != '/change-password':
+            return redirect('/change-password')
         return f(*args, **kwargs)
     return decorated_function
 
 def api_login_required(f):
-    """Decorator to require login for API endpoints"""
+    """Decorator to require login for API endpoints (supports both auth methods)."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'linkedin_token' not in session:
+        if not _is_logged_in():
             return jsonify({"error": "Not authenticated"}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    """Decorator to require admin role.  Must be used after api_login_required."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        email = _get_session_email()
+        if not email:
+            return jsonify({"error": "Not authenticated"}), 401
+        from database import get_user_by_email
+        user = get_user_by_email(email)
+        if not user or user.get('role') != 'admin':
+            return jsonify({"error": "Admin access required"}), 403
         return f(*args, **kwargs)
     return decorated_function
 
 # ---------------------- Static/Basic routes ----------------------
 @app.route('/')
 def home():
+    if _is_logged_in():
+        return redirect('/alumni')
     return send_from_directory('../frontend/public', 'index.html')
+
+@app.route('/login')
+def login_page():
+    if _is_logged_in():
+        return redirect('/alumni')
+    return send_from_directory('../frontend/public', 'index.html')
+
+@app.route('/register')
+def register_page():
+    if _is_logged_in():
+        return redirect('/alumni')
+    return send_from_directory('../frontend/public', 'register.html')
+
+@app.route('/change-password')
+def change_password_page():
+    if not _is_logged_in():
+        return redirect('/login')
+    return send_from_directory('../frontend/public', 'change_password.html')
 
 @app.route('/about')
 def about():
@@ -679,6 +756,327 @@ def logout():
 def access_denied():
     """Show access denied page for unauthorized users."""
     return send_from_directory('../frontend/public', 'access_denied.html'), 403
+
+
+# ---------------------- Auth API routes ----------------------
+# See docs/AUTH.md for the full auth-flow documentation.
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_auth_login():
+    """Email/password login endpoint."""
+    from auth import verify_password, check_rate_limit, clear_rate_limit
+    from database import get_user_by_email, is_email_authorized
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+
+    if not email or not password:
+        return jsonify({"error": "Email and password are required."}), 400
+
+    # Rate limiting
+    if not check_rate_limit(email):
+        return jsonify({"error": "Too many login attempts. Please try again later."}), 429
+
+    # Whitelist check
+    if not is_authorized_user(email):
+        return jsonify({"error": "Your account is not authorized. Please contact an admin."}), 403
+
+    user = get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "Invalid email or password."}), 401
+
+    if not user.get('password_hash'):
+        auth_type = user.get('auth_type', '')
+        if auth_type == 'linkedin_only':
+            return jsonify({"error": "This account uses LinkedIn login. Please create a password in Settings first."}), 401
+        return jsonify({"error": "No password set. Please contact an admin."}), 401
+
+    if not verify_password(password, user['password_hash']):
+        return jsonify({"error": "Invalid email or password."}), 401
+
+    # Success — set session
+    clear_rate_limit(email)
+    session['user_email'] = email
+    session['user_role'] = user.get('role', 'user')
+    must_change = bool(user.get('must_change_password'))
+    session['must_change_password'] = must_change
+
+    return jsonify({
+        "success": True,
+        "must_change_password": must_change,
+        "redirect": "/change-password" if must_change else "/alumni",
+    }), 200
+
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_auth_register():
+    """Public registration (whitelist-gated)."""
+    from auth import validate_password_policy, hash_password
+    from database import get_user_by_email, create_user_with_password, is_email_authorized
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+
+    if not email or not password:
+        return jsonify({"error": "Email and password are required."}), 400
+
+    # Whitelist check
+    if not is_authorized_user(email):
+        return jsonify({"error": "Your email is not authorized to register. Please contact an admin."}), 403
+
+    # Check for existing user
+    existing = get_user_by_email(email)
+    if existing:
+        if existing.get('password_hash'):
+            return jsonify({"error": "An account with this email already exists. Please log in."}), 409
+        # Existing LinkedIn user creating password handled via /api/auth/create-password
+        return jsonify({"error": "An account with this email already exists. Log in with LinkedIn and create a password in Settings."}), 409
+
+    # Password policy
+    valid, failures = validate_password_policy(password)
+    if not valid:
+        return jsonify({"error": "Password does not meet requirements.", "details": failures}), 400
+
+    pw_hash = hash_password(password)
+    success = create_user_with_password(email, pw_hash, role="user")
+    if not success:
+        return jsonify({"error": "Failed to create account. Please try again."}), 500
+
+    return jsonify({"success": True, "message": "Account created. Please log in."}), 201
+
+
+@app.route('/api/auth/me', methods=['GET'])
+@api_login_required
+def api_auth_me():
+    """Return current user info for the frontend (role, auth_type, email)."""
+    email = _get_session_email()
+    if not email:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    from database import get_user_by_email
+    user = get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "email": user.get('email', ''),
+        "first_name": user.get('first_name', ''),
+        "last_name": user.get('last_name', ''),
+        "role": user.get('role', 'user'),
+        "auth_type": user.get('auth_type', ''),
+        "must_change_password": bool(user.get('must_change_password')),
+    }), 200
+
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@api_login_required
+def api_auth_change_password():
+    """Change own password (requires current password)."""
+    from auth import verify_password, validate_password_policy, hash_password
+    from database import get_user_by_email, update_user_password
+
+    email = _get_session_email()
+    data = request.get_json(silent=True) or {}
+    current_pw = data.get('current_password') or ''
+    new_pw = data.get('new_password') or ''
+
+    if not current_pw or not new_pw:
+        return jsonify({"error": "Current password and new password are required."}), 400
+
+    user = get_user_by_email(email)
+    if not user or not user.get('password_hash'):
+        return jsonify({"error": "No password set on this account."}), 400
+
+    if not verify_password(current_pw, user['password_hash']):
+        return jsonify({"error": "Current password is incorrect."}), 401
+
+    valid, failures = validate_password_policy(new_pw)
+    if not valid:
+        return jsonify({"error": "New password does not meet requirements.", "details": failures}), 400
+
+    update_user_password(email, hash_password(new_pw))
+    session.pop('must_change_password', None)
+    return jsonify({"success": True, "message": "Password changed."}), 200
+
+
+@app.route('/api/auth/create-password', methods=['POST'])
+@api_login_required
+def api_auth_create_password():
+    """LinkedIn-only users create a password to enable email/password login."""
+    from auth import validate_password_policy, hash_password
+    from database import get_user_by_email, update_user_password
+
+    email = _get_session_email()
+    data = request.get_json(silent=True) or {}
+    new_pw = data.get('new_password') or ''
+
+    if not new_pw:
+        return jsonify({"error": "Password is required."}), 400
+
+    user = get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    valid, failures = validate_password_policy(new_pw)
+    if not valid:
+        return jsonify({"error": "Password does not meet requirements.", "details": failures}), 400
+
+    # Determine new auth_type
+    current_type = user.get('auth_type', 'linkedin_only')
+    new_type = 'both' if current_type == 'linkedin_only' else current_type
+
+    update_user_password(email, hash_password(new_pw), auth_type=new_type)
+    return jsonify({"success": True, "message": "Password created. You can now log in with email and password."}), 200
+
+
+@app.route('/api/auth/force-change-password', methods=['POST'])
+@api_login_required
+def api_auth_force_change_password():
+    """Handle must_change_password flow (no current password required)."""
+    from auth import validate_password_policy, hash_password
+    from database import get_user_by_email, update_user_password
+
+    email = _get_session_email()
+    data = request.get_json(silent=True) or {}
+    new_pw = data.get('new_password') or ''
+
+    if not new_pw:
+        return jsonify({"error": "Password is required."}), 400
+
+    user = get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if not user.get('must_change_password'):
+        return jsonify({"error": "Password change not required."}), 400
+
+    valid, failures = validate_password_policy(new_pw)
+    if not valid:
+        return jsonify({"error": "Password does not meet requirements.", "details": failures}), 400
+
+    update_user_password(email, hash_password(new_pw))
+    session.pop('must_change_password', None)
+    return jsonify({"success": True, "message": "Password set successfully.", "redirect": "/alumni"}), 200
+
+
+@app.route('/api/auth/linkedin-available', methods=['GET'])
+def api_auth_linkedin_available():
+    """Return whether LinkedIn OAuth is configured (frontend uses this to show/hide button)."""
+    available = bool(CLIENT_ID and CLIENT_SECRET and REDIRECT_URI)
+    return jsonify({"available": available}), 200
+
+
+# ---------------------- Admin User Management API ----------------------
+# See docs/AUTH.md § Role-Based Permissions
+
+@app.route('/api/admin/users', methods=['GET'])
+@api_login_required
+@admin_required
+def api_admin_get_users():
+    """List all users (admin only)."""
+    from database import get_all_users
+    users = get_all_users()
+    return jsonify({"success": True, "users": users}), 200
+
+
+@app.route('/api/admin/users', methods=['POST'])
+@api_login_required
+@admin_required
+def api_admin_add_user():
+    """Admin adds a new user. Also adds to whitelist."""
+    from database import get_user_by_email, create_user_with_password, add_authorized_email
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    role = data.get('role', 'user')
+
+    if not email:
+        return jsonify({"error": "Email is required."}), 400
+    if role not in ('admin', 'user'):
+        return jsonify({"error": "Role must be 'admin' or 'user'."}), 400
+
+    existing = get_user_by_email(email)
+    if existing:
+        return jsonify({"error": f"User {email} already exists."}), 409
+
+    # Add to whitelist and create user (no password — they must register or be reset)
+    add_authorized_email(email, added_by_user_id=get_current_user_id(), notes=f"Added by admin")
+    success = create_user_with_password(email, None, role=role)
+    if not success:
+        return jsonify({"error": "Failed to create user."}), 500
+
+    # Flag for password creation on first login
+    from database import set_must_change_password
+    set_must_change_password(email, True)
+
+    return jsonify({"success": True, "message": f"User {email} created with role {role}."}), 201
+
+
+@app.route('/api/admin/users', methods=['DELETE'])
+@api_login_required
+@admin_required
+def api_admin_delete_user():
+    """Admin removes a user."""
+    from database import delete_user
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required."}), 400
+
+    # Prevent self-deletion
+    if email == _get_session_email():
+        return jsonify({"error": "Cannot delete your own account."}), 400
+
+    success = delete_user(email)
+    if not success:
+        return jsonify({"error": "Failed to delete user."}), 500
+
+    return jsonify({"success": True, "message": f"User {email} deleted."}), 200
+
+
+@app.route('/api/admin/users/role', methods=['PUT'])
+@api_login_required
+@admin_required
+def api_admin_update_role():
+    """Admin changes a user's role."""
+    from database import update_user_role
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    role = data.get('role', '')
+
+    if not email:
+        return jsonify({"error": "Email is required."}), 400
+    if role not in ('admin', 'user'):
+        return jsonify({"error": "Role must be 'admin' or 'user'."}), 400
+
+    success = update_user_role(email, role)
+    if not success:
+        return jsonify({"error": "Failed to update role."}), 500
+
+    return jsonify({"success": True, "message": f"{email} is now {role}."}), 200
+
+
+@app.route('/api/admin/users/reset-password', methods=['POST'])
+@api_login_required
+@admin_required
+def api_admin_reset_password():
+    """Admin resets a user's password — user must set a new one on next login."""
+    from database import admin_reset_password
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required."}), 400
+
+    success = admin_reset_password(email)
+    if not success:
+        return jsonify({"error": "Failed to reset password."}), 500
+
+    return jsonify({"success": True, "message": f"Password reset for {email}. They must set a new password on next login."}), 200
 
 
 # ---------------------- LinkedIn OAuth routes ----------------------
@@ -750,6 +1148,10 @@ def linkedin_callback():
         return redirect('/access-denied')
     # ------------------------------------------------------
 
+    # Also set user_email in session to unify with email/password sessions
+    if user_email:
+        session['user_email'] = user_email.lower().strip()
+
     if DISABLE_DB:
         return redirect('/alumni')
 
@@ -760,21 +1162,52 @@ def linkedin_callback():
     try:
         conn = get_connection()
         with conn.cursor() as cur:
+            # Check if user already exists (to determine auth_type)
+            try:
+                cur.execute("SELECT password_hash, auth_type FROM users WHERE LOWER(email) = LOWER(%s)",
+                            (user_email,))
+            except Exception:
+                cur.execute("SELECT password_hash, auth_type FROM users WHERE LOWER(email) = LOWER(?)",
+                            (user_email,))
+            existing_row = cur.fetchone()
+
+            if existing_row:
+                has_password = bool(existing_row[0] if not isinstance(existing_row, dict)
+                                     else existing_row.get('password_hash'))
+                new_auth_type = 'both' if has_password else 'linkedin_only'
+            else:
+                new_auth_type = 'linkedin_only'
+
             cur.execute("""
-                INSERT INTO users (linkedin_id, email, first_name, last_name)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO users (linkedin_id, email, first_name, last_name, auth_type)
+                VALUES (%s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     email = VALUES(email),
                     first_name = VALUES(first_name),
                     last_name = VALUES(last_name),
+                    auth_type = VALUES(auth_type),
                     updated_at = CURRENT_TIMESTAMP
             """, (
                 linkedin_profile.get('sub'),
                 linkedin_profile.get('email'),
                 linkedin_profile.get('given_name'),
                 linkedin_profile.get('family_name'),
+                new_auth_type,
             ))
             conn.commit()
+
+            # Set role in session
+            session['user_role'] = 'user'
+            try:
+                from database import get_user_by_email
+                db_user = get_user_by_email(user_email)
+                if db_user:
+                    session['user_role'] = db_user.get('role', 'user')
+                    if db_user.get('must_change_password'):
+                        session['must_change_password'] = True
+            except Exception:
+                pass
+
     except Exception as e:
         app.logger.error(f"❌ Error saving user to database: {e}")
         # Let user proceed even if DB write failed
@@ -786,6 +1219,8 @@ def linkedin_callback():
                 pass
 
     # After successful login, redirect to alumni dashboard
+    if session.get('must_change_password'):
+        return redirect('/change-password')
     return redirect('/alumni')
 
 # ---------------------- Alumni page ----------------------
@@ -2741,6 +3176,15 @@ if __name__ == "__main__":
             init_db()
             # ALTER TABLE migrations for existing DBs (idempotent; see database.py)
             ensure_all_alumni_schema_migrations()
+
+            # Auth system migration: add auth columns to users table, seed admins
+            try:
+                import sys as _sys
+                _sys.path.insert(0, os.path.dirname(__file__))
+                from migrations.migrate_auth_system import migrate as migrate_auth
+                migrate_auth()
+            except Exception as auth_err:
+                app.logger.warning(f"Auth migration skipped: {auth_err}")
             # Startup seed strategy:
             # - Default ("0"): skip CSV sync in app startup for faster boot.
             # - "auto": seed only when alumni table is empty.
