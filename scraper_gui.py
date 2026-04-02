@@ -96,6 +96,7 @@ class ScraperWorker(QThread):
             popen_kwargs = {
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.STDOUT,
+                "stdin": subprocess.PIPE,
                 "text": True,
                 "bufsize": 1,
                 "cwd": base_dir,
@@ -126,11 +127,22 @@ class ScraperWorker(QThread):
         finally:
             self.finished_signal.emit(0)
             
-    def stop(self):
-        self._is_stopped = True
+    def stop(self, immediate=False):
         proc = self.process
         if not proc or proc.poll() is not None:
             return
+
+        if not immediate:
+            try:
+                if proc.stdin:
+                    self.output_signal.emit("\nGraceful stop requested (after current profile).\n")
+                    proc.stdin.write("exit\n")
+                    proc.stdin.flush()
+                    return
+            except Exception as e:
+                self.output_signal.emit(f"\nCould not request graceful stop, falling back to immediate stop: {e}\n")
+
+        self._is_stopped = True
 
         self.output_signal.emit("\nSent termination signal...\n")
         try:
@@ -286,6 +298,7 @@ class FlagManagerDialog(QDialog):
         self.csv_path = os.path.join(self.base_dir, 'scraper', 'output', 'UNT_Alumni_Data.csv')
         self.txt_path = os.path.join(self.base_dir, 'scraper', 'output', 'flagged_for_review.txt')
         self.runs = []
+        self._loading_table = False
         
         self.init_ui()
         self.load_runs()
@@ -323,6 +336,7 @@ class FlagManagerDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self.table.itemChanged.connect(self._handle_item_changed)
         
         layout.addWidget(self.table)
         
@@ -338,6 +352,8 @@ class FlagManagerDialog(QDialog):
         btn_layout.addWidget(self.sel_all_btn)
         btn_layout.addWidget(self.clear_all_btn)
         btn_layout.addStretch()
+        self.unsaved_label = QLabel("Unsaved edits: 0")
+        btn_layout.addWidget(self.unsaved_label)
         btn_layout.addWidget(self.save_btn)
         
         layout.addLayout(btn_layout)
@@ -383,7 +399,14 @@ class FlagManagerDialog(QDialog):
                         LIMIT 50
                         """
                     )
-                    rows = [dict(r) for r in (cur.fetchall() or [])]
+                    fetched = cur.fetchall() or []
+                    cols = [d[0] for d in (cur.description or [])]
+                    rows = []
+                    for r in fetched:
+                        if isinstance(r, dict):
+                            rows.append(r)
+                        else:
+                            rows.append(dict(zip(cols, r)))
             finally:
                 try:
                     conn.close()
@@ -423,7 +446,10 @@ class FlagManagerDialog(QDialog):
                 row = cur.fetchone()
                 if not row:
                     return {}
-                return dict(row)
+                if isinstance(row, dict):
+                    return row
+                cols = [d[0] for d in (cur.description or [])]
+                return dict(zip(cols, row))
 
     def _load_rows_from_db(self, run_id):
         rows = []
@@ -455,7 +481,14 @@ class FlagManagerDialog(QDialog):
             except Exception:
                 with conn.cursor() as cur:
                     cur.execute(flags_sql.replace("%s", "?"), params)
-                    flags = [dict(r) for r in (cur.fetchall() or [])]
+                    fetched = cur.fetchall() or []
+                    cols = [d[0] for d in (cur.description or [])]
+                    flags = []
+                    for r in fetched:
+                        if isinstance(r, dict):
+                            flags.append(r)
+                        else:
+                            flags.append(dict(zip(cols, r)))
 
             for flag in flags:
                 url = (flag.get("linkedin_url") or "").strip().rstrip('/')
@@ -546,12 +579,44 @@ class FlagManagerDialog(QDialog):
 
     def _set_item(self, row_idx, col_idx, text, editable=False):
         item = QTableWidgetItem("" if text is None else str(text))
+        item.setData(Qt.ItemDataRole.UserRole + 1, "" if text is None else str(text))
         if not editable:
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.table.setItem(row_idx, col_idx, item)
         return item
 
+    def _refresh_unsaved_count(self):
+        changed = 0
+        editable_cols = set(self.FIELD_TO_COLUMN.values())
+        for row in range(self.table.rowCount()):
+            for col in editable_cols:
+                item = self.table.item(row, col)
+                if not item:
+                    continue
+                original = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
+                current = item.text() or ""
+                if current != original:
+                    changed += 1
+        if hasattr(self, "unsaved_label"):
+            self.unsaved_label.setText(f"Unsaved edits: {changed}")
+
+    def _handle_item_changed(self, item):
+        if self._loading_table or not item:
+            return
+        col = item.column()
+        if col not in set(self.FIELD_TO_COLUMN.values()):
+            return
+
+        original = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
+        current = item.text() or ""
+        if current != original:
+            item.setBackground(Qt.GlobalColor.yellow)
+        else:
+            item.setBackground(Qt.GlobalColor.transparent)
+        self._refresh_unsaved_count()
+
     def load_data(self):
+        self._loading_table = True
         run_id = self.run_combo.currentData() if hasattr(self, "run_combo") else None
         rows = []
         if run_id:
@@ -588,6 +653,8 @@ class FlagManagerDialog(QDialog):
                 self._set_item(i, col, row.get(field, ""), editable=True)
 
         self._apply_edit_rules()
+        self._refresh_unsaved_count()
+        self._loading_table = False
 
     def _reason_target_fields(self, reason):
         text = (reason or "").strip().lower()
@@ -641,60 +708,6 @@ class FlagManagerDialog(QDialog):
             QMessageBox.warning(self, "Open Profile", "No profile URL found for selected row.")
             return
         webbrowser.open(url)
-        
-    def load_data(self):
-        flagged_urls = {}
-        if os.path.exists(self.txt_path):
-            with open(self.txt_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    parts = line.split('#')
-                    url = parts[0].strip().rstrip('/').lower()
-                    reason = ""
-                    if len(parts) > 2:
-                        reason = parts[-1].strip()  # Scraper injects reason as the 2nd comment part
-                    elif len(parts) == 2 and not (" " in parts[1].strip() and len(parts[1].strip().split()) <= 3):
-                        # Catch if there is only 1 comment part and it looks like a reason not a name
-                        reason = parts[1].strip()
-                        
-                    if url: flagged_urls[url] = reason
-                    
-        profiles = []
-        if os.path.exists(self.csv_path):
-            with open(self.csv_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    url = (row.get('linkedin_url', '') or row.get('profile_url', '')).strip().rstrip('/')
-                    if not url: continue
-                    name = f"{row.get('first', '')} {row.get('last', '')}".strip()
-                    date_str = row.get('scraped_at', '')
-                    profiles.append({'url': url, 'name': name, 'date': date_str})
-                    
-        # Sort by date descending
-        def get_date(p):
-            try: return datetime.fromisoformat(p['date'].replace('Z', '+00:00'))
-            except: return datetime.min
-        profiles.sort(key=get_date, reverse=True)
-        
-        self.table.setRowCount(len(profiles))
-        for i, p in enumerate(profiles):
-            cb = QCheckBox()
-            url_key = p['url'].lower()
-            is_flagged = url_key in flagged_urls
-            cb.setChecked(is_flagged)
-            reason_text = flagged_urls.get(url_key, "") if is_flagged else ""
-            
-            # Center checkbox
-            cb_widget = QWidget()
-            cb_layout = QHBoxLayout(cb_widget)
-            cb_layout.addWidget(cb)
-            cb_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            cb_layout.setContentsMargins(0,0,0,0)
-            
-            self.table.setCellWidget(i, 0, cb_widget)
-            self.table.setItem(i, 1, QTableWidgetItem(p['date'][:10] if p['date'] else "Unknown"))
-            self.table.setItem(i, 2, QTableWidgetItem(p['name']))
-            self.table.setItem(i, 3, QTableWidgetItem(reason_text))
-            self.table.setItem(i, 4, QTableWidgetItem(p['url']))
             
     def select_all(self):
         for i in range(self.table.rowCount()):
@@ -819,7 +832,140 @@ class ScraperApp(QMainWindow):
         self._suggest_restart_headed = False
         self._run_started_at = None
         self._run_metrics = {}
+        self._history_rows = []
         self.init_ui()
+
+    def _apply_modern_style(self):
+        self.setStyleSheet("""
+            QWidget {
+                background: #f4f7fb;
+                color: #1b2430;
+                font-family: 'SF Pro Text', 'Segoe UI', sans-serif;
+                font-size: 12px;
+            }
+            QGroupBox {
+                border: 1px solid #d7e2f0;
+                border-radius: 10px;
+                margin-top: 8px;
+                padding-top: 10px;
+                background: #ffffff;
+                font-weight: 600;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+            }
+            QLineEdit, QComboBox, QTableWidget, QTextEdit {
+                border: 1px solid #c9d7ea;
+                border-radius: 8px;
+                padding: 6px;
+                background: #ffffff;
+            }
+            QPushButton {
+                background: #1659a6;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #104a8a;
+            }
+            QPushButton:disabled {
+                background: #a7b8ce;
+                color: #ecf1f8;
+            }
+        """)
+
+    def _get_db_connection(self):
+        backend_dir = os.path.join(get_base_dir(), "backend")
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        from database import get_connection
+        return get_connection()
+
+    def refresh_run_history(self):
+        if not hasattr(self, "run_history_table"):
+            return
+
+        rows = []
+        current_email = (self.email_input.text() or "").strip().lower()
+        only_current = bool(getattr(self, "run_history_mine_only", None) and self.run_history_mine_only.isChecked())
+        try:
+            conn = self._get_db_connection()
+            try:
+                with conn.cursor(dictionary=True) as cur:
+                    query = """
+                        SELECT id, scraper_email, scraper_mode, status, profiles_scraped,
+                               started_at, completed_at
+                        FROM scrape_runs
+                    """
+                    params = []
+                    if only_current and current_email:
+                        query += " WHERE LOWER(scraper_email) = %s"
+                        params.append(current_email)
+                    query += " ORDER BY started_at DESC LIMIT 25"
+                    cur.execute(query, tuple(params))
+                    rows = cur.fetchall() or []
+            except Exception:
+                with conn.cursor() as cur:
+                    query = """
+                        SELECT id, scraper_email, scraper_mode, status, profiles_scraped,
+                               started_at, completed_at
+                        FROM scrape_runs
+                    """
+                    params = []
+                    if only_current and current_email:
+                        query += " WHERE LOWER(scraper_email) = ?"
+                        params.append(current_email)
+                    query += " ORDER BY started_at DESC LIMIT 25"
+                    cur.execute(query, tuple(params))
+                    fetched = cur.fetchall() or []
+                    cols = [d[0] for d in (cur.description or [])]
+                    rows = []
+                    for r in fetched:
+                        if isinstance(r, dict):
+                            rows.append(r)
+                        else:
+                            rows.append(dict(zip(cols, r)))
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception:
+            rows = []
+
+        self._history_rows = rows
+        self.run_history_table.setRowCount(len(rows))
+        for row_idx, row in enumerate(rows):
+            started_raw = str(row.get("started_at") or "")
+            started = started_raw[:16].replace("T", " ")
+            completed_raw = str(row.get("completed_at") or "")
+            duration = "-"
+            try:
+                if started_raw and completed_raw:
+                    dt_start = datetime.fromisoformat(started_raw.replace("Z", "").replace(" ", "T"))
+                    dt_end = datetime.fromisoformat(completed_raw.replace("Z", "").replace(" ", "T"))
+                    duration = _format_runtime_short((dt_end - dt_start).total_seconds())
+            except Exception:
+                duration = "-"
+
+            values = [
+                started,
+                (row.get("scraper_email") or "unknown"),
+                (row.get("scraper_mode") or "unknown"),
+                str(row.get("profiles_scraped") or 0),
+                duration,
+                (row.get("status") or "unknown"),
+                str(row.get("id") or ""),
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.run_history_table.setItem(row_idx, col, item)
 
     def _reset_run_metrics(self):
         self._run_metrics = {
@@ -1054,7 +1200,7 @@ class ScraperApp(QMainWindow):
         self.start_btn.setMinimumHeight(40)
         self.start_btn.clicked.connect(self.start_scraper)
         
-        self.stop_btn = QPushButton("Stop Scraper")
+        self.stop_btn = QPushButton("Stop")
         self.stop_btn.setMinimumHeight(40)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_scraper)
@@ -1062,6 +1208,21 @@ class ScraperApp(QMainWindow):
         btn_layout.addWidget(self.start_btn)
         btn_layout.addWidget(self.stop_btn)
         left_layout.addLayout(btn_layout)
+
+        stop_options_layout = QHBoxLayout()
+        self.stop_after_profile_btn = QPushButton("Stop After Profile")
+        self.stop_after_profile_btn.setMinimumHeight(36)
+        self.stop_after_profile_btn.setVisible(False)
+        self.stop_after_profile_btn.clicked.connect(self.request_stop_after_profile)
+        stop_options_layout.addWidget(self.stop_after_profile_btn)
+
+        self.stop_immediately_btn = QPushButton("Stop Now")
+        self.stop_immediately_btn.setMinimumHeight(36)
+        self.stop_immediately_btn.setStyleSheet("background-color: #b3261e; color: white; font-weight: 700;")
+        self.stop_immediately_btn.setVisible(False)
+        self.stop_immediately_btn.clicked.connect(self.request_stop_immediately)
+        stop_options_layout.addWidget(self.stop_immediately_btn)
+        left_layout.addLayout(stop_options_layout)
         
         sync_btn_layout = QHBoxLayout()
 
@@ -1095,6 +1256,40 @@ class ScraperApp(QMainWindow):
         self.console.setReadOnly(True)
         self.console.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: Consolas, monospace;")
         right_layout.addWidget(self.console)
+
+        history_group = QGroupBox("Recent Scrape Sessions")
+        history_layout = QVBoxLayout()
+        history_controls = QHBoxLayout()
+        self.run_history_mine_only = QCheckBox("Only current email")
+        self.run_history_mine_only.stateChanged.connect(self.refresh_run_history)
+        history_controls.addWidget(self.run_history_mine_only)
+        history_controls.addStretch()
+        self.refresh_history_btn = QPushButton("Refresh History")
+        self.refresh_history_btn.clicked.connect(self.refresh_run_history)
+        history_controls.addWidget(self.refresh_history_btn)
+        history_layout.addLayout(history_controls)
+
+        self.run_history_table = QTableWidget(0, 7)
+        self.run_history_table.setHorizontalHeaderLabels([
+            "Started",
+            "User",
+            "Mode",
+            "Scraped",
+            "Duration",
+            "Status",
+            "Run ID",
+        ])
+        self.run_history_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.run_history_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.run_history_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.run_history_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.run_history_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.run_history_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.run_history_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.run_history_table.setMinimumHeight(200)
+        history_layout.addWidget(self.run_history_table)
+        history_group.setLayout(history_layout)
+        right_layout.addWidget(history_group)
         
         main_layout.addWidget(right_panel)
         
@@ -1106,6 +1301,8 @@ class ScraperApp(QMainWindow):
         self.load_settings_from_env()
         self._reset_run_metrics()
         self.refresh_preflight_status()
+        self.refresh_run_history()
+        self._apply_modern_style()
 
     def on_mode_change(self, mode):
         is_conn = (mode == "connections")
@@ -1366,6 +1563,9 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.stop_btn.setText("Stop")
+        self.stop_after_profile_btn.setVisible(False)
+        self.stop_immediately_btn.setVisible(False)
         
         self.worker = ScraperWorker()
         self.worker.output_signal.connect(self.append_console)
@@ -1419,9 +1619,28 @@ class ScraperApp(QMainWindow):
         self.db_worker.start()
 
     def stop_scraper(self):
+        if not self.worker:
+            return
+        self.stop_btn.setText("Choose Stop Mode")
+        self.stop_after_profile_btn.setVisible(True)
+        self.stop_immediately_btn.setVisible(True)
+        self.stop_btn.setEnabled(False)
+
+    def _reset_stop_controls(self):
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.setText("Stop")
+        self.stop_after_profile_btn.setVisible(False)
+        self.stop_immediately_btn.setVisible(False)
+
+    def request_stop_after_profile(self):
         if self.worker:
-            self.worker.stop()
-            self.stop_btn.setEnabled(False)
+            self.worker.stop(immediate=False)
+        self._reset_stop_controls()
+
+    def request_stop_immediately(self):
+        if self.worker:
+            self.worker.stop(immediate=True)
+        self._reset_stop_controls()
 
     def on_geocode_finished(self, exit_code):
         if exit_code != 0:
@@ -1440,15 +1659,16 @@ class ScraperApp(QMainWindow):
         self.start_btn.setEnabled(True)
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self._reset_stop_controls()
 
     def on_scraper_finished(self):
         self.start_btn.setEnabled(True)
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        self._reset_stop_controls()
         self._append_gui_summary_block()
         self.refresh_preflight_status()
+        self.refresh_run_history()
 
         if self._manual_intervention_needed:
             reason = self._manual_intervention_reason or "login_or_challenge"
