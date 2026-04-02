@@ -4,6 +4,7 @@ import subprocess
 import signal
 import threading
 import csv
+import webbrowser
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -13,6 +14,15 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
+
+
+def _format_runtime_short(total_seconds):
+    total_seconds = max(0, int(total_seconds))
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
 
 def get_base_dir():
     if getattr(sys, 'frozen', False):
@@ -245,35 +255,81 @@ class GeocodeWorker(QThread):
             self.finished_signal.emit(code)
 
 class FlagManagerDialog(QDialog):
+    COLUMN_ORDER = [
+        ("Review", None),
+        ("Run", None),
+        ("Date Scraped", None),
+        ("Name", "name"),
+        ("Reason Flagged", "reason"),
+        ("Profile URL", "linkedin_url"),
+        ("Grad Year", "grad_year"),
+        ("Degree", "degree"),
+        ("Major", "major"),
+        ("Discipline", "discipline"),
+        ("Job Title", "current_job_title"),
+        ("Company", "company"),
+        ("Location", "location"),
+        ("Exp2 Title", "exp2_title"),
+        ("Exp2 Company", "exp2_company"),
+        ("Exp3 Title", "exp3_title"),
+        ("Exp3 Company", "exp3_company"),
+    ]
+
+    FIELD_TO_COLUMN = {field: idx for idx, (_, field) in enumerate(COLUMN_ORDER) if field}
+
     def __init__(self, base_dir, parent=None):
         super().__init__(parent)
         self.base_dir = base_dir
         self.setWindowTitle("Manage Review Flags")
-        self.resize(800, 500)
+        self.resize(1300, 620)
         
         self.csv_path = os.path.join(self.base_dir, 'scraper', 'output', 'UNT_Alumni_Data.csv')
         self.txt_path = os.path.join(self.base_dir, 'scraper', 'output', 'flagged_for_review.txt')
+        self.runs = []
         
         self.init_ui()
+        self.load_runs()
         self.load_data()
         
     def init_ui(self):
         layout = QVBoxLayout(self)
+
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("Scope:"))
+        self.run_combo = QComboBox()
+        self.run_combo.currentIndexChanged.connect(self.load_data)
+        controls.addWidget(self.run_combo, stretch=1)
+
+        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn.clicked.connect(self.load_runs)
+        controls.addWidget(self.refresh_btn)
+
+        self.bypass_edit_cb = QCheckBox("Bypass mode (edit any field)")
+        self.bypass_edit_cb.setToolTip("When disabled, editable fields are restricted by flag reason.")
+        self.bypass_edit_cb.toggled.connect(self._apply_edit_rules)
+        controls.addWidget(self.bypass_edit_cb)
+
+        self.open_profile_btn = QPushButton("Open Selected Profile")
+        self.open_profile_btn.clicked.connect(self.open_selected_profile)
+        controls.addWidget(self.open_profile_btn)
+
+        layout.addLayout(controls)
         
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Review", "Date Scraped", "Name", "Reason Flagged", "Profile URL"])
+        self.table = QTableWidget(0, len(self.COLUMN_ORDER))
+        self.table.setHorizontalHeaderLabels([label for label, _ in self.COLUMN_ORDER])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         
         layout.addWidget(self.table)
         
         btn_layout = QHBoxLayout()
         self.sel_all_btn = QPushButton("Select All")
         self.clear_all_btn = QPushButton("Accept All (Clear Flags)")
-        self.save_btn = QPushButton("Save Flags")
+        self.save_btn = QPushButton("Save Flags + Edits")
         
         self.sel_all_btn.clicked.connect(self.select_all)
         self.clear_all_btn.clicked.connect(self.clear_all)
@@ -285,6 +341,306 @@ class FlagManagerDialog(QDialog):
         btn_layout.addWidget(self.save_btn)
         
         layout.addLayout(btn_layout)
+
+    def _normalize_url(self, value):
+        return (value or "").strip().rstrip('/').lower()
+
+    def _get_connection(self):
+        backend_dir = os.path.join(self.base_dir, "backend")
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        from database import get_connection
+        return get_connection()
+
+    def load_runs(self):
+        self.run_combo.blockSignals(True)
+        self.run_combo.clear()
+        self.runs = []
+
+        self.run_combo.addItem("All flagged (legacy file)", None)
+        try:
+            conn = self._get_connection()
+            try:
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute(
+                        """
+                        SELECT id, run_uuid, scraper_email, scraper_mode, status,
+                               profiles_scraped, started_at
+                        FROM scrape_runs
+                        ORDER BY started_at DESC
+                        LIMIT 50
+                        """
+                    )
+                    rows = cur.fetchall() or []
+            except Exception:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, run_uuid, scraper_email, scraper_mode, status,
+                               profiles_scraped, started_at
+                        FROM scrape_runs
+                        ORDER BY started_at DESC
+                        LIMIT 50
+                        """
+                    )
+                    rows = [dict(r) for r in (cur.fetchall() or [])]
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+            self.runs = rows
+            for row in rows:
+                started_at = str(row.get("started_at") or "")[:16].replace("T", " ")
+                label = (
+                    f"Run #{row.get('id')} | {started_at} | {row.get('scraper_mode') or 'unknown'} | "
+                    f"{row.get('scraper_email') or 'unknown'} | scraped {row.get('profiles_scraped') or 0}"
+                )
+                self.run_combo.addItem(label, row.get("id"))
+        except Exception:
+            pass
+
+        self.run_combo.blockSignals(False)
+        self.load_data()
+
+    def _fetch_alumni_row(self, conn, linkedin_url):
+        query = (
+            "SELECT first_name, last_name, scraped_at, grad_year, degree, major, discipline, "
+            "current_job_title, company, location, exp2_title, exp2_company, exp3_title, exp3_company, "
+            "linkedin_url FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s LIMIT 1"
+        )
+        params = (linkedin_url, f"{linkedin_url}/")
+        try:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute(query, params)
+                row = cur.fetchone()
+                return row or {}
+        except Exception:
+            sqlite_query = query.replace("%s", "?")
+            with conn.cursor() as cur:
+                cur.execute(sqlite_query, params)
+                row = cur.fetchone()
+                if not row:
+                    return {}
+                return dict(row)
+
+    def _load_rows_from_db(self, run_id):
+        rows = []
+        conn = self._get_connection()
+        try:
+            if run_id:
+                flags_sql = """
+                    SELECT rf.scrape_run_id, rf.linkedin_url, rf.reason, sr.started_at
+                    FROM scrape_run_flags rf
+                    LEFT JOIN scrape_runs sr ON sr.id = rf.scrape_run_id
+                    WHERE rf.scrape_run_id = %s
+                    ORDER BY rf.created_at DESC
+                """
+                params = (int(run_id),)
+            else:
+                flags_sql = """
+                    SELECT rf.scrape_run_id, rf.linkedin_url, rf.reason, sr.started_at
+                    FROM scrape_run_flags rf
+                    LEFT JOIN scrape_runs sr ON sr.id = rf.scrape_run_id
+                    ORDER BY rf.created_at DESC
+                    LIMIT 500
+                """
+                params = tuple()
+
+            try:
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute(flags_sql, params)
+                    flags = cur.fetchall() or []
+            except Exception:
+                with conn.cursor() as cur:
+                    cur.execute(flags_sql.replace("%s", "?"), params)
+                    flags = [dict(r) for r in (cur.fetchall() or [])]
+
+            for flag in flags:
+                url = (flag.get("linkedin_url") or "").strip().rstrip('/')
+                if not url:
+                    continue
+                alumni = self._fetch_alumni_row(conn, url)
+                first = (alumni.get("first_name") or "").strip()
+                last = (alumni.get("last_name") or "").strip()
+                name = f"{first} {last}".strip()
+                started_at = str(flag.get("started_at") or "")[:16].replace("T", " ")
+                rows.append({
+                    "run": f"#{flag.get('scrape_run_id') or '-'} {started_at}".strip(),
+                    "date": str(alumni.get("scraped_at") or "")[:10] if alumni.get("scraped_at") else "Unknown",
+                    "name": name,
+                    "reason": (flag.get("reason") or "Needs Manual Review").strip() or "Needs Manual Review",
+                    "linkedin_url": url,
+                    "grad_year": "" if alumni.get("grad_year") is None else str(alumni.get("grad_year")),
+                    "degree": alumni.get("degree") or "",
+                    "major": alumni.get("major") or "",
+                    "discipline": alumni.get("discipline") or "",
+                    "current_job_title": alumni.get("current_job_title") or "",
+                    "company": alumni.get("company") or "",
+                    "location": alumni.get("location") or "",
+                    "exp2_title": alumni.get("exp2_title") or "",
+                    "exp2_company": alumni.get("exp2_company") or "",
+                    "exp3_title": alumni.get("exp3_title") or "",
+                    "exp3_company": alumni.get("exp3_company") or "",
+                })
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return rows
+
+    def _load_rows_from_legacy_file(self):
+        flagged_urls = {}
+        if os.path.exists(self.txt_path):
+            with open(self.txt_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    parts = line.split('#')
+                    url = parts[0].strip().rstrip('/')
+                    if not url:
+                        continue
+                    reason = "Needs Manual Review"
+                    if len(parts) > 1:
+                        reason = parts[-1].strip() or reason
+                    flagged_urls[self._normalize_url(url)] = reason
+
+        rows = []
+        if os.path.exists(self.csv_path):
+            with open(self.csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    url = (row.get('linkedin_url', '') or row.get('profile_url', '')).strip().rstrip('/')
+                    if not url:
+                        continue
+                    url_key = self._normalize_url(url)
+                    if url_key not in flagged_urls:
+                        continue
+                    rows.append({
+                        "run": "legacy",
+                        "date": (row.get('scraped_at', '') or '')[:10] or "Unknown",
+                        "name": f"{row.get('first', '')} {row.get('last', '')}".strip(),
+                        "reason": flagged_urls.get(url_key, "Needs Manual Review"),
+                        "linkedin_url": url,
+                        "grad_year": str(row.get('grad_year', '') or row.get('graduation_year', '') or ''),
+                        "degree": row.get('degree', '') or '',
+                        "major": row.get('major', '') or '',
+                        "discipline": row.get('discipline', '') or '',
+                        "current_job_title": row.get('title', '') or row.get('job_title', '') or '',
+                        "company": row.get('company', '') or '',
+                        "location": row.get('location', '') or '',
+                        "exp2_title": row.get('exp_2_title', '') or row.get('exp2_title', '') or '',
+                        "exp2_company": row.get('exp_2_company', '') or row.get('exp2_company', '') or '',
+                        "exp3_title": row.get('exp_3_title', '') or row.get('exp3_title', '') or '',
+                        "exp3_company": row.get('exp_3_company', '') or row.get('exp3_company', '') or '',
+                    })
+
+        def get_date(entry):
+            try:
+                return datetime.fromisoformat((entry.get("date") or "").replace('Z', '+00:00'))
+            except Exception:
+                return datetime.min
+
+        rows.sort(key=get_date, reverse=True)
+        return rows
+
+    def _set_item(self, row_idx, col_idx, text, editable=False):
+        item = QTableWidgetItem("" if text is None else str(text))
+        if not editable:
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.table.setItem(row_idx, col_idx, item)
+        return item
+
+    def load_data(self):
+        run_id = self.run_combo.currentData() if hasattr(self, "run_combo") else None
+        rows = []
+        if run_id:
+            try:
+                rows = self._load_rows_from_db(run_id)
+            except Exception:
+                rows = self._load_rows_from_legacy_file()
+        else:
+            rows = self._load_rows_from_legacy_file()
+
+        self.table.setRowCount(len(rows))
+        for i, row in enumerate(rows):
+            cb = QCheckBox()
+            cb.setChecked(True)
+            cb_widget = QWidget()
+            cb_layout = QHBoxLayout(cb_widget)
+            cb_layout.addWidget(cb)
+            cb_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cb_layout.setContentsMargins(0, 0, 0, 0)
+            self.table.setCellWidget(i, 0, cb_widget)
+
+            self._set_item(i, 1, row.get("run", "-"), editable=False)
+            self._set_item(i, 2, row.get("date", "Unknown"), editable=False)
+            self._set_item(i, 3, row.get("name", ""), editable=False)
+            self._set_item(i, 4, row.get("reason", "Needs Manual Review"), editable=False)
+            url_item = self._set_item(i, 5, row.get("linkedin_url", ""), editable=False)
+            url_item.setData(Qt.ItemDataRole.UserRole, row)
+
+            for field in [
+                "grad_year", "degree", "major", "discipline", "current_job_title", "company", "location",
+                "exp2_title", "exp2_company", "exp3_title", "exp3_company"
+            ]:
+                col = self.FIELD_TO_COLUMN[field]
+                self._set_item(i, col, row.get(field, ""), editable=True)
+
+        self._apply_edit_rules()
+
+    def _reason_target_fields(self, reason):
+        text = (reason or "").strip().lower()
+        if "missing grad year" in text:
+            return {"grad_year"}
+        if "missing degree/major" in text:
+            return {"degree", "major", "discipline"}
+        if "missing company but job title present for experience 2" in text:
+            return {"exp2_company"}
+        if "missing job title but company present for experience 2" in text:
+            return {"exp2_title"}
+        if "missing company but job title present for experience 3" in text:
+            return {"exp3_company"}
+        if "missing job title but company present for experience 3" in text:
+            return {"exp3_title"}
+        if "missing company but job title present" in text:
+            return {"company"}
+        if "missing job title but company present" in text:
+            return {"current_job_title"}
+        return set()
+
+    def _apply_edit_rules(self):
+        bypass = self.bypass_edit_cb.isChecked() if hasattr(self, "bypass_edit_cb") else False
+        editable_fields = [
+            "grad_year", "degree", "major", "discipline", "current_job_title", "company", "location",
+            "exp2_title", "exp2_company", "exp3_title", "exp3_company"
+        ]
+        for row in range(self.table.rowCount()):
+            reason_item = self.table.item(row, 4)
+            reason = reason_item.text() if reason_item else ""
+            allowed = set(editable_fields) if bypass else self._reason_target_fields(reason)
+            for field in editable_fields:
+                col = self.FIELD_TO_COLUMN[field]
+                item = self.table.item(row, col)
+                if not item:
+                    continue
+                base_flags = item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+                if field in allowed:
+                    item.setFlags(base_flags | Qt.ItemFlag.ItemIsEditable)
+                else:
+                    item.setFlags(base_flags & ~Qt.ItemFlag.ItemIsEditable)
+
+    def open_selected_profile(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Open Profile", "Select a row first.")
+            return
+        url_item = self.table.item(row, 5)
+        url = (url_item.text() if url_item else "").strip()
+        if not url:
+            QMessageBox.warning(self, "Open Profile", "No profile URL found for selected row.")
+            return
+        webbrowser.open(url)
         
     def load_data(self):
         flagged_urls = {}
@@ -352,24 +708,100 @@ class FlagManagerDialog(QDialog):
             
     def save_flags(self):
         flagged = []
+        updates_by_url = {}
+        editable_fields = [
+            "grad_year", "degree", "major", "discipline", "current_job_title", "company", "location",
+            "exp2_title", "exp2_company", "exp3_title", "exp3_company"
+        ]
+
         for i in range(self.table.rowCount()):
             cb_widget = self.table.cellWidget(i, 0)
             if cb_widget and cb_widget.layout().itemAt(0).widget().isChecked():
-                url = self.table.item(i, 4).text()
-                name = self.table.item(i, 2).text()
-                reason = self.table.item(i, 3).text()
+                url = self.table.item(i, 5).text()
+                reason = (self.table.item(i, 4).text() if self.table.item(i, 4) else "").strip() or "Needs Manual Review"
                 
-                line = f"{url} # {name}"
-                if reason:
-                    line += f" # {reason}"
+                line = f"{url} # {reason}"
                 flagged.append(line)
+
+            url_item = self.table.item(i, 5)
+            if not url_item:
+                continue
+            row_data = url_item.data(Qt.ItemDataRole.UserRole) or {}
+            url = (url_item.text() or "").strip()
+            if not url:
+                continue
+
+            field_updates = {}
+            for field in editable_fields:
+                col = self.FIELD_TO_COLUMN[field]
+                item = self.table.item(i, col)
+                if not item:
+                    continue
+                new_val = (item.text() or "").strip()
+                old_val = str(row_data.get(field, "") or "").strip()
+                if field == "grad_year":
+                    if not new_val:
+                        parsed = None
+                    else:
+                        try:
+                            parsed = int(new_val)
+                        except ValueError:
+                            QMessageBox.critical(self, "Invalid Grad Year", f"Row {i+1}: grad year must be an integer.")
+                            return
+                    old_parsed = None
+                    if old_val:
+                        try:
+                            old_parsed = int(old_val)
+                        except Exception:
+                            old_parsed = None
+                    if parsed != old_parsed:
+                        field_updates[field] = parsed
+                else:
+                    if new_val != old_val:
+                        field_updates[field] = new_val or None
+
+            if field_updates:
+                updates_by_url[url] = field_updates
                 
         os.makedirs(os.path.dirname(self.txt_path), exist_ok=True)
         with open(self.txt_path, 'w', encoding='utf-8') as f:
             for item in flagged:
                 f.write(f"{item}\n")
+
+        updated_rows = 0
+        if updates_by_url:
+            try:
+                conn = self._get_connection()
+                try:
+                    for url, updates in updates_by_url.items():
+                        columns = list(updates.keys())
+                        assignments = ", ".join([f"{col} = %s" for col in columns])
+                        values = [updates[col] for col in columns]
+                        sql = f"UPDATE alumni SET {assignments} WHERE linkedin_url = %s OR linkedin_url = %s"
+                        params = tuple(values + [url, f"{url}/"])
+                        try:
+                            with conn.cursor() as cur:
+                                cur.execute(sql, params)
+                                updated_rows += cur.rowcount or 0
+                        except Exception:
+                            sqlite_sql = sql.replace("%s", "?")
+                            with conn.cursor() as cur:
+                                cur.execute(sqlite_sql, params)
+                                updated_rows += cur.rowcount or 0
+                    conn.commit()
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            except Exception as e:
+                QMessageBox.warning(self, "Partial Save", f"Flags were saved, but DB updates failed: {e}")
                 
-        QMessageBox.information(self, "Saved", f"Successfully saved {len(flagged)} profiles for review!")
+        QMessageBox.information(
+            self,
+            "Saved",
+            f"Saved {len(flagged)} profiles for review.\nApplied {len(updates_by_url)} edited profile update(s) to DB.",
+        )
         self.accept()
 
 class ScraperApp(QMainWindow):
@@ -382,7 +814,80 @@ class ScraperApp(QMainWindow):
         self.db_worker = None
         self.geocode_worker = None
         self._pending_upload_after_geocode = False
+        self._run_started_at = None
+        self._run_metrics = {}
         self.init_ui()
+
+    def _reset_run_metrics(self):
+        self._run_metrics = {
+            "user": "",
+            "mode": "",
+            "scraped_count": 0,
+            "run_duration": "",
+            "flagged_count": 0,
+            "review_path": "scraper/output/flagged_for_review.txt",
+            "cloud_success": 0,
+            "cloud_fail": 0,
+            "geocode_success": 0,
+            "geocode_fail": 0,
+            "geocode_unknown": 0,
+            "unknown_locations": "",
+        }
+
+    def _set_status_badge(self, label_widget, state, text, tooltip):
+        color_map = {
+            "green": "#1B5E20",
+            "yellow": "#B26A00",
+            "red": "#B00020",
+            "gray": "#5F6368",
+        }
+        color = color_map.get(state, color_map["gray"])
+        label_widget.setText(f"● {text}")
+        label_widget.setStyleSheet(f"color: {color}; font-weight: 600;")
+        label_widget.setToolTip(tooltip)
+
+    def _check_cloud_status(self):
+        try:
+            backend_dir = os.path.join(get_base_dir(), "backend")
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+            from database import get_direct_mysql_connection
+
+            conn = get_direct_mysql_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return "green", "Cloud DB connected", "Cloud writes are available."
+        except Exception as e:
+            return "red", "Cloud DB unavailable", f"Check internet/.env DB creds, then retry.\nDetails: {e}"
+
+    def _check_geocode_status(self):
+        try:
+            backend_dir = os.path.join(get_base_dir(), "backend")
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+            from geocoding import geocode_location_with_status
+
+            coords, status = geocode_location_with_status("Denton, Texas")
+            if coords:
+                return "green", "Geocoding reachable", "Location API is reachable and returning coordinates."
+            if status == "unknown_location":
+                return "yellow", "Geocoding limited", "Service reachable, but sample location was not resolved."
+            return "red", "Geocoding unavailable", "Check internet connection and retry geocode backfill later."
+        except Exception as e:
+            return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {e}"
+
+    def refresh_preflight_status(self):
+        cloud_state, cloud_text, cloud_tip = self._check_cloud_status()
+        geo_state, geo_text, geo_tip = self._check_geocode_status()
+        self._set_status_badge(self.cloud_status_label, cloud_state, cloud_text, cloud_tip)
+        self._set_status_badge(self.geo_status_label, geo_state, geo_text, geo_tip)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -414,6 +919,18 @@ class ScraperApp(QMainWindow):
         
         cred_group.setLayout(cred_layout)
         left_layout.addWidget(cred_group)
+
+        status_group = QGroupBox("Preflight Status")
+        status_layout = QVBoxLayout()
+        self.cloud_status_label = QLabel("● Checking cloud DB...")
+        self.geo_status_label = QLabel("● Checking geocoding...")
+        status_layout.addWidget(self.cloud_status_label)
+        status_layout.addWidget(self.geo_status_label)
+        self.refresh_status_btn = QPushButton("Refresh Status")
+        self.refresh_status_btn.clicked.connect(self.refresh_preflight_status)
+        status_layout.addWidget(self.refresh_status_btn)
+        status_group.setLayout(status_layout)
+        left_layout.addWidget(status_group)
         
         # 2. Target Profile Options
         target_group = QGroupBox("Scraping Mode & Targets")
@@ -584,6 +1101,8 @@ class ScraperApp(QMainWindow):
         
         # Auto-load existing config
         self.load_settings_from_env()
+        self._reset_run_metrics()
+        self.refresh_preflight_status()
 
     def on_mode_change(self, mode):
         is_conn = (mode == "connections")
@@ -645,9 +1164,70 @@ class ScraperApp(QMainWindow):
                 self.max_delay.setText("60")
 
     def append_console(self, text):
-        self.console.insertPlainText(text)
+        stripped = (text or "").strip()
+        if stripped.startswith("SUMMARY|"):
+            payload = stripped.split("SUMMARY|", 1)[1]
+            if "=" in payload:
+                key, value = payload.split("=", 1)
+                self._run_metrics[key.strip()] = value.strip()
+
+        line_lower = (text or "").lower()
+        color = "#D4D4D4"
+        if "error" in line_lower or "failed" in line_lower or "critical" in line_lower:
+            color = "#FF6B6B"
+        elif "warning" in line_lower or "unavailable" in line_lower:
+            color = "#FFD166"
+        elif "summary|" in line_lower or "run summary" in line_lower:
+            color = "#7FDBFF"
+        elif "progress |" in line_lower or "success" in line_lower or "finished" in line_lower:
+            color = "#8CE99A"
+
+        safe_text = (
+            (text or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+        self.console.insertHtml(f"<span style='color:{color};'>{safe_text}</span>")
         scrollbar = self.console.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    def _append_gui_summary_block(self):
+        if self._run_started_at:
+            elapsed_seconds = int((datetime.now() - self._run_started_at).total_seconds())
+            runtime = self._run_metrics.get("run_duration") or _format_runtime_short(elapsed_seconds)
+        else:
+            runtime = self._run_metrics.get("run_duration") or "0m"
+
+        user = self._run_metrics.get("user") or self.email_input.text().strip().lower() or "unknown"
+        mode = self._run_metrics.get("mode") or self.mode_combo.currentText()
+        scraped = self._run_metrics.get("scraped_count", 0)
+        flagged = self._run_metrics.get("flagged_count", 0)
+        review_path = self._run_metrics.get("review_path") or "scraper/output/flagged_for_review.txt"
+        cloud_success = self._run_metrics.get("cloud_success", 0)
+        cloud_fail = self._run_metrics.get("cloud_fail", 0)
+        geo_success = self._run_metrics.get("geocode_success", 0)
+        geo_fail = self._run_metrics.get("geocode_fail", 0)
+        geo_unknown = self._run_metrics.get("geocode_unknown", 0)
+        unknown_locations = self._run_metrics.get("unknown_locations") or ""
+
+        lines = [
+            "\n================ GUI RUN SUMMARY ================\n",
+            f"User: {user}\n",
+            f"Mode: {mode}\n",
+            f"Scraped Count: {scraped}\n",
+            f"Run Duration: {runtime}\n",
+            f"Flagged Count: {flagged}\n",
+            f"Review Path: {review_path}\n",
+            f"Cloud Upload Success/Fail: {cloud_success}/{cloud_fail}\n",
+            f"Geocode Success/Fail/Unknown: {geo_success}/{geo_fail}/{geo_unknown}\n",
+        ]
+        if unknown_locations:
+            lines.append(f"Unknown Locations: {unknown_locations}\n")
+        lines.append("=================================================\n")
+        for line in lines:
+            self.append_console(line)
 
     def show_help(self):
         QMessageBox.information(self, "How to Download Connections.csv", 
@@ -759,6 +1339,10 @@ class ScraperApp(QMainWindow):
         self.save_all_settings_to_env()
         
         self.console.clear()
+        self._run_started_at = datetime.now()
+        self._reset_run_metrics()
+        self._run_metrics["user"] = self.email_input.text().strip().lower()
+        self._run_metrics["mode"] = self.mode_combo.currentText()
         self.start_btn.setEnabled(False)
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
@@ -844,6 +1428,8 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self._append_gui_summary_block()
+        self.refresh_preflight_status()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

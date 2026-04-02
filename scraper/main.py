@@ -168,6 +168,11 @@ _cloud_upsert_disabled_for_run = False
 _geocode_failures_this_run = 0
 _geocode_failure_locations = set()
 _geocode_network_failures_this_run = 0
+_geocode_success_this_run = 0
+_cloud_upsert_successes_this_run = 0
+_cloud_upsert_failures_this_run = 0
+_sqlite_writes_this_run = 0
+_flagged_urls_this_run = set()
 _current_scrape_run_id = None
 _current_scrape_run_uuid = None
 
@@ -440,6 +445,44 @@ def wait_between_profiles():
         time.sleep(delay / 10)
 
 
+def _format_duration_short(total_seconds):
+    if total_seconds is None:
+        return "0m"
+    total_seconds = max(0, int(total_seconds))
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _emit_progress_line():
+    elapsed_seconds = int((datetime.now() - SCRIPT_START_TIME).total_seconds())
+    elapsed_label = _format_duration_short(elapsed_seconds)
+
+    if GUI_MAX_PROFILES > 0:
+        base = f"{session_profiles_scraped} out of {GUI_MAX_PROFILES} profiles scraped"
+    else:
+        base = f"{session_profiles_scraped} profiles scraped"
+
+    progress_parts = [base, f"elapsed {elapsed_label}"]
+
+    if GUI_MAX_RUNTIME_MINUTES > 0:
+        remaining_seconds_time = max(0, GUI_MAX_RUNTIME_MINUTES * 60 - elapsed_seconds)
+        progress_parts.append(f"time remaining {_format_duration_short(remaining_seconds_time)}")
+
+    if GUI_MAX_PROFILES > 0 and session_profiles_scraped > 0:
+        avg_seconds_per_profile = elapsed_seconds / max(1, session_profiles_scraped)
+        remaining_profiles = max(0, GUI_MAX_PROFILES - session_profiles_scraped)
+        est_seconds_profiles = int(avg_seconds_per_profile * remaining_profiles)
+        progress_parts.append(f"est profile-limit remaining {_format_duration_short(est_seconds_profiles)}")
+
+    if GUI_MAX_PROFILES > 0 and GUI_MAX_RUNTIME_MINUTES > 0:
+        progress_parts.append("stopping at whichever limit hits first")
+
+    logger.info("PROGRESS | %s", " | ".join(progress_parts))
+
+
 def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
     """
     When LinkedIn redirects old URL -> canonical URL, keep canonical and remove old URL
@@ -596,6 +639,10 @@ def _save_and_track(data, input_url, history_mgr):
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
     global _geocode_failures_this_run, _geocode_failure_locations
     global _geocode_network_failures_this_run
+    global _geocode_success_this_run
+    global _cloud_upsert_successes_this_run, _cloud_upsert_failures_this_run
+    global _sqlite_writes_this_run
+    global _flagged_urls_this_run
     global _current_scrape_run_id, session_profiles_scraped
     
     canonical_url = _normalize_profile_url(data.get("profile_url", input_url))
@@ -611,6 +658,7 @@ def _save_and_track(data, input_url, history_mgr):
             coords, geocode_status = geocode_location_with_status(location_text)
             if coords:
                 data["latitude"], data["longitude"] = coords
+                _geocode_success_this_run += 1
             elif geocode_status == "unknown_location" and location_text:
                 _geocode_failures_this_run += 1
                 _geocode_failure_locations.add(location_text)
@@ -641,10 +689,15 @@ def _save_and_track(data, input_url, history_mgr):
             status = upsert_status if isinstance(upsert_status, dict) else {}
             cloud_attempted = bool(status.get("cloud_attempted"))
             cloud_written = bool(status.get("cloud_written"))
+            sqlite_written = bool(status.get("sqlite_written"))
+            if sqlite_written:
+                _sqlite_writes_this_run += 1
             if cloud_attempted:
                 if cloud_written:
+                    _cloud_upsert_successes_this_run += 1
                     _cloud_upsert_consecutive_failures = 0
                 else:
+                    _cloud_upsert_failures_this_run += 1
                     _cloud_upsert_consecutive_failures += 1
                     logger.warning(
                         "Cloud upsert failed for profile (%s/%s consecutive failures).",
@@ -658,6 +711,7 @@ def _save_and_track(data, input_url, history_mgr):
                             _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES,
                         )
         except Exception as upsert_err:
+            _cloud_upsert_failures_this_run += 1
             _cloud_upsert_consecutive_failures += 1
             if _cloud_upsert_consecutive_failures >= _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES:
                 _cloud_upsert_disabled_for_run = True
@@ -675,6 +729,9 @@ def _save_and_track(data, input_url, history_mgr):
         if _current_scrape_run_id:
             for reason in _collect_profile_flag_reasons(data):
                 record_scrape_run_flag(_current_scrape_run_id, canonical_url, reason)
+                _flagged_urls_this_run.add(canonical_url)
+
+        _emit_progress_line()
 
         return True
     return False
@@ -1068,12 +1125,21 @@ def main():
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
     global _geocode_failures_this_run, _geocode_failure_locations
     global _geocode_network_failures_this_run
+    global _geocode_success_this_run
+    global _cloud_upsert_successes_this_run, _cloud_upsert_failures_this_run
+    global _sqlite_writes_this_run
+    global _flagged_urls_this_run
     global _current_scrape_run_id, _current_scrape_run_uuid, session_profiles_scraped
     _cloud_upsert_consecutive_failures = 0
     _cloud_upsert_disabled_for_run = False
     _geocode_failures_this_run = 0
     _geocode_failure_locations = set()
     _geocode_network_failures_this_run = 0
+    _geocode_success_this_run = 0
+    _cloud_upsert_successes_this_run = 0
+    _cloud_upsert_failures_this_run = 0
+    _sqlite_writes_this_run = 0
+    _flagged_urls_this_run = set()
     session_profiles_scraped = 0
     _current_scrape_run_id = None
     _current_scrape_run_uuid = str(uuid.uuid4())
@@ -1128,6 +1194,46 @@ def main():
         run_status = "failed"
         logger.exception(f"Unhandled scraping error: {unhandled_err}")
     finally:
+        run_duration_seconds = int((datetime.now() - SCRIPT_START_TIME).total_seconds())
+        logger.info("=" * 60)
+        logger.info("RUN SUMMARY")
+        logger.info("  user: %s", config.LINKEDIN_EMAIL or "unknown")
+        logger.info("  mode: %s", config.SCRAPER_MODE)
+        logger.info("  scraped count: %s", session_profiles_scraped)
+        logger.info("  run duration: %s", _format_duration_short(run_duration_seconds))
+        logger.info("  flagged count: %s", len(_flagged_urls_this_run))
+        logger.info("  review source: scraper/output/flagged_for_review.txt")
+        logger.info(
+            "  cloud upload success/fail: %s/%s",
+            _cloud_upsert_successes_this_run,
+            _cloud_upsert_failures_this_run,
+        )
+        logger.info("  sqlite mirror writes: %s", _sqlite_writes_this_run)
+        logger.info(
+            "  geocode success/fail/unknown: %s/%s/%s",
+            _geocode_success_this_run,
+            _geocode_network_failures_this_run,
+            _geocode_failures_this_run,
+        )
+        if _geocode_failure_locations:
+            logger.info("  unknown locations: %s", "; ".join(sorted(_geocode_failure_locations)[:10]))
+        logger.info("=" * 60)
+
+        # Machine-readable lines for GUI summary parsing.
+        logger.info("SUMMARY|user=%s", config.LINKEDIN_EMAIL or "unknown")
+        logger.info("SUMMARY|mode=%s", config.SCRAPER_MODE)
+        logger.info("SUMMARY|scraped_count=%s", session_profiles_scraped)
+        logger.info("SUMMARY|run_duration=%s", _format_duration_short(run_duration_seconds))
+        logger.info("SUMMARY|flagged_count=%s", len(_flagged_urls_this_run))
+        logger.info("SUMMARY|review_path=scraper/output/flagged_for_review.txt")
+        logger.info("SUMMARY|cloud_success=%s", _cloud_upsert_successes_this_run)
+        logger.info("SUMMARY|cloud_fail=%s", _cloud_upsert_failures_this_run)
+        logger.info("SUMMARY|geocode_success=%s", _geocode_success_this_run)
+        logger.info("SUMMARY|geocode_fail=%s", _geocode_network_failures_this_run)
+        logger.info("SUMMARY|geocode_unknown=%s", _geocode_failures_this_run)
+        if _geocode_failure_locations:
+            logger.info("SUMMARY|unknown_locations=%s", "; ".join(sorted(_geocode_failure_locations)[:10]))
+
         if _current_scrape_run_id:
             finalize_scrape_run(
                 run_id=_current_scrape_run_id,
