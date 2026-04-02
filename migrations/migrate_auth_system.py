@@ -35,6 +35,8 @@ _NEW_COLUMNS = [
     ("auth_type", "VARCHAR(20) DEFAULT 'linkedin_only'", "TEXT DEFAULT 'linkedin_only'"),
     ("role", "VARCHAR(10) DEFAULT 'user'", "TEXT DEFAULT 'user'"),
     ("must_change_password", "BOOLEAN DEFAULT FALSE", "INTEGER DEFAULT 0"),
+    ("failed_attempts", "INT DEFAULT 0", "INTEGER DEFAULT 0"),
+    ("lock_until", "DATETIME DEFAULT NULL", "TEXT DEFAULT NULL"),
 ]
 
 

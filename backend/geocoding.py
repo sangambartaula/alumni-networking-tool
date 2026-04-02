@@ -11,6 +11,10 @@ from typing import Optional, Tuple, List, Dict, Any
 import mysql.connector
 from database import get_connection
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / '.env')
 
 logger = logging.getLogger(__name__)
 

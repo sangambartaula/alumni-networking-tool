@@ -6,7 +6,7 @@ import re
 from dotenv import load_dotenv
 from pathlib import Path
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / '.env')
 
 APPROVED_ENGINEERING_DISCIPLINES = {
     "Software, Data, AI & Cybersecurity",
@@ -406,6 +406,12 @@ def init_db():
                     email VARCHAR(255),
                     first_name VARCHAR(100),
                     last_name VARCHAR(100),
+                    password_hash VARCHAR(255) DEFAULT NULL,
+                    auth_type VARCHAR(20) DEFAULT 'linkedin_only',
+                    role VARCHAR(10) DEFAULT 'user',
+                    must_change_password BOOLEAN DEFAULT FALSE,
+                    failed_attempts INT DEFAULT 0,
+                    lock_until DATETIME DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 )

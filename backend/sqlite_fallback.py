@@ -220,6 +220,8 @@ class ConnectionManager:
                     auth_type TEXT DEFAULT 'linkedin_only',
                     role TEXT DEFAULT 'user',
                     must_change_password INTEGER DEFAULT 0,
+                    failed_attempts INTEGER DEFAULT 0,
+                    lock_until TEXT DEFAULT NULL,
                     created_at TEXT DEFAULT (datetime('now')),
                     updated_at TEXT DEFAULT (datetime('now'))
                 );

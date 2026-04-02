@@ -764,8 +764,9 @@ def access_denied():
 @app.route('/api/auth/login', methods=['POST'])
 def api_auth_login():
     """Email/password login endpoint."""
-    from auth import verify_password, check_rate_limit, clear_rate_limit
-    from database import get_user_by_email, is_email_authorized
+    from auth import verify_password
+    from database import get_user_by_email, is_authorized_user, record_failed_login, reset_failed_login
+    import datetime
 
     data = request.get_json(silent=True) or {}
     email = (data.get('email') or '').strip().lower()
@@ -774,29 +775,47 @@ def api_auth_login():
     if not email or not password:
         return jsonify({"error": "Email and password are required."}), 400
 
-    # Rate limiting
-    if not check_rate_limit(email):
-        return jsonify({"error": "Too many login attempts. Please try again later."}), 429
-
-    # Whitelist check
-    if not is_authorized_user(email):
-        return jsonify({"error": "Your account is not authorized. Please contact an admin."}), 403
-
     user = get_user_by_email(email)
+    generic_error = "Invalid credentials"
+
+    # Block if locked out natively
+    if user and user.get("lock_until"):
+        lock_until_val = user["lock_until"]
+        if isinstance(lock_until_val, str):
+            try:
+                lock_dt = datetime.datetime.strptime(lock_until_val, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                lock_dt = datetime.datetime.utcnow() # fallback
+        else:
+            lock_dt = lock_until_val
+            
+        if lock_dt > datetime.datetime.utcnow():
+            delta = lock_dt - datetime.datetime.utcnow()
+            mins = int(delta.total_seconds() / 60) + 1
+            return jsonify({"error": f"Too many failed attempts. Try again after {mins} minutes."}), 401
+
     if not user:
-        return jsonify({"error": "Invalid email or password."}), 401
+        return jsonify({"error": generic_error}), 401
+
+    if not is_authorized_user(email):
+        # Still generic to avoid side-channel leaking
+        return jsonify({"error": generic_error}), 401
 
     if not user.get('password_hash'):
-        auth_type = user.get('auth_type', '')
-        if auth_type == 'linkedin_only':
-            return jsonify({"error": "This account uses LinkedIn login. Please create a password in Settings first."}), 401
-        return jsonify({"error": "No password set. Please contact an admin."}), 401
+        # Track failure against email since no password allowed anyways
+        attempts, lock = record_failed_login(email)
+        if lock:
+            return jsonify({"error": "Too many failed attempts. Try again after 30 minutes."}), 401
+        return jsonify({"error": generic_error}), 401
 
     if not verify_password(password, user['password_hash']):
-        return jsonify({"error": "Invalid email or password."}), 401
+        attempts, lock = record_failed_login(email)
+        if lock:
+            return jsonify({"error": "Too many failed attempts. Try again after 30 minutes."}), 401
+        return jsonify({"error": generic_error}), 401
 
     # Success — set session
-    clear_rate_limit(email)
+    reset_failed_login(email)
     session['user_email'] = email
     session['user_role'] = user.get('role', 'user')
     must_change = bool(user.get('must_change_password'))
