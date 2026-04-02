@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QSizePolicy
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 
 
 def _format_runtime_short(total_seconds):
@@ -578,8 +578,10 @@ class FlagManagerDialog(QDialog):
         return rows
 
     def _set_item(self, row_idx, col_idx, text, editable=False):
-        item = QTableWidgetItem("" if text is None else str(text))
-        item.setData(Qt.ItemDataRole.UserRole + 1, "" if text is None else str(text))
+        item_text = "" if text is None else str(text)
+        item = QTableWidgetItem(item_text)
+        item.setData(Qt.ItemDataRole.UserRole + 1, item_text)
+        item.setToolTip(item_text)
         if not editable:
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.table.setItem(row_idx, col_idx, item)
@@ -757,7 +759,7 @@ class FlagManagerDialog(QDialog):
                         parsed = None
                     else:
                         try:
-                            parsed = int(new_val)
+                            parsed = int(float(new_val))
                         except ValueError:
                             QMessageBox.critical(self, "Invalid Grad Year", f"Row {i+1}: grad year must be an integer.")
                             return
@@ -823,6 +825,12 @@ class ScraperApp(QMainWindow):
         self.setWindowTitle("UNT Alumni Scraper")
         self.resize(850, 650)
         
+        base_dir = get_base_dir()
+        icon_path = os.path.join(base_dir, 'frontend', 'public', 'assets', 'unt-logo.png')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            QApplication.setWindowIcon(QIcon(icon_path))
+            
         self.worker = None
         self.db_worker = None
         self.geocode_worker = None
@@ -1208,10 +1216,10 @@ class ScraperApp(QMainWindow):
         self.discs = {}
         row = 0
         discipline_options = [
-            ("software", "Software, Data, AI & Cybersecurity"),
-            ("embedded", "Embedded, Electrical & Hardware Engineering"),
-            ("mechanical", "Mechanical Engineering & Manufacturing (includes Energy + Materials)"),
-            ("construction", "Construction & Engineering Management"),
+            ("software", "Software, Data, AI && Cybersecurity"),
+            ("embedded", "Embedded, Electrical && Hardware Engineering"),
+            ("mechanical", "Mechanical Engineering && Manufacturing"),
+            ("construction", "Construction && Engineering Management"),
             ("biomedical", "Biomedical Engineering"),
         ]
         disc_layout.setHorizontalSpacing(4)

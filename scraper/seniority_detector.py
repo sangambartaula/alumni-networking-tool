@@ -132,34 +132,7 @@ def adjust_and_flag_seniority(seniority, experience_months, linkedin_url):
 
 def _flag_seniority_mismatch(linkedin_url, seniority, experience_months, expected_min):
     """Append a seniority mismatch flag to flagged_for_review.txt."""
-    url = str(linkedin_url).strip().rstrip('/')
-    if not url:
-        return
-    
-    comment = (
-        f"{seniority} but only {experience_months} months relevant experience "
-        f"(expected >= {expected_min} months)"
-    )
-    flag_line = f"{url} # Seniority mismatch: {comment}\n"
-    
-    try:
-        FLAGGED_PROFILES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Check if already flagged for seniority
-        existing_urls = set()
-        if FLAGGED_PROFILES_FILE.exists():
-            with open(FLAGGED_PROFILES_FILE, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if 'Seniority mismatch' in line:
-                        existing_url = line.split('#')[0].strip()
-                        existing_urls.add(existing_url)
-        
-        if url not in existing_urls:
-            with open(FLAGGED_PROFILES_FILE, 'a', encoding='utf-8') as f:
-                f.write(flag_line)
-            logger.info(f"🚩 Seniority mismatch flagged: {url} - {comment}")
-    except Exception as e:
-        logger.warning(f"Could not flag seniority mismatch: {e}")
+    pass
 
 
 def analyze_seniority(profile_data, relevant_experience_months=None):
