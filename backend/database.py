@@ -1531,8 +1531,328 @@ def migrate_env_emails_to_db():
 
 
 # ============================================================
-# SCRAPER ACTIVITY TRACKING
+# AUTH: USER MANAGEMENT
+# See docs/AUTH.md for auth-flow details.
 # ============================================================
+
+def get_user_by_email(email):
+    """
+    Fetch a user row by email.  Returns dict or None.
+    Used by the login and session flows (see backend/app.py § /api/auth/login).
+    """
+    if not email:
+        return None
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        if use_sqlite:
+            with conn.cursor(dictionary=True) as cursor:
+                cursor.execute(
+                    "SELECT * FROM users WHERE LOWER(email) = LOWER(?)", (email,)
+                )
+                return cursor.fetchone()
+        else:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute(
+                    "SELECT * FROM users WHERE LOWER(email) = LOWER(%s)", (email,)
+                )
+                return cur.fetchone()
+    except Exception as err:
+        logger.error(f"Error fetching user by email {email}: {err}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def create_user_with_password(email, password_hash, role="user"):
+    """
+    Create a new user with email/password auth.
+    Caller must verify whitelist *before* calling this function.
+    Returns True on success.
+    """
+    if not email:
+        return False
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        if use_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO users
+                   (email, linkedin_id, password_hash, auth_type, role, must_change_password)
+                   VALUES (?, ?, ?, 'email_password', ?, 0)""",
+                (email, f"email_{email}", password_hash, role),
+            )
+            conn.commit()
+        else:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO users
+                       (email, linkedin_id, password_hash, auth_type, role, must_change_password)
+                       VALUES (%s, %s, %s, 'email_password', %s, FALSE)""",
+                    (email, f"email_{email}", password_hash, role),
+                )
+                conn.commit()
+
+        logger.info(f"Created user {email} with role={role}")
+        return True
+    except Exception as err:
+        logger.error(f"Error creating user {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def update_user_password(email, password_hash, auth_type=None):
+    """
+    Update a user's password hash.  Optionally update auth_type
+    (e.g. 'both' when a LinkedIn user creates a password).
+    """
+    if not email:
+        return False
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        if auth_type:
+            sql_sqlite = "UPDATE users SET password_hash = ?, auth_type = ?, must_change_password = 0 WHERE LOWER(email) = LOWER(?)"
+            sql_mysql = "UPDATE users SET password_hash = %s, auth_type = %s, must_change_password = FALSE WHERE LOWER(email) = LOWER(%s)"
+            params = (password_hash, auth_type, email)
+        else:
+            sql_sqlite = "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE LOWER(email) = LOWER(?)"
+            sql_mysql = "UPDATE users SET password_hash = %s, must_change_password = FALSE WHERE LOWER(email) = LOWER(%s)"
+            params = (password_hash, email)
+
+        if use_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(sql_sqlite, params)
+            conn.commit()
+        else:
+            with conn.cursor() as cur:
+                cur.execute(sql_mysql, params)
+                conn.commit()
+
+        logger.info(f"Updated password for {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error updating password for {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def set_must_change_password(email, value=True):
+    """Set the must_change_password flag for a user."""
+    if not email:
+        return False
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        bool_val = 1 if value else 0
+        if use_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET must_change_password = ? WHERE LOWER(email) = LOWER(?)",
+                (bool_val, email),
+            )
+            conn.commit()
+        else:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET must_change_password = %s WHERE LOWER(email) = LOWER(%s)",
+                    (value, email),
+                )
+                conn.commit()
+
+        return True
+    except Exception as err:
+        logger.error(f"Error setting must_change_password for {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def update_user_role(email, role):
+    """Set the role ('admin' or 'user') for a user."""
+    if role not in ("admin", "user"):
+        return False
+    if not email:
+        return False
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        if use_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET role = ? WHERE LOWER(email) = LOWER(?)",
+                (role, email),
+            )
+            conn.commit()
+        else:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET role = %s WHERE LOWER(email) = LOWER(%s)",
+                    (role, email),
+                )
+                conn.commit()
+
+        logger.info(f"Updated role for {email} to {role}")
+        return True
+    except Exception as err:
+        logger.error(f"Error updating role for {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_all_users():
+    """Return all user rows (admin dashboard). Sensitive fields omitted."""
+    conn = None
+    try:
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        sql = """SELECT id, email, first_name, last_name, auth_type, role,
+                        must_change_password, created_at
+                 FROM users ORDER BY email"""
+
+        if use_sqlite:
+            with conn.cursor(dictionary=True) as cursor:
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+        else:
+            with conn.cursor(dictionary=True) as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+
+        # Serialize datetimes
+        for row in rows:
+            for key in ("created_at",):
+                val = row.get(key)
+                if hasattr(val, "isoformat"):
+                    row[key] = val.isoformat()
+            # Coerce must_change_password to bool for JSON
+            row["must_change_password"] = bool(row.get("must_change_password"))
+
+        return rows
+    except Exception as err:
+        logger.error(f"Error fetching all users: {err}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def delete_user(email):
+    """Remove a user by email."""
+    if not email:
+        return False
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        if use_sqlite:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM users WHERE LOWER(email) = LOWER(?)", (email,))
+            conn.commit()
+        else:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
+                conn.commit()
+
+        logger.info(f"Deleted user {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error deleting user {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def admin_reset_password(email):
+    """
+    Admin resets a user's password: clear the hash and flag for change.
+    See docs/AUTH.md § Admin Password Reset.
+    """
+    if not email:
+        return False
+    conn = None
+    try:
+        email = email.lower().strip()
+        conn = get_connection()
+        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
+
+        if use_sqlite:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET password_hash = NULL, must_change_password = 1 WHERE LOWER(email) = LOWER(?)",
+                (email,),
+            )
+            conn.commit()
+        else:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET password_hash = NULL, must_change_password = TRUE WHERE LOWER(email) = LOWER(%s)",
+                    (email,),
+                )
+                conn.commit()
+
+        logger.info(f"Admin reset password for {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error in admin_reset_password for {email}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 
 def increment_scraper_activity(email):
     """

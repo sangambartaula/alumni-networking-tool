@@ -216,6 +216,10 @@ class ConnectionManager:
                     email TEXT,
                     first_name TEXT,
                     last_name TEXT,
+                    password_hash TEXT DEFAULT NULL,
+                    auth_type TEXT DEFAULT 'linkedin_only',
+                    role TEXT DEFAULT 'user',
+                    must_change_password INTEGER DEFAULT 0,
                     created_at TEXT DEFAULT (datetime('now')),
                     updated_at TEXT DEFAULT (datetime('now'))
                 );
@@ -456,6 +460,20 @@ class ConnectionManager:
                 conn.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_type}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Auth columns for users table (covers pre-auth databases)
+        _user_auth_cols = [
+            ("password_hash", "TEXT DEFAULT NULL"),
+            ("auth_type", "TEXT DEFAULT 'linkedin_only'"),
+            ("role", "TEXT DEFAULT 'user'"),
+            ("must_change_password", "INTEGER DEFAULT 0"),
+        ]
+        for col_name, col_def in _user_auth_cols:
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
         conn.commit()
         
         conn.close()
