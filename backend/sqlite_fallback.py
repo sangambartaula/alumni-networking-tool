@@ -1047,6 +1047,10 @@ class SQLiteConnectionWrapper:
     def __enter__(self):
         return self
     
+    def is_connected(self):
+        """Duck-typed method to emulate mysql-connector connection interface."""
+        return True
+    
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
             self.rollback()

@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QGroupBox, QLabel, QLineEdit, QComboBox, 
     QCheckBox, QPushButton, QTextEdit, QMessageBox, QDialog,
-    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QSizePolicy
+    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QSizePolicy, QTabWidget, QFormLayout, QScrollArea, QFrame
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
@@ -304,6 +304,7 @@ class FlagManagerDialog(QDialog):
         self.load_runs()
         self.load_data()
         
+
     def init_ui(self):
         layout = QVBoxLayout(self)
 
@@ -819,6 +820,211 @@ class FlagManagerDialog(QDialog):
         )
         self.accept()
 
+
+import dotenv
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Scraper Settings")
+        self.setMinimumSize(600, 700)
+        
+        self.base_dir = get_base_dir()
+        self.env_path = os.path.join(self.base_dir, '.env')
+        self.env_values = dotenv.dotenv_values(self.env_path)
+        
+        self._fields = {}
+        
+        layout = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+        
+        self.create_credentials_tab()
+        self.create_scraper_tab()
+        self.create_database_tab()
+        self.create_advanced_tab()
+        
+        btn_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.clicked.connect(self.reset_to_defaults)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        
+        save_btn = QPushButton("Save && Test Connection")
+        save_btn.clicked.connect(self.save_and_test)
+        save_btn.setStyleSheet("background-color: #2e6f40; color: white; font-weight: bold; padding: 6px;")
+        
+        btn_layout.addWidget(reset_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(save_btn)
+        
+        layout.addLayout(btn_layout)
+
+    def _add_field(self, form_layout, key, label_text, ftype, default_val, tooltip, is_required=False, is_password=False):
+        lbl = QLabel(f"{label_text} *" if is_required else label_text)
+        if is_required:
+            lbl.setStyleSheet("color: #0056b3; font-weight: bold;")
+        else:
+            lbl.setStyleSheet("color: #666;")
+            
+        help_btn = QPushButton("?")
+        help_btn.setFixedSize(18, 18)
+        help_btn.setToolTip(tooltip)
+        help_btn.setStyleSheet("border-radius: 9px; background-color: #ddd; color: #333; font-size: 11px; font-weight: bold;")
+        
+        lbl_widget = QWidget()
+        lbl_h = QHBoxLayout(lbl_widget)
+        lbl_h.setContentsMargins(0, 0, 5, 0)
+        lbl_h.addWidget(lbl)
+        lbl_h.addWidget(help_btn)
+        lbl_h.addStretch()
+        
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        
+        current_val = self.env_values.get(key, "")
+        inp_widget = None
+        
+        if ftype == bool:
+            inp_widget = QCheckBox()
+            # Strict falsy checks for bools
+            val_str = current_val.lower() if current_val else str(default_val).lower()
+            inp_widget.setChecked(val_str in ("true", "1", "yes"))
+            row_layout.addWidget(inp_widget)
+            row_layout.addStretch()
+        else:
+            inp_widget = QLineEdit()
+            inp_widget.setPlaceholderText(f"Default: {default_val}")
+            if current_val:
+                inp_widget.setText(current_val)
+            
+            if is_password:
+                inp_widget.setEchoMode(QLineEdit.EchoMode.Password)
+                toggle = QCheckBox("Show")
+                toggle.toggled.connect(lambda checked, i=inp_widget: i.setEchoMode(QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password))
+                row_layout.addWidget(inp_widget)
+                row_layout.addWidget(toggle)
+            else:
+                row_layout.addWidget(inp_widget)
+                
+        form_layout.addRow(lbl_widget, row_widget)
+        
+        self._fields[key] = {
+            'widget': inp_widget,
+            'type': ftype,
+            'default': default_val
+        }
+
+    def _create_tab(self, name):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        form = QFormLayout(container)
+        form.setSpacing(15)
+        scroll.setWidget(container)
+        self.tabs.addTab(scroll, name)
+        return form
+
+    def create_credentials_tab(self):
+        f = self._create_tab("Credentials")
+        self._add_field(f, "LINKEDIN_EMAIL", "LinkedIn Email", str, "", "Email address used for LinkedIn login. Required for headless or expired sessions.", True)
+        self._add_field(f, "LINKEDIN_PASSWORD", "LinkedIn Password", str, "", "Password for LinkedIn. Only needed if cookies expire.", True, True)
+        self._add_field(f, "GROQ_API_KEY", "Groq API Key", str, "", "API key for the Groq inference engine (required for data normalization).", True, True)
+        self._add_field(f, "LINKEDIN_CLIENT_ID", "Client ID (OAuth)", str, "", "Client ID for website login integration.", False)
+        self._add_field(f, "LINKEDIN_CLIENT_SECRET", "Client Secret (OAuth)", str, "", "Client Secret for website login integration.", False, True)
+
+    def create_scraper_tab(self):
+        f = self._create_tab("Scraper")
+        self._add_field(f, "MIN_DELAY", "Min Delay", int, 60, "Minimum seconds to wait between profile scrapes (prevents ban).", True)
+        self._add_field(f, "MAX_DELAY", "Max Delay", int, 240, "Maximum seconds to wait between profile scrapes.", True)
+        self._add_field(f, "HEADLESS", "Headless Mode", bool, False, "Run browser invisibly in background. Often faster, but harder to solve catchas.", False)
+        self._add_field(f, "USE_COOKIES", "Use Cookies", bool, True, "Attempt to inject previous session cookies to bypass manual login.", False)
+        self._add_field(f, "SCRAPER_DEBUG_HTML", "Debug HTML", bool, False, "Save scraped HTML dumps on failure for inspection.", False)
+        self._add_field(f, "SCRAPE_RESUME_MAX_AGE_DAYS", "Resume Max Age", int, 90, "Profiles successfully scraped within these days will be skipped.", False)
+        self._add_field(f, "USE_GROQ", "Extrapolate with Groq", bool, True, "Pass scraped profiles to LLM for final structure normalization.", False)
+
+    def create_database_tab(self):
+        f = self._create_tab("Database")
+        self._add_field(f, "MYSQLHOST", "MySQL Host", str, "localhost", "Database server address (e.g., your.domain.com or localhost).", True)
+        self._add_field(f, "MYSQLUSER", "MySQL User", str, "root", "Database username.", True)
+        self._add_field(f, "MYSQLPASSWORD", "MySQL Password", str, "", "Database password.", True, True)
+        self._add_field(f, "MYSQL_DATABASE", "Database Name", str, "linkedinhelper", "Primary catalog/schema name.", True)
+        self._add_field(f, "MYSQLPORT", "MySQL Port", int, 3306, "Database connection port (defaults to 3306).", True)
+        self._add_field(f, "USE_SQLITE_FALLBACK", "SQLite Fallback", bool, True, "If MySQL fails or is unreachable, locally cache into SQLite.", False)
+        self._add_field(f, "DISABLE_DB", "Disable DB", bool, False, "Completely disable MySQL/SQLite connections (CSV-only output).", False)
+
+    def create_advanced_tab(self):
+        f = self._create_tab("Advanced")
+        self._add_field(f, "PAGE_SETTLE_SECONDS", "Page Settle Time", int, 3, "Seconds to wait immediately after a direct URL visit.", False)
+        self._add_field(f, "POST_SECTION_WAIT_SECONDS", "Post-Section Wait", float, 1.5, "Fractional seconds to wait after expanding sections like 'Experience'.", False)
+        self._add_field(f, "EDU_READY_TIMEOUT_SECONDS", "Edu Ready Timeout", int, 5, "Maximum seconds to wait for Education DOM nodes to appear.", False)
+        self._add_field(f, "RATE_LIMIT_SECONDS", "Rate Limit Penalty", float, 3600, "Seconds to pause scraper completely if heavily blocked.", False)
+        self._add_field(f, "SCROLL_PAUSE_TIME", "Scroll Pause Time", float, 1.0, "Fractional seconds between internal scroll increments.", False)
+        self._add_field(f, "FLAG_MISSING_EXPERIENCE_DATA", "Flag Missing XP", bool, False, "Tag profiles for manual UI review if experience blocks are missing.", False)
+
+    def reset_to_defaults(self):
+        for key, field in self._fields.items():
+            w = field['widget']
+            d = field['default']
+            t = field['type']
+            if t == bool:
+                w.setChecked(bool(d))
+            else:
+                w.setText("")
+        QMessageBox.information(self, "Reset", "Fields reset. Click Save to apply changes to .env.")
+
+    def save_and_test(self):
+        updates = {}
+        for key, field in self._fields.items():
+            w = field['widget']
+            t = field['type']
+            
+            if t == bool:
+                updates[key] = "true" if w.isChecked() else "false"
+            else:
+                val = w.text().strip()
+                if val:
+                    try:
+                        t(val)
+                    except ValueError:
+                        QMessageBox.warning(self, "Validation Error", f"Invalid value for {key}: must be valid {t.__name__}")
+                        w.setFocus()
+                        return
+                    updates[key] = val
+                else:
+                    # User wants it empty (or fallback to default dynamically later)
+                    # We can remove the key or leave it empty
+                    updates[key] = ""
+                    
+        # Write back all updates to .env
+        for k, v in updates.items():
+            update_env(k, v)
+            
+        # Safely try MySQL
+        try:
+            import mysql.connector
+            port_val = updates.get("MYSQLPORT", "")
+            port_val = int(port_val) if port_val else 3306
+            conn = mysql.connector.connect(
+                host=updates.get("MYSQLHOST", ""),
+                user=updates.get("MYSQLUSER", ""),
+                password=updates.get("MYSQLPASSWORD", ""),
+                database=updates.get("MYSQL_DATABASE", ""),
+                port=port_val,
+                connection_timeout=5
+            )
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.close()
+            QMessageBox.information(self, "Success", "✅ Settings saved & database connected successfully!")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Database Connection Failed", f"❌ Database connection failed:\n{e}")
+
+
 class ScraperApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1103,7 +1309,7 @@ class ScraperApp(QMainWindow):
                     pass
             return "green", "Cloud DB connected", "Cloud writes are available."
         except Exception as e:
-            return "red", "Cloud DB unavailable", f"Check internet/.env DB creds, then retry.\nDetails: {e}"
+            return "red", "Cloud DB unavailable", f"Check internet/.env DB creds, then retry.\nDetails: {type(e).__name__} - {e}"
 
     def _check_geocode_status(self):
         try:
@@ -1119,7 +1325,7 @@ class ScraperApp(QMainWindow):
                 return "yellow", "Geocoding limited", "Service reachable, but sample location was not resolved."
             return "red", "Geocoding unavailable", "Check internet connection and retry geocode backfill later."
         except Exception as e:
-            return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {e}"
+            return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {type(e).__name__} - {e}"
 
     def refresh_preflight_status(self):
         cloud_state, cloud_text, cloud_tip = self._check_cloud_status()
@@ -1127,6 +1333,14 @@ class ScraperApp(QMainWindow):
         self._set_status_badge(self.cloud_status_label, cloud_state, cloud_text, cloud_tip)
         self._set_status_badge(self.geo_status_label, geo_state, geo_text, geo_tip)
 
+
+    def open_settings(self):
+        dialog = SettingsDialog(self)
+        if dialog.exec():
+            # If accepted, we might want to reload environment
+            # This triggers a preflight refresh internally just in case
+            self.refresh_preflight_status()
+            
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -1140,6 +1354,13 @@ class ScraperApp(QMainWindow):
         left_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         left_layout.setSpacing(10)
         
+        
+        # Settings Button
+        self.settings_btn = QPushButton("⚙️ Settings")
+        self.settings_btn.setStyleSheet("padding: 8px; font-weight: bold; font-size: 14px; margin-bottom: 5px; background-color: #f0f0f0; border: 1px solid #ccc; border-radius: 4px;")
+        self.settings_btn.clicked.connect(self.open_settings)
+        left_layout.addWidget(self.settings_btn)
+
         # 1. Credentials Group
         cred_group = QGroupBox("LinkedIn Credentials")
         cred_layout = QGridLayout()

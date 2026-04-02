@@ -940,7 +940,9 @@ function addLayerControls() {
 async function loadHeatmapData(url = '/api/heatmap') {
   const requestToken = ++activeHeatmapRequestToken;
   try {
-    const response = await fetch(url);
+    const separator = url.includes('?') ? '&' : '?';
+    const fetchUrl = url + separator + '_t=' + new Date().getTime();
+    const response = await fetch(fetchUrl);
     const data = await response.json();
 
     // Ignore out-of-order responses from older requests.
