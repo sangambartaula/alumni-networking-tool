@@ -1,4 +1,4 @@
-﻿# UNT Alumni Networking Tool - Setup Guide
+# UNT Alumni Networking Tool - Setup Guide
 
 This guide is for UNT IT staff and future technical maintainers setting up the project from scratch.
 
@@ -103,8 +103,8 @@ What each block controls:
 - LinkedIn Credentials: scraper login fallback when cookie session expires.
 - Data source and scraper input/output: input source and output file behavior.
 - Scraper behavior: cookie use, headless mode, timing controls, scraper mode.
-- LinkedIn OAuth: website login integration for staff authentication.
-- Flask session secret: app session security.
+- LinkedIn OAuth: website login integration for staff authentication (optional, can fallback to email/password).
+- Flask session secret: **CRITICAL** app session security. Must be a long, random string in production (e.g. `openssl rand -hex 32`).
 - MySQL connection: required settings for shared production database access.
 - SQLite fallback and DB mode controls: local fallback behavior and DB disable mode.
 - Optional testing and review flags: speed and profile flagging behavior.
@@ -175,6 +175,12 @@ python backend/database.py
 ```
 
 This creates and verifies required tables, runs data seeding and maintenance logic, and reports initialization stats.
+
+The authentication schema (adding `password_hash`, `role`, etc.) and the seeding of the 7 default admin accounts will run **automatically** when the app starts. If you wish to trigger this manually at any time, run:
+
+```bash
+python scripts/seed_admins.py
+```
 
 ## 10. Run Application
 

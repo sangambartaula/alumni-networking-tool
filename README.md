@@ -16,7 +16,23 @@ The project is still in active development and is expected to be finalized in ab
 - Add private outreach notes.
 - Bookmark and track alumni contacts.
 
-## 3. How Data Is Updated
+## 3. Account Access and Authentication
+
+Staff have two ways to log into the alumni dashboard safely:
+1. **Email & Password**: You can register an account directly if your email is whitelisted.
+2. **LinkedIn OAuth**: You can use your LinkedIn account.
+
+If you initially sign up with LinkedIn, you can easily create an Email/Password credential later by visiting the **Settings** menu inside the app. Check the `docs/AUTH.md` document for deeper technical flows.
+
+### Whiteness and Security
+Access is strictly managed via an email allow-list (whitelist). Even if a user connects via LinkedIn, access is instantly denied if the email address is not actively marked as authorized. 
+
+### User Roles
+The tool features two distinct roles:
+- **User**: Can search alumni, view analytics, use the heatmap, track bookmarks, and add notes.
+- **Admin**: Has all User privileges, plus the ability to manage other users securely from their Settings menu (e.g. adding new users to the whitelist, assigning rows, performing forced password resets, and deleting user access).
+
+## 4. How Data Is Updated
 
 - The scraper collects alumni data from LinkedIn.
 - Alumni profile data is shared across authorized staff users.
@@ -29,13 +45,13 @@ The project is still in active development and is expected to be finalized in ab
 - Alumni data is shared across all authorized users.
 - Notes remain private to each individual staff account.
 
-## 4. Setup and Installation
+## 5. Setup and Installation
 
 All first-time setup and installation steps are maintained in [SETUP.md](SETUP.md).
 
 Use README as the project overview, and use setup/user docs for operational details.
 
-## 5. Running the Dashboard
+## 6. Running the Dashboard
 
 ```bash
 python backend/app.py
@@ -59,16 +75,18 @@ The scraper uses cookie-first login. If a valid saved session cookie exists, it 
 
 For detailed scraper GUI and operating instructions, use [USER_GUIDE.md](USER_GUIDE.md) and [SETUP.md](SETUP.md).
 
-## 7. Documentation Index
+## 8. Documentation Index
 
 - Setup and installation: [SETUP.md](SETUP.md)
 - Day-to-day usage: [USER_GUIDE.md](USER_GUIDE.md)
+- Authentication and Login: [docs/AUTH.md](docs/AUTH.md)
+- Security Model: [docs/SECURITY.md](docs/SECURITY.md)
 - Testing and regression commands: [TESTING.md](TESTING.md)
 - Data rules and normalization: [NORMALIZATION_RULES.md](NORMALIZATION_RULES.md)
 - Seniority classification details: [SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md)
 - Relevance engine details: [RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md)
 
-## 8. Important Limitations
+## 9. Important Limitations
 
 - LinkedIn can enforce verification checks and rate limits.
 - Aggressive scraper settings increase challenge and lock risk.
