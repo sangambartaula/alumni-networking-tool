@@ -424,7 +424,7 @@ def flag_profile_for_review(profile_data):
 
     issues = []
 
-    from config import FLAG_MISSING_EXPERIENCE_DATA, FLAG_MISSING_GRAD_YEAR, FLAG_MISSING_DEGREE
+    from config import FLAG_MISSING_EXPERIENCE_DATA
 
     if FLAG_MISSING_EXPERIENCE_DATA:
         # Experience 1
@@ -450,16 +450,6 @@ def flag_profile_for_review(profile_data):
             issues.append("Missing Company but Job Title Present for Experience 3")
         elif exp3_company and not exp3_title:
             issues.append("Missing Job Title but Company Present for Experience 3")
-
-    # Conditional flagging for education data
-    graduation_year = profile_data.get('graduation_year', '')
-    major = profile_data.get('major', '').strip()
-
-    if FLAG_MISSING_GRAD_YEAR and not graduation_year:
-        issues.append("Missing Grad Year")
-
-    if FLAG_MISSING_DEGREE and not major:
-        issues.append("Missing Degree/Major Information")
 
     if not issues:
         return  # Nothing to flag

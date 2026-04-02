@@ -32,6 +32,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['frontend/public/assets/unt-logo.png'],
 )
 coll = COLLECT(
     exe,
@@ -45,6 +46,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='Alumni Scraper App.app',
-    icon=None,
+    icon='frontend/public/assets/unt-logo.png',
     bundle_identifier=None,
 )

@@ -44,10 +44,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 # Debug toggle: saves raw HTML/text sent to Groq. 
 # This is crucial for prompt engineering and auditing why the LLM might have
 # missed specific data points (e.g., if LinkedIn changed a CSS class).
-SCRAPER_DEBUG_HTML = (
-    os.getenv("SCRAPER_DEBUG_HTML", "").lower() == "true"
-    or os.getenv("DEBUG_SAVE_HTML", "false").lower() == "true"
-)
+SCRAPER_DEBUG_HTML = os.getenv("SCRAPER_DEBUG_HTML", "false").lower() == "true"
 DEBUG_HTML_DIR = Path(__file__).parent / "output" / "debug_html"
 
 # Initialize the client once

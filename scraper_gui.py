@@ -1458,10 +1458,10 @@ class ScraperApp(QMainWindow):
                 self.max_delay.setText("600")
             elif "Medium" in text:
                 self.min_delay.setText("60")
-                self.max_delay.setText("180")
+                self.max_delay.setText("240")
             elif "Fast" in text:
-                self.min_delay.setText("15")
-                self.max_delay.setText("60")
+                self.min_delay.setText("30")
+                self.max_delay.setText("120")
 
     def append_console(self, text):
         stripped = (text or "").strip()

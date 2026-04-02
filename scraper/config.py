@@ -214,7 +214,6 @@ if not LINKEDIN_EMAIL or not LINKEDIN_PASSWORD:
     logger.warning("⚠️ LINKEDIN_EMAIL or LINKEDIN_PASSWORD not set in environment!")
 
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
-TESTING = os.getenv("TESTING", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
 SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()
@@ -243,19 +242,10 @@ POST_SECTION_WAIT_SECONDS = float(os.getenv("POST_SECTION_WAIT_SECONDS", "0"))
 EDU_READY_TIMEOUT_SECONDS = int(os.getenv("EDU_READY_TIMEOUT_SECONDS", "30"))
 
 # Flagging Configuration
-FLAG_MISSING_GRAD_YEAR = os.getenv("FLAG_MISSING_GRAD_YEAR", "false").lower() == "true"
-FLAG_MISSING_DEGREE = os.getenv("FLAG_MISSING_DEGREE", "false").lower() == "true"
 FLAG_MISSING_EXPERIENCE_DATA = os.getenv("FLAG_MISSING_EXPERIENCE_DATA", "true").lower() == "true"
 
-if os.getenv("MIN_DELAY"):
-    MIN_DELAY = int(os.getenv("MIN_DELAY"))
-else:
-    MIN_DELAY = 15 if TESTING else 120
-
-if os.getenv("MAX_DELAY"):
-    MAX_DELAY = int(os.getenv("MAX_DELAY"))
-else:
-    MAX_DELAY = 60 if TESTING else 600
+MIN_DELAY = int(os.getenv("MIN_DELAY", "60"))
+MAX_DELAY = int(os.getenv("MAX_DELAY", "240"))
 
 # Paths
 OUTPUT_DIR = Path(__file__).parent / "output"
