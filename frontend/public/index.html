@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LinkedIn Helper</title>
+  <title>UNT Alumni Network – Sign In</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Pacifico&display=swap" rel="stylesheet">
   <style>
@@ -12,9 +12,10 @@
       --panel:#ffffff;
       --muted:#6b7280;
       --border:#e5e7eb;
-      --brand:#00853E; /* UNT Green */
+      --brand:#00853E;
       --brand-dark:#056b33;
       --text:#111827;
+      --danger:#ef4444;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -26,16 +27,6 @@
       line-height:1.5;
     }
 
-    /* Top app bar */
-    .appbar{
-      background:#edeff4;
-      color:#4b5563;
-      font-size:14px;
-      padding:12px 20px;
-      border-bottom:1px solid var(--border);
-    }
-
-    /* Main container panel */
     .container{
       max-width:1200px;
       margin:18px auto;
@@ -45,26 +36,6 @@
       border-radius:8px;
     }
 
-    /* Brand ribbon inside panel */
-    .brand-inline{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      color:var(--brand);
-      margin:4px 6px 14px;
-      font-weight:600;
-    }
-    .brand-script{
-      font-family:Pacifico, cursive;
-      color:var(--brand);
-      font-size:22px;
-      letter-spacing:.3px;
-    }
-    .spark{
-      width:18px;height:18px;display:inline-block
-    }
-
-    /* Two-column layout */
     .content{
       display:grid;
       grid-template-columns:2fr 1fr;
@@ -76,7 +47,7 @@
       overflow:hidden;
       border-radius:6px;
       background:#ddd;
-      min-height:420px;
+      min-height:520px;
     }
     .hero img{
       width:100%;
@@ -86,7 +57,6 @@
       filter:grayscale(100%);
     }
 
-    /* Right card */
     .card{
       background:var(--panel);
       border:1px solid var(--border);
@@ -104,17 +74,24 @@
     }
     .card h1{
       margin:6px 0 6px;
-      font-size:26px;
+      font-size:24px;
       line-height:1.2;
     }
-    .card p{
+    .card .tagline{
       color:#4b5563;
       margin:0 0 18px;
-      font-size:15px;
+      font-size:14px;
     }
+
+    .form-group{margin-bottom:14px}
+    .form-group label{display:block;font-weight:600;font-size:13px;margin-bottom:3px}
+    .form-group input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;transition:border .15s}
+    .form-group input:focus{border-color:var(--brand)}
+
     .btn{
       display:inline-flex;
       align-items:center;
+      justify-content:center;
       gap:10px;
       padding:12px 18px;
       background:var(--brand);
@@ -122,14 +99,38 @@
       border:none;
       border-radius:8px;
       font-weight:600;
+      font-size:14px;
       cursor:pointer;
       text-decoration:none;
       transition:background .15s ease, transform .02s ease-in-out;
+      width:100%;
     }
     .btn:active{ transform:translateY(1px); }
     .btn:hover{ background:var(--brand-dark); }
+    .btn:disabled{opacity:.5;cursor:not-allowed}
     .btn .li-icon{ width:18px;height:18px; display:inline-block; }
 
+    .divider{
+      display:flex;align-items:center;gap:12px;margin:16px 0;
+      font-size:12px;color:var(--muted);
+    }
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+
+    .btn-linkedin{
+      background:#0A66C2;
+      width:100%;
+    }
+    .btn-linkedin:hover{background:#004182}
+
+    .error-msg{background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;display:none}
+
+    .card-links{
+      text-align:center;
+      margin-top:16px;
+      font-size:13px;
+    }
+    .card-links a{color:var(--brand);text-decoration:none}
+    .card-links a:hover{text-decoration:underline}
 
     .links{
       display:flex; gap:18px; font-size:14px;
@@ -143,9 +144,8 @@
       color:#374151; text-decoration:none;
       display:inline-flex; align-items:center;
     }
-    .social svg{ width:18px; height:18px; }
+    .social svg, .social a img{ width:18px; height:18px; }
 
-    /* Page footer */
     .copyright{
       max-width:1200px;
       margin:0 auto 28px;
@@ -154,13 +154,11 @@
       font-size:13px;
     }
 
-    /* Responsive */
     @media (max-width: 960px){
       .content{ grid-template-columns:1fr; }
       .hero{ min-height:280px; }
     }
 
-    /* Footer layout */
     .panel-footer{
       display:flex;
       justify-content:space-between;
@@ -171,14 +169,10 @@
       flex-wrap:wrap;
       gap:14px;
     }
-
-    /* Icon sizing when using <img> */
-    .btn .li-icon{ width:18px; height:18px; display:inline-block; }
     .social a img{ width:18px; height:18px; display:inline-block; }
   </style>
 </head>
 <body>
-
 
   <main class="container">
 
@@ -192,22 +186,41 @@
           <img src="./assets/unt-logo.png" alt="UNT logo">
         </div>
         <h1 id="welcome-title">Welcome to the UNT Alumni Network</h1>
-        <p>
-          Connect with fellow University of North Texas College of Engineering alumni,
-          expand your professional network, and discover new opportunities.
+        <p class="tagline">
+          Connect with fellow College of Engineering alumni, expand your network, and discover opportunities.
         </p>
 
-        <a class="btn" href="/login/linkedin">
-          <img class="li-icon" src="./assets/linkedin.svg" alt="" />
-          Sign in with LinkedIn
-        </a>
+        <div id="errorMsg" class="error-msg"></div>
+
+        <form id="loginForm" autocomplete="on">
+          <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" placeholder="you@unt.edu" required autofocus>
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="Enter your password" required>
+          </div>
+          <button type="submit" class="btn" id="loginBtn">Sign In</button>
+        </form>
+
+        <div id="linkedinSection" style="display:none;">
+          <div class="divider">or</div>
+          <a class="btn btn-linkedin" href="/login/linkedin" id="linkedinBtn">
+            <img class="li-icon" src="./assets/linkedin.svg" alt="" />
+            Sign in with LinkedIn
+          </a>
+        </div>
+
+        <div class="card-links">
+          Don't have an account? <a href="/register">Register</a>
+        </div>
       </aside>
     </section>
 
-    <!-- Wrap footer links and social into a panel-footer -->
     <div class="panel-footer">
       <nav class="links" aria-label="Footer">
-        <a href="/about" target="_blank" rel="noopener noreferrer">About LinkedIn Helper</a>
+        <a href="/about" target="_blank" rel="noopener noreferrer">About</a>
         <a href="https://untalumni.com/" target="_blank" rel="noopener noreferrer">Alumni</a>
         <a href="https://engineering.unt.edu/index.html" target="_blank" rel="noopener noreferrer">Engineering</a>
       </nav>
@@ -229,5 +242,51 @@
   <div class="copyright">
     © 2025 University of North Texas College of Engineering. All rights reserved.
   </div>
+
+  <script>
+  (function(){
+    const form = document.getElementById('loginForm');
+    const errorMsg = document.getElementById('errorMsg');
+
+    // Check if LinkedIn OAuth is available
+    fetch('/api/auth/linkedin-available')
+      .then(r => r.json())
+      .then(d => { if(d.available) document.getElementById('linkedinSection').style.display = 'block'; })
+      .catch(() => {});
+
+    form.addEventListener('submit', async function(e){
+      e.preventDefault();
+      errorMsg.style.display = 'none';
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('loginBtn');
+
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+
+      try {
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({email, password})
+        });
+        const data = await resp.json();
+        if(data.success){
+          window.location.href = data.redirect || '/alumni';
+        } else {
+          errorMsg.textContent = data.error || 'Login failed.';
+          errorMsg.style.display = 'block';
+        }
+      } catch(err){
+        errorMsg.textContent = 'Network error. Please try again.';
+        errorMsg.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    });
+  })();
+  </script>
 </body>
 </html>

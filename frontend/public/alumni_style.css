@@ -218,6 +218,52 @@ body {
   flex-shrink: 0;
 }
 
+/* Small Buttons & Field Status (Settings Modal) */
+.btn-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-sm:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.btn-sm[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-sm.btn-danger {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.btn-sm.btn-danger:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.field-status {
+  font-size: 13px;
+  margin-top: 8px;
+  min-height: 20px;
+}
+.field-status.error { color: #dc2626; }
+.field-status.success { color: #16a34a; }
+
+.admin-role-select {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
 /* ===== PAGE LAYOUT ===== */
 .page {
   max-width: 1400px;

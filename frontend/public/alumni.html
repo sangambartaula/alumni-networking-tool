@@ -387,6 +387,74 @@
           <p class="help-text">Tracks total profiles scraped by each approved scraper account.</p>
           <div id="scraperActivityBody" class="scraper-activity-body">Loading scraper activity...</div>
         </div>
+
+        <!-- Password Management -->
+        <div id="passwordSection" class="settings-section" style="display:none;">
+          <h3>Password Management</h3>
+
+          <!-- Change password (users who already have one) -->
+          <div id="changePwGroup">
+            <p class="help-text">Change your password. Must meet the password policy: 10+ chars, uppercase, lowercase, number, special character.</p>
+            <div class="form-group">
+              <label for="currentPw">Current Password</label>
+              <input type="password" id="currentPw" placeholder="Enter current password">
+            </div>
+            <div class="form-group">
+              <label for="newPw">New Password</label>
+              <input type="password" id="newPw" placeholder="Enter new password">
+            </div>
+            <button id="changePwBtn" class="btn action-btn">Change Password</button>
+            <div id="changePwStatus" class="field-status"></div>
+          </div>
+
+          <!-- Create password (LinkedIn-only users) -->
+          <div id="createPwGroup" style="display:none;">
+            <p class="help-text">Create a password to enable email/password login alongside LinkedIn.</p>
+            <div class="form-group">
+              <label for="createNewPw">New Password</label>
+              <input type="password" id="createNewPw" placeholder="Create a password (10+ chars)">
+            </div>
+            <button id="createPwBtn" class="btn action-btn">Create Password</button>
+            <div id="createPwStatus" class="field-status"></div>
+          </div>
+        </div>
+
+        <!-- Admin: User Management (visible to admins only) -->
+        <div id="adminSection" class="settings-section" style="display:none;">
+          <h3>Manage Users (Admin)</h3>
+          <p class="help-text">Add, remove, and manage user accounts. Password resets force users to set a new password on next login.</p>
+
+          <div style="overflow-x:auto;">
+            <table class="scraper-activity-table" style="width:100%;">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Auth Type</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminUsersList">
+                <tr><td colspan="4">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid #e2e8f0;">
+            <h4 style="margin:0 0 8px;font-size:14px;">Add New User</h4>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+              <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+                <input type="email" id="adminNewUserEmail" placeholder="email@example.com">
+              </div>
+              <select id="adminNewUserRole" style="padding:8px;border:1px solid #e5e7eb;border-radius:6px;">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button id="adminAddUserBtn" class="btn action-btn" style="padding:8px 16px;">Add</button>
+            </div>
+            <div id="adminAddUserStatus" class="field-status"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

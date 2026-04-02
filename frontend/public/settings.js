@@ -1,4 +1,5 @@
 // Settings modal management for alumni.html
+// Handles: Email Whitelist, Scraper Activity, Password Management, Admin User Management
 
 document.addEventListener('DOMContentLoaded', function () {
   // Modal elements
@@ -28,11 +29,44 @@ document.addEventListener('DOMContentLoaded', function () {
   let pendingEmail = null;
   let pendingNotes = null;
 
+  // ──────────── Current User State ────────────
+  let currentUser = null;
+
+  async function fetchCurrentUser() {
+    try {
+      const resp = await fetch('/api/auth/me');
+      if (!resp.ok) return;
+      currentUser = await resp.json();
+      renderRoleSections();
+    } catch (e) {
+      console.error('Error fetching user info:', e);
+    }
+  }
+
+  function renderRoleSections() {
+    // Password management section
+    const pwSection = document.getElementById('passwordSection');
+    if (pwSection && currentUser) {
+      pwSection.style.display = 'block';
+      const hasPassword = currentUser.auth_type === 'email_password' || currentUser.auth_type === 'both';
+      document.getElementById('changePwGroup').style.display = hasPassword ? 'block' : 'none';
+      document.getElementById('createPwGroup').style.display = hasPassword ? 'none' : 'block';
+    }
+
+    // Admin section
+    const adminSection = document.getElementById('adminSection');
+    if (adminSection) {
+      adminSection.style.display = (currentUser && currentUser.role === 'admin') ? 'block' : 'none';
+      if (currentUser && currentUser.role === 'admin') loadAdminUsers();
+    }
+  }
+
   // Open settings modal
   settingsBtn.addEventListener('click', function () {
     settingsModal.style.display = 'block';
     loadAuthorizedEmails();
     loadScraperActivity();
+    fetchCurrentUser();
   });
 
   // Close settings modal
@@ -300,5 +334,218 @@ document.addEventListener('DOMContentLoaded', function () {
       console.error('Error removing email:', error);
       alert('Error removing email. Please try again.');
     }
+  }
+
+
+  // ──────────── Password Management ────────────
+
+  // Change password (user has existing password)
+  const changePwBtn = document.getElementById('changePwBtn');
+  if (changePwBtn) {
+    changePwBtn.addEventListener('click', async function () {
+      const currentPw = document.getElementById('currentPw').value;
+      const newPw = document.getElementById('newPw').value;
+      const statusEl = document.getElementById('changePwStatus');
+
+      if (!currentPw || !newPw) {
+        statusEl.textContent = 'Both fields are required.';
+        statusEl.className = 'field-status error';
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_password: currentPw, new_password: newPw })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          statusEl.textContent = '✓ Password changed.';
+          statusEl.className = 'field-status success';
+          document.getElementById('currentPw').value = '';
+          document.getElementById('newPw').value = '';
+        } else {
+          let msg = data.error || 'Failed.';
+          if (data.details) msg += ' ' + data.details.join(' ');
+          statusEl.textContent = msg;
+          statusEl.className = 'field-status error';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Network error.';
+        statusEl.className = 'field-status error';
+      }
+    });
+  }
+
+  // Create password (LinkedIn-only users)
+  const createPwBtn = document.getElementById('createPwBtn');
+  if (createPwBtn) {
+    createPwBtn.addEventListener('click', async function () {
+      const newPw = document.getElementById('createNewPw').value;
+      const statusEl = document.getElementById('createPwStatus');
+
+      if (!newPw) {
+        statusEl.textContent = 'Password is required.';
+        statusEl.className = 'field-status error';
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/auth/create-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ new_password: newPw })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          statusEl.textContent = '✓ Password created.';
+          statusEl.className = 'field-status success';
+          document.getElementById('createNewPw').value = '';
+          // Refresh sections
+          fetchCurrentUser();
+        } else {
+          let msg = data.error || 'Failed.';
+          if (data.details) msg += ' ' + data.details.join(' ');
+          statusEl.textContent = msg;
+          statusEl.className = 'field-status error';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Network error.';
+        statusEl.className = 'field-status error';
+      }
+    });
+  }
+
+
+  // ──────────── Admin: User Management ────────────
+
+  async function loadAdminUsers() {
+    const tbody = document.getElementById('adminUsersList');
+    if (!tbody) return;
+
+    try {
+      const resp = await fetch('/api/admin/users');
+      const data = await resp.json();
+      if (!data.success) { tbody.textContent = 'Error loading users.'; return; }
+
+      const users = data.users || [];
+      if (!users.length) { tbody.innerHTML = '<tr><td colspan="4">No users found.</td></tr>'; return; }
+
+      tbody.innerHTML = users.map(u => {
+        const email = escapeHtml(u.email);
+        const role = escapeHtml(u.role || 'user');
+        const authType = escapeHtml(u.auth_type || '');
+        const isSelf = currentUser && currentUser.email === u.email;
+        return `<tr>
+          <td>${email}</td>
+          <td>
+            <select data-email="${email}" class="admin-role-select" ${isSelf ? 'disabled' : ''}>
+              <option value="user" ${role === 'user' ? 'selected' : ''}>User</option>
+              <option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option>
+            </select>
+          </td>
+          <td>${authType}</td>
+          <td class="admin-actions">
+            <button class="btn-sm btn-reset" data-email="${email}" title="Reset password">Reset PW</button>
+            <button class="btn-sm btn-danger" data-email="${email}" ${isSelf ? 'disabled' : ''} title="Delete user">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      // Role change
+      tbody.querySelectorAll('.admin-role-select').forEach(sel => {
+        sel.addEventListener('change', async function () {
+          const email = this.dataset.email;
+          const role = this.value;
+          try {
+            const resp = await fetch('/api/admin/users/role', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, role })
+            });
+            const data = await resp.json();
+            if (!data.success) alert(data.error || 'Failed to update role.');
+          } catch (e) { alert('Network error.'); }
+        });
+      });
+
+      // Reset password
+      tbody.querySelectorAll('.btn-reset').forEach(btn => {
+        btn.addEventListener('click', async function () {
+          const email = this.dataset.email;
+          if (!confirm(`Reset password for ${email}? They will need to set a new one.`)) return;
+          try {
+            const resp = await fetch('/api/admin/users/reset-password', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email })
+            });
+            const data = await resp.json();
+            alert(data.message || data.error || 'Done.');
+          } catch (e) { alert('Network error.'); }
+        });
+      });
+
+      // Delete user
+      tbody.querySelectorAll('.btn-danger').forEach(btn => {
+        btn.addEventListener('click', async function () {
+          const email = this.dataset.email;
+          if (!confirm(`Delete user ${email}? This cannot be undone.`)) return;
+          try {
+            const resp = await fetch('/api/admin/users', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email })
+            });
+            const data = await resp.json();
+            if (data.success) loadAdminUsers();
+            else alert(data.error || 'Failed to delete.');
+          } catch (e) { alert('Network error.'); }
+        });
+      });
+
+    } catch (e) {
+      console.error('Error loading admin users:', e);
+      tbody.textContent = 'Error loading users.';
+    }
+  }
+
+  // Admin: add user
+  const adminAddUserBtn = document.getElementById('adminAddUserBtn');
+  if (adminAddUserBtn) {
+    adminAddUserBtn.addEventListener('click', async function () {
+      const email = document.getElementById('adminNewUserEmail').value.trim();
+      const role = document.getElementById('adminNewUserRole').value;
+      const statusEl = document.getElementById('adminAddUserStatus');
+
+      if (!email) {
+        statusEl.textContent = 'Email is required.';
+        statusEl.className = 'field-status error';
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, role })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          statusEl.textContent = '✓ ' + (data.message || 'User added.');
+          statusEl.className = 'field-status success';
+          document.getElementById('adminNewUserEmail').value = '';
+          loadAdminUsers();
+          loadAuthorizedEmails();
+        } else {
+          statusEl.textContent = data.error || 'Failed.';
+          statusEl.className = 'field-status error';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Network error.';
+        statusEl.className = 'field-status error';
+      }
+    });
   }
 });
