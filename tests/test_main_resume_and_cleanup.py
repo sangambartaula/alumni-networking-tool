@@ -261,7 +261,7 @@ def test_save_and_track_increments_scraper_activity_with_config_email(monkeypatc
     monkeypatch.setattr(
         scraper_main,
         "upsert_scraped_profile",
-        lambda data, allow_cloud=True: upsert_calls.append((data.get("profile_url"), allow_cloud)) or {
+        lambda data, allow_cloud=True, run_id=None: upsert_calls.append((data.get("profile_url"), allow_cloud)) or {
             "cloud_attempted": True,
             "cloud_written": True,
             "sqlite_written": True,
@@ -296,7 +296,7 @@ def test_save_and_track_passes_blank_email_through_to_increment(monkeypatch):
     monkeypatch.setattr(
         scraper_main,
         "upsert_scraped_profile",
-        lambda data, allow_cloud=True: upsert_calls.append((data.get("profile_url"), allow_cloud)) or {
+        lambda data, allow_cloud=True, run_id=None: upsert_calls.append((data.get("profile_url"), allow_cloud)) or {
             "cloud_attempted": True,
             "cloud_written": True,
             "sqlite_written": True,
@@ -330,7 +330,7 @@ def test_save_and_track_continues_when_upsert_fails(monkeypatch):
     monkeypatch.setattr(
         scraper_main,
         "upsert_scraped_profile",
-        lambda _data, allow_cloud=True: (_ for _ in ()).throw(RuntimeError("db down")),
+        lambda _data, allow_cloud=True, run_id=None: (_ for _ in ()).throw(RuntimeError("db down")),
     )
     monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda email: calls.append(email))
     monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
@@ -358,7 +358,7 @@ def test_save_and_track_disables_cloud_after_five_consecutive_failures(monkeypat
     monkeypatch.setattr(
         scraper_main,
         "upsert_scraped_profile",
-        lambda _data, allow_cloud=True: {
+        lambda _data, allow_cloud=True, run_id=None: {
             "cloud_attempted": allow_cloud,
             "cloud_written": False,
             "sqlite_written": True,
@@ -392,7 +392,7 @@ def test_save_and_track_uses_sqlite_only_after_cloud_disabled(monkeypatch):
 
     monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
 
-    def _fake_upsert(_data, allow_cloud=True):
+    def _fake_upsert(_data, allow_cloud=True, run_id=None):
         cloud_flags.append(allow_cloud)
         return {
             "cloud_attempted": allow_cloud,
@@ -428,7 +428,7 @@ def test_save_and_track_records_geocode_miss_without_crashing(monkeypatch):
     monkeypatch.setattr(
         scraper_main,
         "upsert_scraped_profile",
-        lambda _data, allow_cloud=True: {
+        lambda _data, allow_cloud=True, run_id=None: {
             "cloud_attempted": allow_cloud,
             "cloud_written": True,
             "sqlite_written": True,
@@ -465,7 +465,7 @@ def test_save_and_track_records_geocode_exception_without_crashing(monkeypatch):
     monkeypatch.setattr(
         scraper_main,
         "upsert_scraped_profile",
-        lambda _data, allow_cloud=True: {
+        lambda _data, allow_cloud=True, run_id=None: {
             "cloud_attempted": allow_cloud,
             "cloud_written": True,
             "sqlite_written": True,
@@ -492,3 +492,47 @@ def test_save_and_track_records_geocode_exception_without_crashing(monkeypatch):
     assert scraper_main._geocode_failures_this_run == 0
     assert scraper_main._geocode_network_failures_this_run == 1
     assert "Eastern Region" not in scraper_main._geocode_failure_locations
+
+
+def test_save_and_track_propagates_run_id_and_records_flags(monkeypatch):
+    upsert_calls = []
+    flag_calls = []
+
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+
+    def _fake_upsert(data, allow_cloud=True, run_id=None):
+        upsert_calls.append((data.get("profile_url"), allow_cloud, run_id))
+        return {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": True,
+            "sqlite_written": True,
+        }
+
+    monkeypatch.setattr(scraper_main, "upsert_scraped_profile", _fake_upsert)
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main, "_collect_profile_flag_reasons", lambda _data: ["Missing Grad Year"])
+    monkeypatch.setattr(
+        scraper_main,
+        "record_scrape_run_flag",
+        lambda run_id, linkedin_url, reason: flag_calls.append((run_id, linkedin_url, reason)) or True,
+    )
+    monkeypatch.setattr(scraper_main, "_current_scrape_run_id", 42)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "session_profiles_scraped", 0)
+
+    ok = scraper_main._save_and_track(
+        {"profile_url": "https://www.linkedin.com/in/test-user"},
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert upsert_calls == [("https://www.linkedin.com/in/test-user", True, 42)]
+    assert flag_calls == [(42, "https://www.linkedin.com/in/test-user", "Missing Grad Year")]

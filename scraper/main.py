@@ -13,6 +13,7 @@ import random
 import csv
 import urllib.parse
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -26,7 +27,14 @@ from config import logger
 
 # Backend
 from backend.sqlite_fallback import get_connection_manager
-from backend.database import increment_scraper_activity, normalize_url, upsert_scraped_profile
+from backend.database import (
+    increment_scraper_activity,
+    normalize_url,
+    upsert_scraped_profile,
+    create_scrape_run,
+    finalize_scrape_run,
+    record_scrape_run_flag,
+)
 from backend.geocoding import geocode_location_with_status
 from defense.navigator import SafeNavigator
 
@@ -160,6 +168,8 @@ _cloud_upsert_disabled_for_run = False
 _geocode_failures_this_run = 0
 _geocode_failure_locations = set()
 _geocode_network_failures_this_run = 0
+_current_scrape_run_id = None
+_current_scrape_run_uuid = None
 
 
 def _exit_listener():
@@ -519,6 +529,57 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
         logger.warning(f"⚠️ Could not clean old redirected URL from visited history ({old}): {e}")
 
 
+def _collect_profile_flag_reasons(profile_data):
+    """Return the same review reasons used for flagged_for_review.txt generation."""
+    if not isinstance(profile_data, dict):
+        return []
+
+    reasons = []
+    try:
+        from config import (
+            FLAG_MISSING_EXPERIENCE_DATA,
+            FLAG_MISSING_GRAD_YEAR,
+            FLAG_MISSING_DEGREE,
+        )
+    except Exception:
+        return reasons
+
+    def _as_text(key):
+        value = profile_data.get(key, "")
+        return str(value).strip() if value is not None else ""
+
+    if FLAG_MISSING_EXPERIENCE_DATA:
+        job_title = _as_text("job_title")
+        company = _as_text("company")
+        if job_title and not company:
+            reasons.append("Missing Company but Job Title Present")
+        elif company and not job_title:
+            reasons.append("Missing Job Title but Company Present")
+
+        exp2_title = _as_text("exp2_title")
+        exp2_company = _as_text("exp2_company")
+        if exp2_title and not exp2_company:
+            reasons.append("Missing Company but Job Title Present for Experience 2")
+        elif exp2_company and not exp2_title:
+            reasons.append("Missing Job Title but Company Present for Experience 2")
+
+        exp3_title = _as_text("exp3_title")
+        exp3_company = _as_text("exp3_company")
+        if exp3_title and not exp3_company:
+            reasons.append("Missing Company but Job Title Present for Experience 3")
+        elif exp3_company and not exp3_title:
+            reasons.append("Missing Job Title but Company Present for Experience 3")
+
+    graduation_year = profile_data.get("graduation_year")
+    major = _as_text("major")
+    if FLAG_MISSING_GRAD_YEAR and not graduation_year:
+        reasons.append("Missing Grad Year")
+    if FLAG_MISSING_DEGREE and not major:
+        reasons.append("Missing Degree/Major Information")
+
+    return reasons
+
+
 def _save_and_track(data, input_url, history_mgr):
     """
     Save profile to CSV, handling canonical URL dedup.
@@ -535,6 +596,7 @@ def _save_and_track(data, input_url, history_mgr):
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
     global _geocode_failures_this_run, _geocode_failure_locations
     global _geocode_network_failures_this_run
+    global _current_scrape_run_id, session_profiles_scraped
     
     canonical_url = _normalize_profile_url(data.get("profile_url", input_url))
     input_url = _normalize_profile_url(input_url)
@@ -573,6 +635,7 @@ def _save_and_track(data, input_url, history_mgr):
             upsert_status = upsert_scraped_profile(
                 data,
                 allow_cloud=(not _cloud_upsert_disabled_for_run),
+                run_id=_current_scrape_run_id,
             )
 
             status = upsert_status if isinstance(upsert_status, dict) else {}
@@ -606,6 +669,13 @@ def _save_and_track(data, input_url, history_mgr):
             _canonicalize_redirect_url(original_url, canonical_url, history_mgr)
         # Track scraper activity (who scraped this profile)
         increment_scraper_activity(config.LINKEDIN_EMAIL)
+
+        session_profiles_scraped += 1
+
+        if _current_scrape_run_id:
+            for reason in _collect_profile_flag_reasons(data):
+                record_scrape_run_flag(_current_scrape_run_id, canonical_url, reason)
+
         return True
     return False
 
@@ -998,11 +1068,26 @@ def main():
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
     global _geocode_failures_this_run, _geocode_failure_locations
     global _geocode_network_failures_this_run
+    global _current_scrape_run_id, _current_scrape_run_uuid, session_profiles_scraped
     _cloud_upsert_consecutive_failures = 0
     _cloud_upsert_disabled_for_run = False
     _geocode_failures_this_run = 0
     _geocode_failure_locations = set()
     _geocode_network_failures_this_run = 0
+    session_profiles_scraped = 0
+    _current_scrape_run_id = None
+    _current_scrape_run_uuid = str(uuid.uuid4())
+
+    selected_disciplines = _get_selected_search_disciplines() if config.SCRAPER_MODE == "search" else []
+    try:
+        _current_scrape_run_id = create_scrape_run(
+            run_uuid=_current_scrape_run_uuid,
+            scraper_email=config.LINKEDIN_EMAIL,
+            scraper_mode=config.SCRAPER_MODE,
+            selected_disciplines=selected_disciplines,
+        )
+    except Exception as create_run_err:
+        logger.warning(f"Could not create scrape run metadata: {create_run_err}")
 
     history_mgr = database_handler.HistoryManager()
     history_mgr.sync_with_db()
@@ -1011,10 +1096,12 @@ def main():
 
     scraper = LinkedInScraper()
     scraper.setup_driver()
+    run_status = "completed"
 
     try:
         if not scraper.login():
             logger.error("Login failed")
+            run_status = "login_failed"
             return
 
         # ✅ Defense layer initialized here (minimal + safe)
@@ -1027,7 +1114,6 @@ def main():
         elif config.SCRAPER_MODE == "review":
             run_review_mode(scraper, nav, history_mgr)
         elif config.SCRAPER_MODE == "search":
-            selected_disciplines = _get_selected_search_disciplines()
             if selected_disciplines:
                 run_discipline_search_mode(scraper, nav, history_mgr, selected_disciplines)
             else:
@@ -1036,8 +1122,23 @@ def main():
             run_search_mode(scraper, nav, history_mgr)
 
     except KeyboardInterrupt:
+        run_status = "interrupted"
         logger.warning("Stopped by user")
+    except Exception as unhandled_err:
+        run_status = "failed"
+        logger.exception(f"Unhandled scraping error: {unhandled_err}")
     finally:
+        if _current_scrape_run_id:
+            finalize_scrape_run(
+                run_id=_current_scrape_run_id,
+                status=run_status,
+                profiles_scraped=session_profiles_scraped,
+                cloud_disabled=_cloud_upsert_disabled_for_run,
+                geocode_unknown_count=_geocode_failures_this_run,
+                geocode_network_failure_count=_geocode_network_failures_this_run,
+                notes=f"run_uuid={_current_scrape_run_uuid}",
+            )
+
         if _cloud_upsert_disabled_for_run:
             logger.warning(
                 "WARNING: CLOUD DATABASE WAS UNREACHABLE. SCRAPED INFORMATION WAS STORED IN LOCAL SQLITE DATABASE AND CSV FILE."

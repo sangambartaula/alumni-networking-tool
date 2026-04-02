@@ -452,6 +452,45 @@ def init_db():
                 SELECT email FROM authorized_emails
             """)
 
+            # Create scrape_runs table (one row per scraper run invocation)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scrape_runs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    run_uuid VARCHAR(64) UNIQUE NOT NULL,
+                    scraper_email VARCHAR(255),
+                    scraper_mode VARCHAR(50),
+                    selected_disciplines VARCHAR(500),
+                    status VARCHAR(20) DEFAULT 'running',
+                    profiles_scraped INT DEFAULT 0,
+                    cloud_disabled BOOLEAN DEFAULT FALSE,
+                    geocode_unknown_count INT DEFAULT 0,
+                    geocode_network_failure_count INT DEFAULT 0,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP NULL,
+                    notes VARCHAR(500),
+                    INDEX idx_scrape_runs_started_at (started_at),
+                    INDEX idx_scrape_runs_email (scraper_email)
+                )
+            """)
+            logger.info("scrape_runs table created/verified")
+
+            # Create scrape_run_flags table (flagged profile reasons by run)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scrape_run_flags (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    scrape_run_id INT NOT NULL,
+                    linkedin_url VARCHAR(500) NOT NULL,
+                    reason VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_run_flag (scrape_run_id, linkedin_url, reason),
+                    INDEX idx_run_flags_url (linkedin_url),
+                    CONSTRAINT fk_run_flags_scrape_run_id
+                        FOREIGN KEY (scrape_run_id) REFERENCES scrape_runs(id)
+                        ON DELETE CASCADE
+                )
+            """)
+            logger.info("scrape_run_flags table created/verified")
+
 
             # Create alumni table
             cur.execute("""
@@ -473,6 +512,7 @@ def init_db():
                     job_end_date VARCHAR(20) DEFAULT NULL,
                     working_while_studying BOOLEAN DEFAULT NULL,
                     working_while_studying_status VARCHAR(20) DEFAULT NULL,
+                    scrape_run_id INT DEFAULT NULL,
                     latitude DOUBLE NULL,
                     longitude DOUBLE NULL,
                     scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -492,6 +532,7 @@ def init_db():
                     # matches 'linkedin.com/in/user' without a slash.
                     linkedin_url VARCHAR(500) NOT NULL UNIQUE,
                     is_unt_alum BOOLEAN DEFAULT FALSE,
+                    last_scrape_run_id INT DEFAULT NULL,
                     visited_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     last_checked DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     needs_update BOOLEAN DEFAULT FALSE,
@@ -949,6 +990,110 @@ def ensure_experience_analysis_columns():
                 pass
 
 
+def ensure_scrape_run_tracking_schema():
+    """Ensure scrape run tracking tables and run_id linkage columns exist."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Ensure tables for run metadata and run-level flagged entries.
+            try:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_runs (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        run_uuid VARCHAR(64) UNIQUE NOT NULL,
+                        scraper_email VARCHAR(255),
+                        scraper_mode VARCHAR(50),
+                        selected_disciplines VARCHAR(500),
+                        status VARCHAR(20) DEFAULT 'running',
+                        profiles_scraped INT DEFAULT 0,
+                        cloud_disabled BOOLEAN DEFAULT FALSE,
+                        geocode_unknown_count INT DEFAULT 0,
+                        geocode_network_failure_count INT DEFAULT 0,
+                        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        completed_at TIMESTAMP NULL,
+                        notes VARCHAR(500)
+                    )
+                    """
+                )
+            except Exception:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_uuid TEXT UNIQUE NOT NULL,
+                        scraper_email TEXT,
+                        scraper_mode TEXT,
+                        selected_disciplines TEXT,
+                        status TEXT DEFAULT 'running',
+                        profiles_scraped INTEGER DEFAULT 0,
+                        cloud_disabled INTEGER DEFAULT 0,
+                        geocode_unknown_count INTEGER DEFAULT 0,
+                        geocode_network_failure_count INTEGER DEFAULT 0,
+                        started_at TEXT DEFAULT (datetime('now')),
+                        completed_at TEXT,
+                        notes TEXT
+                    )
+                    """
+                )
+
+            try:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_run_flags (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        scrape_run_id INT NOT NULL,
+                        linkedin_url VARCHAR(500) NOT NULL,
+                        reason VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_run_flag (scrape_run_id, linkedin_url, reason)
+                    )
+                    """
+                )
+            except Exception:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_run_flags (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        scrape_run_id INTEGER NOT NULL,
+                        linkedin_url TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        created_at TEXT DEFAULT (datetime('now')),
+                        UNIQUE(scrape_run_id, linkedin_url, reason)
+                    )
+                    """
+                )
+
+            for statement in (
+                "ALTER TABLE alumni ADD COLUMN scrape_run_id INT DEFAULT NULL",
+                "ALTER TABLE visited_profiles ADD COLUMN last_scrape_run_id INT DEFAULT NULL",
+            ):
+                try:
+                    cur.execute(statement)
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        pass
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        pass
+                    else:
+                        raise
+
+            conn.commit()
+            logger.info("✅ Scrape run tracking schema ensured")
+    except Exception as e:
+        logger.error(f"Error ensuring scrape run tracking schema: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def ensure_all_alumni_schema_migrations():
     """
     Apply every idempotent ALTER TABLE migration for the `alumni` table.
@@ -967,6 +1112,7 @@ def ensure_all_alumni_schema_migrations():
     ensure_normalized_degree_column()
     ensure_normalized_company_column()
     ensure_experience_analysis_columns()
+    ensure_scrape_run_tracking_schema()
 
 
 # ============================================================
@@ -1478,6 +1624,187 @@ def get_scraper_activity():
                 pass
 
 
+def create_scrape_run(run_uuid, scraper_email=None, scraper_mode=None, selected_disciplines=None):
+    """Create a scrape run metadata row and return the numeric run id."""
+    if not run_uuid:
+        return None
+
+    selected_text = None
+    if isinstance(selected_disciplines, (list, tuple, set)):
+        selected_text = ",".join([str(x).strip() for x in selected_disciplines if str(x).strip()]) or None
+    elif selected_disciplines:
+        selected_text = str(selected_disciplines).strip() or None
+
+    conn = None
+    try:
+        ensure_scrape_run_tracking_schema()
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
+                    VALUES (%s, %s, %s, %s, 'running')
+                    ON DUPLICATE KEY UPDATE
+                        scraper_email = VALUES(scraper_email),
+                        scraper_mode = VALUES(scraper_mode),
+                        selected_disciplines = VALUES(selected_disciplines),
+                        status = 'running'
+                    """,
+                    (run_uuid, _clean_optional_text(scraper_email), _clean_optional_text(scraper_mode), selected_text),
+                )
+                cur.execute("SELECT id FROM scrape_runs WHERE run_uuid = %s", (run_uuid,))
+                row = cur.fetchone()
+                run_id = row[0] if row and not isinstance(row, dict) else (row or {}).get("id")
+            except Exception:
+                cur.execute(
+                    """
+                    INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
+                    VALUES (?, ?, ?, ?, 'running')
+                    ON CONFLICT(run_uuid) DO UPDATE SET
+                        scraper_email = excluded.scraper_email,
+                        scraper_mode = excluded.scraper_mode,
+                        selected_disciplines = excluded.selected_disciplines,
+                        status = 'running'
+                    """,
+                    (run_uuid, _clean_optional_text(scraper_email), _clean_optional_text(scraper_mode), selected_text),
+                )
+                cur.execute("SELECT id FROM scrape_runs WHERE run_uuid = ?", (run_uuid,))
+                row = cur.fetchone()
+                run_id = row[0] if row and not isinstance(row, dict) else (row or {}).get("id")
+
+            conn.commit()
+            return run_id
+    except Exception as err:
+        logger.warning(f"Could not create scrape run metadata for run_uuid={run_uuid}: {err}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def finalize_scrape_run(
+    run_id,
+    status="completed",
+    profiles_scraped=0,
+    cloud_disabled=False,
+    geocode_unknown_count=0,
+    geocode_network_failure_count=0,
+    notes=None,
+):
+    """Finalize scrape run metadata after a run exits."""
+    if not run_id:
+        return False
+
+    conn = None
+    try:
+        ensure_scrape_run_tracking_schema()
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    UPDATE scrape_runs
+                    SET status = %s,
+                        profiles_scraped = %s,
+                        cloud_disabled = %s,
+                        geocode_unknown_count = %s,
+                        geocode_network_failure_count = %s,
+                        completed_at = NOW(),
+                        notes = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        _clean_optional_text(status) or "completed",
+                        int(profiles_scraped or 0),
+                        bool(cloud_disabled),
+                        int(geocode_unknown_count or 0),
+                        int(geocode_network_failure_count or 0),
+                        _clean_optional_text(notes),
+                        int(run_id),
+                    ),
+                )
+            except Exception:
+                cur.execute(
+                    """
+                    UPDATE scrape_runs
+                    SET status = ?,
+                        profiles_scraped = ?,
+                        cloud_disabled = ?,
+                        geocode_unknown_count = ?,
+                        geocode_network_failure_count = ?,
+                        completed_at = datetime('now'),
+                        notes = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        _clean_optional_text(status) or "completed",
+                        int(profiles_scraped or 0),
+                        1 if bool(cloud_disabled) else 0,
+                        int(geocode_unknown_count or 0),
+                        int(geocode_network_failure_count or 0),
+                        _clean_optional_text(notes),
+                        int(run_id),
+                    ),
+                )
+            conn.commit()
+            return True
+    except Exception as err:
+        logger.warning(f"Could not finalize scrape run id={run_id}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def record_scrape_run_flag(run_id, linkedin_url, reason):
+    """Record a flagged profile reason against the scrape run."""
+    normalized_url = normalize_url(linkedin_url)
+    if not run_id or not normalized_url or not reason:
+        return False
+
+    conn = None
+    try:
+        ensure_scrape_run_tracking_schema()
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+                    """,
+                    (int(run_id), normalized_url, str(reason).strip()),
+                )
+            except Exception:
+                cur.execute(
+                    """
+                    INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(scrape_run_id, linkedin_url, reason) DO NOTHING
+                    """,
+                    (int(run_id), normalized_url, str(reason).strip()),
+                )
+            conn.commit()
+            return True
+    except Exception as err:
+        logger.debug(f"Could not record scrape run flag for run_id={run_id}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def _build_alumni_upsert_payload(profile_data):
     """Normalize a scraped profile dict into the alumni upsert payload."""
     if not isinstance(profile_data, dict):
@@ -1516,6 +1843,7 @@ def _build_alumni_upsert_payload(profile_data):
         'job_end_date': _clean_optional_text(profile_data.get('job_end_date')),
         'working_while_studying': _parse_bool(profile_data.get('working_while_studying')),
         'working_while_studying_status': _clean_optional_text(profile_data.get('working_while_studying_status')),
+        'scrape_run_id': _parse_int(profile_data.get('scrape_run_id')),
         'exp2_title': _clean_optional_text(profile_data.get('exp2_title')),
         'exp2_company': _clean_optional_text(profile_data.get('exp2_company')),
         'exp2_dates': _clean_optional_text(profile_data.get('exp2_dates')),
@@ -1582,7 +1910,7 @@ def _upsert_alumni_payload(cur, payload):
         """
         INSERT INTO alumni
         (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, latitude, longitude, headline,
-         school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status,
+         school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status, scrape_run_id,
          exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
          job_employment_type, exp2_employment_type, exp3_employment_type,
          school, school2, school3, degree2, degree3, major2, major3,
@@ -1593,7 +1921,7 @@ def _upsert_alumni_payload(cur, payload):
          job_1_is_relevant, job_2_is_relevant, job_3_is_relevant,
          relevant_experience_months, seniority_level)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s,
                 %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s,
@@ -1621,6 +1949,7 @@ def _upsert_alumni_payload(cur, payload):
             job_end_date=VALUES(job_end_date),
             working_while_studying=VALUES(working_while_studying),
             working_while_studying_status=VALUES(working_while_studying_status),
+            scrape_run_id=COALESCE(VALUES(scrape_run_id), scrape_run_id),
             exp2_title=VALUES(exp2_title),
             exp2_company=VALUES(exp2_company),
             exp2_dates=VALUES(exp2_dates),
@@ -1675,6 +2004,7 @@ def _upsert_alumni_payload(cur, payload):
             payload.get('job_end_date'),
             payload.get('working_while_studying'),
             payload.get('working_while_studying_status'),
+            payload.get('scrape_run_id'),
             payload.get('exp2_title'),
             payload.get('exp2_company'),
             payload.get('exp2_dates'),
@@ -1714,7 +2044,7 @@ def _upsert_alumni_payload(cur, payload):
     )
 
 
-def upsert_scraped_profile(profile_data, allow_cloud=True):
+def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
     """
     Persist one scraped profile immediately.
 
@@ -1726,6 +2056,9 @@ def upsert_scraped_profile(profile_data, allow_cloud=True):
     payload = _build_alumni_upsert_payload(profile_data)
     if not payload:
         return False
+
+    if run_id is not None and payload.get("scrape_run_id") is None:
+        payload["scrape_run_id"] = _parse_int(run_id)
 
     status = {
         "cloud_attempted": False,

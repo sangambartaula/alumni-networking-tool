@@ -105,6 +105,16 @@ TABLE_CONFIG = {
         'pk': ['id'],
         'unique_cols': ['email'],
         'timestamp_col': 'created_at'
+    },
+    'scrape_runs': {
+        'pk': ['id'],
+        'unique_cols': ['run_uuid'],
+        'timestamp_col': 'started_at'
+    },
+    'scrape_run_flags': {
+        'pk': ['id'],
+        'unique_cols': ['scrape_run_id', 'linkedin_url', 'reason'],
+        'timestamp_col': 'created_at'
     }
 }
 
@@ -227,6 +237,7 @@ class ConnectionManager:
                     job_start_date TEXT,
                     job_end_date TEXT,
                     working_while_studying INTEGER,
+                    scrape_run_id INTEGER,
                     latitude REAL,
                     longitude REAL,
                     normalized_job_title_id INTEGER,
@@ -273,10 +284,38 @@ class ConnectionManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     linkedin_url TEXT NOT NULL UNIQUE,
                     is_unt_alum INTEGER DEFAULT 0,
+                    last_scrape_run_id INTEGER,
                     visited_at TEXT DEFAULT (datetime('now')),
                     last_checked TEXT DEFAULT (datetime('now')),
                     needs_update INTEGER DEFAULT 0,
                     notes TEXT
+                );
+
+                -- Scrape runs table
+                CREATE TABLE IF NOT EXISTS scrape_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_uuid TEXT UNIQUE NOT NULL,
+                    scraper_email TEXT,
+                    scraper_mode TEXT,
+                    selected_disciplines TEXT,
+                    status TEXT DEFAULT 'running',
+                    profiles_scraped INTEGER DEFAULT 0,
+                    cloud_disabled INTEGER DEFAULT 0,
+                    geocode_unknown_count INTEGER DEFAULT 0,
+                    geocode_network_failure_count INTEGER DEFAULT 0,
+                    started_at TEXT DEFAULT (datetime('now')),
+                    completed_at TEXT,
+                    notes TEXT
+                );
+
+                -- Scrape run flagged profile reasons
+                CREATE TABLE IF NOT EXISTS scrape_run_flags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scrape_run_id INTEGER NOT NULL,
+                    linkedin_url TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(scrape_run_id, linkedin_url, reason)
                 );
                 
                 -- User interactions table
