@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QPushButton, QTextEdit, QMessageBox, QDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QSizePolicy
 )
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont
 
 
@@ -833,6 +833,11 @@ class ScraperApp(QMainWindow):
         self._run_started_at = None
         self._run_metrics = {}
         self._history_rows = []
+        self._gui_file_path = os.path.abspath(__file__)
+        self._gui_file_mtime = self._safe_get_mtime(self._gui_file_path)
+        self._pending_gui_reload = False
+        self._about_version_text = "local"
+        self._about_last_updated_text = "unknown"
         self.init_ui()
 
     def _apply_modern_style(self):
@@ -878,6 +883,82 @@ class ScraperApp(QMainWindow):
                 color: #ecf1f8;
             }
         """)
+
+    def _safe_get_mtime(self, path):
+        try:
+            return os.path.getmtime(path)
+        except Exception:
+            return None
+
+    def _read_git_version_info(self):
+        base_dir = get_base_dir()
+        try:
+            short_hash = subprocess.check_output(
+                ["git", "-C", base_dir, "rev-parse", "--short", "HEAD"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+            commit_time = subprocess.check_output(
+                ["git", "-C", base_dir, "show", "-s", "--format=%ci", "HEAD"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+            if short_hash:
+                return f"v-{short_hash}", commit_time or "unknown"
+        except Exception:
+            pass
+
+        mtime = self._safe_get_mtime(self._gui_file_path)
+        if mtime:
+            return "local", datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+        return "local", "unknown"
+
+    def _refresh_about_metadata(self):
+        version_text, last_updated_text = self._read_git_version_info()
+        self._about_version_text = version_text
+        self._about_last_updated_text = last_updated_text
+
+    def _start_gui_autoreload_watcher(self):
+        self._gui_reload_timer = QTimer(self)
+        self._gui_reload_timer.setInterval(3000)
+        self._gui_reload_timer.timeout.connect(self._check_for_gui_file_update)
+        self._gui_reload_timer.start()
+
+    def _check_for_gui_file_update(self):
+        current_mtime = self._safe_get_mtime(self._gui_file_path)
+        if current_mtime is None or self._gui_file_mtime is None:
+            self._gui_file_mtime = current_mtime
+            return
+        if current_mtime <= self._gui_file_mtime:
+            return
+
+        self._gui_file_mtime = current_mtime
+        self._refresh_about_metadata()
+
+        if self.worker and self.worker.isRunning():
+            if not self._pending_gui_reload:
+                self._pending_gui_reload = True
+                self.append_console("\nAUTO-RELOAD: GUI update detected. Restart will happen after the current scraper run completes.\n")
+            return
+
+        self._restart_gui_process()
+
+    def _restart_gui_process(self):
+        self._pending_gui_reload = False
+        QApplication.instance().quit()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    def _show_about_dialog(self):
+        self._refresh_about_metadata()
+        QMessageBox.information(
+            self,
+            "About Scraper GUI",
+            (
+                f"Version: {self._about_version_text}\n"
+                f"Last Updated: {self._about_last_updated_text}\n\n"
+                "Auto-reload: enabled (checks every 3 seconds)."
+            ),
+        )
 
     def _get_db_connection(self):
         backend_dir = os.path.join(get_base_dir(), "backend")
@@ -1042,6 +1123,8 @@ class ScraperApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
+
+        self._refresh_about_metadata()
         
         # Left Panel (Settings)
         left_panel = QWidget()
@@ -1249,8 +1332,16 @@ class ScraperApp(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
+        header_row = QHBoxLayout()
         console_label = QLabel("Console Output")
-        right_layout.addWidget(console_label)
+        header_row.addWidget(console_label)
+        header_row.addStretch()
+        self.about_btn = QPushButton("i")
+        self.about_btn.setFixedSize(26, 26)
+        self.about_btn.setToolTip("Version and update info")
+        self.about_btn.clicked.connect(self._show_about_dialog)
+        header_row.addWidget(self.about_btn)
+        right_layout.addLayout(header_row)
         
         self.console = QTextEdit()
         self.console.setReadOnly(True)
@@ -1303,6 +1394,7 @@ class ScraperApp(QMainWindow):
         self.refresh_preflight_status()
         self.refresh_run_history()
         self._apply_modern_style()
+        self._start_gui_autoreload_watcher()
 
     def on_mode_change(self, mode):
         is_conn = (mode == "connections")
@@ -1688,6 +1780,10 @@ class ScraperApp(QMainWindow):
                 update_env("HEADLESS", "false")
                 self.append_console("\nMANUAL ACTION: Restarting scraper with HEADLESS=false for verification flow.\n")
                 self.start_scraper()
+
+        if self._pending_gui_reload:
+            self.append_console("\nAUTO-RELOAD: Restarting GUI to apply updated code.\n")
+            self._restart_gui_process()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
