@@ -56,6 +56,36 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return default
 
 
+def _env_int(name: str, default: int) -> int:
+    """Parse an integer env var with fallback on blank/invalid values."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    text = str(raw).strip()
+    if not text:
+        return default
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid integer for {name}={raw!r}; using default {default}")
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    """Parse a float env var with fallback on blank/invalid values."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    text = str(raw).strip()
+    if not text:
+        return default
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid float for {name}={raw!r}; using default {default}")
+        return default
+
+
 def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved"):
     """
     Print a clean, colored per-profile summary block.
@@ -230,7 +260,7 @@ HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
 SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()
-SCRAPE_RESUME_MAX_AGE_DAYS = int(os.getenv("SCRAPE_RESUME_MAX_AGE_DAYS", "7"))
+SCRAPE_RESUME_MAX_AGE_DAYS = _env_int("SCRAPE_RESUME_MAX_AGE_DAYS", 7)
 OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
 UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
 CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "Connections.csv")
@@ -250,9 +280,9 @@ if USE_GROQ and not GROQ_API_KEY:
     )
 
 # Timeouts & Delays
-PAGE_SETTLE_SECONDS = int(os.getenv("PAGE_SETTLE_SECONDS", "0"))
-POST_SECTION_WAIT_SECONDS = float(os.getenv("POST_SECTION_WAIT_SECONDS", "0"))
-EDU_READY_TIMEOUT_SECONDS = int(os.getenv("EDU_READY_TIMEOUT_SECONDS", "30"))
+PAGE_SETTLE_SECONDS = _env_int("PAGE_SETTLE_SECONDS", 0)
+POST_SECTION_WAIT_SECONDS = _env_float("POST_SECTION_WAIT_SECONDS", 0.0)
+EDU_READY_TIMEOUT_SECONDS = _env_int("EDU_READY_TIMEOUT_SECONDS", 30)
 
 # Flagging Configuration
 # Keep legacy flags for compatibility with older scraper modules and packaged builds.
@@ -260,8 +290,8 @@ FLAG_MISSING_EXPERIENCE_DATA = _env_bool("FLAG_MISSING_EXPERIENCE_DATA", True)
 FLAG_MISSING_GRAD_YEAR = _env_bool("FLAG_MISSING_GRAD_YEAR", False)
 FLAG_MISSING_DEGREE = _env_bool("FLAG_MISSING_DEGREE", False)
 
-MIN_DELAY = int(os.getenv("MIN_DELAY", "60"))
-MAX_DELAY = int(os.getenv("MAX_DELAY", "240"))
+MIN_DELAY = _env_int("MIN_DELAY", 60)
+MAX_DELAY = _env_int("MAX_DELAY", 240)
 
 # Paths
 OUTPUT_DIR = Path(__file__).parent / "output"

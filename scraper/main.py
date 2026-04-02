@@ -156,17 +156,17 @@ _exit_listener_active = False
 session_profiles_scraped = 0
 
 # GUI Limits
-def get_gui_limit(name, default=0):
-    val = os.getenv(name, "").strip()
-    if not val:
-        return default
-    try:
-        return int(val)
-    except ValueError:
-        return default
+try:
+    GUI_MAX_PROFILES = int((os.getenv("GUI_MAX_PROFILES", "0") or "0").strip())
+except Exception:
+    GUI_MAX_PROFILES = 0
+    logger.warning("Invalid GUI_MAX_PROFILES value in env; defaulting to 0 (infinite).")
 
-GUI_MAX_PROFILES = get_gui_limit("GUI_MAX_PROFILES", 0)
-GUI_MAX_RUNTIME_MINUTES = get_gui_limit("GUI_MAX_RUNTIME_MINUTES", 0)
+try:
+    GUI_MAX_RUNTIME_MINUTES = int((os.getenv("GUI_MAX_RUNTIME_MINUTES", "0") or "0").strip())
+except Exception:
+    GUI_MAX_RUNTIME_MINUTES = 0
+    logger.warning("Invalid GUI_MAX_RUNTIME_MINUTES value in env; defaulting to 0 (infinite).")
 SCRIPT_START_TIME = datetime.now()
 global_profiles_tracked_for_gui = 0
 
@@ -588,7 +588,11 @@ def _collect_profile_flag_reasons(profile_data):
 
     reasons = []
     try:
-        from config import FLAG_MISSING_EXPERIENCE_DATA
+        from config import (
+            FLAG_MISSING_EXPERIENCE_DATA,
+            FLAG_MISSING_GRAD_YEAR,
+            FLAG_MISSING_DEGREE,
+        )
     except Exception:
         return reasons
 
@@ -617,6 +621,13 @@ def _collect_profile_flag_reasons(profile_data):
             reasons.append("Missing Company but Job Title Present for Experience 3")
         elif exp3_company and not exp3_title:
             reasons.append("Missing Job Title but Company Present for Experience 3")
+
+    graduation_year = profile_data.get("graduation_year")
+    major = _as_text("major")
+    if FLAG_MISSING_GRAD_YEAR and not graduation_year:
+        reasons.append("Missing Grad Year")
+    if FLAG_MISSING_DEGREE and not major:
+        reasons.append("Missing Degree/Major Information")
 
     return reasons
 
