@@ -26,6 +26,7 @@ echo "Bundling App..."
 pyinstaller --clean \
             --name "Alumni Scraper App" \
             --windowed \
+            --icon="frontend/public/assets/unt-logo.png" \
             --noconfirm \
             scraper_gui.py
 
