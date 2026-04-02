@@ -1337,8 +1337,8 @@ class ScraperApp(QMainWindow):
     def open_settings(self):
         dialog = SettingsDialog(self)
         if dialog.exec():
-            # If accepted, we might want to reload environment
-            # This triggers a preflight refresh internally just in case
+            # Reload environment to sync any changes made in the dialog
+            self.load_settings_from_env()
             self.refresh_preflight_status()
             
     def init_ui(self):
@@ -1830,6 +1830,18 @@ class ScraperApp(QMainWindow):
                 QMessageBox.warning(self, "Warning", "Minimum delay < 15s. This is extremely risky and may lead to a ban.")
             if (max_d - min_d) < 45:
                 QMessageBox.warning(self, "Warning", "Delay gap is very tight (under 45s). It's recommended to widen the range to mimic human variance better.")
+
+        # Limit Validations
+        try:
+            p_limit = int(self.max_profiles.text() or 0)
+            h_limit = int(self.hours_input.text() or 0)
+            m_limit = int(self.mins_input.text() or 0)
+            if p_limit < 0 or h_limit < 0 or m_limit < 0:
+                raise ValueError("Negative value")
+        except ValueError:
+            QMessageBox.critical(self, "Error", "Auto-stop limits (profiles/time) must be valid non-negative integers.")
+            return False
+
         return True
 
     def toggle_password(self, checked):
@@ -1855,10 +1867,10 @@ class ScraperApp(QMainWindow):
         
         update_env("CONNECTIONS_CSV", self.csv_path_input.text() or "Connections.csv")
         
-        update_env("MIN_DELAY", self.min_delay.text())
-        update_env("MAX_DELAY", self.max_delay.text())
+        update_env("MIN_DELAY", self.min_delay.text() or "60")
+        update_env("MAX_DELAY", self.max_delay.text() or "180")
         
-        update_env("GUI_MAX_PROFILES", self.max_profiles.text())
+        update_env("GUI_MAX_PROFILES", self.max_profiles.text() or "0")
         
         try:
             total_mins = int(self.hours_input.text() or 0) * 60 + int(self.mins_input.text() or 0)
