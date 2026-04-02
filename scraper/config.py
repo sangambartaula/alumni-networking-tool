@@ -43,6 +43,19 @@ _LAST_SUMMARY_SIGNATURE = None
 _LAST_SUMMARY_TS = 0.0
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse a boolean env var with tolerant truthy/falsey handling."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off", ""}:
+        return False
+    return default
+
+
 def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved"):
     """
     Print a clean, colored per-profile summary block.
@@ -242,7 +255,10 @@ POST_SECTION_WAIT_SECONDS = float(os.getenv("POST_SECTION_WAIT_SECONDS", "0"))
 EDU_READY_TIMEOUT_SECONDS = int(os.getenv("EDU_READY_TIMEOUT_SECONDS", "30"))
 
 # Flagging Configuration
-FLAG_MISSING_EXPERIENCE_DATA = os.getenv("FLAG_MISSING_EXPERIENCE_DATA", "true").lower() == "true"
+# Keep legacy flags for compatibility with older scraper modules and packaged builds.
+FLAG_MISSING_EXPERIENCE_DATA = _env_bool("FLAG_MISSING_EXPERIENCE_DATA", True)
+FLAG_MISSING_GRAD_YEAR = _env_bool("FLAG_MISSING_GRAD_YEAR", False)
+FLAG_MISSING_DEGREE = _env_bool("FLAG_MISSING_DEGREE", False)
 
 MIN_DELAY = int(os.getenv("MIN_DELAY", "60"))
 MAX_DELAY = int(os.getenv("MAX_DELAY", "240"))
