@@ -148,13 +148,14 @@ Rules:
 
 - output must be one of `UNT_ALLOWED_MAJORS` or `Other`
 - strip minor/concentration/certificate noise before matching
-- then apply:
-  - exact alias map (`_EXACT_MAJOR_MAP`)
-  - direct canonical match
-  - ordered regex patterns (`_MAJOR_PATTERNS`)
-  - optional Groq fallback controlled by:
-    - `MAJOR_USE_GROQ_FALLBACK` (default enabled)
-    - `GROQ_API_KEY` (must be present)
+- then apply (AI-first):
+  - Groq major classification first when enabled and configured:
+    - `MAJOR_USE_GROQ_FALLBACK=1` (default enabled)
+    - `GROQ_API_KEY` present
+  - deterministic fallback when Groq is unavailable, fails, or returns unusable output:
+    - exact alias map (`_EXACT_MAJOR_MAP`)
+    - direct canonical match
+    - ordered regex patterns (`_MAJOR_PATTERNS`)
 - if unresolved or invalid => `Other`
 
 Multi-entry mapping (CS&E):
@@ -168,7 +169,7 @@ Multi-entry mapping (CS&E):
 
 "Other" fallback:
 
-- Any raw major text that cannot be resolved through aliases, regex patterns, or LLM fallback
+- Any raw major text that cannot be resolved through Groq-first classification plus deterministic fallback
   is mapped to "Other"
 - "Other" entries are still stored in the database and displayed but excluded from major filter checkboxes
 
@@ -186,7 +187,7 @@ Primary code path:
 
 Allowed output categories:
 
-- `Software, Data, AI & Cybersecurity Engineering`
+- `Software, Data, AI & Cybersecurity`
 - `Embedded, Electrical & Hardware Engineering`
 - `Mechanical Engineering & Manufacturing`
 - `Biomedical Engineering`
@@ -206,7 +207,8 @@ Additional guards:
 
 - non-engineering kill-list can force `Other`
 - generic degree labels avoid forcing false positives
-- LLM inference is only attempted when engineering signals are present
+- classification is AI-first for each non-empty source text when Groq is configured
+- deterministic rules are used as fallback when Groq is unavailable/fails/returns `Unknown`
 
 ## 7. Alumni Status (UNT Alumni vs Not Yet Alumni vs Unknown)
 

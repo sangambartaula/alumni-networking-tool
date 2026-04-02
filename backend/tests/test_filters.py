@@ -85,7 +85,7 @@ def test_api_filter_endpoint(client, monkeypatch):
                     "last_name": "Johnson",
                     "grad_year": 2020,
                     "degree": "Bachelor of Science",
-                    "major": "Software, Data, AI & Cybersecurity Engineering",
+                    "major": "Software, Data, AI & Cybersecurity",
                     "linkedin_url": "https://www.linkedin.com/in/alice",
                     "current_job_title": "Software Engineer",
                     "company": "Google",

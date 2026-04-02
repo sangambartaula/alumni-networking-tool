@@ -34,6 +34,15 @@ const directoryPageSize = 25;
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function isWorkingWhileStudyingPositive(value) {
   if (value === true || value === 1) return true;
   if (typeof value !== 'string') return false;

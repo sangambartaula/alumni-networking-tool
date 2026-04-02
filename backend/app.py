@@ -116,6 +116,18 @@ REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
 # university personnel can view the networking tool's data.
 AUTHORIZED_DOMAINS = ['@unt.edu']
 
+_SCRAPER_ACTIVITY_NAME_HINTS = {
+    "sangam": "Sangam Bartaula",
+    "sachin": "Sachin Banjade",
+    "abishek": "Abishek Lamichhane",
+    "abhishek": "Abishek Lamichhane",
+    "lamichhane": "Abishek Lamichhane",
+    "niranjan": "Niranjan Paudel",
+    "paudel": "Niranjan Paudel",
+    "shrish": "Shrish Acharya",
+    "acharya": "Shrish Acharya",
+}
+
 def is_authorized_user(email):
     """
     Check if user email is authorized to access the system.
@@ -149,6 +161,26 @@ def is_authorized_user(email):
     
     app.logger.warning(f"Unauthorized email attempted access: {email_lower}")
     return False
+
+
+def _resolve_scraper_display_name(email, users_by_email):
+    email_lower = (email or "").strip().lower()
+    if not email_lower:
+        return "Unknown Scraper"
+
+    user_row = users_by_email.get(email_lower, {})
+    first = (user_row.get("first_name") or "").strip()
+    last = (user_row.get("last_name") or "").strip()
+    full_name = f"{first} {last}".strip()
+    if full_name:
+        return full_name
+
+    local_part = email_lower.split("@", 1)[0]
+    for hint, display_name in _SCRAPER_ACTIVITY_NAME_HINTS.items():
+        if hint in local_part:
+            return display_name
+
+    return email_lower
 
 # ---------------------- Helper functions ----------------------
 
@@ -2042,6 +2074,93 @@ def remove_authorized_email_api():
             return jsonify({"success": False, "error": "Failed to remove email"}), 500
     except Exception as e:
         app.logger.error(f"Error removing authorized email: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/scraper-activity', methods=['GET'])
+@api_login_required
+def get_scraper_activity_api():
+    """Return who scraped and profile counts for accountability tracking."""
+    try:
+        from database import get_scraper_activity
+
+        activity_rows = get_scraper_activity() or []
+        users_by_email = {}
+
+        conn = None
+        try:
+            conn = get_connection()
+            try:
+                with conn.cursor(dictionary=True) as cur:
+                    cur.execute(
+                        """
+                        SELECT email, first_name, last_name
+                        FROM users
+                        WHERE email IS NOT NULL AND email != ''
+                        """
+                    )
+                    user_rows = cur.fetchall() or []
+            except Exception:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT email, first_name, last_name
+                        FROM users
+                        WHERE email IS NOT NULL AND email != ''
+                        """
+                    )
+                    raw_rows = cur.fetchall() or []
+                    user_rows = []
+                    for row in raw_rows:
+                        if isinstance(row, dict):
+                            user_rows.append(row)
+                        elif isinstance(row, (list, tuple)) and len(row) >= 3:
+                            user_rows.append({
+                                "email": row[0],
+                                "first_name": row[1],
+                                "last_name": row[2],
+                            })
+
+            for row in user_rows:
+                email = (row.get("email") or "").strip().lower()
+                if email:
+                    users_by_email[email] = row
+        except Exception as user_err:
+            app.logger.warning(f"Could not resolve scraper user names: {user_err}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        activity = []
+        total_profiles_scraped = 0
+        for row in activity_rows:
+            email = (row.get("email") or "").strip().lower()
+            profiles_scraped = int(row.get("profiles_scraped") or 0)
+            total_profiles_scraped += profiles_scraped
+
+            last_scraped_at = row.get("last_scraped_at")
+            if hasattr(last_scraped_at, "isoformat"):
+                last_scraped_at = last_scraped_at.isoformat()
+
+            activity.append({
+                "email": email,
+                "display_name": _resolve_scraper_display_name(email, users_by_email),
+                "profiles_scraped": profiles_scraped,
+                "last_scraped_at": last_scraped_at,
+            })
+
+        activity.sort(key=lambda item: (-item["profiles_scraped"], item["display_name"].lower()))
+
+        return jsonify({
+            "success": True,
+            "total_profiles_scraped": total_profiles_scraped,
+            "activity": activity,
+        }), 200
+    except Exception as e:
+        app.logger.error(f"Error fetching scraper activity: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

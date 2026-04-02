@@ -210,6 +210,14 @@ def standardize_major_list(raw_major: str, job_title: str = "") -> List[str]:
             return list(_CSE_EXPANSION)
         return [value]
 
+    # AI-first path: prefer Groq classification when enabled and available.
+    # Fall back to deterministic aliases/patterns on any miss/failure.
+    use_llm_first = os.getenv("MAJOR_USE_GROQ_FALLBACK", "1") == "1"
+    if use_llm_first and os.getenv("GROQ_API_KEY"):
+        llm_result = _standardize_major_with_llm(text, job_title)
+        if llm_result in UNT_ALLOWED_MAJORS and llm_result != "Other":
+            return [llm_result]
+
     exact = _EXACT_MAJOR_MAP.get(text.lower())
     if exact:
         return _resolve(exact)
@@ -221,12 +229,6 @@ def standardize_major_list(raw_major: str, job_title: str = "") -> List[str]:
     for pattern, canonical in _MAJOR_PATTERNS:
         if pattern.search(text):
             return _resolve(canonical)
-
-    use_llm_fallback = os.getenv("MAJOR_USE_GROQ_FALLBACK", "1") == "1"
-    if use_llm_fallback and os.getenv("GROQ_API_KEY"):
-        llm_result = _standardize_major_with_llm(text, job_title)
-        if llm_result in UNT_ALLOWED_MAJORS:
-            return [llm_result]
 
     return ["Other"]
 

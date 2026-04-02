@@ -21,6 +21,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const newEmailInput = document.getElementById('newEmail');
   const emailNotesInput = document.getElementById('emailNotes');
   const confirmMessage = document.getElementById('confirmMessage');
+  const scraperActivityBody = document.getElementById('scraperActivityBody');
+  const scraperActivityTotal = document.getElementById('scraperActivityTotal');
 
   // Temporary storage for email being added
   let pendingEmail = null;
@@ -30,6 +32,7 @@ document.addEventListener('DOMContentLoaded', function () {
   settingsBtn.addEventListener('click', function () {
     settingsModal.style.display = 'block';
     loadAuthorizedEmails();
+    loadScraperActivity();
   });
 
   // Close settings modal
@@ -147,6 +150,81 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (error) {
       console.error('Error fetching emails:', error);
       emailList.innerHTML = '<li class="error">Error loading emails</li>';
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function formatRelativeTime(value) {
+    if (!value) return 'Never';
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'Unknown';
+
+    const diffMs = Date.now() - parsed.getTime();
+    const diffSeconds = Math.floor(diffMs / 1000);
+    if (diffSeconds < 60) return 'Just now';
+
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 30) return `${diffDays}d ago`;
+
+    return parsed.toLocaleDateString();
+  }
+
+  async function loadScraperActivity() {
+    if (!scraperActivityBody || !scraperActivityTotal) return;
+
+    try {
+      const response = await fetch('/api/scraper-activity');
+      const data = await response.json();
+      const rows = Array.isArray(data.activity) ? data.activity : [];
+      const total = Number.isFinite(data.total_profiles_scraped)
+        ? data.total_profiles_scraped
+        : rows.reduce((sum, row) => sum + (parseInt(row.profiles_scraped, 10) || 0), 0);
+
+      scraperActivityTotal.textContent = `Total scraped: ${total}`;
+
+      if (!rows.length) {
+        scraperActivityBody.textContent = 'No scraper activity recorded yet.';
+        return;
+      }
+
+      const tableRows = rows.map((row) => {
+        const displayName = escapeHtml(row.display_name || row.email || 'Unknown Scraper');
+        const count = parseInt(row.profiles_scraped, 10) || 0;
+        const lastSeen = escapeHtml(formatRelativeTime(row.last_scraped_at));
+        return `<tr><td>${displayName}</td><td>${count}</td><td>${lastSeen}</td></tr>`;
+      }).join('');
+
+      scraperActivityBody.innerHTML = `
+        <table class="scraper-activity-table">
+          <thead>
+            <tr>
+              <th>Scraper</th>
+              <th>Profiles</th>
+              <th>Last Scraped</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      `;
+    } catch (error) {
+      console.error('Error loading scraper activity:', error);
+      scraperActivityTotal.textContent = 'Total scraped: unavailable';
+      scraperActivityBody.textContent = 'Scraper activity is unavailable right now.';
     }
   }
 

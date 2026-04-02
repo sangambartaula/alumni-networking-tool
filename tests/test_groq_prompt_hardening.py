@@ -28,7 +28,7 @@ def test_major_choice_invalid_payload_returns_other():
 
 
 def test_discipline_choice_accepts_id_and_name():
-    assert _coerce_llm_discipline_choice({"discipline_id": 1}) == "Software, Data, AI & Cybersecurity Engineering"
+    assert _coerce_llm_discipline_choice({"discipline_id": 1}) == "Software, Data, AI & Cybersecurity"
     assert _coerce_llm_discipline_choice({"discipline": "other"}) == "Other"
 
 

@@ -46,34 +46,34 @@ class TestDisciplineClassification:
     # ==========================================================================
     
     def test_software_engineer_keyword(self):
-        """Software engineer should match Software, Data, AI & Cybersecurity Engineering."""
+        """Software engineer should match Software, Data, AI & Cybersecurity."""
         result = infer_discipline(None, "Software Engineer", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_python_developer(self):
-        """Python keyword should match Software, Data, AI & Cybersecurity Engineering."""
+        """Python keyword should match Software, Data, AI & Cybersecurity."""
         result = infer_discipline(None, "Python Developer", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_machine_learning_engineer(self):
-        """Machine learning should match Software, Data, AI & Cybersecurity Engineering."""
+        """Machine learning should match Software, Data, AI & Cybersecurity."""
         result = infer_discipline(None, "Machine Learning Engineer", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_data_scientist(self):
-        """Data scientist should match Software, Data, AI & Cybersecurity Engineering."""
+        """Data scientist should match Software, Data, AI & Cybersecurity."""
         result = infer_discipline(None, "Data Scientist", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_cybersecurity_analyst(self):
-        """Cybersecurity should match Software, Data, AI & Cybersecurity Engineering."""
+        """Cybersecurity should match Software, Data, AI & Cybersecurity."""
         result = infer_discipline(None, "Cybersecurity Analyst", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_devops_engineer(self):
-        """DevOps should match Software, Data, AI & Cybersecurity Engineering."""
+        """DevOps should match Software, Data, AI & Cybersecurity."""
         result = infer_discipline(None, "DevOps Engineer", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     # ==========================================================================
     # EMBEDDED, ELECTRICAL & HARDWARE TESTS
@@ -190,7 +190,7 @@ class TestDisciplineClassification:
     def test_order_software_before_construction_for_it_project_manager(self):
         """IT Project Manager should match Software (checked first)."""
         result = infer_discipline(None, "IT Project Manager", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_construction_project_manager(self):
         """Construction Project Manager should match Construction."""
@@ -207,7 +207,7 @@ class TestDisciplineClassification:
         # Job: Construction Manager (Construction)
         # Should be Software (Degree wins)
         result = infer_discipline("Computer Science", "Construction Manager", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
 
     def test_job_priority_over_degree_user_case(self):
         """User case where both signals map to Software."""
@@ -215,17 +215,17 @@ class TestDisciplineClassification:
         # Degree: Computer Engineering (Software in current taxonomy)
         # Should be Software
         result = infer_discipline("Computer Engineering", "Lead Software Engineer", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_job_priority_over_headline(self):
         """Job title should take priority over headline."""
         result = infer_discipline(None, "Software Engineer", "Construction Manager")
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_headline_used_when_no_job(self):
         """Headline should be used when no job title."""
         result = infer_discipline(None, None, "Experienced Software Developer")
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
 
     def test_highest_unt_major_takes_priority(self):
         """Highest UNT major should win over other UNT/non-UNT majors and jobs."""
@@ -240,7 +240,7 @@ class TestDisciplineClassification:
             ],
             older_job_titles=["Clinical Pharmacist"],
         )
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
 
     def test_older_job_used_before_headline(self):
         """Older experience should be used before headline when current job is absent."""
@@ -284,17 +284,17 @@ class TestCaseInsensitivity:
     def test_lowercase_match(self):
         """Should match lowercase keywords."""
         result = infer_discipline(None, "software engineer", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_uppercase_match(self):
         """Should match uppercase keywords."""
         result = infer_discipline(None, "SOFTWARE ENGINEER", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
     
     def test_mixed_case_match(self):
         """Should match mixed case keywords."""
         result = infer_discipline(None, "SoFtWaRe EnGiNeEr", None)
-        assert result == "Software, Data, AI & Cybersecurity Engineering"
+        assert result == "Software, Data, AI & Cybersecurity"
 
 
 if __name__ == "__main__":
