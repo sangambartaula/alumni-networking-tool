@@ -22,11 +22,14 @@ echo "Installing PyQt6 and PyInstaller..."
 pip install PyQt6 pyinstaller python-dotenv
 
 # Build using PyInstaller
+echo "Squarifying icon to prevent stretching..."
+python scripts/pad_icon.py
+
 echo "Bundling App..."
 pyinstaller --clean \
             --name "Alumni Scraper App" \
             --windowed \
-            --icon="frontend/public/assets/unt-logo.png" \
+            --icon="frontend/public/assets/unt-logo-square.png" \
             --noconfirm \
             scraper_gui.py
 

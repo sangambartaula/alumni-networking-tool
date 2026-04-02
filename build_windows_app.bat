@@ -20,8 +20,11 @@ echo Installing PyQt6 and PyInstaller...
 pip install PyQt6 pyinstaller python-dotenv
 
 :: Build using PyInstaller
+echo Squarifying icon to prevent stretching...
+python scripts\pad_icon.py
+
 echo Bundling App...
-pyinstaller --clean --name "Alumni Scraper App" --windowed --icon="frontend/public/assets/unt-logo.png" --noconfirm scraper_gui.py
+pyinstaller --clean --name "Alumni Scraper App" --windowed --icon="frontend/public/assets/unt-logo-square.png" --noconfirm scraper_gui.py
 
 echo Build complete! The application has been created inside the 'dist' folder.
 echo You can move 'UNT Alumni Scraper.exe' anywhere, but for it to function correctly, place it in the same parent folder as your 'venv' and 'scraper' directories.
