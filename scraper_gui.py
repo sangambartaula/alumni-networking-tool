@@ -835,7 +835,8 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Scraper Settings")
-        self.setMinimumSize(600, 700)
+        self.setMinimumSize(760, 700)
+        self.setStyleSheet("QCheckBox::indicator { width: 18px; height: 18px; }")
         
         self.base_dir = get_base_dir()
         self.env_path = os.path.join(self.base_dir, '.env')
@@ -871,6 +872,7 @@ class SettingsDialog(QDialog):
 
     def _add_field(self, form_layout, key, label_text, ftype, default_val, tooltip, is_required=False, is_password=False):
         lbl = QLabel(f"{label_text} *" if is_required else label_text)
+        lbl.setToolTip(tooltip)
         if is_required:
             lbl.setStyleSheet("color: #0056b3; font-weight: bold;")
         else:
@@ -891,6 +893,7 @@ class SettingsDialog(QDialog):
         
         if ftype == bool:
             inp_widget = QCheckBox()
+            inp_widget.setToolTip(tooltip)
             # Strict falsy checks for bools
             val_str = current_val.lower() if current_val else str(default_val).lower()
             inp_widget.setChecked(val_str in ("true", "1", "yes"))
@@ -899,6 +902,8 @@ class SettingsDialog(QDialog):
         else:
             inp_widget = QLineEdit()
             inp_widget.setPlaceholderText(f"Default: {default_val}")
+            inp_widget.setMinimumWidth(420)
+            inp_widget.setToolTip(tooltip)
             if current_val:
                 inp_widget.setText(current_val)
             
@@ -922,6 +927,8 @@ class SettingsDialog(QDialog):
         container = QWidget()
         form = QFormLayout(container)
         form.setSpacing(15)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         scroll.setWidget(container)
         self.tabs.addTab(scroll, name)
         return form
@@ -935,11 +942,35 @@ class SettingsDialog(QDialog):
         f = self._create_tab("Scraper")
         self._add_field(f, "MIN_DELAY", "Min Delay", int, 60, "Minimum seconds to wait between profile scrapes (prevents ban).", True)
         self._add_field(f, "MAX_DELAY", "Max Delay", int, 240, "Maximum seconds to wait between profile scrapes.", True)
-        self._add_field(f, "HEADLESS", "Headless Mode", bool, False, "Run browser invisibly in background. Often faster, but harder to solve catchas.", False)
+        self._add_field(
+            f,
+            "HEADLESS",
+            "Headless Mode",
+            bool,
+            False,
+            "Runs Chrome in the background so you can keep working, but it is often more detectable and harder to troubleshoot login/challenge flows. Non-headless may occasionally bring browser focus while scraping.",
+            False,
+        )
         self._add_field(f, "USE_COOKIES", "Use Cookies", bool, True, "Attempt to inject previous session cookies to bypass manual login.", False)
         self._add_field(f, "SCRAPER_DEBUG_HTML", "Debug HTML", bool, False, "Save scraped HTML dumps on failure for inspection.", False)
-        self._add_field(f, "SCRAPE_RESUME_MAX_AGE_DAYS", "Resume Max Age", int, 90, "Profiles successfully scraped within these days will be skipped.", False)
-        self._add_field(f, "USE_GROQ", "Extrapolate with Groq", bool, True, "Pass scraped profiles to LLM for final structure normalization.", False)
+        self._add_field(
+            f,
+            "SCRAPE_RESUME_MAX_AGE_DAYS",
+            "Resume Max Age",
+            int,
+            7,
+            "In search mode, this keeps track of recent page/progress state so restarts avoid repeating pages you already scraped.",
+            False,
+        )
+        self._add_field(
+            f,
+            "USE_GROQ",
+            "Use Groq",
+            bool,
+            True,
+            "Use Groq for extraction. Recommended ON because HTML-only extraction is less reliable for some profile formats.",
+            False,
+        )
 
     def create_database_tab(self):
         f = self._create_tab("Database")
@@ -948,8 +979,6 @@ class SettingsDialog(QDialog):
         self._add_field(f, "MYSQLPASSWORD", "MySQL Password", str, "", "Database password.", True, True)
         self._add_field(f, "MYSQL_DATABASE", "Database Name", str, "linkedinhelper", "Primary catalog/schema name.", True)
         self._add_field(f, "MYSQLPORT", "MySQL Port", int, 3306, "Database connection port (defaults to 3306).", True)
-        self._add_field(f, "USE_SQLITE_FALLBACK", "SQLite Fallback", bool, True, "If MySQL fails or is unreachable, locally cache into SQLite.", False)
-        self._add_field(f, "DISABLE_DB", "Disable DB", bool, False, "Completely disable MySQL/SQLite connections (CSV-only output).", False)
 
     def reset_to_defaults(self):
         for key, field in self._fields.items():
@@ -1983,11 +2012,47 @@ class ScraperApp(QMainWindow):
             total_mins = 0
         update_env("GUI_MAX_RUNTIME_MINUTES", str(total_mins))
 
+    def _warn_if_groq_not_ready(self):
+        env_path = os.path.join(get_base_dir(), ".env")
+        env_values = dotenv.dotenv_values(env_path) if os.path.exists(env_path) else {}
+        use_groq = str(env_values.get("USE_GROQ", "true")).strip().lower() in {"1", "true", "yes", "on"}
+        groq_key = str(env_values.get("GROQ_API_KEY", "")).strip()
+
+        if use_groq and groq_key:
+            return True
+
+        msg = (
+            "Groq is recommended for scraping reliability.\n\n"
+            "Some profiles have layouts where HTML-only extraction is less consistent. "
+            "Using Groq improves extraction quality for those cases.\n\n"
+            "Recommendation:\n"
+            "1. Enable 'Use Groq' in Settings > Scraper\n"
+            "2. Add GROQ_API_KEY in your .env (Settings currently hides API keys for safety)\n"
+            "3. Get a key at https://console.groq.com/keys\n"
+        )
+
+        if not use_groq:
+            msg += "\nContinue anyway with HTML-only extraction?"
+        else:
+            msg += "\nContinue anyway without a Groq API key?"
+
+        choice = QMessageBox.question(
+            self,
+            "Groq Recommended",
+            msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return choice == QMessageBox.StandardButton.Yes
+
     def start_scraper(self):
         if not self.validate_inputs():
             return
             
         self.save_all_settings_to_env()
+
+        if not self._warn_if_groq_not_ready():
+            return
         
         self.console.clear()
         self._manual_intervention_needed = False
