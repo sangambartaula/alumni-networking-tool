@@ -5,6 +5,7 @@ import signal
 import threading
 import csv
 import json
+import re
 import webbrowser
 from datetime import datetime
 from urllib import request, error
@@ -370,6 +371,44 @@ class GeocodeWorker(QThread):
         finally:
             code = self.process.returncode if self.process else 1
             self.finished_signal.emit(code)
+
+
+class InstallDepsWorker(QThread):
+    output_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(int)
+
+    def __init__(self):
+        super().__init__()
+
+    def run(self):
+        base_dir = get_base_dir()
+        python_exec = _resolve_python_exec(base_dir)
+        self.output_signal.emit(f"\nInstalling dependencies using: {python_exec}\n")
+
+        ok = _bootstrap_requirements(python_exec, base_dir, self.output_signal.emit)
+        if not ok:
+            self.finished_signal.emit(1)
+            return
+
+        # Verify the core modules needed by workers.
+        required = [
+            "selenium",
+            "bs4",
+            "pandas",
+            "requests",
+            "dotenv",
+            "mysql.connector",
+            "groq",
+            "bcrypt",
+        ]
+        missing = _check_missing_modules(python_exec, required)
+        if missing:
+            self.output_signal.emit(f"\nERROR: Still missing after install: {', '.join(missing)}\n")
+            self.finished_signal.emit(1)
+            return
+
+        self.output_signal.emit("\nAll required dependencies are installed.\n")
+        self.finished_signal.emit(0)
 
 class FlagManagerDialog(QDialog):
     COLUMN_ORDER = [
@@ -1152,6 +1191,7 @@ class ScraperApp(QMainWindow):
         self.worker = None
         self.db_worker = None
         self.geocode_worker = None
+        self.install_worker = None
         self._pending_upload_after_geocode = False
         self._manual_intervention_needed = False
         self._manual_intervention_reason = ""
@@ -1170,6 +1210,7 @@ class ScraperApp(QMainWindow):
         self._update_url = DEFAULT_RELEASES_URL
         self._cloud_status_cache = None
         self._geo_status_cache = None
+        self._missing_module_prompt_shown = False
         self.init_ui()
         self._start_remote_update_check()
 
@@ -1780,8 +1821,15 @@ class ScraperApp(QMainWindow):
         self.upload_db_btn.setStyleSheet("background-color: #005A9C; color: white; font-weight: bold;")
         self.upload_db_btn.clicked.connect(self.upload_to_db)
 
+        self.install_deps_btn = QPushButton("Install Dependencies")
+        self.install_deps_btn.setMinimumHeight(40)
+        self.install_deps_btn.setStyleSheet("background-color: #6C757D; color: white; font-weight: bold;")
+        self.install_deps_btn.setToolTip("Install Python dependencies from requirements.txt")
+        self.install_deps_btn.clicked.connect(self.install_dependencies)
+
         sync_btn_layout.addWidget(self.geocode_btn)
         sync_btn_layout.addWidget(self.upload_db_btn)
+        sync_btn_layout.addWidget(self.install_deps_btn)
         left_layout.addLayout(sync_btn_layout)
         
         left_panel.setFixedWidth(460)
@@ -1957,6 +2005,26 @@ class ScraperApp(QMainWindow):
         self.console.insertHtml(f"<span style='color:{color};'>{safe_text}</span>")
         scrollbar = self.console.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+        if ("modulenotfounderror: no module named" in line_lower) and (not self._missing_module_prompt_shown):
+            self._missing_module_prompt_shown = True
+            missing_name = "unknown"
+            m = re.search(r"No module named ['\"]([^'\"]+)['\"]", text or "")
+            if m:
+                missing_name = m.group(1)
+
+            choice = QMessageBox.question(
+                self,
+                "Missing Dependency Detected",
+                (
+                    f"The scraper failed because module '{missing_name}' is missing.\n\n"
+                    "Install all required dependencies now using requirements.txt?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if choice == QMessageBox.StandardButton.Yes:
+                self.install_dependencies()
 
     def _append_gui_summary_block(self):
         if self._run_started_at:
@@ -2155,6 +2223,7 @@ class ScraperApp(QMainWindow):
         self._manual_intervention_needed = False
         self._manual_intervention_reason = ""
         self._suggest_restart_headed = False
+        self._missing_module_prompt_shown = False
         self._run_started_at = datetime.now()
         self._reset_run_metrics()
         self._run_metrics["user"] = self.email_input.text().strip().lower()
@@ -2162,6 +2231,7 @@ class ScraperApp(QMainWindow):
         self.start_btn.setEnabled(False)
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
+        self.install_deps_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
         self.stop_after_profile_btn.setVisible(False)
@@ -2178,6 +2248,7 @@ class ScraperApp(QMainWindow):
         self.start_btn.setEnabled(False)
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
+        self.install_deps_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
 
         self.geocode_worker = GeocodeWorker()
@@ -2211,12 +2282,44 @@ class ScraperApp(QMainWindow):
         self.start_btn.setEnabled(False)
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
+        self.install_deps_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         
         self.db_worker = DatabaseWorker()
         self.db_worker.output_signal.connect(self.append_console)
         self.db_worker.finished_signal.connect(self.on_db_finished)
         self.db_worker.start()
+
+    def install_dependencies(self):
+        if self.install_worker and self.install_worker.isRunning():
+            return
+
+        self.console.clear()
+        self.start_btn.setEnabled(False)
+        self.geocode_btn.setEnabled(False)
+        self.upload_db_btn.setEnabled(False)
+        self.install_deps_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+
+        self.install_worker = InstallDepsWorker()
+        self.install_worker.output_signal.connect(self.append_console)
+        self.install_worker.finished_signal.connect(self.on_install_finished)
+        self.install_worker.start()
+
+    def on_install_finished(self, exit_code):
+        if exit_code == 0:
+            QMessageBox.information(
+                self,
+                "Dependencies Installed",
+                "All required dependencies were installed successfully.",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Install Failed",
+                "Dependency installation failed. Check console output for details.",
+            )
+        self.on_sync_finished()
 
     def stop_scraper(self):
         if not self.worker:
@@ -2259,12 +2362,14 @@ class ScraperApp(QMainWindow):
         self.start_btn.setEnabled(True)
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
+        self.install_deps_btn.setEnabled(True)
         self._reset_stop_controls()
 
     def on_scraper_finished(self):
         self.start_btn.setEnabled(True)
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
+        self.install_deps_btn.setEnabled(True)
         self._reset_stop_controls()
         self._append_gui_summary_block()
         try:
