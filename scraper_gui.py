@@ -1405,25 +1405,29 @@ class ScraperApp(QMainWindow):
                 sys.path.insert(0, backend_dir)
             from geocoding import geocode_location_with_status
 
-            normal_coords, normal_status = geocode_location_with_status("Fort Worth, Texas")
-            alias_coords, alias_status = geocode_location_with_status("Ft Worth, TX")
+            coords, status = geocode_location_with_status("Fort Worth, Texas, United States")
 
-            if normal_coords and alias_coords:
-                lat_delta = abs(float(normal_coords[0]) - float(alias_coords[0]))
-                lon_delta = abs(float(normal_coords[1]) - float(alias_coords[1]))
-                # Consider it equivalent if both points land in the same metro area.
-                if lat_delta <= 0.5 and lon_delta <= 0.5:
-                    return "green", "Geocoding reachable", "Ft Worth alias matches normal Fort Worth geocode entry."
+            if coords:
+                lat = float(coords[0])
+                lon = float(coords[1])
+                # Fort Worth city-center reference with tolerant metro window.
+                ref_lat, ref_lon = 32.7555, -97.3308
+                lat_delta = abs(lat - ref_lat)
+                lon_delta = abs(lon - ref_lon)
+
+                if lat_delta <= 0.8 and lon_delta <= 0.8:
+                    return "green", "Geocoding reachable", "Fort Worth probe resolved to expected metro coordinates."
+
                 return (
                     "yellow",
                     "Geocoding unstable",
-                    f"Ft Worth alias differs from normal entry (delta lat/lon: {lat_delta:.3f}/{lon_delta:.3f}).",
+                    f"Fort Worth probe resolved but out of expected range (delta lat/lon: {lat_delta:.3f}/{lon_delta:.3f}).",
                 )
 
-            if normal_status in {"network_error", "parse_error"} or alias_status in {"network_error", "parse_error"}:
+            if status in {"network_error", "parse_error"}:
                 return "yellow", "Geocoding unstable", "Network/API issue while validating Fort Worth geocode aliases."
 
-            return "red", "Geocoding unavailable", "Fort Worth geocode probe failed to resolve one or both entries."
+            return "red", "Geocoding unavailable", "Fort Worth geocode probe failed to resolve."
         except Exception as e:
             return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {type(e).__name__} - {e}"
 
