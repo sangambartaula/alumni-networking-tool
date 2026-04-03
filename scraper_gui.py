@@ -971,7 +971,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Scraper Settings")
-        self.setMinimumSize(760, 700)
+        self.setMinimumSize(860, 700)
         self.setStyleSheet("QCheckBox::indicator { width: 18px; height: 18px; }")
         
         self.base_dir = get_base_dir()
@@ -1030,6 +1030,8 @@ class SettingsDialog(QDialog):
         if ftype == bool:
             inp_widget = QCheckBox()
             inp_widget.setToolTip(tooltip)
+            inp_widget.setMinimumWidth(28)
+            inp_widget.setMinimumHeight(24)
             # Strict falsy checks for bools
             val_str = current_val.lower() if current_val else str(default_val).lower()
             inp_widget.setChecked(val_str in ("true", "1", "yes"))
@@ -1063,6 +1065,8 @@ class SettingsDialog(QDialog):
         container = QWidget()
         form = QFormLayout(container)
         form.setSpacing(15)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setHorizontalSpacing(18)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         scroll.setWidget(container)
@@ -1527,6 +1531,12 @@ class ScraperApp(QMainWindow):
 
         try:
             from database import get_connection, get_direct_mysql_connection
+        except ModuleNotFoundError as e:
+            return (
+                "yellow",
+                "Cloud DB setup needed",
+                f"Missing Python dependency: {e}. Click 'Install Dependencies' in the main window.",
+            )
         except Exception as e:
             return "red", "Cloud DB unavailable", f"Database module failed to load. Details: {type(e).__name__} - {e}"
 
@@ -1546,6 +1556,12 @@ class ScraperApp(QMainWindow):
             return "green", "Cloud DB connected", f"Cloud probe succeeded (alumni rows: {total})."
         except Exception as e:
             # If app-level connection still works, fallback is active.
+            if isinstance(e, ModuleNotFoundError):
+                return (
+                    "yellow",
+                    "Cloud DB setup needed",
+                    f"Missing Python dependency: {e}. Click 'Install Dependencies' in the main window.",
+                )
             try:
                 conn = get_connection()
                 try:
@@ -1595,6 +1611,12 @@ class ScraperApp(QMainWindow):
                 return "yellow", "Geocoding unstable", "Network/API issue while validating Fort Worth geocode aliases."
 
             return "red", "Geocoding unavailable", "Fort Worth geocode probe failed to resolve."
+        except ModuleNotFoundError as e:
+            return (
+                "yellow",
+                "Geocoding setup needed",
+                f"Missing Python dependency: {e}. Click 'Install Dependencies' in the main window.",
+            )
         except Exception as e:
             return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {type(e).__name__} - {e}"
 
