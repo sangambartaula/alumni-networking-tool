@@ -933,8 +933,6 @@ class LinkedInScraper:
             logger.warning(f"No experience found for {data.get('name', 'Unknown')}")
         if not edu_entries:
             logger.warning(f"No education found for {data.get('name', 'Unknown')}")
-        if config.FLAG_MISSING_GRAD_YEAR and (not data.get("graduation_year")) and (not data.get("school_end_date")):
-            logger.warning(f"No graduation year for {data.get('name', 'Unknown')}")
 
     # ============================================================
     # Missing-date fallback (strict UNT + Graduate Assistant)

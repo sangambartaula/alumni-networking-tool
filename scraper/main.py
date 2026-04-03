@@ -590,8 +590,6 @@ def _collect_profile_flag_reasons(profile_data):
     try:
         from config import (
             FLAG_MISSING_EXPERIENCE_DATA,
-            FLAG_MISSING_GRAD_YEAR,
-            FLAG_MISSING_DEGREE,
         )
     except Exception:
         return reasons
@@ -621,13 +619,6 @@ def _collect_profile_flag_reasons(profile_data):
             reasons.append("Missing Company but Job Title Present for Experience 3")
         elif exp3_company and not exp3_title:
             reasons.append("Missing Job Title but Company Present for Experience 3")
-
-    graduation_year = profile_data.get("graduation_year")
-    major = _as_text("major")
-    if FLAG_MISSING_GRAD_YEAR and not graduation_year:
-        reasons.append("Missing Grad Year")
-    if FLAG_MISSING_DEGREE and not major:
-        reasons.append("Missing Degree/Major Information")
 
     return reasons
 

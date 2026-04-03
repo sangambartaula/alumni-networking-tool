@@ -285,10 +285,7 @@ POST_SECTION_WAIT_SECONDS = _env_float("POST_SECTION_WAIT_SECONDS", 0.0)
 EDU_READY_TIMEOUT_SECONDS = _env_int("EDU_READY_TIMEOUT_SECONDS", 30)
 
 # Flagging Configuration
-# Keep legacy flags for compatibility with older scraper modules and packaged builds.
 FLAG_MISSING_EXPERIENCE_DATA = _env_bool("FLAG_MISSING_EXPERIENCE_DATA", True)
-FLAG_MISSING_GRAD_YEAR = _env_bool("FLAG_MISSING_GRAD_YEAR", False)
-FLAG_MISSING_DEGREE = _env_bool("FLAG_MISSING_DEGREE", False)
 
 MIN_DELAY = _env_int("MIN_DELAY", 60)
 MAX_DELAY = _env_int("MAX_DELAY", 240)
