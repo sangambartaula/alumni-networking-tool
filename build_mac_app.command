@@ -21,6 +21,10 @@ rm -f *.spec
 echo "Installing PyQt6 and PyInstaller..."
 pip install PyQt6 pyinstaller python-dotenv
 
+# Increment desktop app version and update remote manifest metadata.
+echo "Bumping app version..."
+python scripts/bump_app_version.py
+
 # Build using PyInstaller
 echo "Squarifying icon to prevent stretching..."
 python scripts/pad_icon.py
