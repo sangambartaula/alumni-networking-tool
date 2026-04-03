@@ -1042,6 +1042,7 @@ class ScraperApp(QMainWindow):
         self._update_available = False
         self._latest_version = APP_VERSION
         self._update_url = DEFAULT_RELEASES_URL
+        self._cloud_status_cache = None
         self.init_ui()
         self._start_remote_update_check()
 
@@ -1348,7 +1349,7 @@ class ScraperApp(QMainWindow):
         label_widget.setStyleSheet(f"color: {color}; font-weight: 600;")
         label_widget.setToolTip(tooltip)
 
-    def _check_cloud_status(self):
+    def _probe_cloud_status(self):
         if os.getenv("DISABLE_DB", "0") == "1":
             return "gray", "Cloud DB disabled", "DISABLE_DB=1 in .env, so cloud DB checks are intentionally bypassed."
 
@@ -1362,35 +1363,39 @@ class ScraperApp(QMainWindow):
             return "red", "Cloud DB unavailable", f"Database module failed to load. Details: {type(e).__name__} - {e}"
 
         try:
-            conn = get_connection()
-            try:
-                if conn.__class__.__name__ == "SQLiteConnectionWrapper":
-                    return "yellow", "Cloud DB offline (SQLite fallback active)", "App is writing locally via SQLite fallback."
-                if hasattr(conn, "is_connected") and conn.is_connected():
-                    return "green", "Cloud DB connected", "Cloud writes are available."
-                return "green", "Cloud DB connected", "Cloud connection object initialized."
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        try:
+            # Deterministic cloud probe: table read from alumni.
             conn = get_direct_mysql_connection()
             try:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT 1")
-                    cur.fetchone()
+                    cur.execute("SELECT COUNT(*) FROM alumni")
+                    row = cur.fetchone()
+                    total = int(row[0]) if row else 0
             finally:
                 try:
                     conn.close()
                 except Exception:
                     pass
-            return "green", "Cloud DB connected", "Cloud writes are available."
+            return "green", "Cloud DB connected", f"Cloud probe succeeded (alumni rows: {total})."
         except Exception as e:
-            return "red", "Cloud DB unavailable", f"Check internet/.env DB creds, then retry.\nDetails: {type(e).__name__} - {e}"
+            # If app-level connection still works, fallback is active.
+            try:
+                conn = get_connection()
+                try:
+                    if conn.__class__.__name__ == "SQLiteConnectionWrapper":
+                        return "yellow", "Cloud DB offline (SQLite fallback active)", "Cloud probe failed; app is writing locally via SQLite fallback."
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return "red", "Cloud DB unavailable", f"Cloud probe failed.\nDetails: {type(e).__name__} - {e}"
+
+    def _check_cloud_status(self, force_probe=False):
+        if force_probe or self._cloud_status_cache is None:
+            self._cloud_status_cache = self._probe_cloud_status()
+        return self._cloud_status_cache
 
     def _check_geocode_status(self):
         try:
@@ -1411,8 +1416,8 @@ class ScraperApp(QMainWindow):
         except Exception as e:
             return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {type(e).__name__} - {e}"
 
-    def refresh_preflight_status(self):
-        cloud_state, cloud_text, cloud_tip = self._check_cloud_status()
+    def refresh_preflight_status(self, force_cloud_probe=False):
+        cloud_state, cloud_text, cloud_tip = self._check_cloud_status(force_probe=force_cloud_probe)
         geo_state, geo_text, geo_tip = self._check_geocode_status()
         self._set_status_badge(self.cloud_status_label, cloud_state, cloud_text, cloud_tip)
         self._set_status_badge(self.geo_status_label, geo_state, geo_text, geo_tip)
@@ -1423,7 +1428,7 @@ class ScraperApp(QMainWindow):
         if dialog.exec():
             # Reload environment to sync any changes made in the dialog
             self.load_settings_from_env()
-            self.refresh_preflight_status()
+            self.refresh_preflight_status(force_cloud_probe=True)
             
     def init_ui(self):
         central_widget = QWidget()
@@ -1468,7 +1473,7 @@ class ScraperApp(QMainWindow):
         status_layout.addWidget(self.cloud_status_label)
         status_layout.addWidget(self.geo_status_label)
         self.refresh_status_btn = QPushButton("Refresh Status")
-        self.refresh_status_btn.clicked.connect(self.refresh_preflight_status)
+        self.refresh_status_btn.clicked.connect(lambda: self.refresh_preflight_status(force_cloud_probe=True))
         status_layout.addWidget(self.refresh_status_btn)
         status_group.setLayout(status_layout)
         left_layout.addWidget(status_group)
@@ -1700,7 +1705,7 @@ class ScraperApp(QMainWindow):
         # Auto-load existing config
         self.load_settings_from_env()
         self._reset_run_metrics()
-        self.refresh_preflight_status()
+        self.refresh_preflight_status(force_cloud_probe=True)
         self.refresh_run_history()
         self._apply_modern_style()
         self._start_gui_autoreload_watcher()
@@ -2080,7 +2085,17 @@ class ScraperApp(QMainWindow):
         self.upload_db_btn.setEnabled(True)
         self._reset_stop_controls()
         self._append_gui_summary_block()
-        self.refresh_preflight_status()
+        try:
+            cloud_fail = int(self._run_metrics.get("cloud_fail", 0) or 0)
+            if cloud_fail > 0:
+                self._cloud_status_cache = (
+                    "red",
+                    "Cloud DB unavailable",
+                    f"Cloud upload failed {cloud_fail} time(s) during the latest scrape run.",
+                )
+        except Exception:
+            pass
+        self.refresh_preflight_status(force_cloud_probe=False)
         self.refresh_run_history()
 
         if self._manual_intervention_needed:
