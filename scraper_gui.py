@@ -166,6 +166,52 @@ def _ensure_runtime_ready(python_exec, base_dir, required_modules, emit):
         return False
     return True
 
+
+def _run_json_probe(python_exec, base_dir, script_source):
+    """Run a small Python probe in the target interpreter and parse JSON output."""
+    try:
+        result = subprocess.run(
+            [python_exec, "-c", script_source],
+            capture_output=True,
+            text=True,
+            cwd=base_dir,
+            timeout=20,
+        )
+    except Exception as e:
+        return {
+            "state": "red",
+            "text": "Probe failed",
+            "tip": f"Failed to execute probe with {python_exec}: {e}",
+        }
+
+    output = (result.stdout or "").strip().splitlines()
+    if not output:
+        err = (result.stderr or "").strip()
+        return {
+            "state": "red",
+            "text": "Probe failed",
+            "tip": err or f"Probe returned no output (exit {result.returncode}).",
+        }
+
+    last_line = output[-1].strip()
+    try:
+        payload = json.loads(last_line)
+    except Exception:
+        err = (result.stderr or "").strip()
+        return {
+            "state": "red",
+            "text": "Probe failed",
+            "tip": err or last_line,
+        }
+
+    if not isinstance(payload, dict):
+        return {
+            "state": "red",
+            "text": "Probe failed",
+            "tip": "Probe returned invalid payload.",
+        }
+    return payload
+
 class ScraperWorker(QThread):
     output_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(int)
@@ -1522,59 +1568,58 @@ class ScraperApp(QMainWindow):
         label_widget.setToolTip(tooltip)
 
     def _probe_cloud_status(self):
-        if os.getenv("DISABLE_DB", "0") == "1":
-            return "gray", "Cloud DB disabled", "DISABLE_DB=1 in .env, so cloud DB checks are intentionally bypassed."
-
-        backend_dir = os.path.join(get_base_dir(), "backend")
-        if backend_dir not in sys.path:
-            sys.path.insert(0, backend_dir)
-
-        try:
-            from database import get_connection, get_direct_mysql_connection
-        except ModuleNotFoundError as e:
-            return (
-                "yellow",
-                "Cloud DB setup needed",
-                f"Missing Python dependency: {e}. Click 'Install Dependencies' in the main window.",
-            )
-        except Exception as e:
-            return "red", "Cloud DB unavailable", f"Database module failed to load. Details: {type(e).__name__} - {e}"
-
-        try:
-            # Deterministic cloud probe: table read from alumni.
-            conn = get_direct_mysql_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT COUNT(*) FROM alumni")
-                    row = cur.fetchone()
-                    total = int(row[0]) if row else 0
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            return "green", "Cloud DB connected", f"Cloud probe succeeded (alumni rows: {total})."
-        except Exception as e:
-            # If app-level connection still works, fallback is active.
-            if isinstance(e, ModuleNotFoundError):
-                return (
-                    "yellow",
-                    "Cloud DB setup needed",
-                    f"Missing Python dependency: {e}. Click 'Install Dependencies' in the main window.",
-                )
-            try:
-                conn = get_connection()
-                try:
-                    if conn.__class__.__name__ == "SQLiteConnectionWrapper":
-                        return "yellow", "Cloud DB offline (SQLite fallback active)", "Cloud probe failed; app is writing locally via SQLite fallback."
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            return "red", "Cloud DB unavailable", f"Cloud probe failed.\nDetails: {type(e).__name__} - {e}"
+        base_dir = get_base_dir()
+        python_exec = _resolve_python_exec(base_dir)
+        script = (
+            "import json, os, sys\n"
+            "base = os.getcwd()\n"
+            "backend = os.path.join(base, 'backend')\n"
+            "if backend not in sys.path:\n"
+            "    sys.path.insert(0, backend)\n"
+            "if os.getenv('DISABLE_DB', '0') == '1':\n"
+            "    print(json.dumps({'state':'gray','text':'Cloud DB disabled','tip':'DISABLE_DB=1 in .env, so cloud DB checks are intentionally bypassed.'}))\n"
+            "    raise SystemExit(0)\n"
+            "try:\n"
+            "    from database import get_connection, get_direct_mysql_connection\n"
+            "except ModuleNotFoundError as e:\n"
+            "    print(json.dumps({'state':'yellow','text':'Cloud DB setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+            "    raise SystemExit(0)\n"
+            "except Exception as e:\n"
+            "    print(json.dumps({'state':'red','text':'Cloud DB unavailable','tip':f'Database module failed to load: {type(e).__name__}: {e}'}))\n"
+            "    raise SystemExit(0)\n"
+            "try:\n"
+            "    conn = get_direct_mysql_connection()\n"
+            "    try:\n"
+            "        cur = conn.cursor()\n"
+            "        cur.execute('SELECT COUNT(*) FROM alumni')\n"
+            "        row = cur.fetchone()\n"
+            "        total = int(row[0]) if row else 0\n"
+            "    finally:\n"
+            "        try:\n"
+            "            conn.close()\n"
+            "        except Exception:\n"
+            "            pass\n"
+            "    print(json.dumps({'state':'green','text':'Cloud DB connected','tip':f'Cloud probe succeeded (alumni rows: {total}).'}))\n"
+            "except ModuleNotFoundError as e:\n"
+            "    print(json.dumps({'state':'yellow','text':'Cloud DB setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+            "except Exception as e:\n"
+            "    try:\n"
+            "        conn = get_connection()\n"
+            "        try:\n"
+            "            if conn.__class__.__name__ == 'SQLiteConnectionWrapper':\n"
+            "                print(json.dumps({'state':'yellow','text':'Cloud DB offline (SQLite fallback active)','tip':'Cloud probe failed; app is writing locally via SQLite fallback.'}))\n"
+            "                raise SystemExit(0)\n"
+            "        finally:\n"
+            "            try:\n"
+            "                conn.close()\n"
+            "            except Exception:\n"
+            "                pass\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    print(json.dumps({'state':'red','text':'Cloud DB unavailable','tip':f'Cloud probe failed: {type(e).__name__}: {e}'}))\n"
+        )
+        payload = _run_json_probe(python_exec, base_dir, script)
+        return payload.get("state", "red"), payload.get("text", "Cloud DB unavailable"), payload.get("tip", "Cloud probe failed")
 
     def _check_cloud_status(self, force_probe=False):
         if force_probe or self._cloud_status_cache is None:
@@ -1582,43 +1627,45 @@ class ScraperApp(QMainWindow):
         return self._cloud_status_cache
 
     def _probe_geocode_status(self):
-        try:
-            backend_dir = os.path.join(get_base_dir(), "backend")
-            if backend_dir not in sys.path:
-                sys.path.insert(0, backend_dir)
-            from geocoding import geocode_location_with_status
-
-            coords, status = geocode_location_with_status("Fort Worth, Texas, United States")
-
-            if coords:
-                lat = float(coords[0])
-                lon = float(coords[1])
-                # Fort Worth city-center reference with tolerant metro window.
-                ref_lat, ref_lon = 32.7555, -97.3308
-                lat_delta = abs(lat - ref_lat)
-                lon_delta = abs(lon - ref_lon)
-
-                if lat_delta <= 0.8 and lon_delta <= 0.8:
-                    return "green", "Geocoding reachable", "Fort Worth probe resolved to expected metro coordinates."
-
-                return (
-                    "yellow",
-                    "Geocoding unstable",
-                    f"Fort Worth probe resolved but out of expected range (delta lat/lon: {lat_delta:.3f}/{lon_delta:.3f}).",
-                )
-
-            if status in {"network_error", "parse_error"}:
-                return "yellow", "Geocoding unstable", "Network/API issue while validating Fort Worth geocode aliases."
-
-            return "red", "Geocoding unavailable", "Fort Worth geocode probe failed to resolve."
-        except ModuleNotFoundError as e:
-            return (
-                "yellow",
-                "Geocoding setup needed",
-                f"Missing Python dependency: {e}. Click 'Install Dependencies' in the main window.",
-            )
-        except Exception as e:
-            return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {type(e).__name__} - {e}"
+        base_dir = get_base_dir()
+        python_exec = _resolve_python_exec(base_dir)
+        script = (
+            "import json, os, sys\n"
+            "base = os.getcwd()\n"
+            "backend = os.path.join(base, 'backend')\n"
+            "if backend not in sys.path:\n"
+            "    sys.path.insert(0, backend)\n"
+            "try:\n"
+            "    from geocoding import geocode_location_with_status\n"
+            "except ModuleNotFoundError as e:\n"
+            "    print(json.dumps({'state':'yellow','text':'Geocoding setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+            "    raise SystemExit(0)\n"
+            "except Exception as e:\n"
+            "    print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':f'Geocoding module failed to load: {type(e).__name__}: {e}'}))\n"
+            "    raise SystemExit(0)\n"
+            "try:\n"
+            "    coords, status = geocode_location_with_status('Fort Worth, Texas, United States')\n"
+            "    if coords:\n"
+            "        lat = float(coords[0])\n"
+            "        lon = float(coords[1])\n"
+            "        ref_lat, ref_lon = 32.7555, -97.3308\n"
+            "        lat_delta = abs(lat - ref_lat)\n"
+            "        lon_delta = abs(lon - ref_lon)\n"
+            "        if lat_delta <= 0.8 and lon_delta <= 0.8:\n"
+            "            print(json.dumps({'state':'green','text':'Geocoding reachable','tip':'Fort Worth probe resolved to expected metro coordinates.'}))\n"
+            "        else:\n"
+            "            print(json.dumps({'state':'yellow','text':'Geocoding unstable','tip':f'Fort Worth probe resolved but out of expected range (delta lat/lon: {lat_delta:.3f}/{lon_delta:.3f}).'}))\n"
+            "    elif status in {'network_error', 'parse_error'}:\n"
+            "        print(json.dumps({'state':'yellow','text':'Geocoding unstable','tip':'Network/API issue while validating Fort Worth geocode probe.'}))\n"
+            "    else:\n"
+            "        print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':'Fort Worth geocode probe failed to resolve.'}))\n"
+            "except ModuleNotFoundError as e:\n"
+            "    print(json.dumps({'state':'yellow','text':'Geocoding setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+            "except Exception as e:\n"
+            "    print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':f'Geocode probe failed: {type(e).__name__}: {e}'}))\n"
+        )
+        payload = _run_json_probe(python_exec, base_dir, script)
+        return payload.get("state", "red"), payload.get("text", "Geocoding unavailable"), payload.get("tip", "Geocode probe failed")
 
     def _check_geocode_status(self, force_probe=False):
         if force_probe or self._geo_status_cache is None:
@@ -2335,6 +2382,9 @@ class ScraperApp(QMainWindow):
                 "Dependencies Installed",
                 "All required dependencies were installed successfully.",
             )
+            self._cloud_status_cache = None
+            self._geo_status_cache = None
+            self.refresh_preflight_status(force_cloud_probe=True, force_geo_probe=True)
         else:
             QMessageBox.warning(
                 self,
