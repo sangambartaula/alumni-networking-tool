@@ -1043,6 +1043,7 @@ class ScraperApp(QMainWindow):
         self._latest_version = APP_VERSION
         self._update_url = DEFAULT_RELEASES_URL
         self._cloud_status_cache = None
+        self._geo_status_cache = None
         self.init_ui()
         self._start_remote_update_check()
 
@@ -1397,28 +1398,43 @@ class ScraperApp(QMainWindow):
             self._cloud_status_cache = self._probe_cloud_status()
         return self._cloud_status_cache
 
-    def _check_geocode_status(self):
+    def _probe_geocode_status(self):
         try:
-            test_url = (
-                "https://nominatim.openstreetmap.org/search"
-                "?q=Denton%2C%20Texas&format=json&limit=1&countrycodes=us"
-            )
-            req = request.Request(test_url, headers={"User-Agent": "alumni-scraper-app/1.0"})
-            with request.urlopen(req, timeout=5) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-            if isinstance(payload, list):
-                if payload:
-                    return "green", "Geocoding reachable", "Location API is reachable and returning coordinates."
-                return "yellow", "Geocoding limited", "Service reachable, but sample location returned no results."
-            return "yellow", "Geocoding unstable", "Service responded with an unexpected payload shape."
-        except error.URLError as e:
-            return "yellow", "Geocoding unstable", f"Network issue while probing geocoding service. Details: {e}"
+            backend_dir = os.path.join(get_base_dir(), "backend")
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+            from geocoding import geocode_location_with_status
+
+            normal_coords, normal_status = geocode_location_with_status("Fort Worth, Texas")
+            alias_coords, alias_status = geocode_location_with_status("Ft Worth, TX")
+
+            if normal_coords and alias_coords:
+                lat_delta = abs(float(normal_coords[0]) - float(alias_coords[0]))
+                lon_delta = abs(float(normal_coords[1]) - float(alias_coords[1]))
+                # Consider it equivalent if both points land in the same metro area.
+                if lat_delta <= 0.5 and lon_delta <= 0.5:
+                    return "green", "Geocoding reachable", "Ft Worth alias matches normal Fort Worth geocode entry."
+                return (
+                    "yellow",
+                    "Geocoding unstable",
+                    f"Ft Worth alias differs from normal entry (delta lat/lon: {lat_delta:.3f}/{lon_delta:.3f}).",
+                )
+
+            if normal_status in {"network_error", "parse_error"} or alias_status in {"network_error", "parse_error"}:
+                return "yellow", "Geocoding unstable", "Network/API issue while validating Fort Worth geocode aliases."
+
+            return "red", "Geocoding unavailable", "Fort Worth geocode probe failed to resolve one or both entries."
         except Exception as e:
             return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {type(e).__name__} - {e}"
 
-    def refresh_preflight_status(self, force_cloud_probe=False):
+    def _check_geocode_status(self, force_probe=False):
+        if force_probe or self._geo_status_cache is None:
+            self._geo_status_cache = self._probe_geocode_status()
+        return self._geo_status_cache
+
+    def refresh_preflight_status(self, force_cloud_probe=False, force_geo_probe=False):
         cloud_state, cloud_text, cloud_tip = self._check_cloud_status(force_probe=force_cloud_probe)
-        geo_state, geo_text, geo_tip = self._check_geocode_status()
+        geo_state, geo_text, geo_tip = self._check_geocode_status(force_probe=force_geo_probe)
         self._set_status_badge(self.cloud_status_label, cloud_state, cloud_text, cloud_tip)
         self._set_status_badge(self.geo_status_label, geo_state, geo_text, geo_tip)
 
@@ -1428,7 +1444,7 @@ class ScraperApp(QMainWindow):
         if dialog.exec():
             # Reload environment to sync any changes made in the dialog
             self.load_settings_from_env()
-            self.refresh_preflight_status(force_cloud_probe=True)
+            self.refresh_preflight_status(force_cloud_probe=True, force_geo_probe=True)
             
     def init_ui(self):
         central_widget = QWidget()
@@ -1473,7 +1489,7 @@ class ScraperApp(QMainWindow):
         status_layout.addWidget(self.cloud_status_label)
         status_layout.addWidget(self.geo_status_label)
         self.refresh_status_btn = QPushButton("Refresh Status")
-        self.refresh_status_btn.clicked.connect(lambda: self.refresh_preflight_status(force_cloud_probe=True))
+        self.refresh_status_btn.clicked.connect(lambda: self.refresh_preflight_status(force_cloud_probe=True, force_geo_probe=True))
         status_layout.addWidget(self.refresh_status_btn)
         status_group.setLayout(status_layout)
         left_layout.addWidget(status_group)
@@ -1705,7 +1721,7 @@ class ScraperApp(QMainWindow):
         # Auto-load existing config
         self.load_settings_from_env()
         self._reset_run_metrics()
-        self.refresh_preflight_status(force_cloud_probe=True)
+        self.refresh_preflight_status(force_cloud_probe=True, force_geo_probe=True)
         self.refresh_run_history()
         self._apply_modern_style()
         self._start_gui_autoreload_watcher()
