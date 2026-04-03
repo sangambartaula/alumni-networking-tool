@@ -75,6 +75,96 @@ def update_env(key, value):
     with open(env_path, 'w') as f:
         f.writelines(lines)
 
+
+def _resolve_python_exec(base_dir):
+    """Prefer project venv; only fall back to system Python when needed."""
+    if sys.platform == "win32":
+        venv_python = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+        return venv_python if os.path.exists(venv_python) else "python"
+    venv_python = os.path.join(base_dir, "venv", "bin", "python")
+    if os.path.exists(venv_python):
+        return venv_python
+    return "python3"
+
+
+def _check_missing_modules(python_exec, modules):
+    """Return a list of missing import modules for the selected interpreter."""
+    check_script = (
+        "import sys\n"
+        f"mods = {modules!r}\n"
+        "missing = []\n"
+        "for m in mods:\n"
+        "    try:\n"
+        "        __import__(m)\n"
+        "    except Exception:\n"
+        "        missing.append(m)\n"
+        "print('|'.join(missing))\n"
+        "raise SystemExit(1 if missing else 0)\n"
+    )
+    try:
+        result = subprocess.run(
+            [python_exec, "-c", check_script],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except Exception:
+        return list(modules)
+
+    if result.returncode == 0:
+        return []
+    payload = (result.stdout or "").strip()
+    if not payload:
+        return list(modules)
+    return [m for m in payload.split("|") if m]
+
+
+def _bootstrap_requirements(python_exec, base_dir, emit):
+    """Install project requirements into the selected interpreter."""
+    req_path = os.path.join(base_dir, "requirements.txt")
+    if not os.path.exists(req_path):
+        emit("\nERROR: requirements.txt not found. Cannot auto-install dependencies.\n")
+        return False
+
+    emit(f"\nMissing dependencies detected. Installing from requirements.txt using: {python_exec}\n")
+    try:
+        proc = subprocess.Popen(
+            [python_exec, "-m", "pip", "install", "-r", req_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=base_dir,
+        )
+        for line in iter(proc.stdout.readline, ""):
+            emit(line)
+        proc.stdout.close()
+        proc.wait()
+        if proc.returncode != 0:
+            emit(f"\nERROR: Dependency installation failed with exit code {proc.returncode}.\n")
+            return False
+        emit("\nDependency installation completed successfully.\n")
+        return True
+    except Exception as e:
+        emit(f"\nERROR: Failed to install dependencies: {e}\n")
+        return False
+
+
+def _ensure_runtime_ready(python_exec, base_dir, required_modules, emit):
+    missing = _check_missing_modules(python_exec, required_modules)
+    if not missing:
+        return True
+
+    emit(f"\nMissing Python modules for {python_exec}: {', '.join(missing)}\n")
+    if not _bootstrap_requirements(python_exec, base_dir, emit):
+        return False
+
+    missing_after = _check_missing_modules(python_exec, required_modules)
+    if missing_after:
+        emit(f"\nERROR: Modules still missing after install: {', '.join(missing_after)}\n")
+        return False
+    return True
+
 class ScraperWorker(QThread):
     output_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(int)
@@ -86,21 +176,22 @@ class ScraperWorker(QThread):
 
     def run(self):
         base_dir = get_base_dir()
-            
-        # Target the virtual environment python directly to maintain Selenium/Groq dependencies
-        if sys.platform == "win32":
-            python_exec = os.path.join(base_dir, "venv", "Scripts", "python.exe")
-            if not os.path.exists(python_exec):
-                python_exec = "python"
-        else:
-            python_exec = os.path.join(base_dir, "venv", "bin", "python")
-            if not os.path.exists(python_exec):
-                python_exec = "python3"
+        python_exec = _resolve_python_exec(base_dir)
                 
         scraper_script = os.path.join(base_dir, 'scraper', 'main.py')
+        exit_code = 1
         
         try:
             self.output_signal.emit(f"Launching using: {python_exec}\n")
+            required_modules = ["selenium", "bs4", "pandas", "requests", "dotenv"]
+            if not _ensure_runtime_ready(python_exec, base_dir, required_modules, self.output_signal.emit):
+                self.output_signal.emit(
+                    "\nSetup failed. Please run build/setup again or install dependencies manually with:\n"
+                    f"{python_exec} -m pip install -r requirements.txt\n"
+                )
+                exit_code = 2
+                return
+
             popen_kwargs = {
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.STDOUT,
@@ -127,13 +218,15 @@ class ScraperWorker(QThread):
                 
             self.process.stdout.close()
             self.process.wait()
+            exit_code = self.process.returncode
             
             if not self._is_stopped:
                 self.output_signal.emit(f"\nProcess finished with exit code {self.process.returncode}\n")
         except Exception as e:
             self.output_signal.emit(f"\nError starting scraper: {e}\n")
+            exit_code = 1
         finally:
-            self.finished_signal.emit(0)
+            self.finished_signal.emit(exit_code)
             
     def stop(self, immediate=False):
         proc = self.process
@@ -191,18 +284,21 @@ class DatabaseWorker(QThread):
 
     def run(self):
         base_dir = get_base_dir()
-            
-        if sys.platform == "win32":
-            python_exec = os.path.join(base_dir, "venv", "Scripts", "python.exe")
-            if not os.path.exists(python_exec): python_exec = "python"
-        else:
-            python_exec = os.path.join(base_dir, "venv", "bin", "python")
-            if not os.path.exists(python_exec): python_exec = "python3"
+        python_exec = _resolve_python_exec(base_dir)
                 
         db_script = os.path.join(base_dir, 'backend', 'database.py')
         
         try:
             self.output_signal.emit(f"Launching Database Upload: {python_exec} backend/database.py\n")
+            required_modules = ["mysql.connector", "pandas", "dotenv"]
+            if not _ensure_runtime_ready(python_exec, base_dir, required_modules, self.output_signal.emit):
+                self.output_signal.emit(
+                    "\nSetup failed. Please run build/setup again or install dependencies manually with:\n"
+                    f"{python_exec} -m pip install -r requirements.txt\n"
+                )
+                self.finished_signal.emit(2)
+                return
+
             env = os.environ.copy()
             env.setdefault("DB_RUN_SEED", "1")
             env.setdefault("DB_RUN_MAINTENANCE", "0")
@@ -239,20 +335,21 @@ class GeocodeWorker(QThread):
 
     def run(self):
         base_dir = get_base_dir()
-
-        if sys.platform == "win32":
-            python_exec = os.path.join(base_dir, "venv", "Scripts", "python.exe")
-            if not os.path.exists(python_exec):
-                python_exec = "python"
-        else:
-            python_exec = os.path.join(base_dir, "venv", "bin", "python")
-            if not os.path.exists(python_exec):
-                python_exec = "python3"
+        python_exec = _resolve_python_exec(base_dir)
 
         geocode_script = os.path.join(base_dir, 'backend', 'geocoding.py')
 
         try:
             self.output_signal.emit(f"Launching Geocoding: {python_exec} backend/geocoding.py --mode missing\n")
+            required_modules = ["requests", "mysql.connector", "dotenv"]
+            if not _ensure_runtime_ready(python_exec, base_dir, required_modules, self.output_signal.emit):
+                self.output_signal.emit(
+                    "\nSetup failed. Please run build/setup again or install dependencies manually with:\n"
+                    f"{python_exec} -m pip install -r requirements.txt\n"
+                )
+                self.finished_signal.emit(2)
+                return
+
             self.process = subprocess.Popen(
                 [python_exec, geocode_script, '--mode', 'missing'],
                 stdout=subprocess.PIPE,
