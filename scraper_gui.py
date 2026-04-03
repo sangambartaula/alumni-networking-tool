@@ -850,7 +850,6 @@ class SettingsDialog(QDialog):
         self.create_credentials_tab()
         self.create_scraper_tab()
         self.create_database_tab()
-        self.create_advanced_tab()
         
         btn_layout = QHBoxLayout()
         reset_btn = QPushButton("Reset to Defaults")
@@ -876,17 +875,11 @@ class SettingsDialog(QDialog):
             lbl.setStyleSheet("color: #0056b3; font-weight: bold;")
         else:
             lbl.setStyleSheet("color: #666;")
-            
-        help_btn = QPushButton("?")
-        help_btn.setFixedSize(18, 18)
-        help_btn.setToolTip(tooltip)
-        help_btn.setStyleSheet("border-radius: 9px; background-color: #ddd; color: #333; font-size: 11px; font-weight: bold;")
         
         lbl_widget = QWidget()
         lbl_h = QHBoxLayout(lbl_widget)
         lbl_h.setContentsMargins(0, 0, 5, 0)
         lbl_h.addWidget(lbl)
-        lbl_h.addWidget(help_btn)
         lbl_h.addStretch()
         
         row_widget = QWidget()
@@ -911,10 +904,7 @@ class SettingsDialog(QDialog):
             
             if is_password:
                 inp_widget.setEchoMode(QLineEdit.EchoMode.Password)
-                toggle = QCheckBox("Show")
-                toggle.toggled.connect(lambda checked, i=inp_widget: i.setEchoMode(QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password))
                 row_layout.addWidget(inp_widget)
-                row_layout.addWidget(toggle)
             else:
                 row_layout.addWidget(inp_widget)
                 
@@ -940,9 +930,6 @@ class SettingsDialog(QDialog):
         f = self._create_tab("Credentials")
         self._add_field(f, "LINKEDIN_EMAIL", "LinkedIn Email", str, "", "Email address used for LinkedIn login. Required for headless or expired sessions.", True)
         self._add_field(f, "LINKEDIN_PASSWORD", "LinkedIn Password", str, "", "Password for LinkedIn. Only needed if cookies expire.", True, True)
-        self._add_field(f, "GROQ_API_KEY", "Groq API Key", str, "", "API key for the Groq inference engine (required for data normalization).", True, True)
-        self._add_field(f, "LINKEDIN_CLIENT_ID", "Client ID (OAuth)", str, "", "Client ID for website login integration.", False)
-        self._add_field(f, "LINKEDIN_CLIENT_SECRET", "Client Secret (OAuth)", str, "", "Client Secret for website login integration.", False, True)
 
     def create_scraper_tab(self):
         f = self._create_tab("Scraper")
@@ -963,15 +950,6 @@ class SettingsDialog(QDialog):
         self._add_field(f, "MYSQLPORT", "MySQL Port", int, 3306, "Database connection port (defaults to 3306).", True)
         self._add_field(f, "USE_SQLITE_FALLBACK", "SQLite Fallback", bool, True, "If MySQL fails or is unreachable, locally cache into SQLite.", False)
         self._add_field(f, "DISABLE_DB", "Disable DB", bool, False, "Completely disable MySQL/SQLite connections (CSV-only output).", False)
-
-    def create_advanced_tab(self):
-        f = self._create_tab("Advanced")
-        self._add_field(f, "PAGE_SETTLE_SECONDS", "Page Settle Time", int, 3, "Seconds to wait immediately after a direct URL visit.", False)
-        self._add_field(f, "POST_SECTION_WAIT_SECONDS", "Post-Section Wait", float, 1.5, "Fractional seconds to wait after expanding sections like 'Experience'.", False)
-        self._add_field(f, "EDU_READY_TIMEOUT_SECONDS", "Edu Ready Timeout", int, 5, "Maximum seconds to wait for Education DOM nodes to appear.", False)
-        self._add_field(f, "RATE_LIMIT_SECONDS", "Rate Limit Penalty", float, 3600, "Seconds to pause scraper completely if heavily blocked.", False)
-        self._add_field(f, "SCROLL_PAUSE_TIME", "Scroll Pause Time", float, 1.0, "Fractional seconds between internal scroll increments.", False)
-        self._add_field(f, "FLAG_MISSING_EXPERIENCE_DATA", "Flag Missing XP", bool, False, "Tag profiles for manual UI review if experience blocks are missing.", False)
 
     def reset_to_defaults(self):
         for key, field in self._fields.items():
@@ -1374,13 +1352,32 @@ class ScraperApp(QMainWindow):
         if os.getenv("DISABLE_DB", "0") == "1":
             return "gray", "Cloud DB disabled", "DISABLE_DB=1 in .env, so cloud DB checks are intentionally bypassed."
 
-        get_connection = None
-        try:
-            backend_dir = os.path.join(get_base_dir(), "backend")
-            if backend_dir not in sys.path:
-                sys.path.insert(0, backend_dir)
-            from database import get_connection, get_direct_mysql_connection
+        backend_dir = os.path.join(get_base_dir(), "backend")
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
 
+        try:
+            from database import get_connection, get_direct_mysql_connection
+        except Exception as e:
+            return "red", "Cloud DB unavailable", f"Database module failed to load. Details: {type(e).__name__} - {e}"
+
+        try:
+            conn = get_connection()
+            try:
+                if conn.__class__.__name__ == "SQLiteConnectionWrapper":
+                    return "yellow", "Cloud DB offline (SQLite fallback active)", "App is writing locally via SQLite fallback."
+                if hasattr(conn, "is_connected") and conn.is_connected():
+                    return "green", "Cloud DB connected", "Cloud writes are available."
+                return "green", "Cloud DB connected", "Cloud connection object initialized."
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
             conn = get_direct_mysql_connection()
             try:
                 with conn.cursor() as cur:
@@ -1393,44 +1390,24 @@ class ScraperApp(QMainWindow):
                     pass
             return "green", "Cloud DB connected", "Cloud writes are available."
         except Exception as e:
-            try:
-                if get_connection is None:
-                    raise RuntimeError("database module import failed before fallback check")
-                conn = get_connection()
-                try:
-                    using_sqlite_fallback = conn.__class__.__name__ == "SQLiteConnectionWrapper"
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-                if using_sqlite_fallback:
-                    return (
-                        "yellow",
-                        "Cloud DB offline (SQLite fallback active)",
-                        f"Direct MySQL check failed, but local fallback is active. Details: {type(e).__name__} - {e}",
-                    )
-            except Exception:
-                pass
-
             return "red", "Cloud DB unavailable", f"Check internet/.env DB creds, then retry.\nDetails: {type(e).__name__} - {e}"
 
     def _check_geocode_status(self):
         try:
-            backend_dir = os.path.join(get_base_dir(), "backend")
-            if backend_dir not in sys.path:
-                sys.path.insert(0, backend_dir)
-            from geocoding import geocode_location_with_status
-
-            coords, status = geocode_location_with_status("Denton, Texas")
-            if coords:
-                return "green", "Geocoding reachable", "Location API is reachable and returning coordinates."
-            if status == "unknown_location":
-                return "yellow", "Geocoding limited", "Service reachable, but sample location was not resolved."
-            if status in {"network_error", "parse_error"}:
-                return "yellow", "Geocoding unstable", "Geocoding module loaded, but probe request was transiently unsuccessful."
-            return "red", "Geocoding unavailable", "Check internet connection and retry geocode backfill later."
+            test_url = (
+                "https://nominatim.openstreetmap.org/search"
+                "?q=Denton%2C%20Texas&format=json&limit=1&countrycodes=us"
+            )
+            req = request.Request(test_url, headers={"User-Agent": "alumni-scraper-app/1.0"})
+            with request.urlopen(req, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if isinstance(payload, list):
+                if payload:
+                    return "green", "Geocoding reachable", "Location API is reachable and returning coordinates."
+                return "yellow", "Geocoding limited", "Service reachable, but sample location returned no results."
+            return "yellow", "Geocoding unstable", "Service responded with an unexpected payload shape."
+        except error.URLError as e:
+            return "yellow", "Geocoding unstable", f"Network issue while probing geocoding service. Details: {e}"
         except Exception as e:
             return "red", "Geocoding unavailable", f"Check internet connection and retry later.\nDetails: {type(e).__name__} - {e}"
 
@@ -1464,7 +1441,7 @@ class ScraperApp(QMainWindow):
         
         # Settings Button
         self.settings_btn = QPushButton("⚙️ Settings")
-        self.settings_btn.setStyleSheet("padding: 8px; font-weight: bold; font-size: 14px; margin-bottom: 5px; background-color: #f0f0f0; border: 1px solid #ccc; border-radius: 4px;")
+        self.settings_btn.setStyleSheet("padding: 8px; font-weight: bold; font-size: 14px; margin-bottom: 5px; background-color: #1659a6; color: white; border: none; border-radius: 8px;")
         self.settings_btn.clicked.connect(self.open_settings)
         left_layout.addWidget(self.settings_btn)
 
@@ -1480,10 +1457,6 @@ class ScraperApp(QMainWindow):
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         cred_layout.addWidget(self.password_input, 1, 1)
-        
-        self.show_pass_cb = QCheckBox("Show")
-        self.show_pass_cb.toggled.connect(self.toggle_password)
-        cred_layout.addWidget(self.show_pass_cb, 1, 2)
         
         cred_group.setLayout(cred_layout)
         left_layout.addWidget(cred_group)
