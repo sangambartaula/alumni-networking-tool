@@ -364,9 +364,6 @@ def _canonicalize_search_base_url(current_url, fallback_url):
 
 def _build_discipline_search_base_url(current_url, keyword_query):
     base_url = _canonicalize_search_base_url(current_url, UNT_DISCIPLINE_SEARCH_BASE_URL)
-    if "keywords=" in base_url:
-        return base_url
-
     parsed = urllib.parse.urlsplit(base_url)
     query_items = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
     query_items = [(k, v) for (k, v) in query_items if k != "keywords"]
@@ -1003,6 +1000,12 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
             keyword_query,
         )
+        if "keywords=" not in discipline_base_url:
+            logger.warning(
+                "Discipline URL did not contain keywords for '%s'. Falling back to all-engineering search.",
+                alias,
+            )
+            continue
         logger.info(f"Discipline base URL: {discipline_base_url}")
 
         _run_search_results_mode(

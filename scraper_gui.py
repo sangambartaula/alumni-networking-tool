@@ -1518,7 +1518,6 @@ class ScraperApp(QMainWindow):
         self._cloud_status_cache = None
         self._geo_status_cache = None
         self._missing_module_prompt_shown = False
-        self._awaiting_terminal_input = False
         self.init_ui()
 
     def _apply_modern_style(self):
@@ -2332,18 +2331,14 @@ class ScraperApp(QMainWindow):
         stdin_row.addWidget(stdin_label)
         self.stdin_input = QLineEdit()
         self.stdin_input.setPlaceholderText("Type input for scraper prompts and press Enter...")
-        self.stdin_input.setEnabled(False)
+        self.stdin_input.setEnabled(True)
         self.stdin_input.returnPressed.connect(self.send_terminal_input)
         stdin_row.addWidget(self.stdin_input)
         self.stdin_send_btn = QPushButton("Send")
-        self.stdin_send_btn.setEnabled(False)
+        self.stdin_send_btn.setEnabled(True)
         self.stdin_send_btn.clicked.connect(self.send_terminal_input)
         stdin_row.addWidget(self.stdin_send_btn)
         right_layout.addLayout(stdin_row)
-
-        self.stdin_status_label = QLabel("Input status: idle")
-        self.stdin_status_label.setStyleSheet("color: #5F6368; font-weight: 600;")
-        right_layout.addWidget(self.stdin_status_label)
 
         history_group = QGroupBox("Recent Scrape Sessions")
         history_layout = QVBoxLayout()
@@ -2524,7 +2519,10 @@ class ScraperApp(QMainWindow):
 
         prompt_hint = self._detect_prompt_hint(stripped)
         if prompt_hint:
-            self._set_terminal_input_status(True, prompt_hint)
+            self.console.insertHtml(
+                "<span style='color:#FFD166;'>[input] Prompt detected. "
+                "Use Terminal Input and press Send.</span><br>"
+            )
 
         if ("modulenotfounderror: no module named" in line_lower) and (not self._missing_module_prompt_shown):
             self._missing_module_prompt_shown = True
@@ -2566,18 +2564,6 @@ class ScraperApp(QMainWindow):
         if lower.endswith(":") and any(k in lower for k in ("choice", "answer", "remove these", "[y/n")):
             return "Scraper is waiting for terminal input."
         return ""
-
-    def _set_terminal_input_status(self, waiting, hint=""):
-        self._awaiting_terminal_input = waiting
-        if waiting:
-            text = hint or "Scraper is waiting for terminal input."
-            self.stdin_status_label.setText(f"Input status: awaiting input. {text}")
-            self.stdin_status_label.setStyleSheet("color: #B26A00; font-weight: 700;")
-            if self.stdin_input.isEnabled():
-                self.stdin_input.setFocus()
-        else:
-            self.stdin_status_label.setText("Input status: idle")
-            self.stdin_status_label.setStyleSheet("color: #5F6368; font-weight: 600;")
 
     def _append_gui_summary_block(self):
         if self._run_started_at:
@@ -2794,9 +2780,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.install_deps_btn.setEnabled(False)
-        self.stdin_input.setEnabled(True)
-        self.stdin_send_btn.setEnabled(True)
-        self._set_terminal_input_status(False)
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
         self.stop_after_profile_btn.setVisible(False)
@@ -2993,9 +2976,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.install_deps_btn.setEnabled(True)
-        self.stdin_input.setEnabled(False)
-        self.stdin_send_btn.setEnabled(False)
-        self._set_terminal_input_status(False)
         self._reset_stop_controls()
 
     def on_scraper_finished(self):
@@ -3003,9 +2983,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.install_deps_btn.setEnabled(True)
-        self.stdin_input.setEnabled(False)
-        self.stdin_send_btn.setEnabled(False)
-        self._set_terminal_input_status(False)
         self._reset_stop_controls()
         self._append_gui_summary_block()
         try:
@@ -3050,12 +3027,18 @@ class ScraperApp(QMainWindow):
             return
 
         if not self.worker or not getattr(self.worker, "process", None):
-            QMessageBox.information(self, "No Active Scraper", "Start the scraper before sending terminal input.")
+            self.console.insertHtml(
+                "<span style='color:#FFD166;'>[input] No active scraper process. "
+                "Input was not sent.</span><br>"
+            )
             return
 
         proc = self.worker.process
         if proc.poll() is not None or not proc.stdin:
-            QMessageBox.information(self, "Scraper Not Running", "Cannot send input because the scraper process is not running.")
+            self.console.insertHtml(
+                "<span style='color:#FFD166;'>[input] Scraper process is not running. "
+                "Input was not sent.</span><br>"
+            )
             return
 
         try:
@@ -3063,9 +3046,10 @@ class ScraperApp(QMainWindow):
             proc.stdin.flush()
             self.append_console(f"\n[stdin] {text}\n")
             self.stdin_input.clear()
-            self._set_terminal_input_status(False)
         except Exception as e:
-            QMessageBox.warning(self, "Send Failed", f"Could not send input to scraper process: {e}")
+            self.console.insertHtml(
+                f"<span style='color:#FFD166;'>[input] Send failed: {e}</span><br>"
+            )
 
     def _confirm_update_mode_queue(self):
         try:
