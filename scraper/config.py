@@ -261,7 +261,7 @@ USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
 # App-level defaults are intentionally config-driven (not .env-driven) for teammate consistency.
 SCRAPER_MODE = (os.getenv("GUI_SCRAPER_MODE", "search") or "search").strip().lower()
-if SCRAPER_MODE not in {"search", "review", "connections", "names"}:
+if SCRAPER_MODE not in {"search", "review", "update", "connections", "names"}:
     logger.warning(f"Unknown GUI_SCRAPER_MODE={SCRAPER_MODE!r}; falling back to 'search'.")
     SCRAPER_MODE = "search"
 SCRAPE_RESUME_MAX_AGE_DAYS = _env_int("SCRAPE_RESUME_MAX_AGE_DAYS", 7)

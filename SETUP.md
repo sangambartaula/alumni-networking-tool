@@ -186,11 +186,18 @@ python scraper/main.py
 The desktop GUI (`scraper_gui.py`) supports:
 
 - Scraper mode selection (`search`, `review`, `connections`)
+- Scraper update mode (`update`) for refreshing existing alumni records
 - Connections CSV browsing with file picker
 - Review flag management dialog
 - Delay presets and custom delay ranges
 - Auto-save of GUI settings into `.env`
 - Database upload/geocode action from GUI
+- Mode-specific help/info panel and mode-aware `?` guidance
+
+Update mode behavior:
+
+- Selects already-scraped alumni that are due based on `UPDATE_FREQUENCY`.
+- Processes queue in ascending `last_updated` order (oldest first).
 
 Run locally:
 
@@ -314,3 +321,10 @@ Current high-value automated coverage includes:
 - major/discipline parsing and normalization behavior
 - backend alumni filter API correctness
 - scraper/backend regression scenarios
+
+## 17. Terminal Interactivity Notes
+
+When launched from the GUI, scraper runs are now non-interactive (`GUI_NON_INTERACTIVE=1`) to avoid blocking for terminal prompts.
+
+- GUI stop controls send graceful/immediate stop signals programmatically.
+- Review-mode dead-profile cleanup prompt is skipped in GUI mode and logged for manual follow-up.

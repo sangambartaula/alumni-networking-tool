@@ -195,6 +195,7 @@ _current_scrape_run_id = None
 _current_scrape_run_uuid = None
 _cloud_verify_semaphore = threading.Semaphore(4)
 _ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE = 25
+NON_INTERACTIVE_MODE = os.getenv("GUI_NON_INTERACTIVE", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _exit_listener():
@@ -1109,6 +1110,11 @@ def run_review_mode(scraper, nav, history_mgr):
         for url in dead_urls:
             print(f"  💀 {url}")
         print("=" * 60)
+
+        if NON_INTERACTIVE_MODE:
+            logger.info("ℹ️  GUI/non-interactive mode: skipping terminal prompt for dead URL cleanup.")
+            logger.info("ℹ️  Use Review mode in terminal to choose cleanup interactively, or remove dead URLs manually.")
+            return
         
         try:
             answer = input(f"\nRemove these {len(dead_urls)} profiles from database & history? [y/N]: ").strip().lower()
@@ -1119,6 +1125,94 @@ def run_review_mode(scraper, nav, history_mgr):
             _remove_dead_urls(dead_urls, flagged_file, history_mgr)
         else:
             logger.info("ℹ️  Dead URLs left untouched.")
+
+
+def run_update_mode(scraper, nav, history_mgr):
+    """
+    Re-scrape existing alumni that are due for refresh, ordered by oldest
+    last_updated first.
+    """
+    profiles, cutoff_date = database_handler.get_outdated_profiles_from_db()
+    if cutoff_date:
+        logger.info(f"📅 Update cutoff: last_updated older than {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    if not profiles:
+        logger.info("📋 Update mode: no existing profiles currently require refresh.")
+        return
+
+    queue = []
+    seen = set()
+    for row in profiles:
+        if isinstance(row, dict):
+            raw_url = row.get("linkedin_url")
+            last_updated = row.get("last_updated")
+        else:
+            raw_url = row[0] if len(row) > 0 else ""
+            last_updated = row[3] if len(row) > 3 else None
+
+        profile_url = _normalize_profile_url(raw_url)
+        if not profile_url or profile_url in seen or config.is_blocked_url(profile_url):
+            continue
+        seen.add(profile_url)
+        queue.append((profile_url, last_updated))
+
+    if not queue:
+        logger.info("📋 Update mode: no valid URLs available after filtering blocked/invalid entries.")
+        return
+
+    logger.info(
+        "📋 Update mode: %s profiles queued (ordered oldest to newest by last_updated)",
+        len(queue),
+    )
+
+    dead_urls = []
+    for profile_url, last_updated in queue:
+        if should_stop() or check_force_exit():
+            break
+
+        if last_updated:
+            logger.info(f"🔄 Updating {profile_url} (last_updated={last_updated})")
+        else:
+            logger.info(f"🔄 Updating {profile_url}")
+
+        try:
+            data = scraper.scrape_profile_page(profile_url)
+            if data == "PAGE_NOT_FOUND":
+                dead_urls.append(profile_url)
+                continue
+            if data and data != "PAGE_NOT_FOUND":
+                _save_and_track(data, profile_url, history_mgr)
+        except Exception as e:
+            msg = str(e).lower()
+            if "invalid session id" in msg or "no such window" in msg or "target window already closed" in msg:
+                logger.error(f"❌ WebDriver died ({e}). Restarting...")
+                try:
+                    scraper.quit()
+                    time.sleep(2)
+                    scraper.setup_driver()
+                    scraper.login()
+                    logger.info(f"  🔄 Retrying: {profile_url}")
+                    data = scraper.scrape_profile_page(profile_url)
+                    if data == "PAGE_NOT_FOUND":
+                        dead_urls.append(profile_url)
+                    elif data and data != "PAGE_NOT_FOUND":
+                        _save_and_track(data, profile_url, history_mgr)
+                except Exception as retry_e:
+                    logger.error(f"❌ Retry failed: {retry_e}")
+            else:
+                logger.error(f"❌ Error processing {profile_url}: {e}")
+
+        if should_stop():
+            break
+
+        wait_between_profiles()
+
+    logger.info("✅ Update mode complete")
+    if dead_urls:
+        logger.warning(
+            "Update mode detected %s dead/removed profiles. Run Review mode in terminal if you want interactive cleanup.",
+            len(dead_urls),
+        )
 
 
 def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
@@ -1298,6 +1392,8 @@ def main():
             run_names_mode(scraper, nav, history_mgr)
         elif config.SCRAPER_MODE == "review":
             run_review_mode(scraper, nav, history_mgr)
+        elif config.SCRAPER_MODE == "update":
+            run_update_mode(scraper, nav, history_mgr)
         elif config.SCRAPER_MODE == "search":
             if selected_disciplines:
                 logger.info("Selected discipline aliases: %s", ", ".join(selected_disciplines))

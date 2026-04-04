@@ -271,6 +271,7 @@ class ScraperWorker(QThread):
                 popen_kwargs["env"]["GUI_MAX_PROFILES"] = str(int(self.max_profiles))
             if self.max_runtime_minutes is not None:
                 popen_kwargs["env"]["GUI_MAX_RUNTIME_MINUTES"] = str(int(self.max_runtime_minutes))
+            popen_kwargs["env"]["GUI_NON_INTERACTIVE"] = "1"
             popen_kwargs["env"]["PYTHONUTF8"] = "1"
             popen_kwargs["env"]["PYTHONIOENCODING"] = "utf-8"
 
@@ -1295,6 +1296,27 @@ class SettingsDialog(QDialog):
 
 
 class ScraperApp(QMainWindow):
+    MODE_INFO_TEXT = {
+        "search": (
+            "Search Mode: Finds new alumni from LinkedIn UNT search results. "
+            "Uses selected discipline filters when chosen."
+        ),
+        "review": (
+            "Review Mode: Re-scrapes URLs listed in scraper/output/flagged_for_review.txt "
+            "to repair incomplete records."
+        ),
+        "update": (
+            "Update Mode: Re-scrapes alumni already in the database who are due for refresh. "
+            "Queue order is oldest last_updated first, newest last."
+        ),
+        "connections": (
+            "Connections Mode: Scrapes profiles from a LinkedIn Connections.csv export file."
+        ),
+    }
+
+    def _mode_info_for(self, mode):
+        return self.MODE_INFO_TEXT.get(mode, "Select a mode to see details.")
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("UNT Alumni Scraper")
@@ -1763,7 +1785,7 @@ class ScraperApp(QMainWindow):
         target_layout.addWidget(QLabel("Mode:"), 0, 0)
         mode_row = QHBoxLayout()
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["search", "review", "connections"])
+        self.mode_combo.addItems(["search", "review", "update", "connections"])
         mode_row.addWidget(self.mode_combo)
         
         self.help_btn = QPushButton("?")
@@ -1776,10 +1798,15 @@ class ScraperApp(QMainWindow):
         mode_row.addWidget(self.manage_flags_btn)
         
         target_layout.addLayout(mode_row, 0, 1)
+
+        self.mode_info_label = QLabel(self._mode_info_for("search"))
+        self.mode_info_label.setWordWrap(True)
+        self.mode_info_label.setStyleSheet("color: #2e4a62; font-size: 12px;")
+        target_layout.addWidget(self.mode_info_label, 1, 0, 1, 2)
         
         # Connections file picker
         self.csv_path_label = QLabel("Connections CSV:")
-        target_layout.addWidget(self.csv_path_label, 1, 0)
+        target_layout.addWidget(self.csv_path_label, 2, 0)
         
         csv_row = QHBoxLayout()
         self.csv_path_input = QLineEdit()
@@ -1790,12 +1817,13 @@ class ScraperApp(QMainWindow):
         self.browse_csv_btn.clicked.connect(self.browse_csv)
         csv_row.addWidget(self.browse_csv_btn)
         
-        target_layout.addLayout(csv_row, 1, 1)
+        target_layout.addLayout(csv_row, 2, 1)
         
-        target_layout.addWidget(QLabel("Disciplines:"), 2, 0, Qt.AlignmentFlag.AlignTop)
+        self.disciplines_label = QLabel("Disciplines:")
+        target_layout.addWidget(self.disciplines_label, 3, 0, Qt.AlignmentFlag.AlignTop)
         
-        disc_widget = QWidget()
-        disc_layout = QGridLayout(disc_widget)
+        self.disc_widget = QWidget()
+        disc_layout = QGridLayout(self.disc_widget)
         disc_layout.setContentsMargins(0,0,0,0)
         self.discs = {}
         row = 0
@@ -1815,7 +1843,7 @@ class ScraperApp(QMainWindow):
             disc_layout.addWidget(cb, row, 0)
             row += 1
         
-        target_layout.addWidget(disc_widget, 2, 1)
+        target_layout.addWidget(self.disc_widget, 3, 1)
         target_group.setLayout(target_layout)
         left_layout.addWidget(target_group)
         
@@ -1996,10 +2024,16 @@ class ScraperApp(QMainWindow):
         self._start_gui_autoreload_watcher()
 
     def on_mode_change(self, mode):
+        self.mode_info_label.setText(self._mode_info_for(mode))
         is_conn = (mode == "connections")
+        is_search = (mode == "search")
+        is_review = (mode == "review")
         self.csv_path_label.setVisible(is_conn)
         self.csv_path_input.setVisible(is_conn)
         self.browse_csv_btn.setVisible(is_conn)
+        self.disciplines_label.setVisible(is_search)
+        self.disc_widget.setVisible(is_search)
+        self.manage_flags_btn.setVisible(is_review)
 
     def browse_csv(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Connections.csv", "", "CSV Files (*.csv);;All Files (*)")
@@ -2167,14 +2201,38 @@ class ScraperApp(QMainWindow):
             self.append_console(line)
 
     def show_help(self):
-        QMessageBox.information(self, "How to Download Connections.csv", 
-            "1. Visit: https://www.linkedin.com/mypreferences/d/download-my-data\n"
-            "2. Select 'Download larger data archive' (including connections, verifications, etc.)\n"
-            "3. Click 'Request archive' and wait for LinkedIn to email you.\n"
-            "4. When available, download the data and extract the zip file.\n"
-            "5. Open the folder and find the 'Connections.csv' file. This contains all your connections with their URLs.\n"
-            "6. Click the 'Browse' button in this app to select that exact file wherever you saved it!"
-        )
+        mode = self.mode_combo.currentText()
+        details = [self._mode_info_for(mode)]
+        if mode == "connections":
+            details.append(
+                "\n\nConnections.csv setup:\n"
+                "1. Visit: https://www.linkedin.com/mypreferences/d/download-my-data\n"
+                "2. Select 'Download larger data archive'.\n"
+                "3. Request archive and wait for email.\n"
+                "4. Extract the archive and locate Connections.csv.\n"
+                "5. Use Browse to select that file in this GUI."
+            )
+        elif mode == "update":
+            details.append(
+                "\n\nUpdate mode notes:\n"
+                "- Pulls already-scraped alumni from DB using UPDATE_FREQUENCY.\n"
+                "- Processes queue in ascending last_updated order.\n"
+                "- Best for periodic refresh of existing records."
+            )
+        elif mode == "review":
+            details.append(
+                "\n\nReview mode notes:\n"
+                "- Uses scraper/output/flagged_for_review.txt.\n"
+                "- Best for data-quality repair runs."
+            )
+        else:
+            details.append(
+                "\n\nSearch mode notes:\n"
+                "- Finds new people from LinkedIn UNT search results.\n"
+                "- Discipline filters are optional and only apply in search mode."
+            )
+
+        QMessageBox.information(self, f"Mode Info: {mode}", "".join(details))
 
     def open_flag_manager(self):
         dialog = FlagManagerDialog(get_base_dir(), self)

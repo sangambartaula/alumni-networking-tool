@@ -34,6 +34,16 @@ Recommended:
 - Use randomized delays (30-120 seconds per profile).
 - Stop runs if LinkedIn shows checkpoint, verification, or repeated rate limiting.
 
+### Scraper Modes
+
+- `search`: Finds new alumni from UNT LinkedIn people search (optionally by discipline).
+- `review`: Re-scrapes URLs from `scraper/output/flagged_for_review.txt` to repair incomplete records.
+- `update`: Re-scrapes existing alumni already in the database who are due for refresh.
+	- Queue order is oldest `last_updated` first, newest last.
+- `connections`: Scrapes from your LinkedIn `Connections.csv` export.
+
+The GUI now shows mode-specific info for the currently selected mode. Use the `?` button for details.
+
 ## 3. Use Alumni Filters in the Dashboard
 
 In alumni list and analytics/heatmap views, use `UNT Alumni Status`:
@@ -128,6 +138,7 @@ The backend supports both boolean and status-string representations and normaliz
 - `Backfill Geocode (Optional)` button remains useful for older records and repair runs.
 - Built app path resolution improvements for running from `dist` bundles on macOS/Windows.
 - Stop action uses terminate then forced kill fallback so scraper subprocesses do not hang.
+- First-time machine setup steps for the scraper GUI are documented in [SETUP.md](SETUP.md) under the one-time setup checklist.
 
 ## 7. Seniority Buckets
 
