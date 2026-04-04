@@ -16,15 +16,30 @@ if exist "dist\Alumni Scraper App" rmdir /s /q "dist\Alumni Scraper App"
 del /f /q *.spec
 
 :: Install requirements
-echo Installing PyQt6 and PyInstaller...
-pip install PyQt6 pyinstaller python-dotenv
+echo Installing build dependencies (PyQt6, PyInstaller, Pillow)...
+pip install PyQt6 pyinstaller python-dotenv pillow
+if errorlevel 1 (
+    echo Dependency installation failed. Aborting build.
+    pause
+    exit /b 1
+)
 
 :: Build using PyInstaller
 echo Squarifying icon to prevent stretching...
 python scripts\pad_icon.py
+if errorlevel 1 (
+    echo Icon preparation failed. Aborting build.
+    pause
+    exit /b 1
+)
 
 echo Bundling App...
 pyinstaller --clean --name "Alumni Scraper App" --windowed --icon="frontend/public/assets/unt-logo-square.png" --noconfirm scraper_gui.py
+if errorlevel 1 (
+    echo PyInstaller build failed. Ensure Pillow is installed and icon path is valid.
+    pause
+    exit /b 1
+)
 
 echo Build complete! The application has been created inside the 'dist' folder.
 echo You can move 'UNT Alumni Scraper.exe' anywhere, but for it to function correctly, place it in the same parent folder as your 'venv' and 'scraper' directories.
