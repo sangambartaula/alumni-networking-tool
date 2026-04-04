@@ -259,12 +259,13 @@ if not LINKEDIN_EMAIL or not LINKEDIN_PASSWORD:
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
 LINKEDIN_COOKIES_PATH = os.getenv("LINKEDIN_COOKIES_PATH", "linkedin_cookies.json")
-SCRAPER_MODE = os.getenv("SCRAPER_MODE", "names").lower()
+# App-level defaults are intentionally config-driven (not .env-driven) for teammate consistency.
+SCRAPER_MODE = "search"
 SCRAPE_RESUME_MAX_AGE_DAYS = _env_int("SCRAPE_RESUME_MAX_AGE_DAYS", 7)
 OUTPUT_CSV_ENV = os.getenv("OUTPUT_CSV", "UNT_Alumni_Data.csv")
 UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
-CONNECTIONS_CSV_PATH = os.getenv("CONNECTIONS_CSV", "Connections.csv")
-SEARCH_DISCIPLINES = os.getenv("SEARCH_DISCIPLINES", "")
+CONNECTIONS_CSV_PATH = "Connections.csv"
+SEARCH_DISCIPLINES = ""
 
 # Groq AI Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -287,8 +288,10 @@ EDU_READY_TIMEOUT_SECONDS = _env_int("EDU_READY_TIMEOUT_SECONDS", 30)
 # Flagging Configuration
 FLAG_MISSING_EXPERIENCE_DATA = _env_bool("FLAG_MISSING_EXPERIENCE_DATA", True)
 
-MIN_DELAY = _env_int("MIN_DELAY", 60)
-MAX_DELAY = _env_int("MAX_DELAY", 240)
+MIN_DELAY = 60
+MAX_DELAY = 240
+GUI_MAX_PROFILES = 0
+GUI_MAX_RUNTIME_MINUTES = 0
 
 # Paths
 OUTPUT_DIR = Path(__file__).parent / "output"

@@ -1169,8 +1169,6 @@ class SettingsDialog(QDialog):
 
     def create_scraper_tab(self):
         f = self._create_tab("Scraper")
-        self._add_field(f, "MIN_DELAY", "Min Delay", int, 60, "Minimum seconds to wait between profile scrapes (prevents ban).", True)
-        self._add_field(f, "MAX_DELAY", "Max Delay", int, 240, "Maximum seconds to wait between profile scrapes.", True)
         self._add_field(
             f,
             "HEADLESS",
@@ -1863,7 +1861,7 @@ class ScraperApp(QMainWindow):
         delay_layout.addWidget(self.min_delay, 1, 1)
         
         delay_layout.addWidget(QLabel("Max (s):"), 1, 2)
-        self.max_delay = QLineEdit("180")
+        self.max_delay = QLineEdit("240")
         self.max_delay.setEnabled(False)
         delay_layout.addWidget(self.max_delay, 1, 3)
         
@@ -2053,16 +2051,6 @@ class ScraperApp(QMainWindow):
                         self.email_input.setText(val)
                     elif key == "LINKEDIN_PASSWORD" and val:
                         self.password_input.setText(val)
-                    elif key == "CONNECTIONS_CSV" and val:
-                        self.csv_path_input.setText(val)
-                    elif key == "GUI_MAX_PROFILES" and val:
-                        self.max_profiles.setText(val)
-                    elif key == "GUI_MAX_RUNTIME_MINUTES" and val:
-                        try:
-                            total = int(val)
-                            self.hours_input.setText(str(total // 60))
-                            self.mins_input.setText(str(total % 60))
-                        except: pass
 
     def on_delay_change(self, text):
         if text == "Custom":
@@ -2276,24 +2264,6 @@ class ScraperApp(QMainWindow):
         update_env("LINKEDIN_EMAIL", self.email_input.text().strip().lower())
         if self.password_input.text():
             update_env("LINKEDIN_PASSWORD", self.password_input.text())
-            
-        update_env("SCRAPER_MODE", self.mode_combo.currentText())
-        
-        selected_discs = [d for d, cb in self.discs.items() if cb.isChecked()]
-        update_env("SEARCH_DISCIPLINES", ",".join(selected_discs) if selected_discs else "")
-        
-        update_env("CONNECTIONS_CSV", self.csv_path_input.text() or "Connections.csv")
-        
-        update_env("MIN_DELAY", self.min_delay.text() or "60")
-        update_env("MAX_DELAY", self.max_delay.text() or "180")
-        
-        update_env("GUI_MAX_PROFILES", self.max_profiles.text() or "0")
-        
-        try:
-            total_mins = int(self.hours_input.text() or 0) * 60 + int(self.mins_input.text() or 0)
-        except ValueError:
-            total_mins = 0
-        update_env("GUI_MAX_RUNTIME_MINUTES", str(total_mins))
 
     def _warn_if_groq_not_ready(self):
         env_path = os.path.join(get_base_dir(), ".env")

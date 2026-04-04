@@ -156,17 +156,8 @@ _exit_listener_active = False
 session_profiles_scraped = 0
 
 # GUI Limits
-try:
-    GUI_MAX_PROFILES = int((os.getenv("GUI_MAX_PROFILES", "0") or "0").strip())
-except Exception:
-    GUI_MAX_PROFILES = 0
-    logger.warning("Invalid GUI_MAX_PROFILES value in env; defaulting to 0 (infinite).")
-
-try:
-    GUI_MAX_RUNTIME_MINUTES = int((os.getenv("GUI_MAX_RUNTIME_MINUTES", "0") or "0").strip())
-except Exception:
-    GUI_MAX_RUNTIME_MINUTES = 0
-    logger.warning("Invalid GUI_MAX_RUNTIME_MINUTES value in env; defaulting to 0 (infinite).")
+GUI_MAX_PROFILES = int(getattr(config, "GUI_MAX_PROFILES", 0) or 0)
+GUI_MAX_RUNTIME_MINUTES = int(getattr(config, "GUI_MAX_RUNTIME_MINUTES", 0) or 0)
 SCRIPT_START_TIME = datetime.now()
 global_profiles_tracked_for_gui = 0
 
