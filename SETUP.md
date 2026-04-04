@@ -198,6 +198,36 @@ Run locally:
 python scraper_gui.py
 ```
 
+### 11.1 One-Time Scraper GUI Setup Checklist
+
+Use this checklist once per machine (or after recreating the virtual environment):
+
+1. Activate the project virtual environment.
+2. Ensure dependencies are installed:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Launch the GUI:
+
+```bash
+python scraper_gui.py
+```
+
+4. On first GUI launch:
+- Enter LinkedIn email/password.
+- Click `Refresh Status` in Preflight Status.
+- If any setup-needed warning appears, click `Install Dependencies` and wait for completion.
+
+5. Select scraper mode and delays, then run a short test scrape.
+
+6. Optional build verification:
+- Windows: `build_windows_app.bat`
+- macOS: `build_mac_app.command`
+
+If the virtual environment is recreated later, repeat this checklist.
+
 Built desktop apps from `build_mac_app.command` and `build_windows_app.bat` include path-resolution fixes so worker subprocesses can find project scripts when launched from packaged `dist` outputs.
 
 ## 12. Production Deployment Notes
@@ -237,3 +267,50 @@ Notes for client implementations:
 - Do not assume invalid values are ignored; requests now fail fast with HTTP 400.
 - Surface `error.message` directly in UI when possible.
 - Use `error.field` to map server-side validation feedback to the correct form input.
+
+## 14. Authentication and Authorization Technical Notes
+
+The backend supports both email/password and LinkedIn OAuth login.
+
+Core flow behavior:
+
+1. Login attempts are rate-limited.
+2. Email must pass whitelist checks (`authorized_emails`).
+3. Session is established only for authorized users.
+4. User permissions are enforced by role (`user` or `admin`).
+
+Admin-only operations are protected server-side and are not trusted from UI state alone.
+
+If LinkedIn OAuth is disabled in deployment, remove OAuth credentials from `.env` and rely on email/password access paths.
+
+## 15. Security Practices
+
+- Passwords are stored using bcrypt hashes (never plaintext).
+- Password policy is enforced for minimum complexity.
+- Session integrity depends on a strong `SECRET_KEY`.
+- Authorization is enforced with explicit whitelist and role checks.
+- Database operations use parameterized queries for SQL injection protection.
+
+## 16. Testing Workflow
+
+Run targeted backend/API tests:
+
+```bash
+pytest -q backend/tests/test_sprint_white_black_box.py
+pytest -q tests/test_backend_filter_api.py
+```
+
+Run full regression suite:
+
+```bash
+pytest -q
+```
+
+Current high-value automated coverage includes:
+
+- graduation year range validation
+- seniority filter validation
+- years-of-experience edge cases
+- major/discipline parsing and normalization behavior
+- backend alumni filter API correctness
+- scraper/backend regression scenarios

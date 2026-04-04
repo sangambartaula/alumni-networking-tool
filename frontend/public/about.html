@@ -285,6 +285,40 @@
       word-break: break-word;
     }
 
+    .doc-shell {
+      margin-top: 1rem;
+    }
+
+    .doc-shell > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      font-weight: 700;
+      color: #153650;
+      padding: 0.2rem 0;
+    }
+
+    .doc-shell > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .doc-shell > summary::after {
+      content: "Expand";
+      font-size: 0.85rem;
+      border: 1px solid #bfd0de;
+      border-radius: 999px;
+      padding: 0.22rem 0.62rem;
+      color: #2e4a62;
+      background: #f3f8fc;
+    }
+
+    .doc-shell[open] > summary::after {
+      content: "Collapse";
+    }
+
     footer {
       margin-top: 2rem;
       color: var(--muted);
@@ -346,12 +380,12 @@
     <main class="grid">
       <section class="card">
         <h2>README</h2>
-        <div id="readme" class="markdown">Preparing content...</div>
+        <article id="section-readme" class="markdown">Preparing content...</article>
       </section>
 
       <section class="card" id="readmeReferencesCard" hidden>
         <h2>Files Mentioned In README</h2>
-        <p class="meta">Click any file to preview it instantly.</p>
+        <p class="meta">Quick links to the primary documentation sections.</p>
         <div id="readmeReferences" class="reference-list"></div>
         <div id="fileViewer" class="viewer" aria-live="polite">
           <div class="viewer-header">
@@ -363,8 +397,22 @@
       </section>
 
       <section class="card">
-        <h2>Additional Markdown Documentation</h2>
-        <div id="allMarkdown">Loading markdown files...</div>
+        <h2>USER GUIDE</h2>
+        <article id="section-user-guide" class="markdown">Loading USER_GUIDE.md...</article>
+      </section>
+
+      <section class="card">
+        <details class="doc-shell">
+          <summary>SETUP (Technical)</summary>
+          <article id="section-setup" class="markdown">Loading SETUP.md...</article>
+        </details>
+      </section>
+
+      <section class="card">
+        <details class="doc-shell">
+          <summary>DATA RULES (Technical)</summary>
+          <article id="section-data-rules" class="markdown">Loading DATA_RULES.md...</article>
+        </details>
       </section>
     </main>
 
@@ -386,8 +434,10 @@
 
       const statusEl = document.getElementById("status");
       const metaEl = document.getElementById("meta");
-      const readmeEl = document.getElementById("readme");
-      const markdownContainer = document.getElementById("allMarkdown");
+      const readmeEl = document.getElementById("section-readme");
+      const userGuideEl = document.getElementById("section-user-guide");
+      const setupEl = document.getElementById("section-setup");
+      const dataRulesEl = document.getElementById("section-data-rules");
       const readmeReferencesCard = document.getElementById("readmeReferencesCard");
       const readmeReferencesEl = document.getElementById("readmeReferences");
       const viewerEl = document.getElementById("fileViewer");
@@ -398,6 +448,16 @@
 
       const repoFileSet = new Set();
       const markdownCache = new Map();
+
+      const orderedDocs = [
+        { path: "README.md", sectionId: "section-readme", collapsible: false },
+        { path: "USER_GUIDE.md", sectionId: "section-user-guide", collapsible: false },
+        { path: "SETUP.md", sectionId: "section-setup", collapsible: true },
+        { path: "DATA_RULES.md", sectionId: "section-data-rules", collapsible: true }
+      ];
+
+      const allowedDocPaths = new Set(orderedDocs.map((doc) => doc.path));
+      const docSectionMap = new Map(orderedDocs.map((doc) => [doc.path, doc.sectionId]));
 
       const markdownExtensions = [".md", ".markdown"];
 
@@ -557,6 +617,12 @@
             return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
           }
 
+          if (resolved && docSectionMap.has(resolved)) {
+            const sectionId = docSectionMap.get(resolved);
+            const titleAttr = title ? ` title="${title}"` : "";
+            return `<a href="#${sectionId}" data-doc-section="${sectionId}" data-doc-path="${resolved}"${titleAttr}>${text}</a>`;
+          }
+
           if (resolved && repoFileSet.has(resolved)) {
             const titleAttr = title ? ` title="${title}"` : "";
             return `<a href="#" data-repo-file="${resolved}"${titleAttr}>${text}</a>`;
@@ -600,7 +666,7 @@
         let match;
         while ((match = markdownLinkPattern.exec(readmeMarkdown)) !== null) {
           const linkedPath = resolveRelativePath("README.md", match[1]);
-          if (linkedPath && repoFileSet.has(linkedPath)) {
+          if (linkedPath && allowedDocPaths.has(linkedPath)) {
             mentions.add(linkedPath);
           }
         }
@@ -608,12 +674,38 @@
         const plainFilePattern = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,12}\b/g;
         while ((match = plainFilePattern.exec(readmeMarkdown)) !== null) {
           const maybePath = normalizePath(match[0]);
-          if (repoFileSet.has(maybePath)) {
+          if (allowedDocPaths.has(maybePath)) {
             mentions.add(maybePath);
           }
         }
 
-        return Array.from(mentions).sort((a, b) => a.localeCompare(b));
+        return orderedDocs
+          .map((doc) => doc.path)
+          .filter((path) => mentions.has(path));
+      }
+
+      function scrollToDocSection(sectionId) {
+        const section = document.getElementById(sectionId);
+        if (!section) {
+          return;
+        }
+        const details = section.closest("details");
+        if (details) {
+          details.open = true;
+        }
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      function attachDocSectionLinkHandlers(root) {
+        root.querySelectorAll("a[data-doc-section]").forEach((anchor) => {
+          anchor.addEventListener("click", (event) => {
+            event.preventDefault();
+            const sectionId = anchor.getAttribute("data-doc-section");
+            if (sectionId) {
+              scrollToDocSection(sectionId);
+            }
+          });
+        });
       }
 
       function attachRepoFileClickHandlers(root) {
@@ -639,6 +731,7 @@
 
           if (isMarkdownFile(path)) {
             viewerBodyEl.innerHTML = markdownToHtml(fileContent, path);
+            attachDocSectionLinkHandlers(viewerBodyEl);
             attachRepoFileClickHandlers(viewerBodyEl);
           } else if (isProbablyTextFile(path)) {
             const escaped = fileContent
@@ -668,7 +761,10 @@
           button.className = "chip";
           button.textContent = path;
           button.addEventListener("click", () => {
-            showFilePreview(path);
+            const sectionId = docSectionMap.get(path);
+            if (sectionId) {
+              scrollToDocSection(sectionId);
+            }
           });
           readmeReferencesEl.appendChild(button);
         }
@@ -678,48 +774,29 @@
 
       async function renderReadme(readmeMarkdown) {
         readmeEl.innerHTML = markdownToHtml(readmeMarkdown, "README.md");
+        attachDocSectionLinkHandlers(readmeEl);
         attachRepoFileClickHandlers(readmeEl);
 
         const mentions = collectReadmeFileMentions(readmeMarkdown);
         renderReadmeMentions(mentions);
       }
 
-      async function renderAllMarkdownFiles(files) {
-        const otherMarkdown = files
-          .filter((path) => isMarkdownFile(path))
-          .filter((path) => path.toLowerCase() !== "readme.md")
-          .sort((a, b) => a.localeCompare(b));
+      async function renderPrimaryDocs() {
+        const docTargets = {
+          "USER_GUIDE.md": userGuideEl,
+          "SETUP.md": setupEl,
+          "DATA_RULES.md": dataRulesEl
+        };
 
-        if (!otherMarkdown.length) {
-          markdownContainer.innerHTML = "No additional markdown files found.";
-          return;
-        }
-
-        const sections = [];
-
-        for (const mdPath of otherMarkdown) {
-          sections.push(`
-            <article class="card" style="margin-top:1rem;">
-              <h3>${mdPath}</h3>
-              <div class="markdown" id="doc-${sections.length}">Loading ${mdPath}...</div>
-            </article>
-          `);
-        }
-
-        markdownContainer.innerHTML = sections.join("");
-
-        const markdownEls = markdownContainer.querySelectorAll("[id^='doc-']");
-
-        for (let i = 0; i < otherMarkdown.length; i += 1) {
-          const path = otherMarkdown[i];
-          const target = markdownEls[i];
-
+        for (const docPath of ["USER_GUIDE.md", "SETUP.md", "DATA_RULES.md"]) {
+          const target = docTargets[docPath];
           try {
-            const markdown = await fetchContentFile(path);
-            target.innerHTML = markdownToHtml(markdown, path);
+            const markdown = await fetchContentFile(docPath);
+            target.innerHTML = markdownToHtml(markdown, docPath);
+            attachDocSectionLinkHandlers(target);
             attachRepoFileClickHandlers(target);
           } catch (error) {
-            target.innerHTML = `<p>Unable to load ${path}: ${error.message}</p>`;
+            target.innerHTML = `<p>Unable to load ${docPath}: ${error.message}</p>`;
           }
         }
       }
@@ -728,7 +805,9 @@
         setStatus("Loading README and markdown files from GitHub API...", false);
         metaEl.textContent = "Fetching repository file tree...";
         readmeEl.textContent = "Preparing content...";
-        markdownContainer.textContent = "Loading markdown files...";
+        userGuideEl.textContent = "Loading USER_GUIDE.md...";
+        setupEl.textContent = "Loading SETUP.md...";
+        dataRulesEl.textContent = "Loading DATA_RULES.md...";
         viewerEl.classList.remove("open");
 
         try {
@@ -737,13 +816,15 @@
 
           const readmeMarkdown = await fetchContentFile("README.md");
           await renderReadme(readmeMarkdown);
-          await renderAllMarkdownFiles(files);
+          await renderPrimaryDocs();
 
           setStatus("Documentation is current with the latest GitHub repository content.", false);
         } catch (error) {
           setStatus(`Failed to load documentation: ${error.message}`, true);
           readmeEl.textContent = "Unable to load README content.";
-          markdownContainer.textContent = "Unable to load markdown files.";
+          userGuideEl.textContent = "Unable to load USER_GUIDE.md.";
+          setupEl.textContent = "Unable to load SETUP.md.";
+          dataRulesEl.textContent = "Unable to load DATA_RULES.md.";
           metaEl.textContent = "Loading failed. Try again later or use View on GitHub.";
         }
       }

@@ -1,62 +1,52 @@
 # UNT Alumni Networking Tool
 
-The UNT Alumni Networking Tool helps staff find, review, and organize alumni outreach data in one place.
+The UNT Alumni Networking Tool helps the College of Engineering staff find, review, and organize alumni outreach data in one place.
 
-This README is for everyday users. Technical setup, architecture, and maintenance details are documented in separate technical guides.
+This README is a leadership-facing overview. Daily operations are in [USER_GUIDE.md](USER_GUIDE.md), technical implementation is in [SETUP.md](SETUP.md), and data logic is documented in [DATA_RULES.md](DATA_RULES.md).
 
-## What You Can Do
+## What The Tool Does
 
-- Search and filter alumni by name, role, company, location, major, degree, seniority, graduation range, and more.
-- Review alumni status and working-while-studying signals.
-- Use analytics and heatmap views for trend analysis.
-- Save private outreach notes and bookmarks.
-- Run scraper workflows from terminal or desktop GUI.
+- Centralizes alumni discovery for outreach planning.
+- Provides filtering by role, company, location, major, degree, graduation range, and seniority.
+- Supports analytics and heatmap views for strategic reporting.
+- Standardizes profile data so trends are comparable over time.
+- Enforces controlled user access for institutional governance.
 
-## Quick Start
+## Key Functionality
 
-If your environment is already set up:
+### Alumni Discovery
 
-1. Start the dashboard:
+Staff can identify target alumni groups quickly using academic and professional filters.
 
-```bash
-python backend/app.py
-```
+### Outreach Readiness
 
-2. Open the URL shown in terminal output (usually `http://127.0.0.1:5000`).
+Users can review profile context, store internal notes, and organize candidate lists.
 
-3. Optional: run scraper tools:
+### Leadership Insights
 
-```bash
-python scraper/main.py
-python scraper_gui.py
-```
+Analytics and geographic views help leadership identify concentration areas and trend patterns.
 
-If this is your first time, follow [SETUP.md](SETUP.md) first.
+### Data Consistency
 
-## Access and Security
+Normalization and classification rules keep majors, degrees, titles, and scoring consistent.
 
-- Access is restricted to approved users via whitelist controls.
-- Users can authenticate with email/password or LinkedIn OAuth.
-- Admin users can manage access and user roles.
+### Access and Security
 
-See [docs/AUTH.md](docs/AUTH.md) and [docs/SECURITY.md](docs/SECURITY.md) for technical security details.
+Only approved users can access the platform; administrative actions are role-gated.
+
+## Audience Routing
+
+- Dean and leadership: high-level outcomes and value
+- Staff operators: [USER_GUIDE.md](USER_GUIDE.md)
+- Engineers and maintainers: [SETUP.md](SETUP.md)
+- Data and analytics stakeholders: [DATA_RULES.md](DATA_RULES.md)
 
 ## Documentation Map
 
-User-oriented docs:
-
-- [README.md](README.md) - Product overview and daily entry points
-- [USER_GUIDE.md](USER_GUIDE.md) - Day-to-day usage workflows
-
-Technical docs:
-
-- [SETUP.md](SETUP.md) - Environment setup, deployment, and operations
-- [TESTING.md](TESTING.md) - Test commands and coverage notes
-- [NORMALIZATION_RULES.md](NORMALIZATION_RULES.md) - Data normalization behavior
-- [SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md) - Seniority classification details
-- [RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md) - Relevance scoring details
-- [docs/AUTH.md](docs/AUTH.md) - Authentication internals
-- [docs/SECURITY.md](docs/SECURITY.md) - Security controls and policy
+- [README.md](README.md): Executive overview
+- [USER_GUIDE.md](USER_GUIDE.md): Day-to-day staff workflow
+- [SETUP.md](SETUP.md): One-time engineering setup, authentication/security, testing workflow
+- [DATA_RULES.md](DATA_RULES.md): Normalization, seniority, relevance, and design rationale
 
 ## Important Notes
 
