@@ -4,6 +4,7 @@ import subprocess
 import signal
 import threading
 import sqlite3
+import shutil
 import csv
 import json
 import re
@@ -110,10 +111,20 @@ def _resolve_python_exec(base_dir):
     """Prefer project venv; only fall back to system Python when needed."""
     if sys.platform == "win32":
         venv_python = os.path.join(base_dir, "venv", "Scripts", "python.exe")
-        return venv_python if os.path.exists(venv_python) else "python"
+        if os.path.exists(venv_python):
+            return venv_python
+        if shutil.which("python"):
+            return "python"
+        if shutil.which("py"):
+            return "py"
+        return sys.executable
     venv_python = os.path.join(base_dir, "venv", "bin", "python")
     if os.path.exists(venv_python):
         return venv_python
+    if shutil.which("python3"):
+        return "python3"
+    if shutil.which("python"):
+        return "python"
     return "python3"
 
 
@@ -208,17 +219,17 @@ def _run_json_probe(python_exec, base_dir, script_source):
         )
     except Exception as e:
         return {
-            "state": "red",
-            "text": "Probe failed",
-            "tip": f"Failed to execute probe with {python_exec}: {e}",
+            "state": "yellow",
+            "text": "Probe setup needed",
+            "tip": f"Could not execute probe with '{python_exec}': {e}. Install dependencies or configure Python path.",
         }
 
     output = (result.stdout or "").strip().splitlines()
     if not output:
         err = (result.stderr or "").strip()
         return {
-            "state": "red",
-            "text": "Probe failed",
+            "state": "yellow",
+            "text": "Probe setup needed",
             "tip": err or f"Probe returned no output (exit {result.returncode}).",
         }
 
@@ -228,15 +239,15 @@ def _run_json_probe(python_exec, base_dir, script_source):
     except Exception:
         err = (result.stderr or "").strip()
         return {
-            "state": "red",
-            "text": "Probe failed",
+            "state": "yellow",
+            "text": "Probe setup needed",
             "tip": err or last_line,
         }
 
     if not isinstance(payload, dict):
         return {
-            "state": "red",
-            "text": "Probe failed",
+            "state": "yellow",
+            "text": "Probe setup needed",
             "tip": "Probe returned invalid payload.",
         }
     return payload
@@ -1122,7 +1133,17 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Scraper Settings")
-        self.setMinimumSize(940, 720)
+        self.setMinimumSize(680, 500)
+        self.resize(820, 620)
+        try:
+            screen = QApplication.primaryScreen()
+            if screen:
+                available = screen.availableGeometry()
+                target_w = min(980, max(700, int(available.width() * 0.72)))
+                target_h = min(760, max(520, int(available.height() * 0.72)))
+                self.resize(target_w, target_h)
+        except Exception:
+            pass
         self.setStyleSheet(
             "QCheckBox::indicator { width: 18px; height: 18px; }"
             "QTabBar::tab { padding: 8px 14px; color: #1b2430; background: #e9eef6; border: 1px solid #cfd8e6; border-bottom: none; }"
@@ -1165,6 +1186,7 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(save_test_btn)
         
         layout.addLayout(btn_layout)
+        self.setSizeGripEnabled(True)
 
     def _create_settings_tabs(self):
         builders = [
@@ -1216,7 +1238,7 @@ class SettingsDialog(QDialog):
         else:
             inp_widget = QLineEdit()
             inp_widget.setPlaceholderText(f"Default: {default_val}")
-            inp_widget.setMinimumWidth(420)
+            inp_widget.setMinimumWidth(320)
             inp_widget.setToolTip(tooltip)
             if current_val:
                 inp_widget.setText(current_val)
@@ -1240,9 +1262,9 @@ class SettingsDialog(QDialog):
         scroll.setWidgetResizable(True)
         container = QWidget()
         form = QFormLayout(container)
-        form.setSpacing(15)
+        form.setSpacing(10)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setHorizontalSpacing(18)
+        form.setHorizontalSpacing(14)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         scroll.setWidget(container)
@@ -1880,7 +1902,7 @@ class ScraperApp(QMainWindow):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        left_layout.setSpacing(10)
+        left_layout.setSpacing(8)
         
         
         # Settings Button
@@ -1966,22 +1988,23 @@ class ScraperApp(QMainWindow):
         disc_layout = QGridLayout(self.disc_widget)
         disc_layout.setContentsMargins(0,0,0,0)
         self.discs = {}
-        row = 0
         discipline_options = [
-            ("software", "Software, Data, AI && Cybersecurity"),
-            ("embedded", "Embedded, Electrical && Hardware Engineering"),
-            ("mechanical", "Mechanical Engineering && Manufacturing"),
-            ("construction", "Construction && Engineering Management"),
-            ("biomedical", "Biomedical Engineering"),
+            ("software", "Software/Data/AI/Cyber", "Software, Data, AI & Cybersecurity"),
+            ("embedded", "Embedded/Electrical/Hardware", "Embedded, Electrical & Hardware Engineering"),
+            ("mechanical", "Mechanical/Manufacturing", "Mechanical Engineering & Manufacturing"),
+            ("construction", "Construction/Eng Mgmt", "Construction & Engineering Management"),
+            ("biomedical", "Biomedical", "Biomedical Engineering"),
         ]
-        disc_layout.setHorizontalSpacing(4)
-        disc_layout.setVerticalSpacing(6)
-        for discipline_key, discipline_label in discipline_options:
-            cb = QCheckBox(discipline_label)
+        disc_layout.setHorizontalSpacing(10)
+        disc_layout.setVerticalSpacing(4)
+        for idx, (discipline_key, compact_label, full_label) in enumerate(discipline_options):
+            cb = QCheckBox(compact_label)
+            cb.setToolTip(full_label)
             cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             self.discs[discipline_key] = cb
-            disc_layout.addWidget(cb, row, 0)
-            row += 1
+            row = idx // 2
+            col = idx % 2
+            disc_layout.addWidget(cb, row, col)
         
         target_layout.addWidget(self.disc_widget, 3, 1)
         target_group.setLayout(target_layout)
@@ -1998,12 +2021,14 @@ class ScraperApp(QMainWindow):
         self.delay_combo.currentTextChanged.connect(self.on_delay_change)
         delay_layout.addWidget(self.delay_combo, 0, 1, 1, 3)
         
-        delay_layout.addWidget(QLabel("Custom Min (s):"), 1, 0)
+        self.custom_min_label = QLabel("Custom Min (s):")
+        delay_layout.addWidget(self.custom_min_label, 1, 0)
         self.min_delay = QLineEdit("60")
         self.min_delay.setEnabled(False)
         delay_layout.addWidget(self.min_delay, 1, 1)
         
-        delay_layout.addWidget(QLabel("Max (s):"), 1, 2)
+        self.custom_max_label = QLabel("Max (s):")
+        delay_layout.addWidget(self.custom_max_label, 1, 2)
         self.max_delay = QLineEdit("240")
         self.max_delay.setEnabled(False)
         delay_layout.addWidget(self.max_delay, 1, 3)
@@ -2182,6 +2207,7 @@ class ScraperApp(QMainWindow):
         # Hook mode change to layout visibility
         self.mode_combo.currentTextChanged.connect(self.on_mode_change)
         self.on_mode_change(self.mode_combo.currentText())
+        self.on_delay_change(self.delay_combo.currentText())
         
         # Auto-load existing config
         self.load_settings_from_env()
@@ -2230,7 +2256,13 @@ class ScraperApp(QMainWindow):
                         self.password_input.setText(val)
 
     def on_delay_change(self, text):
-        if text == "Custom":
+        is_custom = (text == "Custom")
+        self.custom_min_label.setVisible(is_custom)
+        self.min_delay.setVisible(is_custom)
+        self.custom_max_label.setVisible(is_custom)
+        self.max_delay.setVisible(is_custom)
+
+        if is_custom:
             self.min_delay.setEnabled(True)
             self.max_delay.setEnabled(True)
         else:
