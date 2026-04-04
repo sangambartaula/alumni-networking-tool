@@ -194,6 +194,7 @@ _flagged_urls_this_run = set()
 _current_scrape_run_id = None
 _current_scrape_run_uuid = None
 _cloud_verify_semaphore = threading.Semaphore(4)
+_ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE = 25
 
 
 def _exit_listener():
@@ -914,9 +915,38 @@ def run_search_mode(scraper, nav, history_mgr):
 def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
     processed_any = False
     quotas = {alias: 0 for alias in discipline_aliases}
-    if GUI_MAX_PROFILES > 0 and discipline_aliases:
-        base = GUI_MAX_PROFILES // len(discipline_aliases)
-        remainder = GUI_MAX_PROFILES % len(discipline_aliases)
+
+    profile_cap = GUI_MAX_PROFILES if GUI_MAX_PROFILES > 0 else None
+    time_cap_profiles = None
+    simulated_seconds_per_profile = None
+    if GUI_MAX_RUNTIME_MINUTES > 0:
+        simulated_seconds_per_profile = (
+            ((config.MIN_DELAY + config.MAX_DELAY) / 2.0) + _ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE
+        )
+        total_time_seconds = GUI_MAX_RUNTIME_MINUTES * 60
+        estimated = int(total_time_seconds // max(1.0, simulated_seconds_per_profile))
+        time_cap_profiles = max(1, estimated)
+
+    limiting_reason = "none"
+    effective_total_profiles = None
+    if profile_cap is not None and time_cap_profiles is not None:
+        profile_progress_after_one = 1.0 / max(1, profile_cap)
+        time_progress_after_one = simulated_seconds_per_profile / max(1.0, GUI_MAX_RUNTIME_MINUTES * 60)
+        if time_progress_after_one > profile_progress_after_one:
+            limiting_reason = "time"
+        else:
+            limiting_reason = "profile"
+        effective_total_profiles = min(profile_cap, time_cap_profiles)
+    elif profile_cap is not None:
+        limiting_reason = "profile"
+        effective_total_profiles = profile_cap
+    elif time_cap_profiles is not None:
+        limiting_reason = "time"
+        effective_total_profiles = time_cap_profiles
+
+    if effective_total_profiles is not None and discipline_aliases:
+        base = effective_total_profiles // len(discipline_aliases)
+        remainder = effective_total_profiles % len(discipline_aliases)
         for idx, alias in enumerate(discipline_aliases):
             quotas[alias] = base + (1 if idx < remainder else 0)
 
@@ -924,10 +954,22 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
         "DISCIPLINE QUEUE: %s",
         ", ".join(discipline_aliases) if discipline_aliases else "(none)",
     )
-    if GUI_MAX_PROFILES > 0 and discipline_aliases:
+    if discipline_aliases and effective_total_profiles is not None:
+        if limiting_reason == "time":
+            logger.info(
+                "DISCIPLINE SPLIT BASIS: time cap appears tighter (simulated 1-profile depth check)."
+            )
+            logger.info(
+                "TIME CAP SIMULATION: runtime=%sm, est_seconds_per_profile=%.1f, est_profiles=%s",
+                GUI_MAX_RUNTIME_MINUTES,
+                simulated_seconds_per_profile,
+                time_cap_profiles,
+            )
+        elif limiting_reason == "profile":
+            logger.info("DISCIPLINE SPLIT BASIS: profile cap appears tighter.")
         logger.info(
-            "DISCIPLINE QUOTAS (from GUI_MAX_PROFILES=%s): %s",
-            GUI_MAX_PROFILES,
+            "DISCIPLINE QUOTAS (effective_total_profiles=%s): %s",
+            effective_total_profiles,
             ", ".join([f"{alias}={quotas[alias]}" for alias in discipline_aliases]),
         )
 
@@ -936,7 +978,7 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             return processed_any
 
         mode_quota = quotas.get(alias, 0)
-        if GUI_MAX_PROFILES > 0 and mode_quota <= 0:
+        if effective_total_profiles is not None and mode_quota <= 0:
             logger.info(f"Skipping discipline '{alias}' because assigned quota is 0")
             continue
 
