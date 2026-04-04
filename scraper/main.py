@@ -901,6 +901,10 @@ def run_search_mode(scraper, nav, history_mgr):
 
 def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
     processed_any = False
+    logger.info(
+        "DISCIPLINE QUEUE: %s",
+        ", ".join(discipline_aliases) if discipline_aliases else "(none)",
+    )
     for alias in discipline_aliases:
         if should_stop():
             return processed_any
@@ -933,6 +937,7 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             state_mode_key=f"search_discipline:{alias}",
             mode_label=f"discipline search ({alias})",
         )
+        logger.info(f"✅ Finished discipline search ({label})")
         processed_any = True
 
     return processed_any
@@ -1221,6 +1226,7 @@ def main():
             run_review_mode(scraper, nav, history_mgr)
         elif config.SCRAPER_MODE == "search":
             if selected_disciplines:
+                logger.info("Selected discipline aliases: %s", ", ".join(selected_disciplines))
                 used_discipline_search = run_discipline_search_mode(scraper, nav, history_mgr, selected_disciplines)
                 if not used_discipline_search and not should_stop():
                     logger.warning(
