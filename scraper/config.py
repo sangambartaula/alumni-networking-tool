@@ -7,6 +7,18 @@ from dotenv import load_dotenv
 
 """Handles all environment variables, constants, and logger setup."""
 
+# ── Windows UTF-8 fix ──────────────────────────────────────────
+# Reconfigure stdout/stderr to UTF-8 so emoji/unicode log messages
+# don't crash with the default Windows charmap (CP1252) codec.
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # ── Logging Setup ──────────────────────────────────────────
 # Use rich for colored console output, plain for log files
 try:
@@ -24,7 +36,15 @@ try:
     _handler.setLevel(logging.INFO)
     _handler.setFormatter(logging.Formatter("%(message)s"))
 except ImportError:
-    _handler = logging.StreamHandler()
+    # Explicitly set UTF-8 on the stream to prevent charmap errors on Windows
+    import io
+    _utf8_stream = io.TextIOWrapper(
+        sys.stderr.buffer if hasattr(sys.stderr, "buffer") else sys.stderr,
+        encoding="utf-8",
+        errors="replace",
+        line_buffering=True,
+    ) if hasattr(sys.stderr, "buffer") else sys.stderr
+    _handler = logging.StreamHandler(_utf8_stream)
     _handler.setLevel(logging.INFO)
     _handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     _console = None
