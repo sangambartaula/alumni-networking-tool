@@ -684,6 +684,7 @@ def _save_and_track(data, input_url, history_mgr):
             cloud_written = bool(status.get("cloud_written"))
             cloud_routed_to_sqlite = bool(status.get("cloud_routed_to_sqlite"))
             cloud_queued = bool(status.get("cloud_queued"))
+            cloud_reason = str(status.get("cloud_reason") or "").strip()
             sqlite_written = bool(status.get("sqlite_written"))
             if sqlite_written:
                 _sqlite_writes_this_run += 1
@@ -713,6 +714,16 @@ def _save_and_track(data, input_url, history_mgr):
                             "Cloud upsert disabled for this scraping run after %s consecutive failures.",
                             _CLOUD_UPSERT_MAX_CONSECUTIVE_FAILURES,
                         )
+            else:
+                if sqlite_written and cloud_reason:
+                    logger.warning(
+                        "PERSISTENCE: CSV updated | SQLite updated | Cloud not attempted (%s)",
+                        cloud_reason,
+                    )
+                elif sqlite_written:
+                    logger.warning("PERSISTENCE: CSV updated | SQLite updated | Cloud not attempted")
+                else:
+                    logger.warning("PERSISTENCE WARNING: CSV updated but no DB write was confirmed")
         except Exception as upsert_err:
             _cloud_upsert_failures_this_run += 1
             _cloud_upsert_consecutive_failures += 1
@@ -1164,6 +1175,15 @@ def main():
 
     history_mgr = database_handler.HistoryManager()
     history_mgr.sync_with_db()
+
+    disable_db = os.getenv("DISABLE_DB", "0") == "1"
+    logger.info(
+        "PERSISTENCE CONFIG: DISABLE_DB=%s, USE_SQLITE_FALLBACK=%s",
+        int(disable_db),
+        os.getenv("USE_SQLITE_FALLBACK", "1"),
+    )
+    if disable_db:
+        logger.warning("[red bold]CLOUD WRITE DISABLED:[/red bold] DISABLE_DB=1, so writes are local only.")
 
     try:
         fallback_manager = get_connection_manager()

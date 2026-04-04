@@ -2392,10 +2392,16 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
         "sqlite_written": False,
         "cloud_routed_to_sqlite": False,
         "cloud_queued": False,
+        "cloud_mode": "not_attempted",
+        "cloud_reason": "",
     }
 
     disable_db = os.getenv("DISABLE_DB", "0") == "1"
     should_attempt_cloud = allow_cloud and not disable_db
+    if disable_db:
+        status["cloud_reason"] = "DISABLE_DB=1"
+    elif not allow_cloud:
+        status["cloud_reason"] = "cloud_disabled_for_run"
 
     wrote_primary = False
     conn = None
@@ -2411,6 +2417,8 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
             if is_sqlite_routed:
                 status["sqlite_written"] = True
                 status["cloud_routed_to_sqlite"] = True
+                status["cloud_mode"] = "routed_to_sqlite"
+                status["cloud_reason"] = "cloud_unreachable"
                 # When cloud is unreachable and writes are routed to SQLite fallback,
                 # queue this upsert for later cloud synchronization.
                 try:
@@ -2430,7 +2438,11 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
                     )
             else:
                 status["cloud_written"] = True
+                status["cloud_mode"] = "cloud_written"
+                status["cloud_reason"] = ""
         except Exception as err:
+            status["cloud_mode"] = "cloud_failed"
+            status["cloud_reason"] = str(err)
             logger.warning(f"Primary DB upsert failed for {payload.get('linkedin_url')}: {err}")
         finally:
             if conn:
