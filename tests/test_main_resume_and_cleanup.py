@@ -536,3 +536,23 @@ def test_save_and_track_propagates_run_id_and_records_flags(monkeypatch):
     assert ok is True
     assert upsert_calls == [("https://www.linkedin.com/in/test-user", True, 42)]
     assert flag_calls == [(42, "https://www.linkedin.com/in/test-user", "Missing Grad Year")]
+
+
+def test_format_linkedin_keyword_query_uses_comma_separated_terms():
+    formatted = scraper_main._format_linkedin_keyword_query(
+        ' computer science,  software engineer , , data science '
+    )
+    assert formatted == "computer science, software engineer, data science"
+
+
+def test_build_discipline_search_base_url_keeps_comma_keyword_format():
+    keyword_query = scraper_main._format_linkedin_keyword_query(
+        "computer science, software developer, machine learning"
+    )
+    url = scraper_main._build_discipline_search_base_url(
+        scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL,
+        keyword_query,
+    )
+    assert "keywords=computer+science%2C+software+developer%2C+machine+learning" in url
+    assert "%22" not in url
+    assert "+OR+" not in url

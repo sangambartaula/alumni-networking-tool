@@ -265,6 +265,12 @@ def _exit_listener():
 
 def start_exit_listener():
     global _exit_listener_active
+    # Avoid spawning a background stdin reader in GUI/non-interactive launches.
+    stdin_is_tty = bool(getattr(sys.stdin, "isatty", lambda: False)())
+    if not stdin_is_tty:
+        logger.info("Exit listener disabled (non-interactive stdin).")
+        _exit_listener_active = False
+        return
     _exit_listener_active = True
     threading.Thread(target=_exit_listener, daemon=True).start()
 
@@ -421,6 +427,17 @@ def _build_discipline_search_base_url(current_url, keyword_query):
     query_items.append(("keywords", keyword_query))
     query = urllib.parse.urlencode(query_items, doseq=True)
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
+
+
+def _format_linkedin_keyword_query(raw_cluster_query):
+    """Normalize cluster terms for LinkedIn keyword input using comma-separated phrases."""
+    terms = [term.strip() for term in (raw_cluster_query or "").split(",") if term.strip()]
+    return ", ".join(terms)
+
+
+def _is_legacy_boolean_keywords_url(url):
+    text = (url or "").lower()
+    return ("%22" in text) or ("+or+" in text) or ("%20or%20" in text)
 
 
 def _find_visible_people_search_input(scraper, timeout_seconds=12):
@@ -873,6 +890,11 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
         return (session_profiles_scraped - mode_start_count) >= max_profiles_for_mode
 
     state = load_keyword_state(state_mode_key)
+    state_url = (state or {}).get("search_url") if state else ""
+    if state and _is_legacy_boolean_keywords_url(state_url) and "discipline:" in state_mode_key:
+        logger.info("Resetting legacy discipline resume state to comma-style keywords.")
+        save_keyword_state(state_mode_key, base_url, 1)
+        state = None
     if (
         state
         and state.get("search_url") == base_url
@@ -1026,18 +1048,19 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
                 logger.warning("UNT people search page unhealthy. Skipping.")
                 break 
 
-            # Format for LinkedIn Boolean Search ("term" OR "term")
-            terms = [term.strip() for term in cluster_query.split(',') if term.strip()]
-            linkedin_boolean_query = " OR ".join(f'"{term}"' for term in terms)
+            linkedin_keyword_query = _format_linkedin_keyword_query(cluster_query)
+            if not linkedin_keyword_query:
+                logger.warning(f"{cluster_label} had no usable keywords after normalization. Skipping.")
+                continue
             
             time.sleep(3)
-            submitted = _submit_discipline_keywords(scraper, linkedin_boolean_query)
+            submitted = _submit_discipline_keywords(scraper, linkedin_keyword_query)
             if not submitted:
                 logger.warning("Could not submit keywords via search box. Falling back to URL param.")
 
             discipline_base_url = _build_discipline_search_base_url(
                 scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
-                linkedin_boolean_query,
+                linkedin_keyword_query,
             )
             
             if "keywords=" not in discipline_base_url:
@@ -1094,14 +1117,15 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
                 if not ok: break 
                 time.sleep(3)
                 
-                # Format for LinkedIn Boolean Search ("term" OR "term")
-                fb_terms = [term.strip() for term in cluster_query.split(',') if term.strip()]
-                fb_boolean_query = " OR ".join(f'"{fb_term}"' for fb_term in fb_terms)
+                fb_keyword_query = _format_linkedin_keyword_query(cluster_query)
+                if not fb_keyword_query:
+                    logger.warning(f"{cluster_label} had no usable keywords after normalization. Skipping.")
+                    continue
                 
-                submitted = _submit_discipline_keywords(scraper, fb_boolean_query)
+                submitted = _submit_discipline_keywords(scraper, fb_keyword_query)
                 discipline_base_url = _build_discipline_search_base_url(
                     scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
-                    fb_boolean_query,
+                    fb_keyword_query,
                 )
                 
                 mode_key = f"discipline:{alias}:fallback_{fb_idx+1}"

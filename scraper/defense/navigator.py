@@ -1,4 +1,5 @@
 import logging
+import os
 from selenium.common.exceptions import WebDriverException
 
 from .backoff import BackoffController
@@ -6,6 +7,22 @@ from .page_health import PageHealthChecker
 from .proxy_manager import ProxyManager
 
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off", ""}:
+        return False
+    return default
+
+
+_SCRAPER_DEBUG = _env_bool("SCRAPER_DEBUG", False)
+logger.setLevel(logging.DEBUG if _SCRAPER_DEBUG else logging.WARNING)
 
 CHALLENGE_MARKERS = [
     "let's do a quick security check",

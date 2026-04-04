@@ -383,7 +383,13 @@ class ScraperWorker(QThread):
                     self.output_signal.emit("\nGraceful stop requested (after current profile).\n")
                     proc.stdin.write("exit\n")
                     proc.stdin.flush()
-                    return
+                    try:
+                        proc.wait(timeout=2)
+                        return
+                    except subprocess.TimeoutExpired:
+                        self.output_signal.emit(
+                            "\nNo graceful listener response detected. Escalating to termination...\n"
+                        )
             except Exception as e:
                 self.output_signal.emit(f"\nCould not request graceful stop, falling back to immediate stop: {e}\n")
 
@@ -1337,7 +1343,24 @@ class SettingsDialog(QDialog):
             False,
         )
         self._add_field(f, "USE_COOKIES", "Use Cookies", bool, True, "Attempt to inject previous session cookies to bypass manual login.", False)
-        self._add_field(f, "SCRAPER_DEBUG_HTML", "Debug HTML", bool, False, "Save scraped HTML dumps on failure for inspection.", False)
+        self._add_field(
+            f,
+            "SCRAPER_DEBUG",
+            "Debug",
+            bool,
+            False,
+            "Enable verbose scraper logs (including defense navigator details).",
+            False,
+        )
+        self._add_field(
+            f,
+            "SCRAPER_DEBUG_HTML",
+            "Debug HTML Dumps",
+            bool,
+            False,
+            "Save scraped HTML dumps on extraction failures for inspection.",
+            False,
+        )
         self._add_field(
             f,
             "SCRAPE_RESUME_MAX_AGE_DAYS",
@@ -2476,14 +2499,17 @@ class ScraperApp(QMainWindow):
 
     def append_console(self, text):
         stripped = (text or "").strip()
-        if stripped.startswith("SUMMARY|"):
-            payload = stripped.split("SUMMARY|", 1)[1]
+        summary_idx = stripped.find("SUMMARY|")
+        if summary_idx >= 0:
+            payload = stripped[summary_idx + len("SUMMARY|"):]
             if "=" in payload:
                 key, value = payload.split("=", 1)
                 self._run_metrics[key.strip()] = value.strip()
+            return
 
-        if stripped.startswith("ACTION|"):
-            payload = stripped.split("ACTION|", 1)[1]
+        action_idx = stripped.find("ACTION|")
+        if action_idx >= 0:
+            payload = stripped[action_idx + len("ACTION|"):]
             if "=" in payload:
                 key, value = payload.split("=", 1)
                 key = key.strip().lower()
@@ -2494,6 +2520,7 @@ class ScraperApp(QMainWindow):
                     self._manual_intervention_reason = value
                 elif key == "suggest_restart_headed" and value == "1":
                     self._suggest_restart_headed = True
+            return
 
         line_lower = (text or "").lower()
         color = "#D4D4D4"
