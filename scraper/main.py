@@ -469,15 +469,19 @@ def _exit_listener():
                 exit_requested = True
                 logger.warning("🟡 Graceful exit requested")
                 break
+        except EOFError:
+            time.sleep(1)
         except Exception:
             break
 
 
 def start_exit_listener():
     global _exit_listener_active
-    # Avoid spawning a background stdin reader in GUI/non-interactive launches.
+    # Avoid spawning a background stdin reader in non-interactive launches,
+    # unless it was launched by our GUI which pipes to stdin to send graceful stop commands.
     stdin_is_tty = bool(getattr(sys.stdin, "isatty", lambda: False)())
-    if not stdin_is_tty:
+    is_gui = any(k.startswith("GUI_") for k in os.environ)
+    if not stdin_is_tty and not is_gui:
         logger.info("Exit listener disabled (non-interactive stdin).")
         _exit_listener_active = False
         return
@@ -672,7 +676,7 @@ def _find_visible_people_search_input(scraper, timeout_seconds=12):
 def _submit_discipline_keywords(scraper, keyword_query):
     search_input = _find_visible_people_search_input(scraper)
     if not search_input:
-        logger.warning("Could not find LinkedIn people search input on results page.")
+        logger.info("Could not find inline LinkedIn search input (expected on some layouts).")
         return False
 
     previous_url = (scraper.driver.current_url or "").strip()
@@ -689,7 +693,7 @@ def _submit_discipline_keywords(scraper, keyword_query):
         time.sleep(random.uniform(0.3, 0.7))
         search_input.send_keys(Keys.ENTER)
     except Exception as e:
-        logger.warning(f"Failed to submit discipline keywords via search bar: {e}")
+        logger.debug(f"Failed to submit discipline keywords via search bar: {e}")
         return False
 
     deadline = time.time() + 12
@@ -1078,6 +1082,7 @@ def _save_and_track(data, input_url, history_mgr):
         _emit_progress_line()
 
         return True
+    logger.warning("⚠️ Profile not saved to CSV (data validation failed): %s", canonical_url)
     return False
 
 
@@ -1337,7 +1342,7 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             time.sleep(3)
             submitted = _submit_discipline_keywords(scraper, linkedin_keyword_query)
             if not submitted:
-                logger.warning("Could not submit keywords via search box. Falling back to URL param.")
+                logger.info("Could not submit keywords via search box. Falling back to URL param.")
 
             discipline_base_url = _build_discipline_search_base_url(
                 scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,

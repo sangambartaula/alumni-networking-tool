@@ -1991,7 +1991,7 @@ class ScraperApp(QMainWindow):
             self.refresh_run_history()
 
     def _fetch_scrape_count_by_person_from_connection(self, conn, only_current=True, current_email=None):
-        """Fetch scrape counts grouped by scraper email from scrape run history."""
+        """Fetch scrape counts grouped by scraper email from scraper_activity (live per-profile counter)."""
         attempts = [
             {"dictionary": True, "placeholder": "%s"},
             {"dictionary": False, "placeholder": "%s"},
@@ -2007,15 +2007,15 @@ class ScraperApp(QMainWindow):
 
                 with cursor_ctx as cur:
                     query = (
-                        "SELECT COALESCE(scraper_email, 'unknown') AS email, "
-                        "COALESCE(SUM(COALESCE(profiles_scraped, 0)), 0) AS count "
-                        "FROM scrape_runs "
+                        "SELECT email, "
+                        "COALESCE(profiles_scraped, 0) AS count "
+                        "FROM scraper_activity "
                     )
                     params = []
                     if only_current and current_email:
-                        query += f"WHERE LOWER(COALESCE(scraper_email, '')) = {attempt['placeholder']} "
+                        query += f"WHERE LOWER(COALESCE(email, '')) = {attempt['placeholder']} "
                         params.append(current_email)
-                    query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC, email ASC LIMIT 100"
+                    query += "ORDER BY count DESC, email ASC LIMIT 100"
                     
                     cur.execute(query, tuple(params))
                     fetched = cur.fetchall() or []
@@ -2036,7 +2036,7 @@ class ScraperApp(QMainWindow):
         return []
 
     def _fetch_scrape_count_by_person_from_local_sqlite(self, only_current=True, current_email=None):
-        """Fetch scrape counts grouped by scraper email from local scrape run history."""
+        """Fetch scrape counts grouped by scraper email from local scraper_activity table."""
         sqlite_path = os.path.join(get_base_dir(), "backend", "alumni_backup.db")
         if not os.path.exists(sqlite_path):
             return []
@@ -2046,14 +2046,14 @@ class ScraperApp(QMainWindow):
             conn = sqlite3.connect(sqlite_path)
             conn.row_factory = sqlite3.Row
             query = (
-                "SELECT COALESCE(scraper_email, 'unknown') AS email, "
-                "COALESCE(SUM(COALESCE(profiles_scraped, 0)), 0) AS count FROM scrape_runs "
+                "SELECT email, "
+                "COALESCE(profiles_scraped, 0) AS count FROM scraper_activity "
             )
             params = []
             if only_current and current_email:
-                query += "WHERE LOWER(COALESCE(scraper_email, '')) = ? "
+                query += "WHERE LOWER(COALESCE(email, '')) = ? "
                 params.append(current_email)
-            query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC, email ASC LIMIT 100"
+            query += "ORDER BY count DESC, email ASC LIMIT 100"
             rows = conn.execute(query, tuple(params)).fetchall()
             return [dict(r) for r in rows]
         except Exception:
@@ -2553,7 +2553,7 @@ class ScraperApp(QMainWindow):
         history_controls = QHBoxLayout()
         self.run_history_mine_only = QCheckBox("Only current email")
         self.run_history_mine_only.stateChanged.connect(self.refresh_run_history)
-        self.run_history_mine_only.setChecked(True)
+        self.run_history_mine_only.setChecked(False)  # Show all runs by default
         history_controls.addWidget(self.run_history_mine_only)
         history_controls.addStretch()
         self.refresh_history_btn = QPushButton("Refresh History")
@@ -2585,7 +2585,7 @@ class ScraperApp(QMainWindow):
         # Add both tabs to the tab widget
         history_tabs.addTab(scrape_count_tab, "Scrape Count")
         history_tabs.addTab(session_history_tab, "Session History")
-        history_tabs.setCurrentIndex(0)  # Default to "Scrape Count"
+        history_tabs.setCurrentIndex(1)  # Default to "Session History" so runs are immediately visible
         
         right_layout.addWidget(history_tabs)
         
@@ -2758,7 +2758,8 @@ class ScraperApp(QMainWindow):
         if (
             "completed — saved" in line_lower
             or "completed - saved" in line_lower
-            or "info persistence: csv updated | cloud db updated | sqlite mirror updated" in line_lower
+            or "persistence:" in line_lower
+            or "progress |" in line_lower
         ):
             self._schedule_tracker_refresh()
 
@@ -3280,6 +3281,9 @@ class ScraperApp(QMainWindow):
         self.refresh_preflight_status(force_cloud_probe=False)
         self.refresh_run_history()
         self.refresh_scrape_count()
+        # Delayed refresh to catch any late DB writes (e.g. final profiles_scraped update)
+        QTimer.singleShot(2500, self.refresh_run_history)
+        QTimer.singleShot(2500, self.refresh_scrape_count)
 
         if self._manual_intervention_needed:
             reason = self._manual_intervention_reason or "login_or_challenge"
@@ -3336,6 +3340,9 @@ class ScraperApp(QMainWindow):
 
     def _confirm_update_mode_queue(self):
         try:
+            scraper_dir = os.path.join(get_base_dir(), "scraper")
+            if scraper_dir not in sys.path:
+                sys.path.insert(0, scraper_dir)
             from scraper import database_handler
 
             profiles, cutoff_date = database_handler.get_outdated_profiles_from_db()
