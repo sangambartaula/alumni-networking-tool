@@ -2346,19 +2346,19 @@ class ScraperApp(QMainWindow):
         delay_layout.addWidget(QLabel("Preset:"), 0, 0)
         self.delay_combo = QComboBox()
         self.delay_combo.addItems(["Slow (2m - 10m)", "Medium (1m - 3m)", "Fast (15s - 60s)", "Custom"])
-        self.delay_combo.setCurrentText("Medium (1m - 3m)")
+        self.delay_combo.setCurrentText("Fast (15s - 60s)")
         self.delay_combo.currentTextChanged.connect(self.on_delay_change)
         delay_layout.addWidget(self.delay_combo, 0, 1, 1, 3)
         
         self.custom_min_label = QLabel("Custom Min (s):")
         delay_layout.addWidget(self.custom_min_label, 1, 0)
-        self.min_delay = QLineEdit("60")
+        self.min_delay = QLineEdit("15")
         self.min_delay.setEnabled(False)
         delay_layout.addWidget(self.min_delay, 1, 1)
         
         self.custom_max_label = QLabel("Max (s):")
         delay_layout.addWidget(self.custom_max_label, 1, 2)
-        self.max_delay = QLineEdit("240")
+        self.max_delay = QLineEdit("60")
         self.max_delay.setEnabled(False)
         delay_layout.addWidget(self.max_delay, 1, 3)
         
@@ -2378,7 +2378,7 @@ class ScraperApp(QMainWindow):
         time_widget = QWidget()
         time_layout = QHBoxLayout(time_widget)
         time_layout.setContentsMargins(0,0,0,0)
-        self.hours_input = QLineEdit("0")
+        self.hours_input = QLineEdit("2")
         self.hours_input.setFixedWidth(40)
         self.mins_input = QLineEdit("0")
         self.mins_input.setFixedWidth(40)
@@ -2610,6 +2610,46 @@ class ScraperApp(QMainWindow):
             self.email_input.setText(email)
         if pwd:
             self.password_input.setText(pwd)
+
+        mode = str(env_values.get("GUI_SCRAPER_MODE", "") or "").strip().lower()
+        if mode and mode in ["search", "review", "update", "connections"]:
+            self.mode_combo.setCurrentText(mode)
+
+        saved_preset = str(env_values.get("GUI_DELAY_PRESET", "") or "").strip()
+        valid_presets = {self.delay_combo.itemText(i) for i in range(self.delay_combo.count())}
+        if saved_preset and saved_preset in valid_presets:
+            self.delay_combo.setCurrentText(saved_preset)
+
+        saved_min = str(env_values.get("GUI_MIN_DELAY_SECONDS", "") or "").strip()
+        saved_max = str(env_values.get("GUI_MAX_DELAY_SECONDS", "") or "").strip()
+        if saved_min and saved_min.isdigit():
+            self.min_delay.setText(saved_min)
+        if saved_max and saved_max.isdigit():
+            self.max_delay.setText(saved_max)
+
+        saved_max_profiles = str(env_values.get("GUI_MAX_PROFILES", "") or "").strip()
+        if saved_max_profiles and saved_max_profiles.isdigit():
+            self.max_profiles.setText(saved_max_profiles)
+
+        saved_hours = str(env_values.get("GUI_MAX_RUNTIME_HOURS", "") or "").strip()
+        saved_minutes = str(env_values.get("GUI_MAX_RUNTIME_MINUTES", "") or "").strip()
+        if saved_hours and saved_hours.isdigit():
+            self.hours_input.setText(saved_hours)
+        if saved_minutes and saved_minutes.isdigit():
+            self.mins_input.setText(saved_minutes)
+
+        for checkbox in self.discs.values():
+            checkbox.setChecked(False)
+        disciplines_raw = str(env_values.get("GUI_SEARCH_DISCIPLINES", "") or "").strip().lower()
+        for token in [d.strip() for d in disciplines_raw.split(",") if d.strip()]:
+            if token in self.discs:
+                self.discs[token].setChecked(True)
+
+        input_csv = str(env_values.get("INPUT_CSV", "") or "").strip()
+        if input_csv:
+            self.csv_path_input.setText(input_csv)
+
+        self.on_delay_change(self.delay_combo.currentText())
 
     def on_delay_change(self, text):
         is_custom = (text == "Custom")
@@ -2905,9 +2945,22 @@ class ScraperApp(QMainWindow):
         event.accept()
 
     def save_all_settings_to_env(self):
-        update_env("LINKEDIN_EMAIL", self.email_input.text().strip().lower())
+        selected_disciplines = ",".join(self._get_selected_discipline_aliases())
+        updates = {
+            "LINKEDIN_EMAIL": self.email_input.text().strip().lower(),
+            "GUI_SCRAPER_MODE": self.mode_combo.currentText().strip().lower(),
+            "GUI_SEARCH_DISCIPLINES": selected_disciplines,
+            "GUI_DELAY_PRESET": self.delay_combo.currentText().strip(),
+            "GUI_MIN_DELAY_SECONDS": self.min_delay.text().strip() or "0",
+            "GUI_MAX_DELAY_SECONDS": self.max_delay.text().strip() or "0",
+            "GUI_MAX_PROFILES": self.max_profiles.text().strip() or "0",
+            "GUI_MAX_RUNTIME_HOURS": self.hours_input.text().strip() or "0",
+            "GUI_MAX_RUNTIME_MINUTES": self.mins_input.text().strip() or "0",
+            "INPUT_CSV": self.csv_path_input.text().strip(),
+        }
         if self.password_input.text():
-            update_env("LINKEDIN_PASSWORD", self.password_input.text())
+            updates["LINKEDIN_PASSWORD"] = self.password_input.text()
+        update_env_many(updates)
 
     def _warn_if_groq_not_ready(self):
         env_path = os.path.join(get_base_dir(), ".env")
