@@ -1959,7 +1959,7 @@ class ScraperApp(QMainWindow):
             self.refresh_run_history()
 
     def _fetch_scrape_count_by_person_from_connection(self, conn, only_current=True, current_email=None):
-        """Fetch scrape counts grouped by person from cloud database."""
+        """Fetch scrape counts (unique people) grouped by scraper email from cloud database."""
         attempts = [
             {"dictionary": True, "placeholder": "%s"},
             {"dictionary": False, "placeholder": "%s"},
@@ -1975,14 +1975,14 @@ class ScraperApp(QMainWindow):
 
                 with cursor_ctx as cur:
                     query = (
-                        "SELECT CONCAT(first_name, ' ', COALESCE(last_name, '')) AS name, "
-                        "COUNT(*) AS count FROM alumni WHERE first_name IS NOT NULL AND first_name != '' "
+                        "SELECT COALESCE(scraper_email, 'unknown') AS email, "
+                        "COUNT(DISTINCT linkedin_url) AS count FROM alumni "
                     )
                     params = []
                     if only_current and current_email:
-                        query += f"AND scraper_email = {attempt['placeholder']} "
+                        query += f"WHERE scraper_email = {attempt['placeholder']} "
                         params.append(current_email)
-                    query += "GROUP BY first_name, COALESCE(last_name, '') ORDER BY count DESC LIMIT 200"
+                    query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC LIMIT 100"
                     
                     cur.execute(query, tuple(params))
                     fetched = cur.fetchall() or []
@@ -2003,7 +2003,7 @@ class ScraperApp(QMainWindow):
         return []
 
     def _fetch_scrape_count_by_person_from_local_sqlite(self, only_current=True, current_email=None):
-        """Fetch scrape counts grouped by person from local SQLite backup."""
+        """Fetch scrape counts (unique people) grouped by scraper email from local SQLite backup."""
         sqlite_path = os.path.join(get_base_dir(), "backend", "alumni_backup.db")
         if not os.path.exists(sqlite_path):
             return []
@@ -2013,14 +2013,14 @@ class ScraperApp(QMainWindow):
             conn = sqlite3.connect(sqlite_path)
             conn.row_factory = sqlite3.Row
             query = (
-                "SELECT first_name || ' ' || COALESCE(last_name, '') AS name, "
-                "COUNT(*) AS count FROM alumni WHERE first_name IS NOT NULL AND first_name != '' "
+                "SELECT COALESCE(scraper_email, 'unknown') AS email, "
+                "COUNT(DISTINCT linkedin_url) AS count FROM alumni "
             )
             params = []
             if only_current and current_email:
-                query += "AND scraper_email = ? "
+                query += "WHERE scraper_email = ? "
                 params.append(current_email)
-            query += "GROUP BY first_name, COALESCE(last_name, '') ORDER BY count DESC LIMIT 200"
+            query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC LIMIT 100"
             rows = conn.execute(query, tuple(params)).fetchall()
             return [dict(r) for r in rows]
         except Exception:
@@ -2033,7 +2033,7 @@ class ScraperApp(QMainWindow):
                     pass
 
     def refresh_scrape_count(self):
-        """Refresh the scrape count by person table."""
+        """Refresh the scrape count by scraper email table."""
         if not hasattr(self, "scrape_count_table"):
             return
 
@@ -2058,15 +2058,15 @@ class ScraperApp(QMainWindow):
 
         self.scrape_count_table.setRowCount(len(rows))
         for row_idx, row in enumerate(rows):
-            name = str(row.get("name") or "Unknown").strip()
+            email = str(row.get("email") or "Unknown").strip()
             try:
                 count = int(row.get("count") or 0)
             except Exception:
                 count = 0
 
-            name_item = QTableWidgetItem(name)
-            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.scrape_count_table.setItem(row_idx, 0, name_item)
+            email_item = QTableWidgetItem(email)
+            email_item.setFlags(email_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.scrape_count_table.setItem(row_idx, 0, email_item)
 
             count_item = QTableWidgetItem(str(count))
             count_item.setFlags(count_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -2505,7 +2505,7 @@ class ScraperApp(QMainWindow):
         scrape_count_layout.addLayout(scrape_count_controls)
         
         self.scrape_count_table = QTableWidget(0, 2)
-        self.scrape_count_table.setHorizontalHeaderLabels(["Name", "Scrape Count"])
+        self.scrape_count_table.setHorizontalHeaderLabels(["Scraper Email", "People Scraped"])
         self.scrape_count_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.scrape_count_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.scrape_count_table.setMinimumHeight(200)
