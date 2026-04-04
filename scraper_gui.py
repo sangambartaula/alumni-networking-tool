@@ -1803,7 +1803,6 @@ class ScraperApp(QMainWindow):
         for discipline_key, discipline_label in discipline_options:
             cb = QCheckBox(discipline_label)
             cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-            cb.toggled.connect(lambda checked, key=discipline_key: self._on_discipline_toggled(key, checked))
             self.discs[discipline_key] = cb
             disc_layout.addWidget(cb, row, 0)
             row += 1
@@ -2059,15 +2058,6 @@ class ScraperApp(QMainWindow):
             if checkbox.isChecked():
                 selected.append(alias)
         return selected
-
-    def _on_discipline_toggled(self, selected_key, checked):
-        if not checked:
-            return
-        for alias, checkbox in self.discs.items():
-            if alias != selected_key and checkbox.isChecked():
-                checkbox.blockSignals(True)
-                checkbox.setChecked(False)
-                checkbox.blockSignals(False)
 
     def append_console(self, text):
         stripped = (text or "").strip()
