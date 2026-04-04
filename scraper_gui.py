@@ -1217,8 +1217,9 @@ class SettingsDialog(QDialog):
                 port=port_val,
                 connection_timeout=5
             )
-            with conn.cursor() as cur:
+            with conn.cursor(buffered=True) as cur:
                 cur.execute("SELECT 1")
+                cur.fetchone()
             conn.close()
             QMessageBox.information(self, "Success", "✅ Settings saved & database connected successfully!")
             self.accept()
