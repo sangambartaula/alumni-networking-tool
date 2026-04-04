@@ -218,14 +218,9 @@ def check_force_exit():
 # ============================================================
 # Helpers
 # ============================================================
-ALL_DISCIPLINES_ENGINEERING_KEYWORDS = (
-    "engineering, software engineer, data engineer, cybersecurity, electrical engineering, "
-    "embedded systems, mechanical engineering, manufacturing, construction engineering, "
-    "civil engineering, biomedical engineering"
-)
 DEFAULT_SEARCH_BASE_URL = (
     "https://www.linkedin.com/search/results/people/"
-    f"?network=%5B%22O%22%5D&schoolFilter=%5B%226464%22%5D&keywords={urllib.parse.quote(ALL_DISCIPLINES_ENGINEERING_KEYWORDS)}"
+    "?network=%5B%22O%22%5D&schoolFilter=%5B%226464%22%5D"
 )
 UNT_DISCIPLINE_SEARCH_BASE_URL = (
     "https://www.linkedin.com/search/results/people/?schoolFilter=%5B%226464%22%5D"
