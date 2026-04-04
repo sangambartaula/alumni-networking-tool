@@ -324,7 +324,7 @@ Current high-value automated coverage includes:
 
 ## 17. Terminal Interactivity Notes
 
-When launched from the GUI, scraper runs are now non-interactive (`GUI_NON_INTERACTIVE=1`) to avoid blocking for terminal prompts.
+When launched from the GUI, scraper runs support interactive stdin via the **Terminal Input** box under Console Output.
 
-- GUI stop controls send graceful/immediate stop signals programmatically.
-- Review-mode dead-profile cleanup prompt is skipped in GUI mode and logged for manual follow-up.
+- Use that input box to answer runtime prompts (for example dead-profile cleanup confirmation in review mode).
+- GUI stop controls still support graceful/immediate stop signals programmatically.

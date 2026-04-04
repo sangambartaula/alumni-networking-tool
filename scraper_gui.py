@@ -271,7 +271,6 @@ class ScraperWorker(QThread):
                 popen_kwargs["env"]["GUI_MAX_PROFILES"] = str(int(self.max_profiles))
             if self.max_runtime_minutes is not None:
                 popen_kwargs["env"]["GUI_MAX_RUNTIME_MINUTES"] = str(int(self.max_runtime_minutes))
-            popen_kwargs["env"]["GUI_NON_INTERACTIVE"] = "1"
             popen_kwargs["env"]["PYTHONUTF8"] = "1"
             popen_kwargs["env"]["PYTHONIOENCODING"] = "utf-8"
 
@@ -1975,6 +1974,20 @@ class ScraperApp(QMainWindow):
         self.console.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: Consolas, monospace;")
         right_layout.addWidget(self.console)
 
+        stdin_row = QHBoxLayout()
+        stdin_label = QLabel("Terminal Input")
+        stdin_row.addWidget(stdin_label)
+        self.stdin_input = QLineEdit()
+        self.stdin_input.setPlaceholderText("Type input for scraper prompts and press Enter...")
+        self.stdin_input.setEnabled(False)
+        self.stdin_input.returnPressed.connect(self.send_terminal_input)
+        stdin_row.addWidget(self.stdin_input)
+        self.stdin_send_btn = QPushButton("Send")
+        self.stdin_send_btn.setEnabled(False)
+        self.stdin_send_btn.clicked.connect(self.send_terminal_input)
+        stdin_row.addWidget(self.stdin_send_btn)
+        right_layout.addLayout(stdin_row)
+
         history_group = QGroupBox("Recent Scrape Sessions")
         history_layout = QVBoxLayout()
         history_controls = QHBoxLayout()
@@ -2376,6 +2389,8 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.install_deps_btn.setEnabled(False)
+        self.stdin_input.setEnabled(True)
+        self.stdin_send_btn.setEnabled(True)
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
         self.stop_after_profile_btn.setVisible(False)
@@ -2572,6 +2587,8 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.install_deps_btn.setEnabled(True)
+        self.stdin_input.setEnabled(False)
+        self.stdin_send_btn.setEnabled(False)
         self._reset_stop_controls()
 
     def on_scraper_finished(self):
@@ -2579,6 +2596,8 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.install_deps_btn.setEnabled(True)
+        self.stdin_input.setEnabled(False)
+        self.stdin_send_btn.setEnabled(False)
         self._reset_stop_controls()
         self._append_gui_summary_block()
         try:
@@ -2616,6 +2635,28 @@ class ScraperApp(QMainWindow):
         if self._pending_gui_reload:
             self.append_console("\nAUTO-RELOAD: Restarting GUI to apply updated code.\n")
             self._restart_gui_process()
+
+    def send_terminal_input(self):
+        text = (self.stdin_input.text() or "").strip()
+        if not text:
+            return
+
+        if not self.worker or not getattr(self.worker, "process", None):
+            QMessageBox.information(self, "No Active Scraper", "Start the scraper before sending terminal input.")
+            return
+
+        proc = self.worker.process
+        if proc.poll() is not None or not proc.stdin:
+            QMessageBox.information(self, "Scraper Not Running", "Cannot send input because the scraper process is not running.")
+            return
+
+        try:
+            proc.stdin.write(text + "\n")
+            proc.stdin.flush()
+            self.append_console(f"\n[stdin] {text}\n")
+            self.stdin_input.clear()
+        except Exception as e:
+            QMessageBox.warning(self, "Send Failed", f"Could not send input to scraper process: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

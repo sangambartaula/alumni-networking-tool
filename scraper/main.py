@@ -195,7 +195,6 @@ _current_scrape_run_id = None
 _current_scrape_run_uuid = None
 _cloud_verify_semaphore = threading.Semaphore(4)
 _ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE = 25
-NON_INTERACTIVE_MODE = os.getenv("GUI_NON_INTERACTIVE", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _exit_listener():
@@ -1110,11 +1109,6 @@ def run_review_mode(scraper, nav, history_mgr):
         for url in dead_urls:
             print(f"  💀 {url}")
         print("=" * 60)
-
-        if NON_INTERACTIVE_MODE:
-            logger.info("ℹ️  GUI/non-interactive mode: skipping terminal prompt for dead URL cleanup.")
-            logger.info("ℹ️  Use Review mode in terminal to choose cleanup interactively, or remove dead URLs manually.")
-            return
         
         try:
             answer = input(f"\nRemove these {len(dead_urls)} profiles from database & history? [y/N]: ").strip().lower()
