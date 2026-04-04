@@ -214,6 +214,72 @@ def _is_recent_state(updated_at, max_age_days):
 
 
 # ============================================================
+# Browser Session Recovery (handles display sleep disconnects)
+# ============================================================
+def _should_recover_from_session_error(error_msg):
+    """Detect if error is a session loss (e.g., from display sleep)."""
+    msg_lower = error_msg.lower() if error_msg else ""
+    return any(pattern in msg_lower for pattern in [
+        "invalid session id",
+        "no such window",
+        "target window already closed",
+        "disconnected: not connected to devtools",
+        "chrome has closed",
+        "session deleted",
+    ])
+
+
+def _recover_browser_session(scraper, profile_url, nav=None):
+    """
+    Restart browser and retry profile scrape once. Used when display sleep kills the session.
+    Returns (success: bool, data: dict or str)
+    """
+    logger.warning(f"⚠️  Browser session dropped. Restarting chrome and retrying {profile_url}...")
+    
+    try:
+        # Kill old browser gracefully
+        try:
+            scraper.quit()
+        except Exception:
+            pass
+        
+        time.sleep(1)
+        
+        # Start fresh browser
+        scraper.setup_driver()
+        
+        # Re-authenticate
+        if not scraper.login():
+            logger.error("❌ Could not re-login after session recovery. Skipping profile.")
+            return False, "LOGIN_FAILED"
+        
+        # Re-initialize navigator if provided
+        if nav is not None:
+            nav.driver = scraper.driver
+        
+        time.sleep(1)
+        
+        # Single retry attempt
+        logger.info(f"  🔄 Retrying: {profile_url}")
+        data = scraper.scrape_profile_page(profile_url)
+        
+        if data == "PAGE_NOT_FOUND":
+            logger.warning(f"  💀 Profile no longer available: {profile_url}")
+            return True, "PAGE_NOT_FOUND"
+        
+        if data and data != "PAGE_NOT_FOUND":
+            logger.info(f"  ✅ Recovery succeeded for {profile_url}")
+            return True, data
+        
+        logger.warning(f"  ⚠️  Recovery retry returned no data for {profile_url}")
+        return False, None
+        
+    except Exception as recovery_err:
+        logger.error(f"❌ Recovery attempt failed: {recovery_err}")
+        return False, None
+
+
+# ============================================================
 # Exit Control
 # ============================================================
 exit_requested = False
@@ -994,7 +1060,17 @@ def run_names_mode(scraper, nav, history_mgr):
                 continue
 
             # NOTE: scrape_profile_page likely handles its own navigation.
-            data = scraper.scrape_profile_page(url)
+            try:
+                data = scraper.scrape_profile_page(url)
+            except Exception as e:
+                if _should_recover_from_session_error(str(e)):
+                    success, data = _recover_browser_session(scraper, url, nav)
+                    if not success:
+                        logger.error(f"❌ Error processing {url}: recovery failed")
+                        continue
+                else:
+                    logger.error(f"❌ Error processing {url}: {e}")
+                    continue
 
             if data == "PAGE_NOT_FOUND":
                 logger.warning(f"  💀 Dead URL skipped: {url}")
@@ -1085,7 +1161,17 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 logger.info(f"  ↩️  Profile Already Visited, Skipping: {profile_url}")
                 continue
 
-            data = scraper.scrape_profile_page(profile_url)
+            try:
+                data = scraper.scrape_profile_page(profile_url)
+            except Exception as e:
+                if _should_recover_from_session_error(str(e)):
+                    success, data = _recover_browser_session(scraper, profile_url, nav)
+                    if not success:
+                        logger.error(f"❌ Error processing {profile_url}: recovery failed")
+                        continue
+                else:
+                    logger.error(f"❌ Error processing {profile_url}: {e}")
+                    continue
 
             if data == "PAGE_NOT_FOUND":
                 logger.warning(f"  💀 Dead URL skipped: {profile_url}")
@@ -1342,22 +1428,15 @@ def run_review_mode(scraper, nav, history_mgr):
                 logger.debug(f"Updated: {data.get('name', 'Unknown')}")
         except Exception as e:
             msg = str(e).lower()
-            if "invalid session id" in msg or "no such window" in msg or "target window already closed" in msg:
-                logger.error(f"❌ WebDriver died ({e}). Restarting...")
-                try:
-                    scraper.quit()
-                    time.sleep(2)
-                    scraper.setup_driver()
-                    scraper.login()
-                    # Retry once
-                    logger.info(f"  🔄 Retrying: {profile_url}")
-                    data = scraper.scrape_profile_page(profile_url)
+            if _should_recover_from_session_error(msg):
+                success, data = _recover_browser_session(scraper, profile_url, nav)
+                if success:
                     if data == "PAGE_NOT_FOUND":
                         dead_urls.append(profile_url)
                     elif data and data != "PAGE_NOT_FOUND":
                         _save_and_track(data, profile_url, history_mgr)
-                except Exception as retry_e:
-                    logger.error(f"❌ Retry failed: {retry_e}")
+                else:
+                    logger.error(f"❌ Error processing {profile_url}: recovery failed")
             else:
                 logger.error(f"❌ Error processing {profile_url}: {e}")
         
@@ -1444,22 +1523,15 @@ def run_update_mode(scraper, nav, history_mgr):
             if data and data != "PAGE_NOT_FOUND":
                 _save_and_track(data, profile_url, history_mgr)
         except Exception as e:
-            msg = str(e).lower()
-            if "invalid session id" in msg or "no such window" in msg or "target window already closed" in msg:
-                logger.error(f"❌ WebDriver died ({e}). Restarting...")
-                try:
-                    scraper.quit()
-                    time.sleep(2)
-                    scraper.setup_driver()
-                    scraper.login()
-                    logger.info(f"  🔄 Retrying: {profile_url}")
-                    data = scraper.scrape_profile_page(profile_url)
+            if _should_recover_from_session_error(str(e)):
+                success, data = _recover_browser_session(scraper, profile_url, nav)
+                if success:
                     if data == "PAGE_NOT_FOUND":
                         dead_urls.append(profile_url)
                     elif data and data != "PAGE_NOT_FOUND":
                         _save_and_track(data, profile_url, history_mgr)
-                except Exception as retry_e:
-                    logger.error(f"❌ Retry failed: {retry_e}")
+                else:
+                    logger.error(f"❌ Error processing {profile_url}: recovery failed")
             else:
                 logger.error(f"❌ Error processing {profile_url}: {e}")
 

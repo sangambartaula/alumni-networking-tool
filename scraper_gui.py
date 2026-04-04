@@ -350,8 +350,15 @@ class ScraperWorker(QThread):
             else:
                 popen_kwargs["start_new_session"] = True
 
+            # On macOS, wrap command with caffeinate to prevent display sleep
+            cmd = [python_exec, scraper_script]
+            if sys.platform == "darwin":
+                # -i prevents idle sleep (display can still sleep, but process stays active)
+                cmd = ["caffeinate", "-i"] + cmd
+                self.output_signal.emit("🔋 macOS sleep prevention enabled (caffeinate -i)\n")
+
             self.process = subprocess.Popen(
-                [python_exec, scraper_script],
+                cmd,
                 **popen_kwargs
             )
             
