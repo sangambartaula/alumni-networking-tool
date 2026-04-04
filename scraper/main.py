@@ -11,6 +11,7 @@ import os
 import time
 import random
 import csv
+import subprocess
 import urllib.parse
 import threading
 import uuid
@@ -59,9 +60,78 @@ from groq_client import is_groq_available, _get_client, GROQ_MODEL, parse_groq_j
 
 
 # ============================================================
-# Resume / Scrape State
+# System Sleep Prevention (macOS, Windows, Linux)
 # ============================================================
-def load_keyword_state(mode_key):
+_sleep_prevention_active = False
+
+
+def _prevent_system_sleep():
+    """
+    Prevent OS from sleeping during scraper execution.
+    Uses native APIs for macOS (caffeinate) and Windows (SetThreadExecutionState).
+    """
+    global _sleep_prevention_active
+    if _sleep_prevention_active:
+        return  # Already active
+    
+    try:
+        if sys.platform == "darwin":
+            # macOS: use caffeinate
+            subprocess.Popen(
+                ["caffeinate", "-i", "-w", str(os.getpid())],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logger.info("🔋 macOS sleep prevention enabled")
+            _sleep_prevention_active = True
+            
+        elif sys.platform == "win32":
+            # Windows: use SetThreadExecutionState API
+            try:
+                import ctypes
+                ES_CONTINUOUS = 0x80000000
+                ES_SYSTEM_REQUIRED = 0x00000001
+                ES_AWAYMODE_REQUIRED = 0x00000040
+                
+                # SetThreadExecutionState with SYSTEM_REQUIRED | CONTINUOUS
+                ctypes.windll.kernel32.SetThreadExecutionState(
+                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED
+                )
+                logger.info("🔋 Windows sleep prevention enabled")
+                _sleep_prevention_active = True
+            except Exception as win_err:
+                logger.warning(f"Windows sleep prevention failed: {win_err}")
+                
+        elif sys.platform.startswith("linux"):
+            # Linux: sleep is usually not triggered by idle on servers/VMs
+            logger.info("ℹ️  Linux detected; sleep prevention not required")
+            _sleep_prevention_active = True
+            
+    except Exception as e:
+        logger.warning(f"Could not enable sleep prevention: {e}")
+
+
+def _restore_system_sleep():
+    """Re-enable system sleep after scraping complete."""
+    global _sleep_prevention_active
+    if not _sleep_prevention_active:
+        return
+    
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            ES_CONTINUOUS = 0x80000000
+            # SetThreadExecutionState(ES_CONTINUOUS) restores default behavior
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+            logger.info("Sleep restored")
+            _sleep_prevention_active = False
+    except Exception:
+        pass
+
+
+# ============================================================
+# Resume / Scrape State
+# ============================================================def load_keyword_state(mode_key):
     """
     Load the last known scrape position for a specific keyword list.
     """
@@ -1700,6 +1770,9 @@ def main():
 
     database_handler.ensure_alumni_output_csv()
 
+    # Enable sleep prevention before starting scraper
+    _prevent_system_sleep()
+
     scraper = LinkedInScraper()
     scraper.setup_driver()
     run_status = "completed"
@@ -1835,6 +1908,7 @@ def main():
             )
             logger.warning("UNKNOWN_LOCATIONS_LIST: %s", "; ".join(sample_unknown_locations))
         stop_exit_listener()
+        _restore_system_sleep()
         scraper.quit()
 
 
