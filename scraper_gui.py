@@ -456,6 +456,49 @@ class InstallDepsWorker(QThread):
         self.output_signal.emit("\nAll required dependencies are installed.\n")
         self.finished_signal.emit(0)
 
+
+class UpdateNowWorker(QThread):
+    output_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(int)
+
+    def __init__(self):
+        super().__init__()
+
+    def run(self):
+        base_dir = get_base_dir()
+        if sys.platform == "win32":
+            script_path = os.path.join(base_dir, "build_windows_app.bat")
+            cmd = ["cmd", "/c", script_path]
+        else:
+            script_path = os.path.join(base_dir, "build_mac_app.command")
+            cmd = ["bash", script_path]
+
+        if not os.path.exists(script_path):
+            self.output_signal.emit(
+                f"\nUpdate build script not found at {script_path}. Use download-page update instead.\n"
+            )
+            self.finished_signal.emit(2)
+            return
+
+        self.output_signal.emit(f"\nRunning local update script: {' '.join(cmd)}\n")
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=base_dir,
+            )
+            for line in iter(proc.stdout.readline, ""):
+                self.output_signal.emit(line)
+            proc.stdout.close()
+            proc.wait()
+            self.finished_signal.emit(proc.returncode)
+        except Exception as e:
+            self.output_signal.emit(f"\nError running update script: {e}\n")
+            self.finished_signal.emit(1)
+
 class FlagManagerDialog(QDialog):
     COLUMN_ORDER = [
         ("Review", None),
@@ -1243,6 +1286,7 @@ class ScraperApp(QMainWindow):
         self.db_worker = None
         self.geocode_worker = None
         self.install_worker = None
+        self.update_worker = None
         self._pending_upload_after_geocode = False
         self._manual_intervention_needed = False
         self._manual_intervention_reason = ""
@@ -1384,19 +1428,23 @@ class ScraperApp(QMainWindow):
                 self._update_available = update_available
                 self._update_status_text = status_text
                 if self._update_available and getattr(sys, "frozen", False):
-                    choice = QMessageBox.question(
-                        self,
-                        "Update Available",
-                        (
-                            f"A newer Alumni Scraper App is available.\n\n"
-                            f"Current: v{APP_VERSION}\n"
-                            f"Latest: v{self._latest_version}\n\n"
-                            "Open the download page now?"
-                        ),
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.Yes,
+                    prompt = QMessageBox(self)
+                    prompt.setIcon(QMessageBox.Icon.Information)
+                    prompt.setWindowTitle("Update Available")
+                    prompt.setText(
+                        "A newer Alumni Scraper App is available.\n\n"
+                        f"Current: v{APP_VERSION}\n"
+                        f"Latest: v{self._latest_version}\n\n"
+                        "Choose how to update."
                     )
-                    if choice == QMessageBox.StandardButton.Yes:
+                    update_now_btn = prompt.addButton("Update Now", QMessageBox.ButtonRole.AcceptRole)
+                    download_btn = prompt.addButton("Open Download Page", QMessageBox.ButtonRole.ActionRole)
+                    prompt.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+                    prompt.exec()
+
+                    if prompt.clickedButton() == update_now_btn:
+                        self.run_update_now()
+                    elif prompt.clickedButton() == download_btn:
                         webbrowser.open(self._update_url)
 
             QTimer.singleShot(0, _apply_result)
@@ -2375,6 +2423,49 @@ class ScraperApp(QMainWindow):
         self.install_worker.output_signal.connect(self.append_console)
         self.install_worker.finished_signal.connect(self.on_install_finished)
         self.install_worker.start()
+
+    def run_update_now(self):
+        if self.update_worker and self.update_worker.isRunning():
+            return
+
+        self.console.clear()
+        self.append_console("\nStarting Update Now... this runs the local build script.\n")
+        self.start_btn.setEnabled(False)
+        self.geocode_btn.setEnabled(False)
+        self.upload_db_btn.setEnabled(False)
+        self.install_deps_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+
+        self.update_worker = UpdateNowWorker()
+        self.update_worker.output_signal.connect(self.append_console)
+        self.update_worker.finished_signal.connect(self.on_update_now_finished)
+        self.update_worker.start()
+
+    def on_update_now_finished(self, exit_code):
+        if exit_code == 0:
+            choice = QMessageBox.question(
+                self,
+                "Update Build Completed",
+                "Local build/update completed successfully. Restart app now to use latest build artifacts?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if choice == QMessageBox.StandardButton.Yes:
+                self._restart_gui_process()
+                return
+        elif exit_code == 2:
+            QMessageBox.warning(
+                self,
+                "Update Script Not Found",
+                "Local build script was not found. Use 'Open Download Page' for updates.",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Update Failed",
+                "Local update build failed. Check console output for details.",
+            )
+        self.on_sync_finished()
 
     def on_install_finished(self, exit_code):
         if exit_code == 0:
