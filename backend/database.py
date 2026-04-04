@@ -2093,6 +2093,47 @@ def finalize_scrape_run(
                 pass
 
 
+def increment_scrape_run_profiles(run_id, delta=1):
+    """Increment profiles_scraped for an active scrape run in real time."""
+    if not run_id:
+        return False
+
+    conn = None
+    try:
+        ensure_scrape_run_tracking_schema()
+        conn = get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    UPDATE scrape_runs
+                    SET profiles_scraped = COALESCE(profiles_scraped, 0) + %s
+                    WHERE id = %s
+                    """,
+                    (int(delta or 1), int(run_id)),
+                )
+            except Exception:
+                cur.execute(
+                    """
+                    UPDATE scrape_runs
+                    SET profiles_scraped = COALESCE(profiles_scraped, 0) + ?
+                    WHERE id = ?
+                    """,
+                    (int(delta or 1), int(run_id)),
+                )
+            conn.commit()
+            return True
+    except Exception as err:
+        logger.debug(f"Could not increment scrape run profiles for run_id={run_id}: {err}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def record_scrape_run_flag(run_id, linkedin_url, reason):
     """Record a flagged profile reason against the scrape run."""
     normalized_url = normalize_url(linkedin_url)

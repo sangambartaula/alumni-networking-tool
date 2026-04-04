@@ -47,6 +47,7 @@ from config import logger
 from backend.sqlite_fallback import get_connection_manager
 from backend.database import (
     increment_scraper_activity,
+    increment_scrape_run_profiles,
     normalize_url,
     upsert_scraped_profile,
     create_scrape_run,
@@ -1074,6 +1075,8 @@ def _save_and_track(data, input_url, history_mgr):
         increment_scraper_activity(config.LINKEDIN_EMAIL)
 
         session_profiles_scraped += 1
+        if _current_scrape_run_id:
+            increment_scrape_run_profiles(_current_scrape_run_id, 1)
 
         if _current_scrape_run_id:
             for reason in _collect_profile_flag_reasons(data):
