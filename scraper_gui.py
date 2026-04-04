@@ -147,6 +147,8 @@ def _check_missing_modules(python_exec, modules):
             [python_exec, "-c", check_script],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=20,
         )
     except Exception:
@@ -174,6 +176,8 @@ def _bootstrap_requirements(python_exec, base_dir, emit):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             cwd=base_dir,
         )
@@ -214,6 +218,8 @@ def _run_json_probe(python_exec, base_dir, script_source):
             [python_exec, "-c", script_source],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=base_dir,
             timeout=20,
         )
@@ -300,6 +306,8 @@ class ScraperWorker(QThread):
                 "stderr": subprocess.STDOUT,
                 "stdin": subprocess.PIPE,
                 "text": True,
+                "encoding": "utf-8",
+                "errors": "replace",
                 "bufsize": 1,
                 "cwd": base_dir,
                 "env": os.environ.copy(),
@@ -427,6 +435,8 @@ class DatabaseWorker(QThread):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 cwd=base_dir,
                 env=env,
@@ -475,6 +485,8 @@ class GeocodeWorker(QThread):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 cwd=base_dir,
             )
@@ -560,6 +572,8 @@ class UpdateNowWorker(QThread):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 cwd=base_dir,
             )
@@ -1641,6 +1655,7 @@ class ScraperApp(QMainWindow):
         try:
             conn = self._get_db_connection()
             try:
+                self._cleanup_stale_runs_from_connection(conn, threshold_hours=2)
                 rows = self._fetch_recent_runs_from_connection(conn, current_email, only_current)
             finally:
                 try:
@@ -1652,6 +1667,7 @@ class ScraperApp(QMainWindow):
 
         # If cloud query yields nothing, fall back to local SQLite cache to avoid an empty panel.
         if not rows:
+            self._cleanup_stale_runs_from_local_sqlite(threshold_hours=2)
             rows = self._fetch_recent_runs_from_local_sqlite(current_email, only_current)
 
         self._history_rows = rows
@@ -1697,6 +1713,111 @@ class ScraperApp(QMainWindow):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.run_history_table.setItem(row_idx, col, item)
+
+    def _parse_history_datetime(self, value):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        text = str(value).strip()
+        if not text:
+            return None
+        for candidate in (text.replace("Z", ""), text.replace(" ", "T"), text.replace("Z", "").replace(" ", "T")):
+            try:
+                return datetime.fromisoformat(candidate)
+            except Exception:
+                continue
+        return None
+
+    def _cleanup_stale_runs_from_connection(self, conn, threshold_hours=2):
+        now = datetime.now()
+        stale_ids = []
+        select_attempts = [
+            {"dictionary": True, "placeholder": "%s"},
+            {"dictionary": False, "placeholder": "%s"},
+            {"dictionary": False, "placeholder": "?"},
+        ]
+
+        for attempt in select_attempts:
+            try:
+                cursor_ctx = conn.cursor(dictionary=True) if attempt["dictionary"] else conn.cursor()
+                with cursor_ctx as cur:
+                    q = (
+                        "SELECT id, started_at, completed_at, status, profiles_scraped "
+                        "FROM scrape_runs WHERE LOWER(COALESCE(status, '')) = LOWER({p}) "
+                        "AND COALESCE(profiles_scraped, 0) = 0"
+                    ).format(p=attempt["placeholder"])
+                    cur.execute(q, ("running",))
+                    fetched = cur.fetchall() or []
+                    if not attempt["dictionary"]:
+                        cols = [d[0] for d in (cur.description or [])]
+                        fetched = [dict(zip(cols, row)) if not isinstance(row, dict) else row for row in fetched]
+
+                    for row in fetched:
+                        if row.get("completed_at"):
+                            continue
+                        started = self._parse_history_datetime(row.get("started_at"))
+                        if not started:
+                            continue
+                        age_seconds = (now - started).total_seconds()
+                        if age_seconds > (threshold_hours * 3600):
+                            try:
+                                stale_ids.append(int(row.get("id")))
+                            except Exception:
+                                pass
+                break
+            except Exception:
+                continue
+
+        stale_ids = sorted(set([sid for sid in stale_ids if sid]))
+        if not stale_ids:
+            return
+
+        delete_attempts = [
+            {"placeholder": "%s"},
+            {"placeholder": "?"},
+        ]
+        for attempt in delete_attempts:
+            try:
+                ph = attempt["placeholder"]
+                with conn.cursor() as cur:
+                    if ph == "%s":
+                        marks = ",".join(["%s"] * len(stale_ids))
+                        cur.execute(f"DELETE FROM scrape_runs WHERE id IN ({marks})", tuple(stale_ids))
+                    else:
+                        marks = ",".join(["?"] * len(stale_ids))
+                        cur.execute(f"DELETE FROM scrape_runs WHERE id IN ({marks})", tuple(stale_ids))
+                conn.commit()
+                return
+            except Exception:
+                continue
+
+    def _cleanup_stale_runs_from_local_sqlite(self, threshold_hours=2):
+        sqlite_path = os.path.join(get_base_dir(), "backend", "alumni_backup.db")
+        if not os.path.exists(sqlite_path):
+            return
+        conn = None
+        try:
+            conn = sqlite3.connect(sqlite_path)
+            conn.execute(
+                """
+                DELETE FROM scrape_runs
+                WHERE LOWER(COALESCE(status, '')) = 'running'
+                  AND COALESCE(profiles_scraped, 0) = 0
+                  AND completed_at IS NULL
+                  AND datetime(started_at) <= datetime('now', ?)
+                """,
+                (f"-{int(threshold_hours)} hours",),
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _fetch_recent_runs_from_connection(self, conn, current_email, only_current):
         base_query = (
