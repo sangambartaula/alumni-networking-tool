@@ -288,8 +288,15 @@ EDU_READY_TIMEOUT_SECONDS = _env_int("EDU_READY_TIMEOUT_SECONDS", 30)
 # Flagging Configuration
 FLAG_MISSING_EXPERIENCE_DATA = _env_bool("FLAG_MISSING_EXPERIENCE_DATA", True)
 
-MIN_DELAY = 60
-MAX_DELAY = 240
+# Defaults remain config-driven; GUI can provide per-run overrides via subprocess env.
+MIN_DELAY = _env_int("GUI_MIN_DELAY_SECONDS", 60)
+MAX_DELAY = _env_int("GUI_MAX_DELAY_SECONDS", 240)
+if MAX_DELAY < MIN_DELAY:
+    logger.warning(
+        f"GUI delay override invalid (min={MIN_DELAY}, max={MAX_DELAY}); falling back to 60-240."
+    )
+    MIN_DELAY = 60
+    MAX_DELAY = 240
 GUI_MAX_PROFILES = 0
 GUI_MAX_RUNTIME_MINUTES = 0
 

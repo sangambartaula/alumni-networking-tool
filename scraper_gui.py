@@ -209,10 +209,12 @@ class ScraperWorker(QThread):
     output_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(int)
     
-    def __init__(self):
+    def __init__(self, min_delay_seconds=None, max_delay_seconds=None):
         super().__init__()
         self.process = None
         self._is_stopped = False
+        self.min_delay_seconds = min_delay_seconds
+        self.max_delay_seconds = max_delay_seconds
 
     def run(self):
         base_dir = get_base_dir()
@@ -239,7 +241,13 @@ class ScraperWorker(QThread):
                 "text": True,
                 "bufsize": 1,
                 "cwd": base_dir,
+                "env": os.environ.copy(),
             }
+
+            if self.min_delay_seconds is not None:
+                popen_kwargs["env"]["GUI_MIN_DELAY_SECONDS"] = str(int(self.min_delay_seconds))
+            if self.max_delay_seconds is not None:
+                popen_kwargs["env"]["GUI_MAX_DELAY_SECONDS"] = str(int(self.max_delay_seconds))
 
             if sys.platform == "win32":
                 popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -2006,10 +2014,26 @@ class ScraperApp(QMainWindow):
                 self.max_delay.setText("600")
             elif "Medium" in text:
                 self.min_delay.setText("60")
-                self.max_delay.setText("240")
+                self.max_delay.setText("180")
             elif "Fast" in text:
-                self.min_delay.setText("30")
-                self.max_delay.setText("120")
+                self.min_delay.setText("15")
+                self.max_delay.setText("60")
+
+    def _get_effective_delay_range(self):
+        preset = (self.delay_combo.currentText() or "").strip()
+        if preset.startswith("Slow"):
+            return 120, 600
+        if preset.startswith("Medium"):
+            return 60, 180
+        if preset.startswith("Fast"):
+            return 15, 60
+
+        try:
+            min_d = int(self.min_delay.text())
+            max_d = int(self.max_delay.text())
+        except ValueError:
+            return 60, 180
+        return min_d, max_d
 
     def append_console(self, text):
         stripped = (text or "").strip()
@@ -2266,8 +2290,16 @@ class ScraperApp(QMainWindow):
         self.stop_btn.setText("Stop")
         self.stop_after_profile_btn.setVisible(False)
         self.stop_immediately_btn.setVisible(False)
+
+        min_delay_seconds, max_delay_seconds = self._get_effective_delay_range()
+        self.append_console(
+            f"Using delay range: {min_delay_seconds}s - {max_delay_seconds}s (preset: {self.delay_combo.currentText()})\n"
+        )
         
-        self.worker = ScraperWorker()
+        self.worker = ScraperWorker(
+            min_delay_seconds=min_delay_seconds,
+            max_delay_seconds=max_delay_seconds,
+        )
         self.worker.output_signal.connect(self.append_console)
         self.worker.finished_signal.connect(self.on_scraper_finished)
         self.worker.start()
