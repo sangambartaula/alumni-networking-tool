@@ -481,6 +481,20 @@ class LinkedInScraper:
     # ============================================================
     # Core Scraping Logic
     # ============================================================
+    @staticmethod
+    def _education_entries_exceed_cloud_limits(entries, max_len=255):
+        if not entries:
+            return False
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            school = str(entry.get("school") or "")
+            degree = str(entry.get("degree_raw") or entry.get("raw_degree") or "")
+            major = str(entry.get("major_raw") or "")
+            if len(school) > max_len or len(degree) > max_len or len(major) > max_len:
+                return True
+        return False
+
     def _initialize_profile_data(self, profile_url):
         """Return the normalized data envelope used for every profile scrape."""
         return {
@@ -561,7 +575,23 @@ class LinkedInScraper:
                 edu_root = self._find_section_root(soup, "Education")
                 if edu_root:
                     edu_html = str(edu_root)
-                    groq_results, edu_tokens = extract_education_with_groq(edu_html, profile_name=data.get("name", "unknown"))
+                    groq_results, edu_tokens = extract_education_with_groq(
+                        edu_html,
+                        profile_name=data.get("name", "unknown"),
+                    )
+                    if groq_results and self._education_entries_exceed_cloud_limits(groq_results):
+                        logger.warning(
+                            "Groq education output exceeded cloud field limits for %s. Retrying once in strict mode.",
+                            data.get("name", "unknown"),
+                        )
+                        strict_results, strict_tokens = extract_education_with_groq(
+                            edu_html,
+                            profile_name=data.get("name", "unknown"),
+                            strict_mode=True,
+                        )
+                        edu_tokens += strict_tokens
+                        if strict_results:
+                            groq_results = strict_results
                     _total_tokens += edu_tokens
                     if groq_results:
                         logger.debug(f"Using Groq education results ({len(groq_results)} entries)")

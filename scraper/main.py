@@ -243,6 +243,18 @@ _current_scrape_run_uuid = None
 _cloud_verify_semaphore = threading.Semaphore(4)
 _ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE = 25
 
+_CLOUD_VARCHAR_LIMITS = {
+    "school": 255,
+    "school2": 255,
+    "school3": 255,
+    "degree": 255,
+    "degree2": 255,
+    "degree3": 255,
+    "major": 255,
+    "major2": 255,
+    "major3": 255,
+}
+
 
 def _exit_listener():
     global exit_requested, force_exit, _exit_listener_active
@@ -685,6 +697,23 @@ def _collect_profile_flag_reasons(profile_data):
     return reasons
 
 
+def _truncate_cloud_limited_fields(payload):
+    """Trim known cloud VARCHAR fields to schema limits before DB upsert."""
+    truncated = []
+    if not isinstance(payload, dict):
+        return truncated
+
+    for key, max_len in _CLOUD_VARCHAR_LIMITS.items():
+        value = payload.get(key)
+        if value is None:
+            continue
+        text = str(value)
+        if len(text) > max_len:
+            payload[key] = text[:max_len].rstrip()
+            truncated.append((key, len(text), max_len))
+    return truncated
+
+
 def _save_and_track(data, input_url, history_mgr):
     """
     Save profile to CSV, handling canonical URL dedup.
@@ -742,8 +771,20 @@ def _save_and_track(data, input_url, history_mgr):
     if database_handler.save_profile_to_csv(data):
         # Cloud-first persistence with SQLite mirror; CSV remains source backup.
         try:
+            upsert_payload = dict(data)
+            truncated_fields = _truncate_cloud_limited_fields(upsert_payload)
+            if truncated_fields:
+                fields_text = ", ".join(
+                    f"{name}({old_len}->{new_len})" for name, old_len, new_len in truncated_fields
+                )
+                logger.warning(
+                    "Cloud payload truncated oversized field(s) for %s: %s",
+                    canonical_url,
+                    fields_text,
+                )
+
             upsert_status = upsert_scraped_profile(
-                data,
+                upsert_payload,
                 allow_cloud=(not _cloud_upsert_disabled_for_run),
                 run_id=_current_scrape_run_id,
             )

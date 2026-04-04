@@ -17,6 +17,9 @@ if BS4_AVAILABLE:
     from bs4 import BeautifulSoup
 
 
+CLOUD_EDU_MAX_LEN = 255
+
+
 def _degree_level_key(degree_str: str) -> str:
     """
     Reduce a degree string to a canonical level key for dedup comparison.
@@ -185,7 +188,18 @@ def _education_html_to_structured_text(html: str, profile_name: str = "unknown",
     return structured.strip()
 
 
-def extract_education_with_groq(education_html: str, profile_name: str = "unknown") -> list:
+def _entry_exceeds_cloud_limit(entry: dict, max_len: int = CLOUD_EDU_MAX_LEN) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    fields = [
+        str(entry.get("school") or ""),
+        str(entry.get("degree_raw") or entry.get("raw_degree") or ""),
+        str(entry.get("major_raw") or ""),
+    ]
+    return any(len(v) > max_len for v in fields)
+
+
+def extract_education_with_groq(education_html: str, profile_name: str = "unknown", strict_mode: bool = False) -> list:
     """
     Extract education entries from LinkedIn education section HTML using Groq.
 
@@ -255,6 +269,17 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
     logger.debug(f"Education HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
 
+    strict_rules = ""
+    if strict_mode:
+        strict_rules = f"""
+- STRICT MODE (data-quality guardrails):
+    - school must be only institution name (no sentences, no course descriptions, no activities, no biography text)
+    - school max length: {CLOUD_EDU_MAX_LEN} chars
+    - degree_raw max length: {CLOUD_EDU_MAX_LEN} chars
+    - major_raw max length: {CLOUD_EDU_MAX_LEN} chars
+    - If an entry appears to be a paragraph/description rather than a school row, DROP that entry.
+"""
+
     prompt = f"""Extract ALL education entries from this LinkedIn education data.
 
 For each education entry return:
@@ -289,6 +314,7 @@ Rules:
 - If a single entry mentions a degree and then repeats it or a similar one in the description (e.g. "Masters in X" ... "MS in Y"), treat it as ONE degree. DO NOT split into two entries unless the SCHOOL NAME is different.
 - If duplicate information appears (e.g. parent item + child detail item), merge them into one entry.
 - PRIORITY: If any entry is for University of North Texas (or UNT), list those entries FIRST in the returned array.
+{strict_rules}
 
 Return ONLY a JSON object with an "education" key:
 {{"education": [{{"school":"...","degree_raw":"...","major_raw":"...","start_year":"...","end_year":"..."}}]}}
@@ -339,7 +365,7 @@ Data:
                     education = [parsed]
                 else:
                     logger.warning("⚠️ Groq returned JSON object with no education data")
-                    return []
+                    return [], 0
         elif isinstance(parsed, list):
             education = parsed
         else:
@@ -376,6 +402,17 @@ Data:
             major_raw = _act_re.sub('', major_raw).strip()
             degree_raw = _act_re.sub('', degree_raw).strip()
             school = re.sub(r'\s*—\s*$', '', school).strip()  # trailing em-dash
+
+            # Drop clearly malformed school values in strict mode.
+            if strict_mode and _entry_exceeds_cloud_limit(
+                {"school": school, "degree_raw": degree_raw, "major_raw": major_raw}
+            ):
+                logger.warning(
+                    "Dropping oversized strict-mode education entry for %s (school len=%s)",
+                    profile_name,
+                    len(school),
+                )
+                continue
 
             # Deduplicate: same school + same or equivalent degree level
             is_dup = False

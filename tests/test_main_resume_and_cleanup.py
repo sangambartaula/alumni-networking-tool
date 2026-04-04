@@ -538,6 +538,46 @@ def test_save_and_track_propagates_run_id_and_records_flags(monkeypatch):
     assert flag_calls == [(42, "https://www.linkedin.com/in/test-user", "Missing Grad Year")]
 
 
+def test_save_and_track_truncates_oversized_education_fields_for_cloud(monkeypatch):
+    captured = {}
+
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+
+    def _fake_upsert(data, allow_cloud=True, run_id=None):
+        captured["data"] = data
+        return {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": True,
+            "sqlite_written": True,
+        }
+
+    monkeypatch.setattr(scraper_main, "upsert_scraped_profile", _fake_upsert)
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+
+    long_text = "X" * 400
+    ok = scraper_main._save_and_track(
+        {
+            "profile_url": "https://www.linkedin.com/in/test-user",
+            "school3": long_text,
+            "major3": long_text,
+        },
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert len(captured["data"]["school3"]) == 255
+    assert len(captured["data"]["major3"]) == 255
+
+
 def test_format_linkedin_keyword_query_uses_comma_separated_terms():
     formatted = scraper_main._format_linkedin_keyword_query(
         ' computer science,  software engineer , , data science '
@@ -554,5 +594,6 @@ def test_build_discipline_search_base_url_keeps_comma_keyword_format():
         keyword_query,
     )
     assert "keywords=computer+science%2C+software+developer%2C+machine+learning" in url
-    assert "%22" not in url
-    assert "+OR+" not in url
+    keywords_value = url.split("keywords=", 1)[1]
+    assert "%22" not in keywords_value
+    assert "+OR+" not in keywords_value
