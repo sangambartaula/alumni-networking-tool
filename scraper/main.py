@@ -263,45 +263,28 @@ DISCIPLINE_ALIAS_REDIRECTS = {
 
 DISCIPLINE_KEYWORD_BUCKETS = {
     "software": (
-        "software, developer, programmer, software engineer, backend, frontend, full stack, web "
-        "developer, computer science, computer engineering, information technology, cybersecurity, "
-        "data, data engineer, data science, data scientist, analytics, machine learning, artificial "
-        "intelligence, ai, python, java, c++, javascript, cloud, infosec, network security, "
-        "penetration testing, security analyst, soc analyst, ethical hacker, vulnerability assessment"
+        "software engineer, software developer, full stack, backend, frontend, data engineer, "
+        "data scientist, machine learning, cybersecurity, cloud"
     ),
     "cybersecurity": (
-        "cybersecurity, infosec, information security, network security, security operations center, "
-        "soc analyst, security analyst, penetration testing, pentest, ethical hacker, blue team, red "
-        "team, vulnerability assessment, incident response, threat intelligence, iam, siem"
+        "cybersecurity, information security, network security, security analyst, soc analyst, "
+        "penetration testing, incident response, threat intelligence, iam, siem"
     ),
     "embedded": (
-        "embedded, firmware, embedded systems, hardware, hardware engineer, electronics, electrical "
-        "engineering, electrical engineer, pcb, circuit design, circuits, fpga, verilog, vhdl, "
-        "semiconductor, microcontroller, arm, stm32, esp32, signal processing, power systems, "
-        "matlab, simulink, c, c++"
+        "embedded systems, firmware, hardware engineer, electrical engineer, pcb, fpga, "
+        "microcontroller, semiconductor, signal processing, electronics"
     ),
     "construction": (
-        "construction engineering, construction management, construction engineer, civil engineering, "
-        "civil engineer, structural engineering, structural engineer, project engineer, site engineer, "
-        "field engineer, infrastructure, transportation engineering, geotechnical engineering, "
-        "surveying, land development, bim, revit, autocad, primavera, p6, ms project, project "
-        "controls, estimating, cost estimation, osha"
+        "construction engineering, construction management, civil engineer, structural engineer, "
+        "project engineer, site engineer, infrastructure, bim, revit, estimating"
     ),
     "biomedical": (
-        "biomedical engineering, biomedical engineer, bioengineering, medical devices, biomaterials, "
-        "bioinformatics, medical imaging, biosensors, prosthetics, healthcare engineering, biotech, "
-        "biotechnology, mri, ct scan, ultrasound, clinical engineering, tissue engineering, neural "
-        "engineering, rehabilitation engineering, fda, medical informatics, health informatics"
+        "biomedical engineering, biomedical engineer, medical devices, biomaterials, bioinformatics, "
+        "medical imaging, biosensors, clinical engineering, biotech, health informatics"
     ),
     "mechanical": (
-        "mechanical engineering, mechanical engineer, mechanical design, cad, solidworks, autocad, "
-        "ansys, manufacturing, manufacturing engineering, thermodynamics, heat transfer, fluid "
-        "mechanics, hvac, energy, energy systems, renewable energy, finite element analysis, fea, "
-        "structural analysis, stress analysis, machine design, robotics, matlab, simulink, catia, "
-        "materials science, materials engineering, nanotechnology, nanomaterials, polymers, composites, "
-        "metallurgy, ceramics, materials characterization, additive manufacturing, 3d printing, sem, "
-        "tem, xrd, corrosion, heat treatment, thin films, crystallography, semiconductor materials, "
-        "process engineering, quality engineering, six sigma, failure analysis, powder metallurgy"
+        "mechanical engineer, mechanical engineering, manufacturing engineer, machine design, "
+        "solidworks, cad, ansys, robotics, hvac, thermodynamics"
     ),
 }
 
