@@ -218,9 +218,14 @@ def check_force_exit():
 # ============================================================
 # Helpers
 # ============================================================
+ALL_DISCIPLINES_ENGINEERING_KEYWORDS = (
+    "engineering, software engineer, data engineer, cybersecurity, electrical engineering, "
+    "embedded systems, mechanical engineering, manufacturing, construction engineering, "
+    "civil engineering, biomedical engineering"
+)
 DEFAULT_SEARCH_BASE_URL = (
     "https://www.linkedin.com/search/results/people/"
-    "?network=%5B%22O%22%5D&schoolFilter=%5B%226464%22%5D"
+    f"?network=%5B%22O%22%5D&schoolFilter=%5B%226464%22%5D&keywords={urllib.parse.quote(ALL_DISCIPLINES_ENGINEERING_KEYWORDS)}"
 )
 UNT_DISCIPLINE_SEARCH_BASE_URL = (
     "https://www.linkedin.com/search/results/people/?schoolFilter=%5B%226464%22%5D"
@@ -877,9 +882,10 @@ def run_search_mode(scraper, nav, history_mgr):
 
 
 def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
+    processed_any = False
     for alias in discipline_aliases:
         if should_stop():
-            return
+            return processed_any
 
         label = DISCIPLINE_ALIAS_LABELS.get(alias, alias)
         keyword_query = DISCIPLINE_KEYWORD_BUCKETS[alias]
@@ -909,6 +915,9 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             state_mode_key=f"search_discipline:{alias}",
             mode_label=f"discipline search ({alias})",
         )
+        processed_any = True
+
+    return processed_any
 
 def run_review_mode(scraper, nav, history_mgr):
     """
@@ -1178,7 +1187,12 @@ def main():
             run_review_mode(scraper, nav, history_mgr)
         elif config.SCRAPER_MODE == "search":
             if selected_disciplines:
-                run_discipline_search_mode(scraper, nav, history_mgr, selected_disciplines)
+                used_discipline_search = run_discipline_search_mode(scraper, nav, history_mgr, selected_disciplines)
+                if not used_discipline_search and not should_stop():
+                    logger.warning(
+                        "Discipline-specific search setup failed; falling back to all-engineering search filter."
+                    )
+                    run_search_mode(scraper, nav, history_mgr)
             else:
                 run_search_mode(scraper, nav, history_mgr)
         else:
