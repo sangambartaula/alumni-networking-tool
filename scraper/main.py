@@ -766,15 +766,16 @@ def _emit_progress_line():
 
 def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
     """
-    When LinkedIn redirects old URL -> canonical URL, keep canonical and remove old URL
-    from persisted data sources to prevent duplicate profile records.
+    When LinkedIn redirects old URL -> canonical URL, keep canonical for alumni data
+    and keep both URLs in visited tracking so redirect aliases are skipped pre-navigation.
     """
     old = (original_url or "").strip().rstrip("/")
     new = (canonical_url or "").strip().rstrip("/")
     if not old or not new or old == new:
         return
 
-    # 1) Remove stale old URL rows from DB tables.
+    # 1) Remove stale old URL rows from alumni table only.
+    # Keep visited aliases to avoid reopening redirect URLs in future runs.
     try:
         from backend.database import get_connection
 
@@ -786,16 +787,11 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
                     (old, f"{old}/"),
                 )
                 removed_alumni = cur.rowcount
-                cur.execute(
-                    "DELETE FROM visited_profiles WHERE linkedin_url = %s OR linkedin_url = %s",
-                    (old, f"{old}/"),
-                )
-                removed_visited = cur.rowcount
             conn.commit()
-            if removed_alumni or removed_visited:
+            if removed_alumni:
                 logger.info(
                     f"🔁 Canonicalized redirect URL: removed old URL rows "
-                    f"(alumni={removed_alumni}, visited={removed_visited})"
+                    f"(alumni={removed_alumni})"
                 )
         finally:
             try:
@@ -843,14 +839,12 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
     except Exception as e:
         logger.warning(f"⚠️ Could not clean old redirected URL from flagged_for_review.txt ({old}): {e}")
 
-    # 4) Remove old URL from in-memory history + visited_history.csv.
+    # 4) Keep old URL alias marked as visited to prevent reopening redirect URLs.
     try:
-        if old in history_mgr.visited_history:
-            del history_mgr.visited_history[old]
-            history_mgr.save_history_csv()
-            logger.info("🔁 Canonicalized redirect URL: removed old row from visited history")
+        history_mgr.mark_as_visited(old, saved=True)
+        logger.info("🔁 Canonicalized redirect URL: preserved old alias in visited history")
     except Exception as e:
-        logger.warning(f"⚠️ Could not clean old redirected URL from visited history ({old}): {e}")
+        logger.warning(f"⚠️ Could not persist redirected URL alias in visited history ({old}): {e}")
 
 
 def _collect_profile_flag_reasons(profile_data):
