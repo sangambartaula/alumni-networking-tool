@@ -1389,6 +1389,15 @@ class SettingsDialog(QDialog):
             False,
             True,
         )
+        self._add_field(
+            f,
+            "GEOCODE_USE_GROQ_FALLBACK",
+            "Groq Geocode Fallback",
+            bool,
+            True,
+            "When geocoding returns unknown, ask Groq once to normalize location text before retrying geocode.",
+            False,
+        )
         hint = QLabel(
             "If USE_GROQ is enabled and key is empty, scraping can still run but may be less reliable on some profiles."
         )

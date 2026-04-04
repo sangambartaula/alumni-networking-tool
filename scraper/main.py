@@ -55,6 +55,7 @@ from backend.database import (
 )
 from backend.geocoding import geocode_location_with_status
 from defense.navigator import SafeNavigator
+from groq_client import is_groq_available, _get_client, GROQ_MODEL, parse_groq_json_response
 
 
 # ============================================================
@@ -254,6 +255,65 @@ _CLOUD_VARCHAR_LIMITS = {
     "major2": 255,
     "major3": 255,
 }
+
+
+def _normalize_location_for_geocoding(location_text):
+    """Use Groq once to convert ambiguous LinkedIn location text into a geocodable format."""
+    if not location_text:
+        return None
+    if not getattr(config, "GEOCODE_USE_GROQ_FALLBACK", True):
+        return None
+    if not is_groq_available():
+        return None
+
+    client = _get_client()
+    if not client:
+        return None
+
+    prompt = f"""Normalize this LinkedIn location to a geocodable value.
+
+Input location: {location_text}
+
+Rules:
+- If confidently possible, output: "City, State, United States" for US locations.
+- Do not guess a city/state that is not strongly implied by the input.
+- If the input is too vague (for example: "Eastern Region", "Global", "Remote"), output "unknown".
+- Keep output concise, no commentary.
+
+Return strict JSON only:
+{{"normalized_location": "..."}}
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You normalize locations for geocoding. "
+                        "Return valid JSON only with key normalized_location."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0,
+            max_tokens=120,
+            response_format={"type": "json_object"},
+        )
+        parsed = parse_groq_json_response((response.choices[0].message.content or "").strip())
+        if not isinstance(parsed, dict):
+            return None
+
+        normalized = str(parsed.get("normalized_location") or "").strip()
+        if not normalized:
+            return None
+        if normalized.lower() in {"unknown", "null", "none", "n/a", "not sure"}:
+            return "unknown"
+        return normalized
+    except Exception as err:
+        logger.debug(f"Groq location normalization skipped for '{location_text}': {err}")
+        return None
 
 
 def _exit_listener():
@@ -751,8 +811,36 @@ def _save_and_track(data, input_url, history_mgr):
                 data["latitude"], data["longitude"] = coords
                 _geocode_success_this_run += 1
             elif geocode_status == "unknown_location" and location_text:
-                _geocode_failures_this_run += 1
-                _geocode_failure_locations.add(location_text)
+                normalized_location = _normalize_location_for_geocoding(location_text)
+                if normalized_location and normalized_location != "unknown":
+                    retry_coords, retry_status = geocode_location_with_status(normalized_location)
+                    if retry_coords:
+                        data["location"] = normalized_location
+                        data["latitude"], data["longitude"] = retry_coords
+                        _geocode_success_this_run += 1
+                        logger.info(
+                            "Location normalized via Groq for geocoding: '%s' -> '%s'",
+                            location_text,
+                            normalized_location,
+                        )
+                    else:
+                        if retry_status == "unknown_location":
+                            _geocode_failures_this_run += 1
+                            _geocode_failure_locations.add(location_text)
+                        elif retry_status in {"network_error", "parse_error"}:
+                            _geocode_network_failures_this_run += 1
+                elif normalized_location == "unknown":
+                    logger.warning(
+                        "Location unresolved after Groq normalization for %s: '%s'. Clearing location.",
+                        canonical_url,
+                        location_text,
+                    )
+                    data["location"] = None
+                    _geocode_failures_this_run += 1
+                    _geocode_failure_locations.add(location_text)
+                else:
+                    _geocode_failures_this_run += 1
+                    _geocode_failure_locations.add(location_text)
             elif geocode_status in {"network_error", "parse_error"}:
                 _geocode_network_failures_this_run += 1
         except Exception as geocode_err:

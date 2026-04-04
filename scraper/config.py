@@ -280,6 +280,7 @@ UPDATE_FREQUENCY = os.getenv("UPDATE_FREQUENCY", "6 months")
 CONNECTIONS_CSV_PATH = (os.getenv("GUI_CONNECTIONS_CSV_PATH", "Connections.csv") or "Connections.csv").strip()
 SEARCH_DISCIPLINES = (os.getenv("GUI_SEARCH_DISCIPLINES", "") or "").strip()
 SCRAPER_DEBUG = _env_bool("SCRAPER_DEBUG", False)
+GEOCODE_USE_GROQ_FALLBACK = _env_bool("GEOCODE_USE_GROQ_FALLBACK", True)
 
 # Control console verbosity from a single debug toggle.
 if SCRAPER_DEBUG:

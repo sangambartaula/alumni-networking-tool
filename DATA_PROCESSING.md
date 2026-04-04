@@ -2,6 +2,20 @@
 
 This document outlines the artificial intelligence and data transformation pipelines used by the alumni scraper.
 
+## Geocoding Fallback Rules
+
+Primary geocoding uses OpenStreetMap/Nominatim via `backend/geocoding.py`.
+
+When geocoding returns `unknown_location` during scrape persistence:
+
+- The scraper can optionally run a one-time Groq normalization pass (`GEOCODE_USE_GROQ_FALLBACK=true`).
+- Groq is asked to normalize location text into a geocodable format (for example `Austin, Texas, United States`).
+- If Groq returns a normalized location, geocoding is retried once with that value.
+- If Groq returns `unknown`, the scraper does not guess and clears `location` to null for that profile payload.
+- If Groq is unavailable, the original location is preserved and the profile is tracked as unknown geocode.
+
+This behavior prevents vague region labels from being force-mapped to incorrect coordinates while still rescuing obvious cases like metro-area strings.
+
 # UNT Alumni Networking Tool - Normalization and Classification Rules
 
 This document defines how raw scraped/profile data is standardized for filtering, analytics, and display.

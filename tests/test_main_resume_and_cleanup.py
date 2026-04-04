@@ -453,6 +453,107 @@ def test_save_and_track_records_geocode_miss_without_crashing(monkeypatch):
     assert "Eastern Region" in scraper_main._geocode_failure_locations
 
 
+def test_save_and_track_retries_geocode_with_groq_normalized_location(monkeypatch):
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True, run_id=None: {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": True,
+            "sqlite_written": True,
+        },
+    )
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "_geocode_failures_this_run", 0)
+    monkeypatch.setattr(scraper_main, "_geocode_failure_locations", set())
+    monkeypatch.setattr(scraper_main, "_geocode_network_failures_this_run", 0)
+    monkeypatch.setattr(scraper_main, "_geocode_success_this_run", 0)
+    monkeypatch.setattr(
+        scraper_main,
+        "_normalize_location_for_geocoding",
+        lambda location: "Austin, Texas, United States",
+    )
+
+    calls = {"count": 0}
+
+    def _fake_geocode(location):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return None, "unknown_location"
+        assert location == "Austin, Texas, United States"
+        return (30.2672, -97.7431), "ok"
+
+    monkeypatch.setattr(scraper_main, "geocode_location_with_status", _fake_geocode)
+
+    payload = {
+        "profile_url": "https://www.linkedin.com/in/test-user",
+        "location": "Austin, Texas Metropolitan Area",
+    }
+    ok = scraper_main._save_and_track(
+        payload,
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert payload["location"] == "Austin, Texas, United States"
+    assert payload["latitude"] == 30.2672
+    assert payload["longitude"] == -97.7431
+    assert scraper_main._geocode_success_this_run == 1
+
+
+def test_save_and_track_clears_location_when_groq_returns_unknown(monkeypatch):
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True, run_id=None: {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": True,
+            "sqlite_written": True,
+        },
+    )
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "_geocode_failures_this_run", 0)
+    monkeypatch.setattr(scraper_main, "_geocode_failure_locations", set())
+    monkeypatch.setattr(scraper_main, "_geocode_network_failures_this_run", 0)
+    monkeypatch.setattr(scraper_main, "_geocode_success_this_run", 0)
+    monkeypatch.setattr(scraper_main, "_normalize_location_for_geocoding", lambda _location: "unknown")
+    monkeypatch.setattr(scraper_main, "geocode_location_with_status", lambda _location: (None, "unknown_location"))
+
+    payload = {
+        "profile_url": "https://www.linkedin.com/in/test-user",
+        "location": "Eastern Region",
+    }
+    ok = scraper_main._save_and_track(
+        payload,
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert payload["location"] is None
+    assert scraper_main._geocode_failures_this_run == 1
+    assert "Eastern Region" in scraper_main._geocode_failure_locations
+
+
 def test_save_and_track_records_geocode_exception_without_crashing(monkeypatch):
     class _History:
         def should_skip(self, _url):
