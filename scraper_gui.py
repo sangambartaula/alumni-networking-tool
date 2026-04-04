@@ -1442,6 +1442,10 @@ class ScraperApp(QMainWindow):
         rows = []
         current_email = (self.email_input.text() or "").strip().lower()
         only_current = bool(getattr(self, "run_history_mine_only", None) and self.run_history_mine_only.isChecked())
+        if only_current and not current_email:
+            self._history_rows = []
+            self.run_history_table.setRowCount(0)
+            return
         try:
             conn = self._get_db_connection()
             try:
@@ -1499,6 +1503,9 @@ class ScraperApp(QMainWindow):
                     dt_start = datetime.fromisoformat(started_raw.replace("Z", "").replace(" ", "T"))
                     dt_end = datetime.fromisoformat(completed_raw.replace("Z", "").replace(" ", "T"))
                     duration = _format_runtime_short((dt_end - dt_start).total_seconds())
+                elif started_raw and str(row.get("status") or "").lower() == "running":
+                    dt_start = datetime.fromisoformat(started_raw.replace("Z", "").replace(" ", "T"))
+                    duration = _format_runtime_short((datetime.now() - dt_start).total_seconds())
             except Exception:
                 duration = "-"
 
@@ -1515,6 +1522,10 @@ class ScraperApp(QMainWindow):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.run_history_table.setItem(row_idx, col, item)
+
+    def _on_history_filter_email_changed(self, _text):
+        if getattr(self, "run_history_mine_only", None) and self.run_history_mine_only.isChecked():
+            self.refresh_run_history()
 
     def _reset_run_metrics(self):
         self._run_metrics = {
@@ -1689,6 +1700,7 @@ class ScraperApp(QMainWindow):
         
         cred_layout.addWidget(QLabel("Email:"), 0, 0)
         self.email_input = QLineEdit()
+        self.email_input.textChanged.connect(self._on_history_filter_email_changed)
         cred_layout.addWidget(self.email_input, 0, 1)
         
         cred_layout.addWidget(QLabel("Password:"), 1, 0)
@@ -2259,6 +2271,7 @@ class ScraperApp(QMainWindow):
         self.worker.output_signal.connect(self.append_console)
         self.worker.finished_signal.connect(self.on_scraper_finished)
         self.worker.start()
+        QTimer.singleShot(1500, self.refresh_run_history)
 
     def run_geocode(self):
         self.save_all_settings_to_env()
