@@ -18,6 +18,23 @@ from datetime import datetime, timedelta, timezone
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
+
+def _configure_utf8_stdio():
+    """Use UTF-8 output streams so unicode log lines do not crash on Windows consoles."""
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+_configure_utf8_stdio()
+
 # Local Modules
 import config
 import utils

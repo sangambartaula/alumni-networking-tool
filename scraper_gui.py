@@ -263,6 +263,8 @@ class ScraperWorker(QThread):
             popen_kwargs["env"]["GUI_SEARCH_DISCIPLINES"] = ",".join(self.selected_disciplines)
             if self.connections_csv_path:
                 popen_kwargs["env"]["INPUT_CSV"] = self.connections_csv_path
+            popen_kwargs["env"]["PYTHONUTF8"] = "1"
+            popen_kwargs["env"]["PYTHONIOENCODING"] = "utf-8"
 
             if sys.platform == "win32":
                 popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
