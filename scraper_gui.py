@@ -8,7 +8,6 @@ import json
 import re
 import webbrowser
 from datetime import datetime
-from urllib import request, error
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QGroupBox, QLabel, QLineEdit, QComboBox, 
@@ -17,12 +16,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
-
-from app_version import APP_VERSION
-
-
-UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/sangambartaula/alumni-networking-tool/main/app_update.json"
-DEFAULT_RELEASES_URL = "https://github.com/sangambartaula/alumni-networking-tool/releases/latest"
 
 
 def _format_runtime_short(total_seconds):
@@ -1297,15 +1290,14 @@ class ScraperApp(QMainWindow):
         self._pending_gui_reload = False
         self._about_version_text = "local"
         self._about_last_updated_text = "unknown"
-        self._update_status_text = "Checking for updates..."
+        self._update_status_text = "Local build mode"
         self._update_available = False
-        self._latest_version = APP_VERSION
-        self._update_url = DEFAULT_RELEASES_URL
+        self._latest_version = "local"
+        self._update_url = ""
         self._cloud_status_cache = None
         self._geo_status_cache = None
         self._missing_module_prompt_shown = False
         self.init_ui()
-        self._start_remote_update_check()
 
     def _apply_modern_style(self):
         self.setStyleSheet("""
@@ -1361,7 +1353,7 @@ class ScraperApp(QMainWindow):
         base_dir = get_base_dir()
 
         if getattr(sys, "frozen", False):
-            return f"v{APP_VERSION}", "packaged build"
+            return "packaged build", "packaged build"
 
         try:
             short_hash = subprocess.check_output(
@@ -1375,79 +1367,17 @@ class ScraperApp(QMainWindow):
                 stderr=subprocess.DEVNULL,
             ).strip()
             if short_hash:
-                return f"v{APP_VERSION} ({short_hash})", commit_time or "unknown"
+                return f"git-{short_hash}", commit_time or "unknown"
         except Exception:
             pass
 
         mtime = self._safe_get_mtime(self._gui_file_path)
         if mtime:
-            return f"v{APP_VERSION} (local)", datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
-        return f"v{APP_VERSION}", "unknown"
-
-    def _version_tuple(self, version_text):
-        pieces = []
-        for token in str(version_text).strip().split("."):
-            try:
-                pieces.append(int(token))
-            except ValueError:
-                pieces.append(0)
-        return tuple(pieces)
+            return "local", datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+        return "local", "unknown"
 
     def _start_remote_update_check(self):
-        def _worker():
-            latest_version = APP_VERSION
-            update_url = DEFAULT_RELEASES_URL
-            status_text = "Update check unavailable"
-            update_available = False
-
-            try:
-                req = request.Request(
-                    UPDATE_MANIFEST_URL,
-                    headers={"User-Agent": "alumni-scraper-app/1.0"},
-                )
-                with request.urlopen(req, timeout=5) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-
-                latest_version = str(payload.get("version", APP_VERSION)).strip() or APP_VERSION
-                update_url = str(payload.get("download_url", DEFAULT_RELEASES_URL)).strip() or DEFAULT_RELEASES_URL
-                update_available = self._version_tuple(latest_version) > self._version_tuple(APP_VERSION)
-                if update_available:
-                    status_text = f"Update available: v{latest_version}"
-                else:
-                    status_text = "Up to date"
-            except error.URLError:
-                status_text = "Update check unavailable (offline)"
-            except Exception:
-                status_text = "Update check unavailable"
-
-            def _apply_result():
-                self._latest_version = latest_version
-                self._update_url = update_url
-                self._update_available = update_available
-                self._update_status_text = status_text
-                if self._update_available and getattr(sys, "frozen", False):
-                    prompt = QMessageBox(self)
-                    prompt.setIcon(QMessageBox.Icon.Information)
-                    prompt.setWindowTitle("Update Available")
-                    prompt.setText(
-                        "A newer Alumni Scraper App is available.\n\n"
-                        f"Current: v{APP_VERSION}\n"
-                        f"Latest: v{self._latest_version}\n\n"
-                        "Choose how to update."
-                    )
-                    update_now_btn = prompt.addButton("Update Now", QMessageBox.ButtonRole.AcceptRole)
-                    download_btn = prompt.addButton("Open Download Page", QMessageBox.ButtonRole.ActionRole)
-                    prompt.addButton("Later", QMessageBox.ButtonRole.RejectRole)
-                    prompt.exec()
-
-                    if prompt.clickedButton() == update_now_btn:
-                        self.run_update_now()
-                    elif prompt.clickedButton() == download_btn:
-                        webbrowser.open(self._update_url)
-
-            QTimer.singleShot(0, _apply_result)
-
-        threading.Thread(target=_worker, daemon=True, name="AppUpdateCheck").start()
+        self._update_status_text = "Local build mode"
 
     def _refresh_about_metadata(self):
         version_text, last_updated_text = self._read_git_version_info()
@@ -1493,7 +1423,7 @@ class ScraperApp(QMainWindow):
                 f"Version: {self._about_version_text}\n"
                 f"Last Updated: {self._about_last_updated_text}\n\n"
                 f"Update Status: {self._update_status_text}\n"
-                f"Update Channel: {DEFAULT_RELEASES_URL}\n\n"
+                "Update Channel: local build flow\n\n"
                 "Auto-reload: enabled (checks every 3 seconds)."
             ),
         )
