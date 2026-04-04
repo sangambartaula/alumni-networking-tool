@@ -2552,21 +2552,18 @@ class ScraperApp(QMainWindow):
 
         lower = line.lower()
         prompt_tokens = [
-            "type 'exit'",
-            "force exit",
             "remove these",
             "[y/n]",
             "[y/n]:",
             "[y/n]",
             "[y/n]:",
-            "enter",
-            "choose",
-            "selection",
+            "awaiting input",
+            "input required",
         ]
         if any(token.lower() in lower for token in prompt_tokens):
             return "Scraper is waiting for terminal input."
 
-        if lower.endswith(":") and any(k in lower for k in ("input", "choice", "answer", "select", "remove")):
+        if lower.endswith(":") and any(k in lower for k in ("choice", "answer", "remove these", "[y/n")):
             return "Scraper is waiting for terminal input."
         return ""
 

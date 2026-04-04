@@ -992,12 +992,15 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             continue
 
         time.sleep(3)
-        if not _submit_discipline_keywords(scraper, keyword_query):
-            logger.warning(f"Could not submit search keywords for discipline '{alias}'. Skipping.")
-            continue
+        submitted = _submit_discipline_keywords(scraper, keyword_query)
+        if not submitted:
+            logger.warning(
+                f"Could not submit search keywords for discipline '{alias}' via search box. "
+                "Falling back to URL-based discipline filter."
+            )
 
         discipline_base_url = _build_discipline_search_base_url(
-            scraper.driver.current_url,
+            scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
             keyword_query,
         )
         logger.info(f"Discipline base URL: {discipline_base_url}")
