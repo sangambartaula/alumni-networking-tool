@@ -2553,7 +2553,7 @@ class ScraperApp(QMainWindow):
         history_controls = QHBoxLayout()
         self.run_history_mine_only = QCheckBox("Only current email")
         self.run_history_mine_only.stateChanged.connect(self.refresh_run_history)
-        self.run_history_mine_only.setChecked(True)
+        self.run_history_mine_only.setChecked(False)  # Show all runs by default
         history_controls.addWidget(self.run_history_mine_only)
         history_controls.addStretch()
         self.refresh_history_btn = QPushButton("Refresh History")
@@ -2585,7 +2585,7 @@ class ScraperApp(QMainWindow):
         # Add both tabs to the tab widget
         history_tabs.addTab(scrape_count_tab, "Scrape Count")
         history_tabs.addTab(session_history_tab, "Session History")
-        history_tabs.setCurrentIndex(0)  # Default to "Scrape Count"
+        history_tabs.setCurrentIndex(1)  # Default to "Session History" so runs are immediately visible
         
         right_layout.addWidget(history_tabs)
         
@@ -3280,6 +3280,9 @@ class ScraperApp(QMainWindow):
         self.refresh_preflight_status(force_cloud_probe=False)
         self.refresh_run_history()
         self.refresh_scrape_count()
+        # Delayed refresh to catch any late DB writes (e.g. final profiles_scraped update)
+        QTimer.singleShot(2500, self.refresh_run_history)
+        QTimer.singleShot(2500, self.refresh_scrape_count)
 
         if self._manual_intervention_needed:
             reason = self._manual_intervention_reason or "login_or_challenge"
