@@ -53,24 +53,9 @@ copy .env.example .env
 Template sections:
 
 ```env
-# LinkedIn Credentials (used when cookie session is not reusable)
+# LinkedIn scraper fallback credentials (optional)
 LINKEDIN_EMAIL=your-email@example.com
 LINKEDIN_PASSWORD=your-password
-
-# Data source and scraper input/output
-DATA_SOURCE=csv
-INPUT_CSV=backend/engineering_graduate.csv
-OUTPUT_CSV=UNT_Alumni_Data.csv
-RESULTS_PER_SEARCH=15
-
-# Scraper behavior
-USE_COOKIES=true
-LINKEDIN_COOKIES_PATH=linkedin_cookies.json
-HEADLESS=false
-RATE_LIMIT_SECONDS=2
-SCROLL_PAUSE_TIME=2
-SCRAPER_MODE=search
-UPDATE_FREQUENCY=6 months
 
 # LinkedIn OAuth for website login
 LINKEDIN_CLIENT_ID=your-client-id
@@ -85,28 +70,23 @@ MYSQLHOST=your-mysql-host
 MYSQLUSER=your-mysql-user
 MYSQLPASSWORD=your-mysql-password
 MYSQL_DATABASE=your-database-name
-MYSQLPORT=3306
+MYSQLPORT=37157
 
-# SQLite fallback and DB mode controls
-USE_SQLITE_FALLBACK=1
-DISABLE_DB=0
-
-# Optional scraper testing and review flags
-MIN_DELAY=60
-MAX_DELAY=240
-FLAG_MISSING_EXPERIENCE_DATA=true
+# AI key
+GROQ_API_KEY=your-groq-key
 ```
 
 What each block controls:
 
-- LinkedIn Credentials: scraper login fallback when cookie session expires.
-- Data source and scraper input/output: input source and output file behavior.
-- Scraper behavior: cookie use, headless mode, timing controls, scraper mode.
-- LinkedIn OAuth: website login integration for staff authentication (optional, can fallback to email/password).
+- LinkedIn scraper fallback credentials: used only when a valid LinkedIn session cookie is unavailable.
+- LinkedIn OAuth: website login integration for staff authentication.
 - Flask session secret: **CRITICAL** app session security. Must be a long, random string in production (e.g. `openssl rand -hex 32`).
 - MySQL connection: required settings for shared production database access.
-- SQLite fallback and DB mode controls: local fallback behavior and DB disable mode.
-- Optional testing and review flags: speed and profile flagging behavior.
+- AI key: enables Groq-powered extraction and relevance-related features.
+
+Important: several scraper defaults now live in `scraper/config.py` as code-level constants rather than `.env` keys (for example scraper mode, default delay windows, GUI stop limits, and discipline defaults).
+
+Also note: the scraper GUI may write optional runtime keys into `.env` (for example `HEADLESS`, `USE_COOKIES`, `SCRAPER_DEBUG_HTML`, `SCRAPE_RESUME_MAX_AGE_DAYS`, `USE_GROQ`) when you save settings. These are valid operational overrides, but not required in a minimal fresh template.
 
 ## 6. LinkedIn OAuth Setup
 
@@ -128,6 +108,8 @@ Use this mode for local development, demos, or temporary offline scenarios.
 - Set `USE_SQLITE_FALLBACK=1`.
 - Set `DISABLE_DB=1` for demo-only runs without active MySQL writes.
 - Keep this mode non-production.
+
+These two keys are optional backend toggles and can be added to `.env` only when needed.
 
 Limitations:
 

@@ -1,94 +1,65 @@
 # UNT Alumni Networking Tool
 
-## 1. Executive Summary
+The UNT Alumni Networking Tool helps staff find, review, and organize alumni outreach data in one place.
 
-The UNT Alumni Networking Tool helps the College of Engineering organize alumni outreach through a single internal dashboard. It centralizes alumni profile data and outreach workflows so staff can find relevant contacts faster and follow up more consistently.
+This README is for everyday users. Technical setup, architecture, and maintenance details are documented in separate technical guides.
 
-The project is still in active development and is expected to be finalized in about two months.
+## What You Can Do
 
-## 2. What Staff Can Do
+- Search and filter alumni by name, role, company, location, major, degree, seniority, graduation range, and more.
+- Review alumni status and working-while-studying signals.
+- Use analytics and heatmap views for trend analysis.
+- Save private outreach notes and bookmarks.
+- Run scraper workflows from terminal or desktop GUI.
 
-- Search alumni records.
-- Filter alumni by major, degree, seniority, graduation year range, and location.
-- View alumni seniority levels (Intern, Mid, Senior, Manager, Executive).
-- Use analytics dashboards to understand alumni trends.
-- Use the heatmap to view where alumni are located.
-- Add private outreach notes.
-- Bookmark and track alumni contacts.
+## Quick Start
 
-## 3. Account Access and Authentication
+If your environment is already set up:
 
-Staff have two ways to log into the alumni dashboard safely:
-1. **Email & Password**: You can register an account directly if your email is whitelisted.
-2. **LinkedIn OAuth**: You can use your LinkedIn account.
-
-If you initially sign up with LinkedIn, you can easily create an Email/Password credential later by visiting the **Settings** menu inside the app. Check the `docs/AUTH.md` document for deeper technical flows.
-
-### Whiteness and Security
-Access is strictly managed via an email allow-list (whitelist). Even if a user connects via LinkedIn, access is instantly denied if the email address is not actively marked as authorized. 
-
-### User Roles
-The tool features two distinct roles:
-- **User**: Can search alumni, view analytics, use the heatmap, track bookmarks, and add notes.
-- **Admin**: Has all User privileges, plus the ability to manage other users securely from their Settings menu (e.g. adding new users to the whitelist, assigning rows, performing forced password resets, and deleting user access).
-
-## 4. How Data Is Updated
-
-- The scraper collects alumni data from LinkedIn.
-- Alumni profile data is shared across authorized staff users.
-- Notes are private per staff account.
-- The scraper should only be run by authorized staff.
-
-### Multi-Staff Usage Model
-
-- The system should run as one centrally hosted UNT instance.
-- Alumni data is shared across all authorized users.
-- Notes remain private to each individual staff account.
-
-## 5. Setup and Installation
-
-All first-time setup and installation steps are maintained in [SETUP.md](SETUP.md).
-
-Use README as the project overview, and use setup/user docs for operational details.
-
-## 6. Running the Dashboard
+1. Start the dashboard:
 
 ```bash
 python backend/app.py
 ```
 
-Default URL:
+2. Open the URL shown in terminal output (usually `http://127.0.0.1:5000`).
 
-```text
-http://127.0.0.1:5000
-```
-
-The terminal startup output also shows the active URL. Use the terminal output as the source of truth.
-
-## 6. Running the Scraper via Terminal
+3. Optional: run scraper tools:
 
 ```bash
 python scraper/main.py
+python scraper_gui.py
 ```
 
-The scraper uses cookie-first login. If a valid saved session cookie exists, it reuses that session. If not, it falls back to account login and refreshes cookies.
+If this is your first time, follow [SETUP.md](SETUP.md) first.
 
-For detailed scraper GUI and operating instructions, use [USER_GUIDE.md](USER_GUIDE.md) and [SETUP.md](SETUP.md).
+## Access and Security
 
-## 8. Documentation Index
+- Access is restricted to approved users via whitelist controls.
+- Users can authenticate with email/password or LinkedIn OAuth.
+- Admin users can manage access and user roles.
 
-- Setup and installation: [SETUP.md](SETUP.md)
-- Day-to-day usage: [USER_GUIDE.md](USER_GUIDE.md)
-- Authentication and Login: [docs/AUTH.md](docs/AUTH.md)
-- Security Model: [docs/SECURITY.md](docs/SECURITY.md)
-- Testing and regression commands: [TESTING.md](TESTING.md)
-- Data rules and normalization: [NORMALIZATION_RULES.md](NORMALIZATION_RULES.md)
-- Seniority classification details: [SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md)
-- Relevance engine details: [RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md)
+See [docs/AUTH.md](docs/AUTH.md) and [docs/SECURITY.md](docs/SECURITY.md) for technical security details.
 
-## 9. Important Limitations
+## Documentation Map
 
-- LinkedIn can enforce verification checks and rate limits.
-- Aggressive scraper settings increase challenge and lock risk.
-- A valid LinkedIn session is required.
-- This is an internal UNT tool only.
+User-oriented docs:
+
+- [README.md](README.md) - Product overview and daily entry points
+- [USER_GUIDE.md](USER_GUIDE.md) - Day-to-day usage workflows
+
+Technical docs:
+
+- [SETUP.md](SETUP.md) - Environment setup, deployment, and operations
+- [TESTING.md](TESTING.md) - Test commands and coverage notes
+- [NORMALIZATION_RULES.md](NORMALIZATION_RULES.md) - Data normalization behavior
+- [SENIORITY_LEVEL_FEATURE.md](SENIORITY_LEVEL_FEATURE.md) - Seniority classification details
+- [RELEVANCE_ENGINE.md](RELEVANCE_ENGINE.md) - Relevance scoring details
+- [docs/AUTH.md](docs/AUTH.md) - Authentication internals
+- [docs/SECURITY.md](docs/SECURITY.md) - Security controls and policy
+
+## Important Notes
+
+- LinkedIn can impose anti-automation checks and rate limits.
+- Scraper activity should be run by authorized operators only.
+- For multi-staff production use, operate a single centrally hosted UNT instance with shared MySQL.
