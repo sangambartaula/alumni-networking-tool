@@ -1958,6 +1958,120 @@ class ScraperApp(QMainWindow):
         if getattr(self, "run_history_mine_only", None) and self.run_history_mine_only.isChecked():
             self.refresh_run_history()
 
+    def _fetch_scrape_count_by_person_from_connection(self, conn, only_current=True, current_email=None):
+        """Fetch scrape counts grouped by person from cloud database."""
+        attempts = [
+            {"dictionary": True, "placeholder": "%s"},
+            {"dictionary": False, "placeholder": "%s"},
+            {"dictionary": False, "placeholder": "?"},
+        ]
+
+        for attempt in attempts:
+            try:
+                if attempt["dictionary"]:
+                    cursor_ctx = conn.cursor(dictionary=True)
+                else:
+                    cursor_ctx = conn.cursor()
+
+                with cursor_ctx as cur:
+                    query = (
+                        "SELECT CONCAT(first_name, ' ', COALESCE(last_name, '')) AS name, "
+                        "COUNT(*) AS count FROM alumni WHERE first_name IS NOT NULL AND first_name != '' "
+                    )
+                    params = []
+                    if only_current and current_email:
+                        query += f"AND scraper_email = {attempt['placeholder']} "
+                        params.append(current_email)
+                    query += "GROUP BY first_name, COALESCE(last_name, '') ORDER BY count DESC LIMIT 200"
+                    
+                    cur.execute(query, tuple(params))
+                    fetched = cur.fetchall() or []
+                    if attempt["dictionary"]:
+                        return fetched
+
+                    cols = [d[0] for d in (cur.description or [])]
+                    normalized = []
+                    for row in fetched:
+                        if isinstance(row, dict):
+                            normalized.append(row)
+                        else:
+                            normalized.append(dict(zip(cols, row)))
+                    return normalized
+            except Exception:
+                continue
+
+        return []
+
+    def _fetch_scrape_count_by_person_from_local_sqlite(self, only_current=True, current_email=None):
+        """Fetch scrape counts grouped by person from local SQLite backup."""
+        sqlite_path = os.path.join(get_base_dir(), "backend", "alumni_backup.db")
+        if not os.path.exists(sqlite_path):
+            return []
+
+        conn = None
+        try:
+            conn = sqlite3.connect(sqlite_path)
+            conn.row_factory = sqlite3.Row
+            query = (
+                "SELECT first_name || ' ' || COALESCE(last_name, '') AS name, "
+                "COUNT(*) AS count FROM alumni WHERE first_name IS NOT NULL AND first_name != '' "
+            )
+            params = []
+            if only_current and current_email:
+                query += "AND scraper_email = ? "
+                params.append(current_email)
+            query += "GROUP BY first_name, COALESCE(last_name, '') ORDER BY count DESC LIMIT 200"
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def refresh_scrape_count(self):
+        """Refresh the scrape count by person table."""
+        if not hasattr(self, "scrape_count_table"):
+            return
+
+        rows = []
+        current_email = (self.email_input.text() or "").strip().lower()
+
+        try:
+            conn = self._get_db_connection()
+            try:
+                rows = self._fetch_scrape_count_by_person_from_connection(conn, only_current=False)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception:
+            rows = []
+
+        # If cloud query yields nothing, fall back to local SQLite
+        if not rows:
+            rows = self._fetch_scrape_count_by_person_from_local_sqlite(only_current=False)
+
+        self.scrape_count_table.setRowCount(len(rows))
+        for row_idx, row in enumerate(rows):
+            name = str(row.get("name") or "Unknown").strip()
+            try:
+                count = int(row.get("count") or 0)
+            except Exception:
+                count = 0
+
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.scrape_count_table.setItem(row_idx, 0, name_item)
+
+            count_item = QTableWidgetItem(str(count))
+            count_item.setFlags(count_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.scrape_count_table.setItem(row_idx, 1, count_item)
+
     def _reset_run_metrics(self):
         self._run_metrics = {
             "user": "",
@@ -2372,7 +2486,36 @@ class ScraperApp(QMainWindow):
         stdin_row.addWidget(self.stdin_send_btn)
         right_layout.addLayout(stdin_row)
 
-        history_group = QGroupBox("Recent Scrape Sessions")
+        # ══════════════════════════════════════════════════════════════
+        # Tab widget for "Scrape Count" and "Session History"
+        # ══════════════════════════════════════════════════════════════
+        history_tabs = QTabWidget()
+        
+        # ───────────────────────────────────────────────────────────────
+        # TAB 1: Scrape Count (DEFAULT)
+        # ───────────────────────────────────────────────────────────────
+        scrape_count_tab = QWidget()
+        scrape_count_layout = QVBoxLayout()
+        
+        scrape_count_controls = QHBoxLayout()
+        scrape_count_controls.addStretch()
+        self.refresh_scrape_count_btn = QPushButton("Refresh Counts")
+        self.refresh_scrape_count_btn.clicked.connect(self.refresh_scrape_count)
+        scrape_count_controls.addWidget(self.refresh_scrape_count_btn)
+        scrape_count_layout.addLayout(scrape_count_controls)
+        
+        self.scrape_count_table = QTableWidget(0, 2)
+        self.scrape_count_table.setHorizontalHeaderLabels(["Name", "Scrape Count"])
+        self.scrape_count_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.scrape_count_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.scrape_count_table.setMinimumHeight(200)
+        scrape_count_layout.addWidget(self.scrape_count_table)
+        scrape_count_tab.setLayout(scrape_count_layout)
+        
+        # ───────────────────────────────────────────────────────────────
+        # TAB 2: Session History
+        # ───────────────────────────────────────────────────────────────
+        session_history_tab = QWidget()
         history_layout = QVBoxLayout()
         history_controls = QHBoxLayout()
         self.run_history_mine_only = QCheckBox("Only current email")
@@ -2404,8 +2547,14 @@ class ScraperApp(QMainWindow):
         self.run_history_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self.run_history_table.setMinimumHeight(200)
         history_layout.addWidget(self.run_history_table)
-        history_group.setLayout(history_layout)
-        right_layout.addWidget(history_group)
+        session_history_tab.setLayout(history_layout)
+        
+        # Add both tabs to the tab widget
+        history_tabs.addTab(scrape_count_tab, "Scrape Count")
+        history_tabs.addTab(session_history_tab, "Session History")
+        history_tabs.setCurrentIndex(0)  # Default to "Scrape Count"
+        
+        right_layout.addWidget(history_tabs)
         
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_scroll)
@@ -2425,6 +2574,7 @@ class ScraperApp(QMainWindow):
         self._reset_run_metrics()
         self.refresh_preflight_status(force_cloud_probe=True, force_geo_probe=True)
         self.refresh_run_history()
+        self.refresh_scrape_count()
         self._apply_modern_style()
         self._start_gui_autoreload_watcher()
 
