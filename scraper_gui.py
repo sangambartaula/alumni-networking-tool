@@ -3336,6 +3336,9 @@ class ScraperApp(QMainWindow):
 
     def _confirm_update_mode_queue(self):
         try:
+            scraper_dir = os.path.join(get_base_dir(), "scraper")
+            if scraper_dir not in sys.path:
+                sys.path.insert(0, scraper_dir)
             from scraper import database_handler
 
             profiles, cutoff_date = database_handler.get_outdated_profiles_from_db()
