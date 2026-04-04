@@ -2390,6 +2390,7 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
         "cloud_attempted": False,
         "cloud_written": False,
         "sqlite_written": False,
+        "cloud_routed_to_sqlite": False,
     }
 
     disable_db = os.getenv("DISABLE_DB", "0") == "1"
@@ -2408,6 +2409,23 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
             wrote_primary = True
             if is_sqlite_routed:
                 status["sqlite_written"] = True
+                status["cloud_routed_to_sqlite"] = True
+                # When cloud is unreachable and writes are routed to SQLite fallback,
+                # queue this upsert for later cloud synchronization.
+                try:
+                    manager = getattr(conn, "_manager", None)
+                    if manager:
+                        manager.record_pending_change(
+                            table_name="alumni",
+                            primary_key={"linkedin_url": payload.get("linkedin_url")},
+                            operation="INSERT",
+                            old_data=None,
+                            new_data=payload,
+                        )
+                except Exception as queue_err:
+                    logger.debug(
+                        f"Pending cloud-sync queueing skipped for {payload.get('linkedin_url')}: {queue_err}"
+                    )
             else:
                 status["cloud_written"] = True
         except Exception as err:

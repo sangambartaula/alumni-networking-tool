@@ -680,6 +680,7 @@ def _save_and_track(data, input_url, history_mgr):
             status = upsert_status if isinstance(upsert_status, dict) else {}
             cloud_attempted = bool(status.get("cloud_attempted"))
             cloud_written = bool(status.get("cloud_written"))
+            cloud_routed_to_sqlite = bool(status.get("cloud_routed_to_sqlite"))
             sqlite_written = bool(status.get("sqlite_written"))
             if sqlite_written:
                 _sqlite_writes_this_run += 1
@@ -687,6 +688,10 @@ def _save_and_track(data, input_url, history_mgr):
                 if cloud_written:
                     _cloud_upsert_successes_this_run += 1
                     _cloud_upsert_consecutive_failures = 0
+                elif cloud_routed_to_sqlite:
+                    logger.info(
+                        "Cloud unreachable for this profile; saved to SQLite fallback and queued for later sync."
+                    )
                 else:
                     _cloud_upsert_failures_this_run += 1
                     _cloud_upsert_consecutive_failures += 1
