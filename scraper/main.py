@@ -1088,6 +1088,7 @@ def _save_and_track(data, input_url, history_mgr):
         _emit_progress_line()
 
         return True
+    logger.warning("⚠️ Profile not saved to CSV (data validation failed): %s", canonical_url)
     return False
 
 

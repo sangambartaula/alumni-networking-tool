@@ -477,7 +477,9 @@ def flag_profile_for_review(profile_data):
 
 def save_profile_to_csv(profile_data):
     try:
-        if not profile_data.get('profile_url') or not profile_data.get('name'): return False
+        if not profile_data.get('profile_url') or not profile_data.get('name'):
+            logger.warning("⚠️ Profile save skipped: missing profile_url or name")
+            return False
 
         # Block fake/placeholder profiles
         from config import is_blocked_url
@@ -486,7 +488,9 @@ def save_profile_to_csv(profile_data):
             return False
         
         has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'school', 'education']])
-        if not has_data: return False
+        if not has_data:
+            logger.warning("⚠️ Profile save skipped (no usable data fields): %s", profile_data.get('profile_url', '?'))
+            return False
 
         ensure_alumni_output_csv()
         try:
