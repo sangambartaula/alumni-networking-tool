@@ -1660,15 +1660,27 @@ class ScraperApp(QMainWindow):
             started_raw = str(row.get("started_at") or "")
             started = started_raw[:16].replace("T", " ")
             completed_raw = str(row.get("completed_at") or "")
+            status_raw = str(row.get("status") or "").strip().lower()
+            status_display = (row.get("status") or "unknown")
             duration = "-"
+            try:
+                scraped_count = int(row.get("profiles_scraped") or 0)
+            except Exception:
+                scraped_count = 0
             try:
                 if started_raw and completed_raw:
                     dt_start = datetime.fromisoformat(started_raw.replace("Z", "").replace(" ", "T"))
                     dt_end = datetime.fromisoformat(completed_raw.replace("Z", "").replace(" ", "T"))
                     duration = _format_runtime_short((dt_end - dt_start).total_seconds())
-                elif started_raw and str(row.get("status") or "").lower() == "running":
+                elif started_raw and status_raw == "running":
                     dt_start = datetime.fromisoformat(started_raw.replace("Z", "").replace(" ", "T"))
-                    duration = _format_runtime_short((datetime.now() - dt_start).total_seconds())
+                    elapsed_seconds = (datetime.now() - dt_start).total_seconds()
+                    # Ignore stale copied runs that were never finalized (common in shared backup DBs).
+                    if elapsed_seconds > (4 * 3600) and scraped_count == 0:
+                        duration = "-"
+                        status_display = "stale"
+                    else:
+                        duration = _format_runtime_short(elapsed_seconds)
             except Exception:
                 duration = "-"
 
@@ -1678,7 +1690,7 @@ class ScraperApp(QMainWindow):
                 (row.get("scraper_mode") or "unknown"),
                 str(row.get("profiles_scraped") or 0),
                 duration,
-                (row.get("status") or "unknown"),
+                status_display,
                 str(row.get("id") or ""),
             ]
             for col, value in enumerate(values):
@@ -2186,6 +2198,7 @@ class ScraperApp(QMainWindow):
         history_controls = QHBoxLayout()
         self.run_history_mine_only = QCheckBox("Only current email")
         self.run_history_mine_only.stateChanged.connect(self.refresh_run_history)
+        self.run_history_mine_only.setChecked(True)
         history_controls.addWidget(self.run_history_mine_only)
         history_controls.addStretch()
         self.refresh_history_btn = QPushButton("Refresh History")
