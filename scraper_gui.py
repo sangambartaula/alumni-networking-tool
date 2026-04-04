@@ -1959,7 +1959,7 @@ class ScraperApp(QMainWindow):
             self.refresh_run_history()
 
     def _fetch_scrape_count_by_person_from_connection(self, conn, only_current=True, current_email=None):
-        """Fetch scrape counts (unique people) grouped by scraper email from cloud database."""
+        """Fetch scrape counts grouped by scraper email from scrape run history."""
         attempts = [
             {"dictionary": True, "placeholder": "%s"},
             {"dictionary": False, "placeholder": "%s"},
@@ -1976,13 +1976,14 @@ class ScraperApp(QMainWindow):
                 with cursor_ctx as cur:
                     query = (
                         "SELECT COALESCE(scraper_email, 'unknown') AS email, "
-                        "COUNT(DISTINCT linkedin_url) AS count FROM alumni "
+                        "COALESCE(SUM(COALESCE(profiles_scraped, 0)), 0) AS count "
+                        "FROM scrape_runs "
                     )
                     params = []
                     if only_current and current_email:
-                        query += f"WHERE scraper_email = {attempt['placeholder']} "
+                        query += f"WHERE LOWER(COALESCE(scraper_email, '')) = {attempt['placeholder']} "
                         params.append(current_email)
-                    query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC LIMIT 100"
+                    query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC, email ASC LIMIT 100"
                     
                     cur.execute(query, tuple(params))
                     fetched = cur.fetchall() or []
@@ -2003,7 +2004,7 @@ class ScraperApp(QMainWindow):
         return []
 
     def _fetch_scrape_count_by_person_from_local_sqlite(self, only_current=True, current_email=None):
-        """Fetch scrape counts (unique people) grouped by scraper email from local SQLite backup."""
+        """Fetch scrape counts grouped by scraper email from local scrape run history."""
         sqlite_path = os.path.join(get_base_dir(), "backend", "alumni_backup.db")
         if not os.path.exists(sqlite_path):
             return []
@@ -2014,13 +2015,13 @@ class ScraperApp(QMainWindow):
             conn.row_factory = sqlite3.Row
             query = (
                 "SELECT COALESCE(scraper_email, 'unknown') AS email, "
-                "COUNT(DISTINCT linkedin_url) AS count FROM alumni "
+                "COALESCE(SUM(COALESCE(profiles_scraped, 0)), 0) AS count FROM scrape_runs "
             )
             params = []
             if only_current and current_email:
-                query += "WHERE scraper_email = ? "
+                query += "WHERE LOWER(COALESCE(scraper_email, '')) = ? "
                 params.append(current_email)
-            query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC LIMIT 100"
+            query += "GROUP BY COALESCE(scraper_email, 'unknown') ORDER BY count DESC, email ASC LIMIT 100"
             rows = conn.execute(query, tuple(params)).fetchall()
             return [dict(r) for r in rows]
         except Exception:
