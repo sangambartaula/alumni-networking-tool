@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About | UNT Alumni Networking Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" defer></script>
+  <style>
+    :root {
+      --bg: #f4f0e6;
+      --paper: #fffefb;
+      --ink: #142237;
+      --muted: #54657f;
+      --line: #d8d2c5;
+      --accent: #0f5e80;
+      --accent-soft: #ddeef4;
+      --code-bg: #1e2935;
+      --code-ink: #edf3fb;
+      --shadow: 0 8px 26px rgba(23, 41, 66, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Source Sans 3", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 5% 15%, #e2e8d4 0, transparent 28%),
+        radial-gradient(circle at 90% 20%, #d7e7f1 0, transparent 35%),
+        radial-gradient(circle at 20% 85%, #f1e2d5 0, transparent 38%),
+        var(--bg);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    .page {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 2rem 1rem 4rem;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, rgba(255, 254, 251, 0.96), rgba(247, 251, 255, 0.92));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      font-family: "Merriweather", serif;
+      line-height: 1.25;
+      color: #0f1f30;
+      margin-top: 1.1em;
+      margin-bottom: 0.5em;
+      scroll-margin-top: 84px;
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: clamp(1.9rem, 4vw, 2.8rem);
+    }
+
+    p.lead {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin-top: 0.7rem;
+      margin-bottom: 1.2rem;
+      max-width: 75ch;
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.64rem 1rem;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      text-decoration: none;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+      background: #fff;
+      color: #16324b;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(15, 44, 71, 0.16);
+      border-color: #bfc7d1;
+    }
+
+    .btn-primary {
+      background: linear-gradient(120deg, #0f5e80, #1c7ca0);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .meta {
+      margin-top: 0.8rem;
+      color: var(--muted);
+      font-size: 0.96rem;
+    }
+
+    .status {
+      margin: 0 0 1rem;
+      padding: 0.75rem 0.95rem;
+      border-radius: 10px;
+      background: #eef4fa;
+      border: 1px solid #c6d5e6;
+      color: #1f4061;
+      font-weight: 600;
+    }
+
+    .status.error {
+      background: #fff2f2;
+      border-color: #f2cbcb;
+      color: #8e1f1f;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1.2rem;
+      grid-template-columns: 1fr;
+    }
+
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 1.25rem;
+      animation: riseIn 420ms ease both;
+    }
+
+    .card h2:first-child,
+    .card h3:first-child {
+      margin-top: 0;
+    }
+
+    .markdown {
+      overflow-x: auto;
+    }
+
+    .markdown img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      border: 1px solid #d0d5db;
+      background: #fff;
+    }
+
+    .markdown table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.97rem;
+    }
+
+    .markdown table th,
+    .markdown table td {
+      border: 1px solid #d0d7df;
+      padding: 0.56rem 0.7rem;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .markdown table th {
+      background: #f2f7fb;
+      font-weight: 700;
+    }
+
+    .markdown pre {
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border-radius: 8px;
+      padding: 0.85rem;
+      overflow: auto;
+      font-size: 0.89rem;
+      line-height: 1.5;
+    }
+
+    .markdown :not(pre) > code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background: #f1f3f6;
+      border: 1px solid #dde2ea;
+      border-radius: 6px;
+      padding: 0.06rem 0.35rem;
+      font-size: 0.9em;
+    }
+
+    .markdown a {
+      color: #0b4c68;
+      text-decoration-thickness: 0.08em;
+      text-underline-offset: 0.18em;
+      word-break: break-word;
+    }
+
+    .markdown blockquote {
+      border-left: 4px solid #b7cad6;
+      margin: 1rem 0;
+      padding: 0.35rem 0.9rem;
+      background: #f6fafc;
+      color: #2d495f;
+    }
+
+    .reference-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.65rem;
+    }
+
+    .chip {
+      border: 1px solid #c4ced9;
+      background: #fff;
+      color: #23415d;
+      border-radius: 999px;
+      padding: 0.35rem 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .chip:hover {
+      background: #edf5fb;
+      border-color: #9eb6cb;
+    }
+
+    .viewer {
+      margin-top: 0.95rem;
+      border: 1px solid #d2dbe3;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #fff;
+      display: none;
+    }
+
+    .viewer.open {
+      display: block;
+      animation: riseIn 300ms ease;
+    }
+
+    .viewer-header {
+      padding: 0.6rem 0.8rem;
+      border-bottom: 1px solid #d2dbe3;
+      background: #f6f9fc;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.7rem;
+      flex-wrap: wrap;
+      font-weight: 700;
+      color: #153650;
+    }
+
+    .viewer-body {
+      padding: 0.85rem;
+      max-height: 55vh;
+      overflow: auto;
+    }
+
+    .viewer-body pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    footer {
+      margin-top: 2rem;
+      color: var(--muted);
+      text-align: center;
+      font-size: 0.9rem;
+    }
+
+    @keyframes riseIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (min-width: 860px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        padding: 2.3rem;
+      }
+
+      .card {
+        padding: 1.4rem;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .card,
+      .viewer.open,
+      .btn {
+        animation: none;
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <h1>About This Project</h1>
+      <p class="lead">
+        This page pulls documentation directly from the project repository and updates automatically as files change on GitHub.
+      </p>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/sangambartaula/alumni-networking-tool" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+        <button id="reloadBtn" class="btn" type="button">Refresh Content</button>
+      </div>
+      <div id="meta" class="meta">Loading repository documentation...</div>
+    </header>
+
+    <p id="status" class="status">Loading README and markdown files from GitHub API...</p>
+
+    <main class="grid">
+      <section class="card">
+        <h2>README</h2>
+        <div id="readme" class="markdown">Preparing content...</div>
+      </section>
+
+      <section class="card" id="readmeReferencesCard" hidden>
+        <h2>Files Mentioned In README</h2>
+        <p class="meta">Click any file to preview it instantly.</p>
+        <div id="readmeReferences" class="reference-list"></div>
+        <div id="fileViewer" class="viewer" aria-live="polite">
+          <div class="viewer-header">
+            <span id="viewerTitle">File preview</span>
+            <a id="viewerGitHubLink" class="btn" target="_blank" rel="noopener noreferrer">Open on GitHub</a>
+          </div>
+          <div id="viewerBody" class="viewer-body markdown"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Additional Markdown Documentation</h2>
+        <div id="allMarkdown">Loading markdown files...</div>
+      </section>
+    </main>
+
+    <footer>
+      Documentation source: GitHub repository content API.
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const owner = "sangambartaula";
+      const repo = "alumni-networking-tool";
+      const branch = "main";
+      const apiBase = `https://api.github.com/repos/${owner}/${repo}`;
+      const githubBase = `https://github.com/${owner}/${repo}`;
+      const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}`;
+
+      const statusEl = document.getElementById("status");
+      const metaEl = document.getElementById("meta");
+      const readmeEl = document.getElementById("readme");
+      const markdownContainer = document.getElementById("allMarkdown");
+      const readmeReferencesCard = document.getElementById("readmeReferencesCard");
+      const readmeReferencesEl = document.getElementById("readmeReferences");
+      const viewerEl = document.getElementById("fileViewer");
+      const viewerTitleEl = document.getElementById("viewerTitle");
+      const viewerBodyEl = document.getElementById("viewerBody");
+      const viewerGitHubLinkEl = document.getElementById("viewerGitHubLink");
+      const reloadBtn = document.getElementById("reloadBtn");
+
+      const repoFileSet = new Set();
+      const markdownCache = new Map();
+
+      const markdownExtensions = [".md", ".markdown"];
+
+      if (window.marked) {
+        window.marked.setOptions({
+          gfm: true,
+          breaks: false,
+          headerIds: true,
+          mangle: false
+        });
+      }
+
+      function setStatus(message, isError) {
+        statusEl.textContent = message;
+        statusEl.classList.toggle("error", Boolean(isError));
+      }
+
+      function decodeBase64Unicode(b64) {
+        const clean = String(b64 || "").replace(/\n/g, "");
+        const bin = atob(clean);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) {
+          bytes[i] = bin.charCodeAt(i);
+        }
+        return new TextDecoder("utf-8").decode(bytes);
+      }
+
+      function normalizePath(path) {
+        if (!path) {
+          return "";
+        }
+        const withoutAnchor = path.split("#")[0].split("?")[0];
+        return withoutAnchor
+          .replace(/^\.\//, "")
+          .replace(/^\//, "")
+          .replace(/\\/g, "/")
+          .trim();
+      }
+
+      function dirname(path) {
+        const clean = normalizePath(path);
+        const slash = clean.lastIndexOf("/");
+        return slash === -1 ? "" : clean.slice(0, slash + 1);
+      }
+
+      function resolveRelativePath(baseFile, target) {
+        const cleanTarget = normalizePath(target);
+        if (!cleanTarget) {
+          return "";
+        }
+        if (/^[a-z]+:\/\//i.test(cleanTarget) || cleanTarget.startsWith("#")) {
+          return cleanTarget;
+        }
+
+        const baseDir = dirname(baseFile);
+        const rawParts = (baseDir + cleanTarget).split("/");
+        const result = [];
+
+        for (const part of rawParts) {
+          if (!part || part === ".") {
+            continue;
+          }
+          if (part === "..") {
+            result.pop();
+          } else {
+            result.push(part);
+          }
+        }
+
+        return result.join("/");
+      }
+
+      function isMarkdownFile(path) {
+        const lower = path.toLowerCase();
+        return markdownExtensions.some((ext) => lower.endsWith(ext));
+      }
+
+      function isProbablyTextFile(path) {
+        const lower = path.toLowerCase();
+        return [
+          ".md", ".markdown", ".txt", ".json", ".py", ".js", ".ts", ".tsx", ".html", ".css",
+          ".csv", ".yml", ".yaml", ".bat", ".command", ".ini", ".cfg", ".spec"
+        ].some((ext) => lower.endsWith(ext));
+      }
+
+      function encodePathSegments(path) {
+        return normalizePath(path)
+          .split("/")
+          .filter(Boolean)
+          .map((part) => encodeURIComponent(part))
+          .join("/");
+      }
+
+      async function githubApi(path) {
+        const response = await fetch(`${apiBase}${path}`, {
+          headers: {
+            Accept: "application/vnd.github+json"
+          }
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`GitHub API ${response.status}: ${text.slice(0, 240)}`);
+        }
+
+        return response.json();
+      }
+
+      async function fetchRepoTree() {
+        const data = await githubApi(`/git/trees/${encodeURIComponent(branch)}?recursive=1`);
+        const files = (data.tree || []).filter((entry) => entry.type === "blob").map((entry) => entry.path);
+        repoFileSet.clear();
+        for (const path of files) {
+          repoFileSet.add(path);
+        }
+        return files;
+      }
+
+      async function fetchContentFile(path) {
+        const normalizedPath = normalizePath(path);
+        const key = normalizedPath.toLowerCase();
+
+        if (markdownCache.has(key)) {
+          return markdownCache.get(key);
+        }
+
+        const data = await githubApi(`/contents/${encodePathSegments(normalizedPath)}?ref=${encodeURIComponent(branch)}`);
+        if (!data || !data.content) {
+          throw new Error(`No content returned for ${normalizedPath}`);
+        }
+
+        const decoded = decodeBase64Unicode(data.content);
+        markdownCache.set(key, decoded);
+        return decoded;
+      }
+
+      function rendererFor(basePath) {
+        const renderer = new window.marked.Renderer();
+
+        renderer.link = function (hrefOrToken, maybeTitle, maybeText) {
+          const token = hrefOrToken && typeof hrefOrToken === "object" ? hrefOrToken : null;
+          const href = token ? token.href : hrefOrToken;
+          const title = token ? token.title : maybeTitle;
+          const text = token
+            ? (token.text || (token.tokens ? this.parser.parseInline(token.tokens) : ""))
+            : maybeText;
+
+          const safeHref = href || "";
+          const resolved = resolveRelativePath(basePath, safeHref);
+
+          if (!safeHref || safeHref.startsWith("#")) {
+            return `<a href="${safeHref}">${text}</a>`;
+          }
+
+          if (/^[a-z]+:\/\//i.test(safeHref) || safeHref.startsWith("mailto:")) {
+            const titleAttr = title ? ` title="${title}"` : "";
+            return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
+          }
+
+          if (resolved && repoFileSet.has(resolved)) {
+            const titleAttr = title ? ` title="${title}"` : "";
+            return `<a href="#" data-repo-file="${resolved}"${titleAttr}>${text}</a>`;
+          }
+
+          const githubUrl = `${githubBase}/blob/${encodeURIComponent(branch)}/${encodePathSegments(resolved)}`;
+          return `<a href="${githubUrl}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+        };
+
+        renderer.image = (hrefOrToken, maybeTitle, maybeText) => {
+          const token = hrefOrToken && typeof hrefOrToken === "object" ? hrefOrToken : null;
+          const href = token ? token.href : hrefOrToken;
+          const title = token ? token.title : maybeTitle;
+          const text = token ? token.text : maybeText;
+          const source = href || "";
+          let src = source;
+
+          if (!/^[a-z]+:\/\//i.test(source)) {
+            const resolved = resolveRelativePath(basePath, source);
+            src = `${rawBase}/${resolved}`;
+          }
+
+          const titleAttr = title ? ` title="${title}"` : "";
+          const alt = text || "image";
+          return `<img src="${src}" alt="${alt}" loading="lazy"${titleAttr}>`;
+        };
+
+        return renderer;
+      }
+
+      function markdownToHtml(markdown, basePath) {
+        const renderer = rendererFor(basePath);
+        const html = window.marked.parse(markdown, { renderer });
+        return window.DOMPurify.sanitize(html);
+      }
+
+      function collectReadmeFileMentions(readmeMarkdown) {
+        const mentions = new Set();
+
+        const markdownLinkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
+        let match;
+        while ((match = markdownLinkPattern.exec(readmeMarkdown)) !== null) {
+          const linkedPath = resolveRelativePath("README.md", match[1]);
+          if (linkedPath && repoFileSet.has(linkedPath)) {
+            mentions.add(linkedPath);
+          }
+        }
+
+        const plainFilePattern = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,12}\b/g;
+        while ((match = plainFilePattern.exec(readmeMarkdown)) !== null) {
+          const maybePath = normalizePath(match[0]);
+          if (repoFileSet.has(maybePath)) {
+            mentions.add(maybePath);
+          }
+        }
+
+        return Array.from(mentions).sort((a, b) => a.localeCompare(b));
+      }
+
+      function attachRepoFileClickHandlers(root) {
+        root.querySelectorAll("a[data-repo-file]").forEach((anchor) => {
+          anchor.addEventListener("click", async (event) => {
+            event.preventDefault();
+            const path = anchor.getAttribute("data-repo-file");
+            if (path) {
+              await showFilePreview(path);
+            }
+          });
+        });
+      }
+
+      async function showFilePreview(path) {
+        viewerEl.classList.add("open");
+        viewerTitleEl.textContent = path;
+        viewerGitHubLinkEl.href = `${githubBase}/blob/${encodeURIComponent(branch)}/${encodePathSegments(path)}`;
+        viewerBodyEl.innerHTML = "Loading file...";
+
+        try {
+          const fileContent = await fetchContentFile(path);
+
+          if (isMarkdownFile(path)) {
+            viewerBodyEl.innerHTML = markdownToHtml(fileContent, path);
+            attachRepoFileClickHandlers(viewerBodyEl);
+          } else if (isProbablyTextFile(path)) {
+            const escaped = fileContent
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;");
+            viewerBodyEl.innerHTML = `<pre>${escaped}</pre>`;
+          } else {
+            viewerBodyEl.innerHTML = "Preview unavailable for this file type. Use Open on GitHub.";
+          }
+        } catch (error) {
+          viewerBodyEl.textContent = `Unable to load ${path}: ${error.message}`;
+        }
+      }
+
+      function renderReadmeMentions(paths) {
+        readmeReferencesEl.innerHTML = "";
+
+        if (!paths.length) {
+          readmeReferencesCard.hidden = true;
+          return;
+        }
+
+        for (const path of paths) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "chip";
+          button.textContent = path;
+          button.addEventListener("click", () => {
+            showFilePreview(path);
+          });
+          readmeReferencesEl.appendChild(button);
+        }
+
+        readmeReferencesCard.hidden = false;
+      }
+
+      async function renderReadme(readmeMarkdown) {
+        readmeEl.innerHTML = markdownToHtml(readmeMarkdown, "README.md");
+        attachRepoFileClickHandlers(readmeEl);
+
+        const mentions = collectReadmeFileMentions(readmeMarkdown);
+        renderReadmeMentions(mentions);
+      }
+
+      async function renderAllMarkdownFiles(files) {
+        const otherMarkdown = files
+          .filter((path) => isMarkdownFile(path))
+          .filter((path) => path.toLowerCase() !== "readme.md")
+          .sort((a, b) => a.localeCompare(b));
+
+        if (!otherMarkdown.length) {
+          markdownContainer.innerHTML = "No additional markdown files found.";
+          return;
+        }
+
+        const sections = [];
+
+        for (const mdPath of otherMarkdown) {
+          sections.push(`
+            <article class="card" style="margin-top:1rem;">
+              <h3>${mdPath}</h3>
+              <div class="markdown" id="doc-${sections.length}">Loading ${mdPath}...</div>
+            </article>
+          `);
+        }
+
+        markdownContainer.innerHTML = sections.join("");
+
+        const markdownEls = markdownContainer.querySelectorAll("[id^='doc-']");
+
+        for (let i = 0; i < otherMarkdown.length; i += 1) {
+          const path = otherMarkdown[i];
+          const target = markdownEls[i];
+
+          try {
+            const markdown = await fetchContentFile(path);
+            target.innerHTML = markdownToHtml(markdown, path);
+            attachRepoFileClickHandlers(target);
+          } catch (error) {
+            target.innerHTML = `<p>Unable to load ${path}: ${error.message}</p>`;
+          }
+        }
+      }
+
+      async function loadAll() {
+        setStatus("Loading README and markdown files from GitHub API...", false);
+        metaEl.textContent = "Fetching repository file tree...";
+        readmeEl.textContent = "Preparing content...";
+        markdownContainer.textContent = "Loading markdown files...";
+        viewerEl.classList.remove("open");
+
+        try {
+          const files = await fetchRepoTree();
+          metaEl.textContent = `Source: ${owner}/${repo} (${branch}) • ${files.length} files indexed`;
+
+          const readmeMarkdown = await fetchContentFile("README.md");
+          await renderReadme(readmeMarkdown);
+          await renderAllMarkdownFiles(files);
+
+          setStatus("Documentation is current with the latest GitHub repository content.", false);
+        } catch (error) {
+          setStatus(`Failed to load documentation: ${error.message}`, true);
+          readmeEl.textContent = "Unable to load README content.";
+          markdownContainer.textContent = "Unable to load markdown files.";
+          metaEl.textContent = "Loading failed. Try again later or use View on GitHub.";
+        }
+      }
+
+      reloadBtn.addEventListener("click", () => {
+        markdownCache.clear();
+        loadAll();
+      });
+
+      window.addEventListener("DOMContentLoaded", () => {
+        if (!window.marked || !window.DOMPurify) {
+          setStatus("Required markdown libraries failed to load. Check network access.", true);
+          return;
+        }
+        loadAll();
+      });
+    })();
+  </script>
+</body>
+</html>

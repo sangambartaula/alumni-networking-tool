@@ -733,7 +733,7 @@ def change_password_page():
 
 @app.route('/about')
 def about():
-    return 'About page coming soon', 200
+    return send_from_directory('../frontend/public', 'about.html')
 
 @app.route('/alumni_style.css')
 def alumni_css():
