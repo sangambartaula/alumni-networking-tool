@@ -76,13 +76,13 @@ def _prevent_system_sleep():
     
     try:
         if sys.platform == "darwin":
-            # macOS: use caffeinate
+            # macOS: prevent both idle sleep and display sleep while scraper runs
             subprocess.Popen(
-                ["caffeinate", "-i", "-w", str(os.getpid())],
+                ["caffeinate", "-d", "-i", "-w", str(os.getpid())],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            logger.info("🔋 macOS sleep prevention enabled")
+            logger.info("🔋 macOS sleep/display prevention enabled")
             _sleep_prevention_active = True
             
         elif sys.platform == "win32":
@@ -91,13 +91,14 @@ def _prevent_system_sleep():
                 import ctypes
                 ES_CONTINUOUS = 0x80000000
                 ES_SYSTEM_REQUIRED = 0x00000001
+                ES_DISPLAY_REQUIRED = 0x00000002
                 ES_AWAYMODE_REQUIRED = 0x00000040
                 
-                # SetThreadExecutionState with SYSTEM_REQUIRED | CONTINUOUS
+                # Keep system and display awake during active scraping.
                 ctypes.windll.kernel32.SetThreadExecutionState(
-                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED
+                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED | ES_AWAYMODE_REQUIRED
                 )
-                logger.info("🔋 Windows sleep prevention enabled")
+                logger.info("🔋 Windows sleep/display prevention enabled")
                 _sleep_prevention_active = True
             except Exception as win_err:
                 logger.warning(f"Windows sleep prevention failed: {win_err}")
