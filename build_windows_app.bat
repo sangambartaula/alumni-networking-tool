@@ -18,6 +18,7 @@ del /f /q *.spec
 :: Install requirements
 echo Installing build dependencies (PyQt6, PyInstaller, Pillow)...
 pip install PyQt6 pyinstaller python-dotenv pillow
+pip install -r requirements.txt
 if errorlevel 1 (
     echo Dependency installation failed. Aborting build.
     pause

@@ -19,7 +19,8 @@ rm -f *.spec
 
 # Install requirements
 echo "Installing PyQt6 and PyInstaller..."
-pip install PyQt6 pyinstaller python-dotenv
+pip install PyQt6 pyinstaller python-dotenv pillow
+pip install -r requirements.txt
 
 # Build using PyInstaller
 echo "Squarifying icon to prevent stretching..."
