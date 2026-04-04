@@ -1133,17 +1133,8 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Scraper Settings")
-        self.setMinimumSize(680, 500)
-        self.resize(820, 620)
-        try:
-            screen = QApplication.primaryScreen()
-            if screen:
-                available = screen.availableGeometry()
-                target_w = min(980, max(700, int(available.width() * 0.72)))
-                target_h = min(760, max(520, int(available.height() * 0.72)))
-                self.resize(target_w, target_h)
-        except Exception:
-            pass
+        self.setMinimumSize(620, 440)
+        self.resize(780, 560)
         self.setStyleSheet(
             "QCheckBox::indicator { width: 18px; height: 18px; }"
             "QTabBar::tab { padding: 8px 14px; color: #1b2430; background: #e9eef6; border: 1px solid #cfd8e6; border-bottom: none; }"
@@ -1158,13 +1149,19 @@ class SettingsDialog(QDialog):
         self._fields = {}
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
         self.tabs = QTabWidget()
         self.tabs.setTabBarAutoHide(False)
         layout.addWidget(self.tabs)
         
         self._create_settings_tabs()
         
-        btn_layout = QHBoxLayout()
+        action_bar = QFrame()
+        action_bar.setStyleSheet("QFrame { background: #f3f6fb; border: 1px solid #d3deed; border-radius: 8px; }")
+        btn_layout = QHBoxLayout(action_bar)
+        btn_layout.setContentsMargins(10, 8, 10, 8)
+        btn_layout.setSpacing(8)
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.clicked.connect(self.reset_to_defaults)
         
@@ -1185,8 +1182,30 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(save_only_btn)
         btn_layout.addWidget(save_test_btn)
         
-        layout.addLayout(btn_layout)
+        layout.addWidget(action_bar)
         self.setSizeGripEnabled(True)
+        self._apply_screen_bounds()
+
+    def _apply_screen_bounds(self):
+        try:
+            host = self.windowHandle().screen() if self.windowHandle() else None
+            screen = host or QApplication.primaryScreen()
+            if not screen:
+                return
+            available = screen.availableGeometry()
+            max_w = max(640, available.width() - 40)
+            max_h = max(460, available.height() - 40)
+            self.setMaximumSize(max_w, max_h)
+
+            target_w = min(max_w, max(680, int(available.width() * 0.62)))
+            target_h = min(max_h, max(500, int(available.height() * 0.62)))
+            self.resize(target_w, target_h)
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_screen_bounds()
 
     def _create_settings_tabs(self):
         builders = [
