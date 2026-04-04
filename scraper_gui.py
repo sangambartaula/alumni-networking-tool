@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QGroupBox, QLabel, QLineEdit, QComboBox, 
     QCheckBox, QPushButton, QTextEdit, QMessageBox, QDialog,
-    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QSizePolicy, QTabWidget, QFormLayout, QScrollArea, QFrame
+    QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QSizePolicy, QTabWidget, QFormLayout, QScrollArea, QFrame, QSplitter
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
@@ -68,6 +68,41 @@ def update_env(key, value):
         
     with open(env_path, 'w') as f:
         f.writelines(lines)
+
+
+def update_env_many(updates):
+    """Atomically write multiple .env keys while preserving existing order/comments."""
+    base_dir = get_base_dir()
+    env_path = os.path.join(base_dir, '.env')
+
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+    keys_to_set = set(updates.keys())
+    seen = set()
+    rewritten = []
+    for line in lines:
+        stripped = line.strip()
+        if '=' in stripped and not stripped.startswith('#'):
+            key = stripped.split('=', 1)[0].strip()
+            if key in updates:
+                rewritten.append(f"{key}={updates[key]}\n")
+                seen.add(key)
+                continue
+        rewritten.append(line)
+
+    missing_keys = [k for k in updates.keys() if k not in seen]
+    if missing_keys and rewritten and not rewritten[-1].endswith('\n'):
+        rewritten.append('\n')
+    for key in missing_keys:
+        rewritten.append(f"{key}={updates[key]}\n")
+
+    tmp_path = env_path + '.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        f.writelines(rewritten)
+    os.replace(tmp_path, env_path)
 
 
 def _resolve_python_exec(base_dir):
@@ -1086,8 +1121,13 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Scraper Settings")
-        self.setMinimumSize(860, 700)
-        self.setStyleSheet("QCheckBox::indicator { width: 18px; height: 18px; }")
+        self.setMinimumSize(940, 720)
+        self.setStyleSheet(
+            "QCheckBox::indicator { width: 18px; height: 18px; }"
+            "QTabBar::tab { padding: 8px 14px; color: #1b2430; background: #e9eef6; border: 1px solid #cfd8e6; border-bottom: none; }"
+            "QTabBar::tab:selected { background: #1659a6; color: #ffffff; font-weight: 600; }"
+            "QTabWidget::pane { border: 1px solid #cfd8e6; top: -1px; }"
+        )
         
         self.base_dir = get_base_dir()
         self.env_path = os.path.join(self.base_dir, '.env')
@@ -1097,11 +1137,10 @@ class SettingsDialog(QDialog):
         
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
+        self.tabs.setTabBarAutoHide(False)
         layout.addWidget(self.tabs)
         
-        self.create_credentials_tab()
-        self.create_scraper_tab()
-        self.create_database_tab()
+        self._create_settings_tabs()
         
         btn_layout = QHBoxLayout()
         reset_btn = QPushButton("Reset to Defaults")
@@ -1109,17 +1148,38 @@ class SettingsDialog(QDialog):
         
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
+
+        save_only_btn = QPushButton("Save")
+        save_only_btn.clicked.connect(self.save_only)
+        save_only_btn.setStyleSheet("background-color: #1659a6; color: white; font-weight: bold; padding: 6px;")
         
-        save_btn = QPushButton("Save && Test Connection")
-        save_btn.clicked.connect(self.save_and_test)
-        save_btn.setStyleSheet("background-color: #2e6f40; color: white; font-weight: bold; padding: 6px;")
+        save_test_btn = QPushButton("Save && Test Connection")
+        save_test_btn.clicked.connect(self.save_and_test)
+        save_test_btn.setStyleSheet("background-color: #2e6f40; color: white; font-weight: bold; padding: 6px;")
         
         btn_layout.addWidget(reset_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(cancel_btn)
-        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(save_only_btn)
+        btn_layout.addWidget(save_test_btn)
         
         layout.addLayout(btn_layout)
+
+    def _create_settings_tabs(self):
+        builders = [
+            ("Credentials", self.create_credentials_tab),
+            ("Scraper", self.create_scraper_tab),
+            ("Database", self.create_database_tab),
+        ]
+        for tab_name, builder in builders:
+            try:
+                builder()
+            except Exception as e:
+                f = self._create_tab(tab_name)
+                err = QLabel(f"Could not load this tab: {e}")
+                err.setWordWrap(True)
+                err.setStyleSheet("color: #B00020; font-weight: 600;")
+                f.addRow(QLabel("Status"), err)
 
     def _add_field(self, form_layout, key, label_text, ftype, default_val, tooltip, is_required=False, is_password=False):
         lbl = QLabel(f"{label_text} *" if is_required else label_text)
@@ -1127,7 +1187,7 @@ class SettingsDialog(QDialog):
         if is_required:
             lbl.setStyleSheet("color: #0056b3; font-weight: bold;")
         else:
-            lbl.setStyleSheet("color: #666;")
+            lbl.setStyleSheet("color: #2f3b4b;")
         
         lbl_widget = QWidget()
         lbl_h = QHBoxLayout(lbl_widget)
@@ -1224,6 +1284,22 @@ class SettingsDialog(QDialog):
             "Use Groq for extraction. Recommended ON because HTML-only extraction is less reliable for some profile formats.",
             False,
         )
+        self._add_field(
+            f,
+            "GROQ_API_KEY",
+            "Groq API Key",
+            str,
+            "",
+            "Optional but strongly recommended for stable extraction quality.",
+            False,
+            True,
+        )
+        hint = QLabel(
+            "If USE_GROQ is enabled and key is empty, scraping can still run but may be less reliable on some profiles."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #2f3b4b;")
+        f.addRow(QLabel("Notes"), hint)
 
     def create_database_tab(self):
         f = self._create_tab("Database")
@@ -1244,7 +1320,7 @@ class SettingsDialog(QDialog):
                 w.setText("")
         QMessageBox.information(self, "Reset", "Fields reset. Click Save to apply changes to .env.")
 
-    def save_and_test(self):
+    def _collect_updates(self):
         updates = {}
         for key, field in self._fields.items():
             w = field['widget']
@@ -1260,17 +1336,31 @@ class SettingsDialog(QDialog):
                     except ValueError:
                         QMessageBox.warning(self, "Validation Error", f"Invalid value for {key}: must be valid {t.__name__}")
                         w.setFocus()
-                        return
+                        return None
                     updates[key] = val
                 else:
                     # User wants it empty (or fallback to default dynamically later)
                     # We can remove the key or leave it empty
                     updates[key] = ""
-                    
-        # Write back all updates to .env
-        for k, v in updates.items():
-            update_env(k, v)
-            
+
+        return updates
+
+    def save_only(self):
+        updates = self._collect_updates()
+        if updates is None:
+            return
+
+        update_env_many(updates)
+        QMessageBox.information(self, "Saved", "Settings saved to .env successfully.")
+        self.accept()
+
+    def save_and_test(self):
+        updates = self._collect_updates()
+        if updates is None:
+            return
+
+        update_env_many(updates)
+
         # Safely try MySQL
         try:
             import mysql.connector
@@ -1288,10 +1378,15 @@ class SettingsDialog(QDialog):
                 cur.execute("SELECT 1")
                 cur.fetchone()
             conn.close()
-            QMessageBox.information(self, "Success", "✅ Settings saved & database connected successfully!")
+            QMessageBox.information(self, "Success", "Settings saved and database test succeeded.")
             self.accept()
         except Exception as e:
-            QMessageBox.critical(self, "Database Connection Failed", f"❌ Database connection failed:\n{e}")
+            QMessageBox.warning(
+                self,
+                "Database Test Failed",
+                f"Settings were saved, but database test failed:\n{e}\n\n"
+                "You can continue using local/offline modes and retry connection test later.",
+            )
 
 
 class ScraperApp(QMainWindow):
@@ -1351,6 +1446,7 @@ class ScraperApp(QMainWindow):
         self._cloud_status_cache = None
         self._geo_status_cache = None
         self._missing_module_prompt_shown = False
+        self._awaiting_terminal_input = False
         self.init_ui()
 
     def _apply_modern_style(self):
@@ -1950,8 +2046,7 @@ class ScraperApp(QMainWindow):
         sync_btn_layout.addWidget(self.install_deps_btn)
         left_layout.addLayout(sync_btn_layout)
         
-        left_panel.setFixedWidth(460)
-        main_layout.addWidget(left_panel)
+        left_panel.setMinimumWidth(440)
         
         # Right Panel (Console)
         right_panel = QWidget()
@@ -1988,6 +2083,10 @@ class ScraperApp(QMainWindow):
         stdin_row.addWidget(self.stdin_send_btn)
         right_layout.addLayout(stdin_row)
 
+        self.stdin_status_label = QLabel("Input status: idle")
+        self.stdin_status_label.setStyleSheet("color: #5F6368; font-weight: 600;")
+        right_layout.addWidget(self.stdin_status_label)
+
         history_group = QGroupBox("Recent Scrape Sessions")
         history_layout = QVBoxLayout()
         history_controls = QHBoxLayout()
@@ -2022,7 +2121,13 @@ class ScraperApp(QMainWindow):
         history_group.setLayout(history_layout)
         right_layout.addWidget(history_group)
         
-        main_layout.addWidget(right_panel)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([520, 860])
+        main_layout.addWidget(splitter)
         
         # Hook mode change to layout visibility
         self.mode_combo.currentTextChanged.connect(self.on_mode_change)
@@ -2157,6 +2262,10 @@ class ScraperApp(QMainWindow):
         scrollbar = self.console.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
+        prompt_hint = self._detect_prompt_hint(stripped)
+        if prompt_hint:
+            self._set_terminal_input_status(True, prompt_hint)
+
         if ("modulenotfounderror: no module named" in line_lower) and (not self._missing_module_prompt_shown):
             self._missing_module_prompt_shown = True
             missing_name = "unknown"
@@ -2176,6 +2285,42 @@ class ScraperApp(QMainWindow):
             )
             if choice == QMessageBox.StandardButton.Yes:
                 self.install_dependencies()
+
+    def _detect_prompt_hint(self, line):
+        if not line:
+            return ""
+
+        lower = line.lower()
+        prompt_tokens = [
+            "type 'exit'",
+            "force exit",
+            "remove these",
+            "[y/n]",
+            "[y/n]:",
+            "[y/n]",
+            "[y/n]:",
+            "enter",
+            "choose",
+            "selection",
+        ]
+        if any(token.lower() in lower for token in prompt_tokens):
+            return "Scraper is waiting for terminal input."
+
+        if lower.endswith(":") and any(k in lower for k in ("input", "choice", "answer", "select", "remove")):
+            return "Scraper is waiting for terminal input."
+        return ""
+
+    def _set_terminal_input_status(self, waiting, hint=""):
+        self._awaiting_terminal_input = waiting
+        if waiting:
+            text = hint or "Scraper is waiting for terminal input."
+            self.stdin_status_label.setText(f"Input status: awaiting input. {text}")
+            self.stdin_status_label.setStyleSheet("color: #B26A00; font-weight: 700;")
+            if self.stdin_input.isEnabled():
+                self.stdin_input.setFocus()
+        else:
+            self.stdin_status_label.setText("Input status: idle")
+            self.stdin_status_label.setStyleSheet("color: #5F6368; font-weight: 600;")
 
     def _append_gui_summary_block(self):
         if self._run_started_at:
@@ -2370,6 +2515,9 @@ class ScraperApp(QMainWindow):
     def start_scraper(self):
         if not self.validate_inputs():
             return
+
+        if self.mode_combo.currentText() == "update" and not self._confirm_update_mode_queue():
+            return
             
         self.save_all_settings_to_env()
 
@@ -2391,6 +2539,7 @@ class ScraperApp(QMainWindow):
         self.install_deps_btn.setEnabled(False)
         self.stdin_input.setEnabled(True)
         self.stdin_send_btn.setEnabled(True)
+        self._set_terminal_input_status(False)
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
         self.stop_after_profile_btn.setVisible(False)
@@ -2589,6 +2738,7 @@ class ScraperApp(QMainWindow):
         self.install_deps_btn.setEnabled(True)
         self.stdin_input.setEnabled(False)
         self.stdin_send_btn.setEnabled(False)
+        self._set_terminal_input_status(False)
         self._reset_stop_controls()
 
     def on_scraper_finished(self):
@@ -2598,6 +2748,7 @@ class ScraperApp(QMainWindow):
         self.install_deps_btn.setEnabled(True)
         self.stdin_input.setEnabled(False)
         self.stdin_send_btn.setEnabled(False)
+        self._set_terminal_input_status(False)
         self._reset_stop_controls()
         self._append_gui_summary_block()
         try:
@@ -2655,8 +2806,51 @@ class ScraperApp(QMainWindow):
             proc.stdin.flush()
             self.append_console(f"\n[stdin] {text}\n")
             self.stdin_input.clear()
+            self._set_terminal_input_status(False)
         except Exception as e:
             QMessageBox.warning(self, "Send Failed", f"Could not send input to scraper process: {e}")
+
+    def _confirm_update_mode_queue(self):
+        try:
+            from scraper import database_handler
+
+            profiles, cutoff_date = database_handler.get_outdated_profiles_from_db()
+            queued_count = len(profiles or [])
+            if queued_count <= 0:
+                QMessageBox.information(
+                    self,
+                    "Update Mode",
+                    "No profiles currently require refresh. Nothing to run.",
+                )
+                return False
+
+            min_delay_seconds, max_delay_seconds = self._get_effective_delay_range()
+            avg_seconds = ((min_delay_seconds + max_delay_seconds) / 2.0) + 25.0
+            est_minutes = max(1, int((queued_count * avg_seconds) / 60.0))
+            cutoff_text = cutoff_date.strftime("%Y-%m-%d %H:%M:%S") if cutoff_date else "unknown"
+
+            choice = QMessageBox.question(
+                self,
+                "Confirm Update Queue",
+                (
+                    f"Update mode queued profiles: {queued_count}\n"
+                    f"Cutoff (last_updated older than): {cutoff_text}\n"
+                    f"Estimated minimum runtime: ~{est_minutes} minute(s)\n\n"
+                    "Continue with update mode run?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            return choice == QMessageBox.StandardButton.Yes
+        except Exception as e:
+            choice = QMessageBox.question(
+                self,
+                "Update Queue Unavailable",
+                f"Could not preview update queue count: {e}\n\nStart update mode anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return choice == QMessageBox.StandardButton.Yes
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
