@@ -124,14 +124,16 @@ def _restore_system_sleep():
             # SetThreadExecutionState(ES_CONTINUOUS) restores default behavior
             ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
             logger.info("Sleep restored")
-            _sleep_prevention_active = False
     except Exception:
         pass
+    finally:
+        _sleep_prevention_active = False
 
 
 # ============================================================
 # Resume / Scrape State
-# ============================================================def load_keyword_state(mode_key):
+# ============================================================
+def load_keyword_state(mode_key):
     """
     Load the last known scrape position for a specific keyword list.
     """
