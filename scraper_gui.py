@@ -1551,6 +1551,7 @@ class ScraperApp(QMainWindow):
         self._geo_status_cache = None
         self._missing_module_prompt_shown = False
         self._live_tracker_timer = None
+        self._tracker_refresh_pending = False
         self.init_ui()
 
     def _apply_modern_style(self):
@@ -1661,6 +1662,18 @@ class ScraperApp(QMainWindow):
             return
         self.refresh_run_history()
         self.refresh_scrape_count()
+
+    def _schedule_tracker_refresh(self, delay_ms=350):
+        if self._tracker_refresh_pending:
+            return
+        self._tracker_refresh_pending = True
+
+        def _run_refresh():
+            self._tracker_refresh_pending = False
+            self.refresh_run_history()
+            self.refresh_scrape_count()
+
+        QTimer.singleShot(delay_ms, _run_refresh)
 
     def _check_for_gui_file_update(self):
         current_mtime = self._safe_get_mtime(self._gui_file_path)
@@ -2742,6 +2755,13 @@ class ScraperApp(QMainWindow):
             return
 
         line_lower = (text or "").lower()
+        if (
+            "completed — saved" in line_lower
+            or "completed - saved" in line_lower
+            or "info persistence: csv updated | cloud db updated | sqlite mirror updated" in line_lower
+        ):
+            self._schedule_tracker_refresh()
+
         color = "#D4D4D4"
         if "error" in line_lower or "failed" in line_lower or "critical" in line_lower:
             color = "#FF6B6B"
