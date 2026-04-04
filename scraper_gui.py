@@ -2045,8 +2045,13 @@ class ScraperApp(QMainWindow):
         sync_btn_layout.addWidget(self.upload_db_btn)
         sync_btn_layout.addWidget(self.install_deps_btn)
         left_layout.addLayout(sync_btn_layout)
+        left_layout.addStretch()
         
         left_panel.setMinimumWidth(440)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left_panel)
         
         # Right Panel (Console)
         right_panel = QWidget()
@@ -2122,7 +2127,7 @@ class ScraperApp(QMainWindow):
         right_layout.addWidget(history_group)
         
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left_panel)
+        splitter.addWidget(left_scroll)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
