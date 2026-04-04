@@ -811,8 +811,14 @@ def run_names_mode(scraper, nav, history_mgr):
             wait_between_profiles()
 
 
-def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key, mode_label):
+def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key, mode_label, max_profiles_for_mode=0):
     page = 1
+    mode_start_count = session_profiles_scraped
+
+    def _mode_quota_reached():
+        if max_profiles_for_mode <= 0:
+            return False
+        return (session_profiles_scraped - mode_start_count) >= max_profiles_for_mode
     state = load_scrape_state()
     if (
         state
@@ -835,6 +841,9 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
     while True:
         if should_stop():
             break
+        if _mode_quota_reached():
+            logger.info(f"Reached mode quota for {mode_label}: {max_profiles_for_mode} profiles")
+            break
 
         url = base_url if page == 1 else f"{base_url}&page={page}"
         save_scrape_state(state_mode_key, base_url, page)
@@ -855,6 +864,9 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
             break
 
         for profile_url in urls:
+            if _mode_quota_reached():
+                logger.info(f"Reached mode quota for {mode_label}: {max_profiles_for_mode} profiles")
+                return
             profile_url = _normalize_profile_url(profile_url)
             if not profile_url:
                 continue
@@ -901,13 +913,32 @@ def run_search_mode(scraper, nav, history_mgr):
 
 def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
     processed_any = False
+    quotas = {alias: 0 for alias in discipline_aliases}
+    if GUI_MAX_PROFILES > 0 and discipline_aliases:
+        base = GUI_MAX_PROFILES // len(discipline_aliases)
+        remainder = GUI_MAX_PROFILES % len(discipline_aliases)
+        for idx, alias in enumerate(discipline_aliases):
+            quotas[alias] = base + (1 if idx < remainder else 0)
+
     logger.info(
         "DISCIPLINE QUEUE: %s",
         ", ".join(discipline_aliases) if discipline_aliases else "(none)",
     )
+    if GUI_MAX_PROFILES > 0 and discipline_aliases:
+        logger.info(
+            "DISCIPLINE QUOTAS (from GUI_MAX_PROFILES=%s): %s",
+            GUI_MAX_PROFILES,
+            ", ".join([f"{alias}={quotas[alias]}" for alias in discipline_aliases]),
+        )
+
     for alias in discipline_aliases:
         if should_stop():
             return processed_any
+
+        mode_quota = quotas.get(alias, 0)
+        if GUI_MAX_PROFILES > 0 and mode_quota <= 0:
+            logger.info(f"Skipping discipline '{alias}' because assigned quota is 0")
+            continue
 
         label = DISCIPLINE_ALIAS_LABELS.get(alias, alias)
         keyword_query = DISCIPLINE_KEYWORD_BUCKETS[alias]
@@ -936,6 +967,7 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             base_url=discipline_base_url,
             state_mode_key=f"search_discipline:{alias}",
             mode_label=f"discipline search ({alias})",
+            max_profiles_for_mode=mode_quota,
         )
         logger.info(f"✅ Finished discipline search ({label})")
         processed_any = True

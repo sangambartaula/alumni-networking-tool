@@ -216,6 +216,8 @@ class ScraperWorker(QThread):
         scraper_mode=None,
         selected_disciplines=None,
         connections_csv_path=None,
+        max_profiles=None,
+        max_runtime_minutes=None,
     ):
         super().__init__()
         self.process = None
@@ -225,6 +227,8 @@ class ScraperWorker(QThread):
         self.scraper_mode = (scraper_mode or "search").strip().lower()
         self.selected_disciplines = list(selected_disciplines or [])
         self.connections_csv_path = (connections_csv_path or "").strip()
+        self.max_profiles = max_profiles
+        self.max_runtime_minutes = max_runtime_minutes
 
     def run(self):
         base_dir = get_base_dir()
@@ -263,6 +267,10 @@ class ScraperWorker(QThread):
             popen_kwargs["env"]["GUI_SEARCH_DISCIPLINES"] = ",".join(self.selected_disciplines)
             if self.connections_csv_path:
                 popen_kwargs["env"]["INPUT_CSV"] = self.connections_csv_path
+            if self.max_profiles is not None:
+                popen_kwargs["env"]["GUI_MAX_PROFILES"] = str(int(self.max_profiles))
+            if self.max_runtime_minutes is not None:
+                popen_kwargs["env"]["GUI_MAX_RUNTIME_MINUTES"] = str(int(self.max_runtime_minutes))
             popen_kwargs["env"]["PYTHONUTF8"] = "1"
             popen_kwargs["env"]["PYTHONIOENCODING"] = "utf-8"
 
@@ -2322,6 +2330,8 @@ class ScraperApp(QMainWindow):
         selected_disciplines = self._get_selected_discipline_aliases() if self.mode_combo.currentText() == "search" else []
         if selected_disciplines:
             self.append_console(f"Selected disciplines: {', '.join(selected_disciplines)}\n")
+        max_profiles = int(self.max_profiles.text() or 0)
+        max_runtime_minutes = int((int(self.hours_input.text() or 0) * 60) + int(self.mins_input.text() or 0))
         
         self.worker = ScraperWorker(
             min_delay_seconds=min_delay_seconds,
@@ -2329,6 +2339,8 @@ class ScraperApp(QMainWindow):
             scraper_mode=self.mode_combo.currentText(),
             selected_disciplines=selected_disciplines,
             connections_csv_path=self.csv_path_input.text().strip(),
+            max_profiles=max_profiles,
+            max_runtime_minutes=max_runtime_minutes,
         )
         self.worker.output_signal.connect(self.append_console)
         self.worker.finished_signal.connect(self.on_scraper_finished)
