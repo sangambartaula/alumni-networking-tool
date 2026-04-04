@@ -765,7 +765,7 @@ def access_denied():
 def api_auth_login():
     """Email/password login endpoint."""
     from auth import verify_password
-    from database import get_user_by_email, is_authorized_user, record_failed_login, reset_failed_login
+    from database import get_user_by_email, record_failed_login, reset_failed_login
     import datetime
 
     data = request.get_json(silent=True) or {}
