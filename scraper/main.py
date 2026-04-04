@@ -125,6 +125,64 @@ def save_keyword_state(mode_key, search_url, page):
     finally:
         conn.close()
 
+def load_discipline_rotation(discipline):
+    manager = get_connection_manager()
+    conn = manager.get_sqlite_connection()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cluster_rotation_state (
+                discipline TEXT PRIMARY KEY,
+                active_cluster INTEGER DEFAULT 0,
+                profiles_collected INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT active_cluster, profiles_collected, updated_at FROM cluster_rotation_state WHERE discipline = ?", (discipline,)
+        ).fetchone()
+        if row:
+            return {
+                "active_cluster": row["active_cluster"],
+                "profiles_collected": row["profiles_collected"],
+                "updated_at": row["updated_at"],
+            }
+    finally:
+        conn.close()
+    return None
+
+def save_discipline_rotation(discipline, active_cluster, profiles_collected):
+    manager = get_connection_manager()
+    conn = manager.get_sqlite_connection()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cluster_rotation_state (
+                discipline TEXT PRIMARY KEY,
+                active_cluster INTEGER DEFAULT 0,
+                profiles_collected INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO cluster_rotation_state (discipline, active_cluster, profiles_collected, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(discipline) DO UPDATE SET
+                active_cluster = excluded.active_cluster,
+                profiles_collected = excluded.profiles_collected,
+                updated_at = datetime('now')
+            """,
+            (discipline, active_cluster, profiles_collected)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def _parse_state_timestamp(value):
     if not value:
@@ -254,86 +312,34 @@ DISCIPLINE_ALIAS_REDIRECTS = {
 }
 
 DISCIPLINE_SEARCH_GROUPS = {
-    "software": {
-        "cluster_1": {
-            "lists": [
-                "software engineer, software developer, full stack, backend, frontend, programmer, web developer, ios developer, android developer, application developer",
-                "data scientist, data engineer, data analyst, machine learning, deep learning, artificial intelligence, nlp, computer vision, mlops, ai engineer"
-            ],
-            "fallback": "software engineer, data scientist"
-        },
-        "cluster_2": {
-            "lists": [
-                "cybersecurity, information security, network security, security analyst, penetration tester, soc analyst, incident response, threat intelligence, iam, siem",
-                "cloud engineer, devops engineer, site reliability, aws engineer, azure engineer, gcp engineer, systems administrator, network engineer, infrastructure engineer, kubernetes"
-            ],
-            "fallback": "cybersecurity, cloud engineer"
-        }
-    },
-    "embedded": {
-        "cluster_1": {
-            "lists": [
-                "embedded systems, firmware engineer, embedded software, microcontroller, rtos, device drivers, embedded c, arm cortex, bare metal, iot engineer",
-                "hardware engineer, electrical engineer, pcb design, schematic capture, fpga, asic, vlsi, verilog, vhdl, mixed signal"
-            ],
-            "fallback": "embedded engineer, firmware engineer"
-        },
-        "cluster_2": {
-            "lists": [
-                "systems engineer, rf engineer, signal processing, antenna design, analog design, power electronics, test engineer, validation engineer, semiconductor, hardware architecture",
-                "control systems, electro-mechanical, robotics engineer, automation engineer, mechatronics, systems integration, plc programming, scada, instrumentation, motor control"
-            ],
-            "fallback": "electrical engineer, systems engineer"
-        }
-    },
-    "mechanical": {
-        "cluster_1": {
-            "lists": [
-                "mechanical engineer, machine design, solidworks, autocad, thermal analysis, hvac, fluid mechanics, thermodynamics, fea, ansys",
-                "manufacturing engineer, production engineer, process engineer, industrial engineer, lean manufacturing, six sigma, continuous improvement, cnc, tooling, quality engineer"
-            ],
-            "fallback": "mechanical engineer, mechanical design"
-        },
-        "cluster_2": {
-            "lists": [
-                "aerospace engineer, automotive engineer, powertrain design, dynamics, kinematics, stress analysis, composite materials, cad designer, 3d modeling, product design",
-                "materials engineer, metallurgy, welding engineer, plastics engineering, packaging engineer, reliability engineer, reliability testing, failure analysis, maintenance engineer, plant engineer"
-            ],
-            "fallback": "manufacturing engineer, industrial engineer"
-        }
-    },
-    "biomedical": {
-        "cluster_1": {
-            "lists": [
-                "biomedical engineer, medical devices, regulatory affairs, fda, iso 13485, validation engineer, biomaterials, tissue engineering, biomechanics, prosthetics",
-                "clinical engineer, clinical trial manager, quality assurance, qms, quality control, verification and validation, human factors engineer, usability engineering, compliance specialist, risk management"
-            ],
-            "fallback": "biomedical engineer, medical device engineer"
-        },
-        "cluster_2": {
-            "lists": [
-                "bioinformatics, computational biology, biostatistics, health informatics, genomics, medical imaging, image processing, mri, ultrasound, ct",
-                "biotech, bioprocess engineer, cell culture, fermentation, downstream processing, upstream processing, biomanufacturing, lab automation, assay development, immunoassay"
-            ],
-            "fallback": "bioinformatics, clinical engineer"
-        }
-    },
-    "construction": {
-        "cluster_1": {
-            "lists": [
-                "construction manager, project manager, superintendent, project engineer, field engineer, site engineer, civil engineer, structural engineer, pe, eit",
-                "estimator, preconstruction, cost engineer, scheduling, p6, primavera, project controls, contract administrator, procurement, bid management"
-            ],
-            "fallback": "construction manager, civil engineer"
-        },
-        "cluster_2": {
-            "lists": [
-                "bim manager, vdc coordinator, revit, navisworks, civil 3d, autocad civil, transportation engineer, traffic engineer, highway design, bridge engineer",
-                "geotechnical engineer, environmental engineer, water resources, hydrology, municipal engineer, survey, land development, urban planning, sustainability, leed"
-            ],
-            "fallback": "project engineer, structural engineer"
-        }
-    }
+    "software": [
+        "computer science, artificial intelligence, software engineer, software developer, full stack, front end, back end, machine learning",
+        "data science, data scientist, cloud, cybersecurity, security analyst, devops engineer, python, react, aws, docker",
+        "software architect, machine learning engineer, systems engineer, network engineer, site reliability engineer, penetration tester, backend developer, frontend developer, devops specialist, cloud architect",
+        "c++, java, javascript, tensorflow, pytorch, sql, kubernetes, linux, github, matlab"
+    ],
+    "embedded": [
+        "electrical engineer, embedded engineer, hardware engineer, firmware engineer, microcontroller, vlsi engineer, signal processing, semiconductor",
+        "pcb design, fpga engineer, circuit design, robotics engineer, analog design, verilog, matlab, cad",
+        "system architect, control engineer, test engineer, automation engineer, instrumentation engineer, electronics engineer, product engineer, embedded systems specialist, labview engineer, circuit board designer",
+        "simulink, proteus, xilinx, altium, cadence, microchip, arm cortex, vhdl, python, matlab"
+    ],
+    "mechanical": [
+        "mechanical engineer, manufacturing engineer, design engineer, robotics engineer, product design, hvac engineer, thermodynamics, cad engineer",
+        "solidworks, ansys, matlab, automation engineer, machine design, control systems, cnc machining, 3d printing",
+        "mechanical designer, project engineer, process engineer, production engineer, mechatronics engineer, structural engineer, quality engineer, thermal engineer, systems engineer, product engineer",
+        "catia, inventor, fusion 360, nx unigraphics, comsol, cad, cam, fea, simulation, solid edge"
+    ],
+    "biomedical": [
+        "biomedical engineer, clinical engineer, medical device engineer, bioinformatics engineer, biomaterials, medical imaging",
+        "biosensors, biotechnology, health informatics, tissue engineering, biomedical instrumentation, labview"
+    ],
+    "construction": [
+        "civil engineer, construction engineer, project engineer, structural engineer, construction management, site engineer, infrastructure",
+        "bim engineer, revit, estimating, cost engineer, surveying, project management, construction planner",
+        "design engineer, construction coordinator, planning engineer, scheduling engineer, quality engineer, safety engineer, site manager, construction supervisor, structural designer, construction analyst",
+        "autocad, sketchup, primavera, navisworks, sap2000, microstation, project scheduling, cost estimation, cad, bim"
+    ]
 }
 
 _SEARCH_INPUT_SELECTORS = [
@@ -883,10 +889,10 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
 
     while True:
         if should_stop():
-            return "stopped"
+            return "stopped", (session_profiles_scraped - mode_start_count)
         if _mode_quota_reached():
             logger.info(f"Reached quota for {mode_label}: {max_profiles_for_mode} new profiles.")
-            return "threshold_reached"
+            return "threshold_reached", (session_profiles_scraped - mode_start_count)
 
         url = base_url if page == 1 else f"{base_url}&page={page}"
         save_keyword_state(state_mode_key, base_url, page)
@@ -895,7 +901,7 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
         ok = nav.get(url)
         if not ok:
             logger.warning("Search page unhealthy. Stopping search loop.")
-            return "network_error"
+            return "network_error", (session_profiles_scraped - mode_start_count)
 
         time.sleep(5)
         scraper.scroll_full_page()
@@ -904,19 +910,19 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
         if not urls:
             # Check for no results vs exhaustion
             save_keyword_state(state_mode_key, base_url, 1) # reset pagination since we reached end
-            return "no_results" if page == 1 else "exhausted"
+            return "no_results" if page == 1 else "exhausted", (session_profiles_scraped - mode_start_count)
 
         for profile_url in urls:
             if _mode_quota_reached():
                 logger.info(f"Reached quota for {mode_label}: {max_profiles_for_mode} new profiles.")
-                return "threshold_reached"
+                return "threshold_reached", (session_profiles_scraped - mode_start_count)
             
             profile_url = _normalize_profile_url(profile_url)
             if not profile_url:
                 continue
 
             if check_force_exit():
-                return "stopped"
+                return "stopped", (session_profiles_scraped - mode_start_count)
 
             if config.is_blocked_url(profile_url):
                 continue
@@ -935,7 +941,7 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 _save_and_track(data, profile_url, history_mgr)
 
             if should_stop():
-                return "stopped"
+                return "stopped", (session_profiles_scraped - mode_start_count)
 
             wait_between_profiles()
 
@@ -956,9 +962,7 @@ def run_search_mode(scraper, nav, history_mgr):
 
 def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
     processed_any = False
-    
-    # max 100 new profiles per keyword list
-    PROFILES_PER_LIST_THRESHOLD = 100 
+    PROFILES_PER_CLUSTER_THRESHOLD = 100 
 
     logger.info(
         "DISCIPLINE QUEUE: %s",
@@ -969,83 +973,148 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
         if should_stop():
             return processed_any
         
-        # map alias to primary
         alias = DISCIPLINE_ALIAS_REDIRECTS.get(raw_alias, raw_alias)
         
         if alias not in DISCIPLINE_SEARCH_GROUPS:
             logger.warning(f"Skipping discipline '{alias}' because no keyword group was found.")
             continue
             
-        group = DISCIPLINE_SEARCH_GROUPS[alias]
+        clusters = DISCIPLINE_SEARCH_GROUPS[alias]
         label = DISCIPLINE_ALIAS_LABELS.get(alias, alias)
         logger.info(f"--- MODE: Discipline Search ({label}) ---")
 
-        for cluster_name in ["cluster_1", "cluster_2"]:
-            if cluster_name not in group:
-                continue
-            cluster_data = group[cluster_name]
-            lists = cluster_data["lists"]
-            fallback_query = cluster_data["fallback"]
+        # Load rotation state
+        rot_state = load_discipline_rotation(alias)
+        active_cluster = 0
+        profiles_collected = 0
+        if rot_state and _is_recent_state(rot_state.get("updated_at"), config.SCRAPE_RESUME_MAX_AGE_DAYS):
+            active_cluster = rot_state.get("active_cluster", 0)
+            profiles_collected = rot_state.get("profiles_collected", 0)
             
-            for list_idx, keyword_query in enumerate(lists):
+            # Rotation logic check: if we already hit 100, swap
+            if profiles_collected >= PROFILES_PER_CLUSTER_THRESHOLD:
+                active_cluster = 1 if active_cluster == 0 else 0
+                profiles_collected = 0
+
+        # Enforce valid primary bounds gracefully
+        if active_cluster not in [0, 1]:
+            active_cluster = 0
+
+        logger.info(f"Resuming {label} at Cluster {active_cluster + 1} with {profiles_collected} profiles previously collected.")
+
+        clusters_to_run = [active_cluster]
+        other_primary = 1 if active_cluster == 0 else 0
+        clusters_to_run.append(other_primary)
+        
+        primary_success = False
+
+        for idx in clusters_to_run:
+            if should_stop():
+                return processed_any
+
+            cluster_query = clusters[idx]
+            cluster_label = f"Cluster {idx+1}"
+            
+            logger.info(f"[*] Processing {label} -> {cluster_label}")
+            
+            # Setup URL
+            ok = nav.get(UNT_DISCIPLINE_SEARCH_BASE_URL)
+            if not ok:
+                logger.warning("UNT people search page unhealthy. Skipping.")
+                break 
+
+            time.sleep(3)
+            submitted = _submit_discipline_keywords(scraper, cluster_query)
+            if not submitted:
+                logger.warning("Could not submit keywords via search box. Falling back to URL param.")
+
+            discipline_base_url = _build_discipline_search_base_url(
+                scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
+                cluster_query,
+            )
+            
+            if "keywords=" not in discipline_base_url:
+                logger.warning("URL did not contain keywords. Skipping query.")
+                continue
+            
+            mode_key = f"discipline:{alias}:cluster_{idx+1}"
+            remaining_quota = max(0, PROFILES_PER_CLUSTER_THRESHOLD - profiles_collected)
+
+            result, chunk_scraped = _run_search_results_mode(
+                scraper=scraper,
+                nav=nav,
+                history_mgr=history_mgr,
+                base_url=discipline_base_url,
+                state_mode_key=mode_key,
+                mode_label=f"discipline: {alias} | {cluster_label}",
+                max_profiles_for_mode=remaining_quota,
+            )
+            
+            processed_any = True
+            profiles_collected += chunk_scraped
+            
+            save_discipline_rotation(alias, idx, profiles_collected)
+
+            if chunk_scraped > 0 or profiles_collected >= PROFILES_PER_CLUSTER_THRESHOLD:
+                primary_success = True
+
+            if profiles_collected >= PROFILES_PER_CLUSTER_THRESHOLD:
+                logger.info(f"Target of {PROFILES_PER_CLUSTER_THRESHOLD} reached for {cluster_label}.")
+                break
+                
+            if result in ("no_results", "exhausted"):
+                logger.info(f"{cluster_label} was exhausted. Resetting profile count and rotating to next cluster.")
+                profiles_collected = 0
+                save_discipline_rotation(alias, other_primary, 0)
+                continue
+                
+            if result in ("stopped", "network_error"):
+                break
+
+        if not primary_success:
+            logger.warning(f"Both primary clusters failed to yield new profiles for {label}. Triggering fallback clusters.")
+            fallback_success = False
+            for fb_idx in range(2, len(clusters)):
                 if should_stop():
                     return processed_any
                 
-                logger.info(f"[*] Processing {label} -> {cluster_name} -> list {list_idx}")
+                cluster_query = clusters[fb_idx]
+                cluster_label = f"Fallback Cluster {fb_idx+1}"
                 
-                # Setup URL
+                logger.info(f"[*] Processing {label} -> {cluster_label}")
+                
                 ok = nav.get(UNT_DISCIPLINE_SEARCH_BASE_URL)
-                if not ok:
-                    logger.warning("UNT people search page unhealthy. Skipping.")
-                    break # Break out of cluster lists
-
+                if not ok: break 
                 time.sleep(3)
-                submitted = _submit_discipline_keywords(scraper, keyword_query)
-                if not submitted:
-                    logger.warning("Could not submit keywords via search box. Falling back to URL param.")
-
+                
+                submitted = _submit_discipline_keywords(scraper, cluster_query)
                 discipline_base_url = _build_discipline_search_base_url(
                     scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
-                    keyword_query,
+                    cluster_query,
                 )
                 
-                if "keywords=" not in discipline_base_url:
-                    logger.warning("URL did not contain keywords. Skipping query.")
-                    continue
-                
-                mode_key = f"discipline:{alias}:{cluster_name}:list_{list_idx}"
-                result = _run_search_results_mode(
+                mode_key = f"discipline:{alias}:fallback_{fb_idx+1}"
+                result, chunk_scraped = _run_search_results_mode(
                     scraper=scraper,
                     nav=nav,
                     history_mgr=history_mgr,
                     base_url=discipline_base_url,
                     state_mode_key=mode_key,
-                    mode_label=f"discipline: {alias} | {cluster_name} | list_{list_idx}",
-                    max_profiles_for_mode=PROFILES_PER_LIST_THRESHOLD,
+                    mode_label=f"fallback: {alias} | {cluster_label}",
+                    max_profiles_for_mode=PROFILES_PER_CLUSTER_THRESHOLD,
                 )
                 
                 processed_any = True
                 
-                if result == "no_results":
-                    logger.info(f"No results for list {list_idx}. Trying fallback query.")
-                    ok = nav.get(UNT_DISCIPLINE_SEARCH_BASE_URL)
-                    if not ok: continue
-                    time.sleep(3)
-                    _submit_discipline_keywords(scraper, fallback_query)
-                    fb_url = _build_discipline_search_base_url(
-                        scraper.driver.current_url, fallback_query
-                    )
-                    fb_mode_key = f"discipline:{alias}:{cluster_name}:fallback_{list_idx}"
-                    _run_search_results_mode(
-                        scraper=scraper,
-                        nav=nav,
-                        history_mgr=history_mgr,
-                        base_url=fb_url,
-                        state_mode_key=fb_mode_key,
-                        mode_label=f"fallback: {alias} | {cluster_name}",
-                        max_profiles_for_mode=PROFILES_PER_LIST_THRESHOLD,
-                    )
-            
+                if chunk_scraped > 0:
+                    fallback_success = True
+
+                if result in ("stopped", "network_error"):
+                    break
+                    
+            if not fallback_success:
+                logger.warning(f"No new results found for {label} across ALL clusters, possible LinkedIn cap or blocking.")
+
         logger.info(f"✅ Finished discipline search ({label})")
 
     return processed_any
