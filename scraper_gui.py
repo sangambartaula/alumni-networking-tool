@@ -209,12 +209,22 @@ class ScraperWorker(QThread):
     output_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(int)
     
-    def __init__(self, min_delay_seconds=None, max_delay_seconds=None):
+    def __init__(
+        self,
+        min_delay_seconds=None,
+        max_delay_seconds=None,
+        scraper_mode=None,
+        selected_disciplines=None,
+        connections_csv_path=None,
+    ):
         super().__init__()
         self.process = None
         self._is_stopped = False
         self.min_delay_seconds = min_delay_seconds
         self.max_delay_seconds = max_delay_seconds
+        self.scraper_mode = (scraper_mode or "search").strip().lower()
+        self.selected_disciplines = list(selected_disciplines or [])
+        self.connections_csv_path = (connections_csv_path or "").strip()
 
     def run(self):
         base_dir = get_base_dir()
@@ -248,6 +258,11 @@ class ScraperWorker(QThread):
                 popen_kwargs["env"]["GUI_MIN_DELAY_SECONDS"] = str(int(self.min_delay_seconds))
             if self.max_delay_seconds is not None:
                 popen_kwargs["env"]["GUI_MAX_DELAY_SECONDS"] = str(int(self.max_delay_seconds))
+            if self.scraper_mode:
+                popen_kwargs["env"]["GUI_SCRAPER_MODE"] = self.scraper_mode
+            popen_kwargs["env"]["GUI_SEARCH_DISCIPLINES"] = ",".join(self.selected_disciplines)
+            if self.connections_csv_path:
+                popen_kwargs["env"]["INPUT_CSV"] = self.connections_csv_path
 
             if sys.platform == "win32":
                 popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -2035,6 +2050,13 @@ class ScraperApp(QMainWindow):
             return 60, 180
         return min_d, max_d
 
+    def _get_selected_discipline_aliases(self):
+        selected = []
+        for alias, checkbox in getattr(self, "discs", {}).items():
+            if checkbox.isChecked():
+                selected.append(alias)
+        return selected
+
     def append_console(self, text):
         stripped = (text or "").strip()
         if stripped.startswith("SUMMARY|"):
@@ -2295,10 +2317,16 @@ class ScraperApp(QMainWindow):
         self.append_console(
             f"Using delay range: {min_delay_seconds}s - {max_delay_seconds}s (preset: {self.delay_combo.currentText()})\n"
         )
+        selected_disciplines = self._get_selected_discipline_aliases() if self.mode_combo.currentText() == "search" else []
+        if selected_disciplines:
+            self.append_console(f"Selected disciplines: {', '.join(selected_disciplines)}\n")
         
         self.worker = ScraperWorker(
             min_delay_seconds=min_delay_seconds,
             max_delay_seconds=max_delay_seconds,
+            scraper_mode=self.mode_combo.currentText(),
+            selected_disciplines=selected_disciplines,
+            connections_csv_path=self.csv_path_input.text().strip(),
         )
         self.worker.output_signal.connect(self.append_console)
         self.worker.finished_signal.connect(self.on_scraper_finished)

@@ -1172,7 +1172,7 @@ def main():
 
         start_exit_listener()
 
-        if config.SCRAPER_MODE == "names":
+        if config.SCRAPER_MODE in {"names", "connections"}:
             run_names_mode(scraper, nav, history_mgr)
         elif config.SCRAPER_MODE == "review":
             run_review_mode(scraper, nav, history_mgr)
