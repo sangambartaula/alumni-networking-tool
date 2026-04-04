@@ -243,10 +243,20 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         print("\n".join(lines))
 
 
-# Load environment variables
+# Load environment variables with encoding fallback for cross-platform safety.
 env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
-logger.info(f"Loading .env from: {env_path}")
+_dotenv_loaded = False
+for _enc in ("utf-8", "latin-1"):
+    try:
+        load_dotenv(dotenv_path=env_path, encoding=_enc)
+        _dotenv_loaded = True
+        break
+    except Exception:
+        continue
+if _dotenv_loaded:
+    logger.info(f"Loading .env from: {env_path}")
+else:
+    logger.warning(f"Could not load .env cleanly from: {env_path}. Continuing with system environment values.")
 
 # --- Configuration Constants ---
 LINKEDIN_EMAIL = os.getenv("LINKEDIN_EMAIL")

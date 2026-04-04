@@ -29,7 +29,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 from contextlib import contextmanager
 
-load_dotenv()
+for _enc in ('utf-8', 'latin-1'):
+    try:
+        load_dotenv(encoding=_enc)
+        break
+    except Exception:
+        continue
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

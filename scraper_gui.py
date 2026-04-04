@@ -28,6 +28,19 @@ def _format_runtime_short(total_seconds):
         return f"{hours}h {minutes}m"
     return f"{minutes}m"
 
+
+def _safe_load_dotenv_values(env_path):
+    """Load .env defensively across mixed encodings on different OSes."""
+    if not os.path.exists(env_path):
+        return {}
+    try:
+        return dotenv.dotenv_values(env_path, encoding="utf-8")
+    except Exception:
+        try:
+            return dotenv.dotenv_values(env_path, encoding="latin-1")
+        except Exception:
+            return {}
+
 def get_base_dir():
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
@@ -54,8 +67,11 @@ def update_env(key, value):
     lines = []
     found = False
     if os.path.exists(env_path):
-        with open(env_path, 'r') as f:
-            lines = f.readlines()
+        try:
+            with open(env_path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.readlines()
+        except Exception:
+            lines = []
             
     for i, line in enumerate(lines):
         if line.strip().startswith(f"{key}="):
@@ -68,7 +84,7 @@ def update_env(key, value):
             lines.append('\n')
         lines.append(f"{key}={value}\n")
         
-    with open(env_path, 'w') as f:
+    with open(env_path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
 
 
@@ -79,7 +95,7 @@ def update_env_many(updates):
 
     lines = []
     if os.path.exists(env_path):
-        with open(env_path, 'r', encoding='utf-8') as f:
+        with open(env_path, 'r', encoding='utf-8', errors='replace') as f:
             lines = f.readlines()
 
     keys_to_set = set(updates.keys())
@@ -1158,7 +1174,7 @@ class SettingsDialog(QDialog):
         
         self.base_dir = get_base_dir()
         self.env_path = os.path.join(self.base_dir, '.env')
-        self.env_values = dotenv.dotenv_values(self.env_path)
+        self.env_values = _safe_load_dotenv_values(self.env_path)
         
         self._fields = {}
         
@@ -1655,7 +1671,12 @@ class ScraperApp(QMainWindow):
         try:
             conn = self._get_db_connection()
             try:
-                self._cleanup_stale_runs_from_connection(conn, threshold_hours=2)
+                if only_current and current_email and not (self.worker and self.worker.isRunning()):
+                    self._cleanup_stale_runs_from_connection(
+                        conn,
+                        threshold_hours=2,
+                        current_email=current_email,
+                    )
                 rows = self._fetch_recent_runs_from_connection(conn, current_email, only_current)
             finally:
                 try:
@@ -1667,7 +1688,11 @@ class ScraperApp(QMainWindow):
 
         # If cloud query yields nothing, fall back to local SQLite cache to avoid an empty panel.
         if not rows:
-            self._cleanup_stale_runs_from_local_sqlite(threshold_hours=2)
+            if only_current and current_email and not (self.worker and self.worker.isRunning()):
+                self._cleanup_stale_runs_from_local_sqlite(
+                    threshold_hours=2,
+                    current_email=current_email,
+                )
             rows = self._fetch_recent_runs_from_local_sqlite(current_email, only_current)
 
         self._history_rows = rows
@@ -1729,7 +1754,7 @@ class ScraperApp(QMainWindow):
                 continue
         return None
 
-    def _cleanup_stale_runs_from_connection(self, conn, threshold_hours=2):
+    def _cleanup_stale_runs_from_connection(self, conn, threshold_hours=2, current_email=None):
         now = datetime.now()
         stale_ids = []
         select_attempts = [
@@ -1747,7 +1772,11 @@ class ScraperApp(QMainWindow):
                         "FROM scrape_runs WHERE LOWER(COALESCE(status, '')) = LOWER({p}) "
                         "AND COALESCE(profiles_scraped, 0) = 0"
                     ).format(p=attempt["placeholder"])
-                    cur.execute(q, ("running",))
+                    params = ["running"]
+                    if current_email:
+                        q += f" AND LOWER(COALESCE(scraper_email, '')) = LOWER({attempt['placeholder']})"
+                        params.append(current_email)
+                    cur.execute(q, tuple(params))
                     fetched = cur.fetchall() or []
                     if not attempt["dictionary"]:
                         cols = [d[0] for d in (cur.description or [])]
@@ -1792,23 +1821,25 @@ class ScraperApp(QMainWindow):
             except Exception:
                 continue
 
-    def _cleanup_stale_runs_from_local_sqlite(self, threshold_hours=2):
+    def _cleanup_stale_runs_from_local_sqlite(self, threshold_hours=2, current_email=None):
         sqlite_path = os.path.join(get_base_dir(), "backend", "alumni_backup.db")
         if not os.path.exists(sqlite_path):
             return
         conn = None
         try:
             conn = sqlite3.connect(sqlite_path)
-            conn.execute(
-                """
-                DELETE FROM scrape_runs
-                WHERE LOWER(COALESCE(status, '')) = 'running'
-                  AND COALESCE(profiles_scraped, 0) = 0
-                  AND completed_at IS NULL
-                  AND datetime(started_at) <= datetime('now', ?)
-                """,
-                (f"-{int(threshold_hours)} hours",),
+            query = (
+                "DELETE FROM scrape_runs "
+                "WHERE LOWER(COALESCE(status, '')) = 'running' "
+                "AND COALESCE(profiles_scraped, 0) = 0 "
+                "AND completed_at IS NULL "
+                "AND datetime(started_at) <= datetime('now', ?)"
             )
+            params = [f"-{int(threshold_hours)} hours"]
+            if current_email:
+                query += " AND LOWER(COALESCE(scraper_email, '')) = LOWER(?)"
+                params.append(current_email)
+            conn.execute(query, tuple(params))
             conn.commit()
         except Exception:
             pass
@@ -2393,20 +2424,14 @@ class ScraperApp(QMainWindow):
         env_path = os.path.join(base_dir, '.env')
         if not os.path.exists(env_path):
             return
-            
-        with open(env_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'): continue
-                if '=' in line:
-                    key, val = line.split('=', 1)
-                    key = key.strip()
-                    val = val.strip()
-                    
-                    if key == "LINKEDIN_EMAIL" and val:
-                        self.email_input.setText(val)
-                    elif key == "LINKEDIN_PASSWORD" and val:
-                        self.password_input.setText(val)
+
+        env_values = _safe_load_dotenv_values(env_path)
+        email = str(env_values.get("LINKEDIN_EMAIL", "") or "").strip()
+        pwd = str(env_values.get("LINKEDIN_PASSWORD", "") or "").strip()
+        if email:
+            self.email_input.setText(email)
+        if pwd:
+            self.password_input.setText(pwd)
 
     def on_delay_change(self, text):
         is_custom = (text == "Custom")
@@ -2716,7 +2741,7 @@ class ScraperApp(QMainWindow):
 
     def _warn_if_groq_not_ready(self):
         env_path = os.path.join(get_base_dir(), ".env")
-        env_values = dotenv.dotenv_values(env_path) if os.path.exists(env_path) else {}
+        env_values = _safe_load_dotenv_values(env_path)
         use_groq = str(env_values.get("USE_GROQ", "true")).strip().lower() in {"1", "true", "yes", "on"}
         groq_key = str(env_values.get("GROQ_API_KEY", "")).strip()
 

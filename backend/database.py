@@ -6,7 +6,13 @@ import re
 from dotenv import load_dotenv
 from pathlib import Path
 
-load_dotenv(Path(__file__).resolve().parent.parent / '.env')
+_env_path = Path(__file__).resolve().parent.parent / '.env'
+for _enc in ('utf-8', 'latin-1'):
+    try:
+        load_dotenv(_env_path, encoding=_enc)
+        break
+    except Exception:
+        continue
 
 APPROVED_ENGINEERING_DISCIPLINES = {
     "Software, Data, AI & Cybersecurity",
