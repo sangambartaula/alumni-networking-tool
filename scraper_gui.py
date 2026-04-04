@@ -1734,11 +1734,11 @@ class ScraperApp(QMainWindow):
         try:
             conn = self._get_db_connection()
             try:
-                if only_current and current_email and not (self.worker and self.worker.isRunning()):
+                if not (self.worker and self.worker.isRunning()):
                     self._cleanup_stale_runs_from_connection(
                         conn,
                         threshold_hours=2,
-                        current_email=current_email,
+                        current_email=current_email if only_current else None,
                     )
                 rows = self._fetch_recent_runs_from_connection(conn, current_email, only_current)
             finally:
@@ -1751,16 +1751,15 @@ class ScraperApp(QMainWindow):
 
         # If cloud query yields nothing, fall back to local SQLite cache to avoid an empty panel.
         if not rows:
-            if only_current and current_email and not (self.worker and self.worker.isRunning()):
+            if not (self.worker and self.worker.isRunning()):
                 self._cleanup_stale_runs_from_local_sqlite(
                     threshold_hours=2,
-                    current_email=current_email,
+                    current_email=current_email if only_current else None,
                 )
             rows = self._fetch_recent_runs_from_local_sqlite(current_email, only_current)
 
-        self._history_rows = rows
-        self.run_history_table.setRowCount(len(rows))
-        for row_idx, row in enumerate(rows):
+        display_rows = []
+        for row in rows:
             started_raw = str(row.get("started_at") or "")
             started = started_raw[:16].replace("T", " ")
             completed_raw = str(row.get("completed_at") or "")
@@ -1788,14 +1787,32 @@ class ScraperApp(QMainWindow):
             except Exception:
                 duration = "-"
 
+            # Ignore no-op session rows (requested): no scraped profiles or zero-minute duration.
+            if scraped_count <= 0 or duration == "0m":
+                continue
+
+            display_rows.append({
+                "started": started,
+                "user": (row.get("scraper_email") or "unknown"),
+                "mode": (row.get("scraper_mode") or "unknown"),
+                "scraped": str(scraped_count),
+                "duration": duration,
+                "status": status_display,
+                "run_id": str(row.get("id") or ""),
+            })
+
+        self._history_rows = display_rows
+        self.run_history_table.setRowCount(len(display_rows))
+        for row_idx, row in enumerate(display_rows):
+
             values = [
-                started,
-                (row.get("scraper_email") or "unknown"),
-                (row.get("scraper_mode") or "unknown"),
-                str(row.get("profiles_scraped") or 0),
-                duration,
-                status_display,
-                str(row.get("id") or ""),
+                row["started"],
+                row["user"],
+                row["mode"],
+                row["scraped"],
+                row["duration"],
+                row["status"],
+                row["run_id"],
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)

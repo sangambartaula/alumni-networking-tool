@@ -571,7 +571,13 @@ class LinkedInScraper:
             # often misses or mangles.
             edu_entries = []
 
-            if is_groq_available():
+            # Prefer expanded education page (latest entries) when available.
+            detailed_entries, detail_tokens = self._extract_education_entries_from_detailed_view(profile_url, soup)
+            _total_tokens += detail_tokens
+            if detailed_entries:
+                edu_entries = detailed_entries
+
+            if (not edu_entries) and is_groq_available():
                 edu_root = self._find_section_root(soup, "Education")
                 if edu_root:
                     edu_html = str(edu_root)
@@ -1862,6 +1868,88 @@ class LinkedInScraper:
             logger.error(f"Error expanding education: {e}")
         
         return unique_edus, unt_details
+
+    def _find_show_all_education_link(self, soup):
+        if not soup:
+            return None
+        for a in soup.find_all("a"):
+            href = (a.get("href") or "").strip()
+            if not href:
+                continue
+            text = (a.get_text(" ", strip=True) or "").lower()
+            href_l = href.lower()
+            if "/details/education" in href_l:
+                return href
+            if "show all" in text and "education" in text:
+                return href
+        return None
+
+    def _extract_education_entries_from_detailed_view(self, profile_url, soup=None):
+        """Open detailed education page (if available) and return up to latest 3 education entries."""
+        token_count = 0
+        link = self._find_show_all_education_link(soup)
+        if not link:
+            return [], token_count
+
+        if not link.startswith("http"):
+            link = "https://www.linkedin.com" + link
+
+        try:
+            logger.debug("Found detailed education link; extracting from expanded page.")
+            self.driver.get(link)
+            time.sleep(2)
+
+            detail_soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            main = detail_soup.find("main") or detail_soup
+
+            entries = []
+            if is_groq_available():
+                groq_results, edu_tokens = extract_education_with_groq(
+                    str(main),
+                    profile_name="unknown",
+                )
+                token_count += edu_tokens
+
+                if groq_results and self._education_entries_exceed_cloud_limits(groq_results):
+                    strict_results, strict_tokens = extract_education_with_groq(
+                        str(main),
+                        profile_name="unknown",
+                        strict_mode=True,
+                    )
+                    token_count += strict_tokens
+                    if strict_results:
+                        groq_results = strict_results
+
+                for ge in (groq_results or [])[:3]:
+                    start_raw = ge.get("start_date", "") or ge.get("start_year", "")
+                    end_raw = ge.get("end_date", "") or ge.get("end_year", "")
+                    start_info, end_info = self._parse_education_dates(start_raw, end_raw)
+                    grad_year = ""
+                    if end_info and end_info.get("year") and end_info["year"] != 9999:
+                        grad_year = str(end_info["year"])
+                    entries.append({
+                        "school": ge.get("school", ""),
+                        "degree": ge.get("degree_raw", ge.get("raw_degree", "")),
+                        "major": ge.get("major_raw", ""),
+                        "raw_degree": ge.get("degree_raw", ge.get("raw_degree", "")),
+                        "graduation_year": grad_year,
+                        "school_start": start_info,
+                        "school_end": end_info,
+                    })
+
+            if not entries:
+                entries = self._extract_education_entries(detail_soup)[:3]
+
+            return entries[:3], token_count
+        except Exception as e:
+            logger.debug(f"Detailed education extraction failed: {e}")
+            return [], token_count
+        finally:
+            try:
+                self.driver.get(profile_url)
+                time.sleep(1)
+            except Exception:
+                pass
 
     # ============================================================
     # Parsing Helpers

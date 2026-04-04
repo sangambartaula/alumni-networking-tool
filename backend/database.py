@@ -58,6 +58,16 @@ def _clean_optional_text(value):
     return text
 
 
+def _truncate_optional_text(value, max_len=255):
+    """Return cleaned optional text truncated to DB-safe length."""
+    text = _clean_optional_text(value)
+    if text is None:
+        return None
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip()
+
+
 def _csv_optional_str(row, *keys):
     """First non-empty CSV column among keys (supports new vs legacy column names)."""
     for k in keys:
@@ -1966,11 +1976,25 @@ def create_scrape_run(run_uuid, scraper_email=None, scraper_mode=None, selected_
         selected_text = str(selected_disciplines).strip() or None
 
     conn = None
+    clean_email = _clean_optional_text(scraper_email)
     try:
         ensure_scrape_run_tracking_schema()
         conn = get_connection()
         with conn.cursor() as cur:
             try:
+                if clean_email:
+                    cur.execute(
+                        """
+                        UPDATE scrape_runs
+                        SET status = 'interrupted',
+                            completed_at = NOW(),
+                            notes = %s
+                        WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(%s)
+                          AND LOWER(COALESCE(status, '')) = 'running'
+                          AND run_uuid <> %s
+                        """,
+                        ("Auto-closed due to newer run start", clean_email, run_uuid),
+                    )
                 cur.execute(
                     """
                     INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
@@ -1981,12 +2005,25 @@ def create_scrape_run(run_uuid, scraper_email=None, scraper_mode=None, selected_
                         selected_disciplines = VALUES(selected_disciplines),
                         status = 'running'
                     """,
-                    (run_uuid, _clean_optional_text(scraper_email), _clean_optional_text(scraper_mode), selected_text),
+                    (run_uuid, clean_email, _clean_optional_text(scraper_mode), selected_text),
                 )
                 cur.execute("SELECT id FROM scrape_runs WHERE run_uuid = %s", (run_uuid,))
                 row = cur.fetchone()
                 run_id = row[0] if row and not isinstance(row, dict) else (row or {}).get("id")
             except Exception:
+                if clean_email:
+                    cur.execute(
+                        """
+                        UPDATE scrape_runs
+                        SET status = 'interrupted',
+                            completed_at = datetime('now'),
+                            notes = ?
+                        WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(?)
+                          AND LOWER(COALESCE(status, '')) = 'running'
+                          AND run_uuid <> ?
+                        """,
+                        ("Auto-closed due to newer run start", clean_email, run_uuid),
+                    )
                 cur.execute(
                     """
                     INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
@@ -1997,7 +2034,7 @@ def create_scrape_run(run_uuid, scraper_email=None, scraper_mode=None, selected_
                         selected_disciplines = excluded.selected_disciplines,
                         status = 'running'
                     """,
-                    (run_uuid, _clean_optional_text(scraper_email), _clean_optional_text(scraper_mode), selected_text),
+                    (run_uuid, clean_email, _clean_optional_text(scraper_mode), selected_text),
                 )
                 cur.execute("SELECT id FROM scrape_runs WHERE run_uuid = ?", (run_uuid,))
                 row = cur.fetchone()
@@ -2597,6 +2634,17 @@ def seed_alumni_data():
                     degree3 = str(row.get('degree3', '')).strip() if pd.notna(row.get('degree3')) else None
                     major2 = str(row.get('major2', '')).strip() if pd.notna(row.get('major2')) else None
                     major3 = str(row.get('major3', '')).strip() if pd.notna(row.get('major3')) else None
+
+                    # Guard DB upload against oversized education fields.
+                    school = _truncate_optional_text(school, 255)
+                    school2 = _truncate_optional_text(school2, 255)
+                    school3 = _truncate_optional_text(school3, 255)
+                    degree = _truncate_optional_text(degree, 255)
+                    degree2 = _truncate_optional_text(degree2, 255)
+                    degree3 = _truncate_optional_text(degree3, 255)
+                    major = _truncate_optional_text(major, 255)
+                    major2 = _truncate_optional_text(major2, 255)
+                    major3 = _truncate_optional_text(major3, 255)
 
                     # Preserve discipline from CSV and normalize separately from major.
                     saved_discipline = str(row.get('discipline', '')).strip() if pd.notna(row.get('discipline')) else ''
