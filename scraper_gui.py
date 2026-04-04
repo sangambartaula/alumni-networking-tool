@@ -1550,6 +1550,7 @@ class ScraperApp(QMainWindow):
         self._cloud_status_cache = None
         self._geo_status_cache = None
         self._missing_module_prompt_shown = False
+        self._live_tracker_timer = None
         self.init_ui()
 
     def _apply_modern_style(self):
@@ -1642,6 +1643,24 @@ class ScraperApp(QMainWindow):
         self._gui_reload_timer.setInterval(3000)
         self._gui_reload_timer.timeout.connect(self._check_for_gui_file_update)
         self._gui_reload_timer.start()
+
+    def _start_live_tracker_updates(self):
+        if self._live_tracker_timer is None:
+            self._live_tracker_timer = QTimer(self)
+            self._live_tracker_timer.setInterval(8000)
+            self._live_tracker_timer.timeout.connect(self._refresh_live_trackers)
+        self._live_tracker_timer.start()
+
+    def _stop_live_tracker_updates(self):
+        if self._live_tracker_timer and self._live_tracker_timer.isActive():
+            self._live_tracker_timer.stop()
+
+    def _refresh_live_trackers(self):
+        if not (self.worker and self.worker.isRunning()):
+            self._stop_live_tracker_updates()
+            return
+        self.refresh_run_history()
+        self.refresh_scrape_count()
 
     def _check_for_gui_file_update(self):
         current_mtime = self._safe_get_mtime(self._gui_file_path)
@@ -3047,7 +3066,9 @@ class ScraperApp(QMainWindow):
         self.worker.output_signal.connect(self.append_console)
         self.worker.finished_signal.connect(self.on_scraper_finished)
         self.worker.start()
+        self._start_live_tracker_updates()
         QTimer.singleShot(1500, self.refresh_run_history)
+        QTimer.singleShot(2000, self.refresh_scrape_count)
 
     def run_geocode(self):
         self.save_all_settings_to_env()
@@ -3219,6 +3240,7 @@ class ScraperApp(QMainWindow):
         self._reset_stop_controls()
 
     def on_scraper_finished(self):
+        self._stop_live_tracker_updates()
         self.start_btn.setEnabled(True)
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
@@ -3237,6 +3259,7 @@ class ScraperApp(QMainWindow):
             pass
         self.refresh_preflight_status(force_cloud_probe=False)
         self.refresh_run_history()
+        self.refresh_scrape_count()
 
         if self._manual_intervention_needed:
             reason = self._manual_intervention_reason or "login_or_challenge"
