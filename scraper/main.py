@@ -60,36 +60,28 @@ from defense.navigator import SafeNavigator
 # ============================================================
 # Resume / Scrape State
 # ============================================================
-def load_scrape_state():
+def load_keyword_state(mode_key):
     """
-    Load the last known scrape position (search URL and page number).
-    This allows the scraper to resume from where it left off after an
-    intentional exit or a crash, preventing redundant scraping of early pages.
+    Load the last known scrape position for a specific keyword list.
     """
+    if not mode_key: return None
     manager = get_connection_manager()
     conn = manager.get_sqlite_connection()
     try:
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS scrape_state (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                mode TEXT,
+            CREATE TABLE IF NOT EXISTS keyword_list_state (
+                mode TEXT PRIMARY KEY,
                 search_url TEXT,
                 page INTEGER DEFAULT 1,
                 updated_at TEXT DEFAULT (datetime('now'))
             )
             """
         )
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO scrape_state (id, mode, search_url, page, updated_at)
-            VALUES (1, NULL, NULL, 1, datetime('now'))
-            """
-        )
         conn.commit()
 
         row = conn.execute(
-            "SELECT mode, search_url, page, updated_at FROM scrape_state WHERE id = 1"
+            "SELECT mode, search_url, page, updated_at FROM keyword_list_state WHERE mode = ?", (mode_key,)
         ).fetchone()
         if row:
             return {
@@ -103,15 +95,15 @@ def load_scrape_state():
     return None
 
 
-def save_scrape_state(mode, search_url, page):
+def save_keyword_state(mode_key, search_url, page):
+    if not mode_key: return
     manager = get_connection_manager()
     conn = manager.get_sqlite_connection()
     try:
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS scrape_state (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                mode TEXT,
+            CREATE TABLE IF NOT EXISTS keyword_list_state (
+                mode TEXT PRIMARY KEY,
                 search_url TEXT,
                 page INTEGER DEFAULT 1,
                 updated_at TEXT DEFAULT (datetime('now'))
@@ -120,17 +112,14 @@ def save_scrape_state(mode, search_url, page):
         )
         conn.execute(
             """
-            INSERT OR IGNORE INTO scrape_state (id, mode, search_url, page, updated_at)
-            VALUES (1, NULL, NULL, 1, datetime('now'))
-            """
-        )
-        conn.execute(
-            """
-            UPDATE scrape_state
-            SET mode = ?, search_url = ?, page = ?, updated_at = datetime('now')
-            WHERE id = 1
+            INSERT INTO keyword_list_state (mode, search_url, page, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(mode) DO UPDATE SET
+                search_url = excluded.search_url,
+                page = excluded.page,
+                updated_at = datetime('now')
             """,
-            (mode, search_url, page)
+            (mode_key, search_url, page)
         )
         conn.commit()
     finally:
@@ -264,31 +253,87 @@ DISCIPLINE_ALIAS_REDIRECTS = {
     "security": "cybersecurity",
 }
 
-DISCIPLINE_KEYWORD_BUCKETS = {
-    "software": (
-        "software engineer, software developer, full stack, backend, frontend, data engineer, "
-        "data scientist, machine learning, cybersecurity, cloud"
-    ),
-    "cybersecurity": (
-        "cybersecurity, information security, network security, security analyst, soc analyst, "
-        "penetration testing, incident response, threat intelligence, iam, siem"
-    ),
-    "embedded": (
-        "embedded systems, firmware, hardware engineer, electrical engineer, pcb, fpga, "
-        "microcontroller, semiconductor, signal processing, electronics"
-    ),
-    "construction": (
-        "construction engineering, construction management, civil engineer, structural engineer, "
-        "project engineer, site engineer, infrastructure, bim, revit, estimating"
-    ),
-    "biomedical": (
-        "biomedical engineering, biomedical engineer, medical devices, biomaterials, bioinformatics, "
-        "medical imaging, biosensors, clinical engineering, biotech, health informatics"
-    ),
-    "mechanical": (
-        "mechanical engineer, mechanical engineering, manufacturing engineer, machine design, "
-        "solidworks, cad, ansys, robotics, hvac, thermodynamics"
-    ),
+DISCIPLINE_SEARCH_GROUPS = {
+    "software": {
+        "cluster_1": {
+            "lists": [
+                "software engineer, software developer, full stack, backend, frontend, programmer, web developer, ios developer, android developer, application developer",
+                "data scientist, data engineer, data analyst, machine learning, deep learning, artificial intelligence, nlp, computer vision, mlops, ai engineer"
+            ],
+            "fallback": "software engineer, data scientist"
+        },
+        "cluster_2": {
+            "lists": [
+                "cybersecurity, information security, network security, security analyst, penetration tester, soc analyst, incident response, threat intelligence, iam, siem",
+                "cloud engineer, devops engineer, site reliability, aws engineer, azure engineer, gcp engineer, systems administrator, network engineer, infrastructure engineer, kubernetes"
+            ],
+            "fallback": "cybersecurity, cloud engineer"
+        }
+    },
+    "embedded": {
+        "cluster_1": {
+            "lists": [
+                "embedded systems, firmware engineer, embedded software, microcontroller, rtos, device drivers, embedded c, arm cortex, bare metal, iot engineer",
+                "hardware engineer, electrical engineer, pcb design, schematic capture, fpga, asic, vlsi, verilog, vhdl, mixed signal"
+            ],
+            "fallback": "embedded engineer, firmware engineer"
+        },
+        "cluster_2": {
+            "lists": [
+                "systems engineer, rf engineer, signal processing, antenna design, analog design, power electronics, test engineer, validation engineer, semiconductor, hardware architecture",
+                "control systems, electro-mechanical, robotics engineer, automation engineer, mechatronics, systems integration, plc programming, scada, instrumentation, motor control"
+            ],
+            "fallback": "electrical engineer, systems engineer"
+        }
+    },
+    "mechanical": {
+        "cluster_1": {
+            "lists": [
+                "mechanical engineer, machine design, solidworks, autocad, thermal analysis, hvac, fluid mechanics, thermodynamics, fea, ansys",
+                "manufacturing engineer, production engineer, process engineer, industrial engineer, lean manufacturing, six sigma, continuous improvement, cnc, tooling, quality engineer"
+            ],
+            "fallback": "mechanical engineer, mechanical design"
+        },
+        "cluster_2": {
+            "lists": [
+                "aerospace engineer, automotive engineer, powertrain design, dynamics, kinematics, stress analysis, composite materials, cad designer, 3d modeling, product design",
+                "materials engineer, metallurgy, welding engineer, plastics engineering, packaging engineer, reliability engineer, reliability testing, failure analysis, maintenance engineer, plant engineer"
+            ],
+            "fallback": "manufacturing engineer, industrial engineer"
+        }
+    },
+    "biomedical": {
+        "cluster_1": {
+            "lists": [
+                "biomedical engineer, medical devices, regulatory affairs, fda, iso 13485, validation engineer, biomaterials, tissue engineering, biomechanics, prosthetics",
+                "clinical engineer, clinical trial manager, quality assurance, qms, quality control, verification and validation, human factors engineer, usability engineering, compliance specialist, risk management"
+            ],
+            "fallback": "biomedical engineer, medical device engineer"
+        },
+        "cluster_2": {
+            "lists": [
+                "bioinformatics, computational biology, biostatistics, health informatics, genomics, medical imaging, image processing, mri, ultrasound, ct",
+                "biotech, bioprocess engineer, cell culture, fermentation, downstream processing, upstream processing, biomanufacturing, lab automation, assay development, immunoassay"
+            ],
+            "fallback": "bioinformatics, clinical engineer"
+        }
+    },
+    "construction": {
+        "cluster_1": {
+            "lists": [
+                "construction manager, project manager, superintendent, project engineer, field engineer, site engineer, civil engineer, structural engineer, pe, eit",
+                "estimator, preconstruction, cost engineer, scheduling, p6, primavera, project controls, contract administrator, procurement, bid management"
+            ],
+            "fallback": "construction manager, civil engineer"
+        },
+        "cluster_2": {
+            "lists": [
+                "bim manager, vdc coordinator, revit, navisworks, civil 3d, autocad civil, transportation engineer, traffic engineer, highway design, bridge engineer",
+                "geotechnical engineer, environmental engineer, water resources, hydrology, municipal engineer, survey, land development, urban planning, sustainability, leed"
+            ],
+            "fallback": "project engineer, structural engineer"
+        }
+    }
 }
 
 _SEARCH_INPUT_SELECTORS = [
@@ -316,7 +361,7 @@ def _parse_search_disciplines(raw_value):
         if not alias:
             continue
         alias = DISCIPLINE_ALIAS_REDIRECTS.get(alias, alias)
-        if alias in DISCIPLINE_KEYWORD_BUCKETS:
+        if alias in DISCIPLINE_SEARCH_GROUPS:
             if alias not in seen:
                 selected.append(alias)
                 seen.add(alias)
@@ -817,10 +862,10 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
         if max_profiles_for_mode <= 0:
             return False
         return (session_profiles_scraped - mode_start_count) >= max_profiles_for_mode
-    state = load_scrape_state()
+
+    state = load_keyword_state(state_mode_key)
     if (
         state
-        and state.get("mode") == state_mode_key
         and state.get("search_url") == base_url
         and _is_recent_state(state.get("updated_at"), config.SCRAPE_RESUME_MAX_AGE_DAYS)
     ):
@@ -838,39 +883,40 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
 
     while True:
         if should_stop():
-            break
+            return "stopped"
         if _mode_quota_reached():
-            logger.info(f"Reached mode quota for {mode_label}: {max_profiles_for_mode} profiles")
-            break
+            logger.info(f"Reached quota for {mode_label}: {max_profiles_for_mode} new profiles.")
+            return "threshold_reached"
 
         url = base_url if page == 1 else f"{base_url}&page={page}"
-        save_scrape_state(state_mode_key, base_url, page)
+        save_keyword_state(state_mode_key, base_url, page)
         logger.info(f"📄 Search page {page}")
 
         ok = nav.get(url)
         if not ok:
             logger.warning("Search page unhealthy. Stopping search loop.")
-            break
+            return "network_error"
 
         time.sleep(5)
         scraper.scroll_full_page()
 
         urls = scraper.extract_profile_urls_from_page()
         if not urls:
-            # Reached the end of results; restart from page 1 next run.
-            save_scrape_state(state_mode_key, base_url, 1)
-            break
+            # Check for no results vs exhaustion
+            save_keyword_state(state_mode_key, base_url, 1) # reset pagination since we reached end
+            return "no_results" if page == 1 else "exhausted"
 
         for profile_url in urls:
             if _mode_quota_reached():
-                logger.info(f"Reached mode quota for {mode_label}: {max_profiles_for_mode} profiles")
-                return
+                logger.info(f"Reached quota for {mode_label}: {max_profiles_for_mode} new profiles.")
+                return "threshold_reached"
+            
             profile_url = _normalize_profile_url(profile_url)
             if not profile_url:
                 continue
 
             if check_force_exit():
-                return
+                return "stopped"
 
             if config.is_blocked_url(profile_url):
                 continue
@@ -879,7 +925,6 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 logger.info(f"  ↩️  Profile Already Visited, Skipping: {profile_url}")
                 continue
 
-            # NOTE: scrape_profile_page likely handles its own navigation.
             data = scraper.scrape_profile_page(profile_url)
 
             if data == "PAGE_NOT_FOUND":
@@ -890,12 +935,12 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 _save_and_track(data, profile_url, history_mgr)
 
             if should_stop():
-                return
+                return "stopped"
 
             wait_between_profiles()
 
         page += 1
-        save_scrape_state(state_mode_key, base_url, page)
+        save_keyword_state(state_mode_key, base_url, page)
 
 
 def run_search_mode(scraper, nav, history_mgr):
@@ -911,114 +956,97 @@ def run_search_mode(scraper, nav, history_mgr):
 
 def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
     processed_any = False
-    quotas = {alias: 0 for alias in discipline_aliases}
-
-    profile_cap = GUI_MAX_PROFILES if GUI_MAX_PROFILES > 0 else None
-    time_cap_profiles = None
-    simulated_seconds_per_profile = None
-    if GUI_MAX_RUNTIME_MINUTES > 0:
-        simulated_seconds_per_profile = (
-            ((config.MIN_DELAY + config.MAX_DELAY) / 2.0) + _ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE
-        )
-        total_time_seconds = GUI_MAX_RUNTIME_MINUTES * 60
-        estimated = int(total_time_seconds // max(1.0, simulated_seconds_per_profile))
-        time_cap_profiles = max(1, estimated)
-
-    limiting_reason = "none"
-    effective_total_profiles = None
-    if profile_cap is not None and time_cap_profiles is not None:
-        profile_progress_after_one = 1.0 / max(1, profile_cap)
-        time_progress_after_one = simulated_seconds_per_profile / max(1.0, GUI_MAX_RUNTIME_MINUTES * 60)
-        if time_progress_after_one > profile_progress_after_one:
-            limiting_reason = "time"
-        else:
-            limiting_reason = "profile"
-        effective_total_profiles = min(profile_cap, time_cap_profiles)
-    elif profile_cap is not None:
-        limiting_reason = "profile"
-        effective_total_profiles = profile_cap
-    elif time_cap_profiles is not None:
-        limiting_reason = "time"
-        effective_total_profiles = time_cap_profiles
-
-    if effective_total_profiles is not None and discipline_aliases:
-        base = effective_total_profiles // len(discipline_aliases)
-        remainder = effective_total_profiles % len(discipline_aliases)
-        for idx, alias in enumerate(discipline_aliases):
-            quotas[alias] = base + (1 if idx < remainder else 0)
+    
+    # max 100 new profiles per keyword list
+    PROFILES_PER_LIST_THRESHOLD = 100 
 
     logger.info(
         "DISCIPLINE QUEUE: %s",
         ", ".join(discipline_aliases) if discipline_aliases else "(none)",
     )
-    if discipline_aliases and effective_total_profiles is not None:
-        if limiting_reason == "time":
-            logger.info(
-                "DISCIPLINE SPLIT BASIS: time cap appears tighter (simulated 1-profile depth check)."
-            )
-            logger.info(
-                "TIME CAP SIMULATION: runtime=%sm, est_seconds_per_profile=%.1f, est_profiles=%s",
-                GUI_MAX_RUNTIME_MINUTES,
-                simulated_seconds_per_profile,
-                time_cap_profiles,
-            )
-        elif limiting_reason == "profile":
-            logger.info("DISCIPLINE SPLIT BASIS: profile cap appears tighter.")
-        logger.info(
-            "DISCIPLINE QUOTAS (effective_total_profiles=%s): %s",
-            effective_total_profiles,
-            ", ".join([f"{alias}={quotas[alias]}" for alias in discipline_aliases]),
-        )
 
-    for alias in discipline_aliases:
+    for raw_alias in discipline_aliases:
         if should_stop():
             return processed_any
-
-        mode_quota = quotas.get(alias, 0)
-        if effective_total_profiles is not None and mode_quota <= 0:
-            logger.info(f"Skipping discipline '{alias}' because assigned quota is 0")
+        
+        # map alias to primary
+        alias = DISCIPLINE_ALIAS_REDIRECTS.get(raw_alias, raw_alias)
+        
+        if alias not in DISCIPLINE_SEARCH_GROUPS:
+            logger.warning(f"Skipping discipline '{alias}' because no keyword group was found.")
             continue
-
+            
+        group = DISCIPLINE_SEARCH_GROUPS[alias]
         label = DISCIPLINE_ALIAS_LABELS.get(alias, alias)
-        keyword_query = DISCIPLINE_KEYWORD_BUCKETS[alias]
         logger.info(f"--- MODE: Discipline Search ({label}) ---")
 
-        ok = nav.get(UNT_DISCIPLINE_SEARCH_BASE_URL)
-        if not ok:
-            logger.warning("UNT people search page unhealthy. Skipping this discipline.")
-            continue
+        for cluster_name in ["cluster_1", "cluster_2"]:
+            if cluster_name not in group:
+                continue
+            cluster_data = group[cluster_name]
+            lists = cluster_data["lists"]
+            fallback_query = cluster_data["fallback"]
+            
+            for list_idx, keyword_query in enumerate(lists):
+                if should_stop():
+                    return processed_any
+                
+                logger.info(f"[*] Processing {label} -> {cluster_name} -> list {list_idx}")
+                
+                # Setup URL
+                ok = nav.get(UNT_DISCIPLINE_SEARCH_BASE_URL)
+                if not ok:
+                    logger.warning("UNT people search page unhealthy. Skipping.")
+                    break # Break out of cluster lists
 
-        time.sleep(3)
-        submitted = _submit_discipline_keywords(scraper, keyword_query)
-        if not submitted:
-            logger.warning(
-                f"Could not submit search keywords for discipline '{alias}' via search box. "
-                "Falling back to URL-based discipline filter."
-            )
+                time.sleep(3)
+                submitted = _submit_discipline_keywords(scraper, keyword_query)
+                if not submitted:
+                    logger.warning("Could not submit keywords via search box. Falling back to URL param.")
 
-        discipline_base_url = _build_discipline_search_base_url(
-            scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
-            keyword_query,
-        )
-        if "keywords=" not in discipline_base_url:
-            logger.warning(
-                "Discipline URL did not contain keywords for '%s'. Falling back to all-engineering search.",
-                alias,
-            )
-            continue
-        logger.info(f"Discipline base URL: {discipline_base_url}")
-
-        _run_search_results_mode(
-            scraper=scraper,
-            nav=nav,
-            history_mgr=history_mgr,
-            base_url=discipline_base_url,
-            state_mode_key=f"search_discipline:{alias}",
-            mode_label=f"discipline search ({alias})",
-            max_profiles_for_mode=mode_quota,
-        )
+                discipline_base_url = _build_discipline_search_base_url(
+                    scraper.driver.current_url if submitted else UNT_DISCIPLINE_SEARCH_BASE_URL,
+                    keyword_query,
+                )
+                
+                if "keywords=" not in discipline_base_url:
+                    logger.warning("URL did not contain keywords. Skipping query.")
+                    continue
+                
+                mode_key = f"discipline:{alias}:{cluster_name}:list_{list_idx}"
+                result = _run_search_results_mode(
+                    scraper=scraper,
+                    nav=nav,
+                    history_mgr=history_mgr,
+                    base_url=discipline_base_url,
+                    state_mode_key=mode_key,
+                    mode_label=f"discipline: {alias} | {cluster_name} | list_{list_idx}",
+                    max_profiles_for_mode=PROFILES_PER_LIST_THRESHOLD,
+                )
+                
+                processed_any = True
+                
+                if result == "no_results":
+                    logger.info(f"No results for list {list_idx}. Trying fallback query.")
+                    ok = nav.get(UNT_DISCIPLINE_SEARCH_BASE_URL)
+                    if not ok: continue
+                    time.sleep(3)
+                    _submit_discipline_keywords(scraper, fallback_query)
+                    fb_url = _build_discipline_search_base_url(
+                        scraper.driver.current_url, fallback_query
+                    )
+                    fb_mode_key = f"discipline:{alias}:{cluster_name}:fallback_{list_idx}"
+                    _run_search_results_mode(
+                        scraper=scraper,
+                        nav=nav,
+                        history_mgr=history_mgr,
+                        base_url=fb_url,
+                        state_mode_key=fb_mode_key,
+                        mode_label=f"fallback: {alias} | {cluster_name}",
+                        max_profiles_for_mode=PROFILES_PER_LIST_THRESHOLD,
+                    )
+            
         logger.info(f"✅ Finished discipline search ({label})")
-        processed_any = True
 
     return processed_any
 
