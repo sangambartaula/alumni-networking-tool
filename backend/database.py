@@ -2391,6 +2391,7 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
         "cloud_written": False,
         "sqlite_written": False,
         "cloud_routed_to_sqlite": False,
+        "cloud_queued": False,
     }
 
     disable_db = os.getenv("DISABLE_DB", "0") == "1"
@@ -2422,6 +2423,7 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
                             old_data=None,
                             new_data=payload,
                         )
+                        status["cloud_queued"] = True
                 except Exception as queue_err:
                     logger.debug(
                         f"Pending cloud-sync queueing skipped for {payload.get('linkedin_url')}: {queue_err}"

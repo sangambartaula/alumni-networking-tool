@@ -173,6 +173,15 @@ class ConnectionManager:
         
         # Load sync state
         self._load_sync_state()
+
+        # Do not stay offline by default if cloud is currently reachable.
+        if self._is_offline:
+            try:
+                if self.check_cloud_connection():
+                    logger.info("☁️ Cloud reachable at startup; leaving offline fallback mode.")
+                    self._sync_and_go_online()
+            except Exception as e:
+                logger.warning(f"⚠️ Cloud startup recovery failed; staying in fallback mode: {e}")
         
         # Register cleanup on shutdown
         atexit.register(self._cleanup)

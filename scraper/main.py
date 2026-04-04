@@ -51,6 +51,7 @@ from backend.database import (
     create_scrape_run,
     finalize_scrape_run,
     record_scrape_run_flag,
+    get_direct_mysql_connection,
 )
 from backend.geocoding import geocode_location_with_status
 from defense.navigator import SafeNavigator
@@ -192,6 +193,7 @@ _sqlite_writes_this_run = 0
 _flagged_urls_this_run = set()
 _current_scrape_run_id = None
 _current_scrape_run_uuid = None
+_cloud_verify_semaphore = threading.Semaphore(4)
 
 
 def _exit_listener():
@@ -681,6 +683,7 @@ def _save_and_track(data, input_url, history_mgr):
             cloud_attempted = bool(status.get("cloud_attempted"))
             cloud_written = bool(status.get("cloud_written"))
             cloud_routed_to_sqlite = bool(status.get("cloud_routed_to_sqlite"))
+            cloud_queued = bool(status.get("cloud_queued"))
             sqlite_written = bool(status.get("sqlite_written"))
             if sqlite_written:
                 _sqlite_writes_this_run += 1
@@ -688,10 +691,14 @@ def _save_and_track(data, input_url, history_mgr):
                 if cloud_written:
                     _cloud_upsert_successes_this_run += 1
                     _cloud_upsert_consecutive_failures = 0
+                    logger.info("PERSISTENCE: CSV updated | Cloud DB updated | SQLite mirror updated")
+                    _verify_cloud_insert_after_delay(canonical_url)
                 elif cloud_routed_to_sqlite:
-                    logger.info(
-                        "Cloud unreachable for this profile; saved to SQLite fallback and queued for later sync."
+                    logger.warning(
+                        "PERSISTENCE: CSV updated | SQLite fallback updated | Cloud DB queued for retry"
                     )
+                    if cloud_queued:
+                        logger.warning("[red bold]FALLBACK MODE ACTIVE:[/red bold] Cloud is currently unreachable.")
                 else:
                     _cloud_upsert_failures_this_run += 1
                     _cloud_upsert_consecutive_failures += 1
@@ -1158,6 +1165,13 @@ def main():
     history_mgr = database_handler.HistoryManager()
     history_mgr.sync_with_db()
 
+    try:
+        fallback_manager = get_connection_manager()
+        if fallback_manager.is_offline():
+            logger.warning("[red bold]FALLBACK MODE ACTIVE:[/red bold] Using SQLite until cloud connectivity is restored.")
+    except Exception:
+        pass
+
     database_handler.ensure_alumni_output_csv()
 
     scraper = LinkedInScraper()
@@ -1293,6 +1307,43 @@ def main():
             logger.warning("UNKNOWN_LOCATIONS_LIST: %s", "; ".join(sample_unknown_locations))
         stop_exit_listener()
         scraper.quit()
+
+
+def _verify_cloud_insert_after_delay(profile_url, delay_seconds=5):
+    if not profile_url:
+        return
+
+    def _worker():
+        acquired = _cloud_verify_semaphore.acquire(timeout=0.1)
+        if not acquired:
+            return
+        try:
+            time.sleep(max(0, int(delay_seconds)))
+            conn = None
+            try:
+                conn = get_direct_mysql_connection()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s LIMIT 1",
+                        (profile_url, f"{profile_url}/"),
+                    )
+                    found = bool(cur.fetchone())
+                if found:
+                    logger.info(f"VERIFY: Cloud DB confirmed insert for {profile_url}")
+                else:
+                    logger.warning(f"VERIFY WARNING: Cloud DB did not contain {profile_url} after {delay_seconds}s")
+            except Exception as verify_err:
+                logger.warning(f"VERIFY WARNING: Cloud insert check skipped for {profile_url}: {verify_err}")
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        finally:
+            _cloud_verify_semaphore.release()
+
+    threading.Thread(target=_worker, daemon=True, name="CloudInsertVerify").start()
 
 
 if __name__ == "__main__":
