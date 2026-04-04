@@ -2,7 +2,6 @@
 
 This document outlines the artificial intelligence and data transformation pipelines used by the alumni scraper.
 
-<!-- Extracted from NORMALIZATION_RULES.md -->
 # UNT Alumni Networking Tool - Normalization and Classification Rules
 
 This document defines how raw scraped/profile data is standardized for filtering, analytics, and display.
@@ -328,7 +327,6 @@ If rules are changed, update this file and the corresponding tests in the same P
 
 ---
 
-<!-- Extracted from RELEVANCE_ENGINE.md -->
 # Relevance Engine
 
 The Relevance Engine scores whether each job (up to 3) is a **legitimate professional career** versus a non-career / high-school-level service job. It uses the **Groq LLM** plus **heuristic floors and boosts**.
@@ -533,7 +531,6 @@ The alumni directory sidebar includes a "Relevant Experience" range filter. Ente
 
 ---
 
-<!-- Extracted from SENIORITY_LEVEL_FEATURE.md -->
 # Seniority Level Classification Guide
 
 ## Overview

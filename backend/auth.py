@@ -2,9 +2,6 @@
 Authentication & Authorization Module
 ======================================
 Centralizes password hashing, validation, rate limiting, and role checks.
-
-See docs/AUTH.md for detailed auth-flow documentation.
-See docs/SECURITY.md for security practices.
 """
 
 import re
@@ -17,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Password Policy
-# See docs/SECURITY.md § Password Security Policy
 # ---------------------------------------------------------------------------
 PASSWORD_MIN_LENGTH = 10
 PASSWORD_SPECIAL_CHARS = r"""!@#$%^&*()_+\-=\[\]{}|;:'",.<>?/"""
@@ -62,7 +58,6 @@ def validate_password_policy(password):
 
 # ---------------------------------------------------------------------------
 # Password Hashing  (bcrypt)
-# See docs/SECURITY.md § Password Storage
 # ---------------------------------------------------------------------------
 
 def hash_password(password):
@@ -84,7 +79,6 @@ def verify_password(password, password_hash):
 
 # ---------------------------------------------------------------------------
 # Rate Limiting  (in-memory, per-email)
-# See docs/SECURITY.md § Rate Limiting
 # ---------------------------------------------------------------------------
 _LOGIN_ATTEMPTS = {}          # email -> [timestamp, ...]
 _RATE_LIMIT_LOCK = threading.Lock()

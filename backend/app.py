@@ -759,7 +759,6 @@ def access_denied():
 
 
 # ---------------------- Auth API routes ----------------------
-# See docs/AUTH.md for the full auth-flow documentation.
 
 @app.route('/api/auth/login', methods=['POST'])
 def api_auth_login():
@@ -988,7 +987,6 @@ def api_auth_linkedin_available():
 
 
 # ---------------------- Admin User Management API ----------------------
-# See docs/AUTH.md § Role-Based Permissions
 
 @app.route('/api/admin/users', methods=['GET'])
 @api_login_required

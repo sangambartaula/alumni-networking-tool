@@ -1538,7 +1538,6 @@ def migrate_env_emails_to_db():
 
 # ============================================================
 # AUTH: USER MANAGEMENT
-# See docs/AUTH.md for auth-flow details.
 # ============================================================
 
 def get_user_by_email(email):
@@ -1821,7 +1820,6 @@ def delete_user(email):
 def admin_reset_password(email):
     """
     Admin resets a user's password: clear the hash and flag for change.
-    See docs/AUTH.md § Admin Password Reset.
     """
     if not email:
         return False
