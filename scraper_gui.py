@@ -3,6 +3,7 @@ import os
 import subprocess
 import signal
 import threading
+import sqlite3
 import csv
 import json
 import re
@@ -1599,40 +1600,7 @@ class ScraperApp(QMainWindow):
         try:
             conn = self._get_db_connection()
             try:
-                with conn.cursor(dictionary=True) as cur:
-                    query = """
-                        SELECT id, scraper_email, scraper_mode, status, profiles_scraped,
-                               started_at, completed_at
-                        FROM scrape_runs
-                    """
-                    params = []
-                    if only_current and current_email:
-                        query += " WHERE LOWER(scraper_email) = %s"
-                        params.append(current_email)
-                    query += " ORDER BY started_at DESC LIMIT 25"
-                    cur.execute(query, tuple(params))
-                    rows = cur.fetchall() or []
-            except Exception:
-                with conn.cursor() as cur:
-                    query = """
-                        SELECT id, scraper_email, scraper_mode, status, profiles_scraped,
-                               started_at, completed_at
-                        FROM scrape_runs
-                    """
-                    params = []
-                    if only_current and current_email:
-                        query += " WHERE LOWER(scraper_email) = ?"
-                        params.append(current_email)
-                    query += " ORDER BY started_at DESC LIMIT 25"
-                    cur.execute(query, tuple(params))
-                    fetched = cur.fetchall() or []
-                    cols = [d[0] for d in (cur.description or [])]
-                    rows = []
-                    for r in fetched:
-                        if isinstance(r, dict):
-                            rows.append(r)
-                        else:
-                            rows.append(dict(zip(cols, r)))
+                rows = self._fetch_recent_runs_from_connection(conn, current_email, only_current)
             finally:
                 try:
                     conn.close()
@@ -1640,6 +1608,10 @@ class ScraperApp(QMainWindow):
                     pass
         except Exception:
             rows = []
+
+        # If cloud query yields nothing, fall back to local SQLite cache to avoid an empty panel.
+        if not rows:
+            rows = self._fetch_recent_runs_from_local_sqlite(current_email, only_current)
 
         self._history_rows = rows
         self.run_history_table.setRowCount(len(rows))
@@ -1672,6 +1644,79 @@ class ScraperApp(QMainWindow):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.run_history_table.setItem(row_idx, col, item)
+
+    def _fetch_recent_runs_from_connection(self, conn, current_email, only_current):
+        base_query = (
+            "SELECT id, scraper_email, scraper_mode, status, profiles_scraped, "
+            "started_at, completed_at FROM scrape_runs"
+        )
+
+        attempts = [
+            {"dictionary": True, "placeholder": "%s"},
+            {"dictionary": False, "placeholder": "%s"},
+            {"dictionary": False, "placeholder": "?"},
+        ]
+
+        for attempt in attempts:
+            try:
+                if attempt["dictionary"]:
+                    cursor_ctx = conn.cursor(dictionary=True)
+                else:
+                    cursor_ctx = conn.cursor()
+
+                with cursor_ctx as cur:
+                    query = base_query
+                    params = []
+                    if only_current and current_email:
+                        query += f" WHERE LOWER(scraper_email) = {attempt['placeholder']}"
+                        params.append(current_email)
+                    query += " ORDER BY started_at DESC LIMIT 25"
+                    cur.execute(query, tuple(params))
+                    fetched = cur.fetchall() or []
+                    if attempt["dictionary"]:
+                        return fetched
+
+                    cols = [d[0] for d in (cur.description or [])]
+                    normalized = []
+                    for row in fetched:
+                        if isinstance(row, dict):
+                            normalized.append(row)
+                        else:
+                            normalized.append(dict(zip(cols, row)))
+                    return normalized
+            except Exception:
+                continue
+
+        return []
+
+    def _fetch_recent_runs_from_local_sqlite(self, current_email, only_current):
+        sqlite_path = os.path.join(get_base_dir(), "backend", "alumni_backup.db")
+        if not os.path.exists(sqlite_path):
+            return []
+
+        conn = None
+        try:
+            conn = sqlite3.connect(sqlite_path)
+            conn.row_factory = sqlite3.Row
+            query = (
+                "SELECT id, scraper_email, scraper_mode, status, profiles_scraped, "
+                "started_at, completed_at FROM scrape_runs"
+            )
+            params = []
+            if only_current and current_email:
+                query += " WHERE LOWER(scraper_email) = ?"
+                params.append(current_email)
+            query += " ORDER BY started_at DESC LIMIT 25"
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _on_history_filter_email_changed(self, _text):
         if getattr(self, "run_history_mine_only", None) and self.run_history_mine_only.isChecked():
