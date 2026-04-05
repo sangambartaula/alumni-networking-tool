@@ -84,10 +84,58 @@ def parse_delimited_entries(lines, field_names, max_items=3):
 
 def normalize_pipe_segment(raw_segment, expected_fields):
     text = safe_text(raw_segment)
-    parts = [part.strip() for part in text.split("|", expected_fields - 1)]
+    parts = [part.strip() for part in text.split("|")]
+    if len(parts) > expected_fields:
+        parts = parts[:expected_fields]
     if len(parts) < expected_fields:
         parts.extend(["N/A"] * (expected_fields - len(parts)))
     return ";;".join(safe_text(part) for part in parts[:expected_fields])
+
+
+def classify_tail_segment(raw_segment: str) -> str:
+    text = safe_text(raw_segment)
+    lowered = text.lower()
+    if text == "N/A":
+        return "unknown"
+
+    education_markers = [
+        "university",
+        "college",
+        "institute",
+        "school",
+        "bachelor",
+        "master",
+        "phd",
+        "ph.d",
+        "degree",
+    ]
+    experience_markers = [
+        " at ",
+        "intern",
+        "engineer",
+        "manager",
+        "director",
+        "analyst",
+        "consultant",
+        "assistant",
+        "technician",
+        "coordinator",
+        "developer",
+    ]
+
+    has_education = any(marker in lowered for marker in education_markers)
+    has_experience = any(marker in lowered for marker in experience_markers)
+
+    if has_education and not has_experience:
+        return "education"
+    if has_experience and not has_education:
+        return "experience"
+
+    # Tie-breaker: most education rows naturally carry 5 pipe fields.
+    pipe_count = text.count("|")
+    if pipe_count >= 4:
+        return "education"
+    return "experience"
 
 
 def parse_summary_output(summary_text: str):
@@ -99,19 +147,29 @@ def parse_summary_output(summary_text: str):
     if len(segments) < 4:
         return {}
 
-    while len(segments) < 10:
-        segments.append("N/A")
+    tail_segments = [segment.strip() for segment in segments[4:] if segment.strip()]
 
-    education = [
-        normalize_pipe_segment(segments[4], expected_fields=5),
-        normalize_pipe_segment(segments[5], expected_fields=5),
-        normalize_pipe_segment(segments[6], expected_fields=5),
-    ]
-    experience = [
-        normalize_pipe_segment(segments[7], expected_fields=4),
-        normalize_pipe_segment(segments[8], expected_fields=4),
-        normalize_pipe_segment(segments[9], expected_fields=4),
-    ]
+    education = []
+    experience = []
+    for segment in tail_segments:
+        segment_type = classify_tail_segment(segment)
+        if segment_type == "education" and len(education) < 3:
+            education.append(normalize_pipe_segment(segment, expected_fields=5))
+            continue
+        if segment_type == "experience" and len(experience) < 3:
+            experience.append(normalize_pipe_segment(segment, expected_fields=4))
+            continue
+
+        # Fallback if classification is ambiguous or a bucket is already full.
+        if len(education) < 3:
+            education.append(normalize_pipe_segment(segment, expected_fields=5))
+        elif len(experience) < 3:
+            experience.append(normalize_pipe_segment(segment, expected_fields=4))
+
+    while len(education) < 3:
+        education.append(normalize_pipe_segment("N/A", expected_fields=5))
+    while len(experience) < 3:
+        experience.append(normalize_pipe_segment("N/A", expected_fields=4))
 
     return {
         "first": safe_text(segments[0]),
