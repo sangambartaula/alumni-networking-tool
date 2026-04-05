@@ -439,6 +439,7 @@ try:
                         system_prompt=(
                             "Return first,last,location,headline plus two arrays: education_lines and experience_lines. "
                             "Each element must be a JSON string object. "
+                            "Example education string: '{\"school\": \"UNT\", \"degree\": \"BS\", \"major\": \"CS\", \"start\": \"2020\", \"end\": \"2024\"}'. "
                             "Education line JSON keys: school,degree,major,start,end. "
                             "Experience line JSON keys: title,company,start,end. "
                             "Use only these keys. Use 'N/A' for missing fields. "
