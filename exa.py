@@ -145,15 +145,23 @@ def extract_experience_entries(output: dict):
     return legacy
 
 
-def has_unt_education(output: dict) -> bool:
-    schools = []
-    for edu in extract_education_entries(output):
-        school = safe_text(edu.get("school"))
-        if school != "N/A":
-            schools.append(school.lower())
+def raw_mentions_unt(lines) -> bool:
+    for raw in as_list(lines):
+        text = safe_text(raw).lower()
+        if "north texas" in text or " unt " in f" {text} ":
+            return True
+    return False
 
-    for school in schools:
-        if "university of north texas" in school or " unt " in f" {school} ":
+
+def has_unt_education(output: dict) -> bool:
+    education_lines = output.get("education_lines")
+    if raw_mentions_unt(education_lines):
+        return True
+
+    # Backward-compatible fallback for legacy structured output.
+    for edu in extract_education_entries(output):
+        school = safe_text(edu.get("school")).lower()
+        if "north texas" in school or " unt " in f" {school} ":
             return True
     return False
 
