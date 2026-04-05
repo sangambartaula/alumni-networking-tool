@@ -65,39 +65,29 @@ def as_dict(value):
     return value if isinstance(value, dict) else {}
 
 
-def parse_json_line_entries(lines, allowed_keys, max_items=3):
+def split_delimited_line(raw, field_names):
+    text = safe_text(raw)
+    parts = [part.strip() for part in text.split(";;", len(field_names) - 1)]
+    if len(parts) < len(field_names):
+        parts.extend(["N/A"] * (len(field_names) - len(parts)))
+    return {field_names[index]: safe_text(parts[index]) for index in range(len(field_names))}
+
+
+def parse_delimited_entries(lines, field_names, max_items=3):
     entries = []
     for raw in as_list(lines):
         if len(entries) >= max_items:
             break
-
-        parsed = None
-        if isinstance(raw, str):
-            try:
-                parsed = json.loads(raw)
-            except (TypeError, ValueError):
-                parsed = None
-        elif isinstance(raw, dict):
-            parsed = raw
-
-        data = as_dict(parsed)
-        if not data:
-            continue
-
-        cleaned = {}
-        for key in allowed_keys:
-            cleaned[key] = safe_text(data.get(key))
-        entries.append(cleaned)
-
+        entries.append(split_delimited_line(raw, field_names))
     return entries
 
 
 def extract_education_entries(output: dict):
-    education_lines = output.get("education_lines")
+    education_lines = output.get("education")
     if education_lines is not None:
-        return parse_json_line_entries(
+        return parse_delimited_entries(
             education_lines,
-            allowed_keys=("school", "degree", "major", "start", "end"),
+            field_names=("school", "degree", "major", "start", "end"),
             max_items=3,
         )
 
@@ -120,11 +110,11 @@ def extract_education_entries(output: dict):
 
 
 def extract_experience_entries(output: dict):
-    experience_lines = output.get("experience_lines")
+    experience_lines = output.get("experience")
     if experience_lines is not None:
-        return parse_json_line_entries(
+        return parse_delimited_entries(
             experience_lines,
-            allowed_keys=("title", "company", "start", "end"),
+            field_names=("title", "company", "start", "end"),
             max_items=3,
         )
 
@@ -154,7 +144,7 @@ def raw_mentions_unt(lines) -> bool:
 
 
 def has_unt_education(output: dict) -> bool:
-    education_lines = output.get("education_lines")
+    education_lines = output.get("education")
     if raw_mentions_unt(education_lines):
         return True
 
@@ -354,12 +344,12 @@ output_schema = {
         "last": {"type": "string"},
         "location": {"type": "string"},
         "headline": {"type": "string", "description": "Professional tagline"},
-        "education_lines": {
+        "education": {
             "type": "array",
             "maxItems": 3,
             "items": {"type": "string"},
         },
-        "experience_lines": {
+        "experience": {
             "type": "array",
             "maxItems": 3,
             "items": {"type": "string"},
@@ -403,19 +393,19 @@ def debug_preview_output(query: str, output: dict, preview_index: int):
         f"Query: {query}",
         f"Name: {first} {last}",
         f"Raw keys: {', '.join(sorted(output.keys()))}",
-        "education_lines:",
+        "education:",
     ]
 
-    for idx, raw_line in enumerate(as_list(output.get("education_lines")), start=1):
+    for idx, raw_line in enumerate(as_list(output.get("education")), start=1):
         lines.append(f"  edu[{idx}]: {raw_line}")
 
-    lines.append("experience_lines:")
-    for idx, raw_line in enumerate(as_list(output.get("experience_lines")), start=1):
+    lines.append("experience:")
+    for idx, raw_line in enumerate(as_list(output.get("experience")), start=1):
         lines.append(f"  exp[{idx}]: {raw_line}")
 
-    if not as_list(output.get("education_lines")):
+    if not as_list(output.get("education")):
         lines.append("  (none)")
-    if not as_list(output.get("experience_lines")):
+    if not as_list(output.get("experience")):
         lines.append("  (none)")
 
     preview_text = "\n".join(lines) + "\n"
@@ -444,17 +434,17 @@ def debug_log_result(url: str, output: dict):
         f"last: {safe_text(output.get('last'))}",
         f"location: {safe_text(output.get('location'))}",
         f"headline: {safe_text(output.get('headline'))}",
-        "education_lines:",
+        "education:",
     ]
 
-    education_lines = as_list(output.get("education_lines"))
+    education_lines = as_list(output.get("education"))
     for idx, raw_line in enumerate(education_lines, start=1):
         lines.append(f"  edu[{idx}]: {raw_line}")
     if not education_lines:
         lines.append("  (none)")
 
-    lines.append("experience_lines:")
-    experience_lines = as_list(output.get("experience_lines"))
+    lines.append("experience:")
+    experience_lines = as_list(output.get("experience"))
     for idx, raw_line in enumerate(experience_lines, start=1):
         lines.append(f"  exp[{idx}]: {raw_line}")
     if not experience_lines:
@@ -524,12 +514,11 @@ try:
                         text={"max_characters": 12000},
                         output_schema=output_schema,
                         system_prompt=(
-                            "Return first,last,location,headline plus two arrays: education_lines and experience_lines. "
-                            "Each element must be a JSON string object. "
-                            "Example education string: '{\"school\": \"UNT\", \"degree\": \"BS\", \"major\": \"CS\", \"start\": \"2020\", \"end\": \"2024\"}'. "
-                            "Education line JSON keys: school,degree,major,start,end. "
-                            "Experience line JSON keys: title,company,start,end. "
-                            "Use only these keys. Use 'N/A' for missing fields. "
+                            "Return first,last,location,headline plus two arrays: education and experience. "
+                            "Each array element must be a flat string using the delimiter ;;. "
+                            "Education format: School;;Degree;;Major;;Start;;End. "
+                            "Experience format: Title;;Company;;Start;;End. "
+                            "Use only these fields in that order. Use 'N/A' for missing fields. "
                             "For current roles set end to 'Present'. "
                             "Include up to the 3 most recent education and 3 most recent experience entries."
                         ),
