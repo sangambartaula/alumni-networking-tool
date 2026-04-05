@@ -4,6 +4,7 @@ import os
 import sqlite3
 import time
 import importlib
+import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -11,10 +12,10 @@ from dotenv import load_dotenv
 from exa_py import Exa
 
 try:
-    psycopg2 = importlib.import_module("psycopg2")
+    mysql_connector = importlib.import_module("mysql.connector")
 except ImportError as exc:
     raise RuntimeError(
-        "psycopg2 is required for cloud alumni dedupe checks. Install with: pip install psycopg2-binary"
+        "mysql-connector-python is required for cloud alumni writes. Install with: pip install mysql-connector-python"
     ) from exc
 
 
@@ -77,17 +78,111 @@ def has_unt_education(output: dict) -> bool:
     return False
 
 
-def fetch_existing_cloud_urls(pg_conn, normalized_urls):
+def sanitize_mysql_identifier(name: str) -> str:
+    cleaned = (name or "").strip()
+    if not cleaned or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", cleaned):
+        raise ValueError(f"❌ Invalid MySQL table name: {name}")
+    return cleaned
+
+
+def get_mysql_connection():
+    return mysql_connector.connect(
+        host=require_env("MYSQLHOST"),
+        user=require_env("MYSQLUSER"),
+        password=require_env("MYSQLPASSWORD"),
+        database=require_env("MYSQL_DATABASE"),
+        port=int(os.getenv("MYSQLPORT", "3306")),
+    )
+
+
+def ensure_exa_cloud_table(mysql_conn, table_name: str):
+    sql = f"""
+        CREATE TABLE IF NOT EXISTS `{table_name}` (
+            id BIGINT NOT NULL AUTO_INCREMENT,
+            linkedin_url VARCHAR(512) NOT NULL,
+            first_name VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            last_name VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            location VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            headline TEXT,
+            discipline VARCHAR(128) NOT NULL DEFAULT 'N/A',
+            school VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            degree VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            major VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            job_title VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            company VARCHAR(255) NOT NULL DEFAULT 'N/A',
+            job_start VARCHAR(64) NOT NULL DEFAULT 'N/A',
+            job_end VARCHAR(64) NOT NULL DEFAULT 'N/A',
+            raw_json JSON,
+            source VARCHAR(64) NOT NULL DEFAULT 'exa_ai',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_exa_ai_linkedin_url (linkedin_url)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """
+    with mysql_conn.cursor() as cur:
+        cur.execute(sql)
+    mysql_conn.commit()
+
+
+def fetch_existing_cloud_urls(mysql_conn, table_name: str, normalized_urls):
     if not normalized_urls:
         return set()
-    sql = """
-        SELECT LOWER(REGEXP_REPLACE(linkedin_url, '/+$', '')) AS normalized_url
-        FROM alumni
-        WHERE LOWER(REGEXP_REPLACE(linkedin_url, '/+$', '')) = ANY(%s)
-    """
-    with pg_conn.cursor() as cur:
-        cur.execute(sql, (list(normalized_urls),))
+    placeholders = ", ".join(["%s"] * len(normalized_urls))
+    sql = f"SELECT linkedin_url FROM `{table_name}` WHERE linkedin_url IN ({placeholders})"
+    with mysql_conn.cursor() as cur:
+        cur.execute(sql, list(normalized_urls))
         return {row[0] for row in cur.fetchall() if row and row[0]}
+
+
+def insert_cloud_row(mysql_conn, table_name: str, normalized_url: str, output: dict, discipline: str):
+    edu = [as_dict(x) for x in as_list(output.get("education"))]
+    exp = [as_dict(x) for x in as_list(output.get("experience"))]
+    start1, end1 = job_dates(
+        exp[0].get("start") if exp else None,
+        exp[0].get("end") if exp else None,
+    )
+
+    params = (
+        normalized_url,
+        safe_text(output.get("first")),
+        safe_text(output.get("last")),
+        safe_text(output.get("location")),
+        safe_text(output.get("headline")),
+        safe_text(discipline),
+        safe_text(edu[0].get("school") if edu else None),
+        safe_text(edu[0].get("degree") if edu else None),
+        safe_text(edu[0].get("major") if edu else None),
+        safe_text(exp[0].get("title") if exp else None),
+        safe_text(exp[0].get("company") if exp else None),
+        start1,
+        end1,
+        json.dumps(output, ensure_ascii=False),
+    )
+
+    sql = f"""
+        INSERT IGNORE INTO `{table_name}` (
+            linkedin_url,
+            first_name,
+            last_name,
+            location,
+            headline,
+            discipline,
+            school,
+            degree,
+            major,
+            job_title,
+            company,
+            job_start,
+            job_end,
+            raw_json
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    with mysql_conn.cursor() as cur:
+        cur.execute(sql, params)
+        inserted = cur.rowcount > 0
+    mysql_conn.commit()
+    return inserted
 
 
 def parse_target_divisor() -> int:
@@ -104,7 +199,7 @@ def parse_target_divisor() -> int:
 ENV_FILE = Path(__file__).resolve().with_name(".env")
 load_dotenv(dotenv_path=ENV_FILE, override=True)
 EXA_API_KEY = require_env("EXA_API_KEY")
-DATABASE_URL = require_env("DATABASE_URL")
+EXA_CLOUD_TABLE = sanitize_mysql_identifier(os.getenv("EXA_CLOUD_TABLE", "exa_ai_alumni"))
 
 exa = Exa(EXA_API_KEY)
 
@@ -157,8 +252,8 @@ conn.commit()
 cursor.execute("SELECT url FROM exa_staging_raw")
 seen_urls = {normalize_url(row[0]) for row in cursor.fetchall() if row and row[0]}
 
-pg_conn = psycopg2.connect(DATABASE_URL)
-pg_conn.autocommit = True
+mysql_conn = get_mysql_connection()
+ensure_exa_cloud_table(mysql_conn, EXA_CLOUD_TABLE)
 cloud_seen_cache = set()
 
 # 3. Lean Extraction Schema
@@ -230,7 +325,7 @@ effective_total_target = sum(group["target"] for group in disciplines)
 print(
     f"🚀 Starting run. Full target: {full_total_target} | "
     f"Divisor: {TARGET_DIVISOR} | Effective target: {effective_total_target}. "
-    f"Staging to {CSV_FILE}..."
+    f"Staging to {CSV_FILE}. Cloud table: {EXA_CLOUD_TABLE}..."
 )
 csv_has_header = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
 
@@ -262,7 +357,7 @@ try:
 
                     unknown_urls = [u for u in candidate_urls if u not in seen_urls and u not in cloud_seen_cache]
                     if unknown_urls:
-                        cloud_existing = fetch_existing_cloud_urls(pg_conn, unknown_urls)
+                        cloud_existing = fetch_existing_cloud_urls(mysql_conn, EXA_CLOUD_TABLE, unknown_urls)
                         cloud_seen_cache.update(cloud_existing)
 
                     remaining = [u for u in candidate_urls if u not in seen_urls and u not in cloud_seen_cache]
@@ -352,9 +447,15 @@ try:
                             (normalized, json.dumps(output, ensure_ascii=False)),
                         )
 
-                        if cursor.rowcount > 0:
+                        cloud_inserted = insert_cloud_row(mysql_conn, EXA_CLOUD_TABLE, normalized, output, group["name"])
+                        if cloud_inserted:
+                            cloud_seen_cache.add(normalized)
+
+                        if cursor.rowcount > 0 or cloud_inserted:
                             seen_urls.add(normalized)
-                            batch_rows.append(row)
+                            cloud_seen_cache.add(normalized)
+                            if cursor.rowcount > 0:
+                                batch_rows.append(row)
                             grp_count += 1
                             if grp_count >= group["target"]:
                                 break
@@ -381,7 +482,7 @@ finally:
     except Exception:
         pass
     try:
-        pg_conn.close()
+        mysql_conn.close()
     except Exception:
         pass
 
