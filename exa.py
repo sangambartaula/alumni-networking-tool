@@ -288,6 +288,8 @@ ENV_FILE = Path(__file__).resolve().with_name(".env")
 load_dotenv(dotenv_path=ENV_FILE, override=True)
 EXA_API_KEY = require_env("EXA_API_KEY")
 EXA_CLOUD_TABLE = sanitize_mysql_identifier(os.getenv("EXA_CLOUD_TABLE", "exa_ai_alumni"))
+EXA_DEBUG_FILE = Path(os.getenv("EXA_DEBUG_FILE", "exa_debug.log"))
+EXA_DEBUG_PREVIEW_LIMIT = max(1, int(os.getenv("EXA_DEBUG_PREVIEW_LIMIT", "3")))
 
 exa = Exa(EXA_API_KEY)
 
@@ -392,6 +394,35 @@ for group in disciplines:
 full_total_target = sum(group["full_target"] for group in disciplines)
 effective_total_target = sum(group["target"] for group in disciplines)
 
+
+def debug_preview_output(query: str, output: dict, preview_index: int):
+    first = safe_text(output.get("first"))
+    last = safe_text(output.get("last"))
+    lines = [
+        f"\n=== DEBUG PREVIEW #{preview_index} ===",
+        f"Query: {query}",
+        f"Name: {first} {last}",
+        f"Raw keys: {', '.join(sorted(output.keys()))}",
+        "education_lines:",
+    ]
+
+    for idx, raw_line in enumerate(as_list(output.get("education_lines")), start=1):
+        lines.append(f"  edu[{idx}]: {raw_line}")
+
+    lines.append("experience_lines:")
+    for idx, raw_line in enumerate(as_list(output.get("experience_lines")), start=1):
+        lines.append(f"  exp[{idx}]: {raw_line}")
+
+    if not as_list(output.get("education_lines")):
+        lines.append("  (none)")
+    if not as_list(output.get("experience_lines")):
+        lines.append("  (none)")
+
+    preview_text = "\n".join(lines) + "\n"
+    print(preview_text, end="")
+    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
+        debug_file.write(preview_text)
+
 # 5. Execution Loop
 print(
     f"🚀 Starting run. Full target: {full_total_target} | "
@@ -417,6 +448,7 @@ try:
                 print(f"🔎 Querying: {major} ({year}) | Mode: {search_mode}")
 
                 try:
+                    preview_count = 0
                     # Lightweight URL pass first to avoid content-spend on already-known URLs.
                     pre = exa.search(query, type=search_mode, category="people", num_results=25)
                     pre_results = getattr(pre, "results", []) or []
@@ -468,9 +500,15 @@ try:
                         if not output:
                             continue
 
-                        # UNT validation gate: only persist records with explicit UNT school mention.
-                        if not has_unt_education(output):
-                            continue
+                        if preview_count < EXA_DEBUG_PREVIEW_LIMIT:
+                            preview_count += 1
+                            debug_preview_output(query, output, preview_count)
+
+                        # --- DEBUG MODE: GATE DISABLED ---
+                        # if not has_unt_education(output):
+                        #     continue
+
+                        # ---------------------------------
 
                         edu = extract_education_entries(output)
                         exp = extract_experience_entries(output)
