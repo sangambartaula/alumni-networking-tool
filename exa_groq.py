@@ -65,6 +65,7 @@ Rules:
 - Examine all education evidence.
 - The highest degree from University of North Texas (Ph.D. > M.S. > B.S.) must be placed in edu_1.
 - All other education records (UNT or non-UNT) should follow in recency/chronology order in edu_2 and edu_3.
+- You are failing to capture the major for some users. If the text says "Computer Science", "Mechanical Engineering", or "Biomedical Engineering", that is the MAJOR. You must extract it even if it is not on the same line as the degree type.
 - Jobs MUST be ranked by recency using date strings (Present, YYYY, or ranges like 2024 - 2025).
 - job_1 = current/most recent, job_3 = oldest of the returned three.
 - Do NOT skip service/retail roles (e.g., Walmart, Cashier) if they are most recent.
@@ -319,6 +320,13 @@ def degree_to_short_form(raw_degree: str) -> str:
     return safe_text(raw_degree)
 
 
+def strict_degree_short_form(raw_degree: str) -> str:
+    short = degree_to_short_form(raw_degree)
+    if short in {"B.S.", "M.S.", "Ph.D."}:
+        return short
+    return "N/A"
+
+
 def clean_major_field(raw_major: str) -> str:
     major = safe_text(raw_major)
     if major == "N/A":
@@ -366,6 +374,17 @@ def _education_chrono_key(entry: dict) -> tuple[int, int]:
     return (max(years), min(years))
 
 
+def _school_dedupe_key(raw_school: str) -> str:
+    school = safe_text(raw_school).lower()
+    if school == "n/a":
+        return "n/a"
+    if is_unt_school(school):
+        return "university of north texas"
+    normalized = re.sub(r"[^a-z0-9]+", " ", school)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized or school
+
+
 def normalize_education(raw_education) -> list[dict]:
     source = raw_education if isinstance(raw_education, list) else []
     cleaned = []
@@ -405,6 +424,18 @@ def normalize_education(raw_education) -> list[dict]:
         ordered = [unt_best] + remaining
     else:
         ordered = cleaned
+
+    # Strict dedupe by institution: keep first appearance, blank repeated-school slots.
+    deduped = []
+    seen_school_keys = set()
+    for entry in ordered:
+        school_key = _school_dedupe_key(entry.get("school"))
+        if school_key in seen_school_keys:
+            continue
+        seen_school_keys.add(school_key)
+        deduped.append(entry)
+
+    ordered = deduped
 
     trimmed = ordered[:3]
     while len(trimmed) < 3:
@@ -607,6 +638,21 @@ def normalize_jobs(raw_jobs) -> list[dict]:
     # Law of recency: Job 1 = most recent/current; Job 3 = oldest.
     clean_jobs.sort(key=_job_recency_key, reverse=True)
 
+    # Keep only distinct title+company pairs so repeated roles don't fill slots 2/3.
+    deduped_jobs = []
+    seen_pairs = set()
+    for job in clean_jobs:
+        pair = (
+            safe_text(job.get("title")).lower(),
+            safe_text(job.get("company")).lower(),
+        )
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        deduped_jobs.append(job)
+
+    clean_jobs = deduped_jobs
+
     while len(clean_jobs) < 3:
         clean_jobs.append({"title": "N/A", "company": "N/A", "start_date": "N/A", "end_date": "N/A"})
 
@@ -720,7 +766,7 @@ def main() -> None:
                         fixed_first,
                         fixed_last,
                         safe_text(education[0].get("school")),
-                        degree_to_short_form(safe_text(education[0].get("degree"))),
+                        strict_degree_short_form(safe_text(education[0].get("degree"))),
                         clean_major_field(safe_text(education[0].get("major"))),
                         safe_text(education[1].get("school")),
                         degree_to_short_form(safe_text(education[1].get("degree"))),
