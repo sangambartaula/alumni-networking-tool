@@ -65,10 +65,90 @@ def as_dict(value):
     return value if isinstance(value, dict) else {}
 
 
+def parse_json_line_entries(lines, allowed_keys, max_items=3):
+    entries = []
+    for raw in as_list(lines):
+        if len(entries) >= max_items:
+            break
+
+        parsed = None
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                parsed = None
+        elif isinstance(raw, dict):
+            parsed = raw
+
+        data = as_dict(parsed)
+        if not data:
+            continue
+
+        cleaned = {}
+        for key in allowed_keys:
+            cleaned[key] = safe_text(data.get(key))
+        entries.append(cleaned)
+
+    return entries
+
+
+def extract_education_entries(output: dict):
+    education_lines = output.get("education_lines")
+    if education_lines is not None:
+        return parse_json_line_entries(
+            education_lines,
+            allowed_keys=("school", "degree", "major", "start", "end"),
+            max_items=3,
+        )
+
+    # Backward-compatible fallback in case old shape appears.
+    legacy = []
+    for item in as_list(output.get("education"))[:3]:
+        d = as_dict(item)
+        if not d:
+            continue
+        legacy.append(
+            {
+                "school": safe_text(d.get("school")),
+                "degree": safe_text(d.get("degree")),
+                "major": safe_text(d.get("major")),
+                "start": safe_text(d.get("start")),
+                "end": safe_text(d.get("end")),
+            }
+        )
+    return legacy
+
+
+def extract_experience_entries(output: dict):
+    experience_lines = output.get("experience_lines")
+    if experience_lines is not None:
+        return parse_json_line_entries(
+            experience_lines,
+            allowed_keys=("title", "company", "start", "end"),
+            max_items=3,
+        )
+
+    # Backward-compatible fallback in case old shape appears.
+    legacy = []
+    for item in as_list(output.get("experience"))[:3]:
+        d = as_dict(item)
+        if not d:
+            continue
+        legacy.append(
+            {
+                "title": safe_text(d.get("title")),
+                "company": safe_text(d.get("company")),
+                "start": safe_text(d.get("start")),
+                "end": safe_text(d.get("end")),
+            }
+        )
+    return legacy
+
+
 def has_unt_education(output: dict) -> bool:
     schools = []
-    for edu in as_list(output.get("education")):
-        school = safe_text(as_dict(edu).get("school"))
+    for edu in extract_education_entries(output):
+        school = safe_text(edu.get("school"))
         if school != "N/A":
             schools.append(school.lower())
 
@@ -136,8 +216,8 @@ def fetch_existing_cloud_urls(mysql_conn, table_name: str, normalized_urls):
 
 
 def insert_cloud_row(mysql_conn, table_name: str, normalized_url: str, output: dict, discipline: str):
-    edu = [as_dict(x) for x in as_list(output.get("education"))]
-    exp = [as_dict(x) for x in as_list(output.get("experience"))]
+    edu = extract_education_entries(output)
+    exp = extract_experience_entries(output)
     start1, end1 = job_dates(
         exp[0].get("start") if exp else None,
         exp[0].get("end") if exp else None,
@@ -264,32 +344,15 @@ output_schema = {
         "last": {"type": "string"},
         "location": {"type": "string"},
         "headline": {"type": "string", "description": "Professional tagline"},
-        "education": {
+        "education_lines": {
             "type": "array",
             "maxItems": 3,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "school": {"type": "string"},
-                    "degree": {"type": "string"},
-                    "major": {"type": "string"},
-                    "start": {"type": "string"},
-                    "end": {"type": "string"},
-                },
-            },
+            "items": {"type": "string"},
         },
-        "experience": {
+        "experience_lines": {
             "type": "array",
             "maxItems": 3,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "company": {"type": "string"},
-                    "start": {"type": "string"},
-                    "end": {"type": "string"},
-                },
-            },
+            "items": {"type": "string"},
         },
     },
 }
@@ -374,8 +437,13 @@ try:
                         text={"max_characters": 12000},
                         output_schema=output_schema,
                         system_prompt=(
-                            "Extract the 3 most recent entries. Use 'Present' for current jobs. "
-                            "Use 'N/A' for missing fields."
+                            "Return first,last,location,headline plus two arrays: education_lines and experience_lines. "
+                            "Each element must be a JSON string object. "
+                            "Education line JSON keys: school,degree,major,start,end. "
+                            "Experience line JSON keys: title,company,start,end. "
+                            "Use only these keys. Use 'N/A' for missing fields. "
+                            "For current roles set end to 'Present'. "
+                            "Include up to the 3 most recent education and 3 most recent experience entries."
                         ),
                     )
 
@@ -395,8 +463,8 @@ try:
                         if not has_unt_education(output):
                             continue
 
-                        edu = [as_dict(x) for x in as_list(output.get("education"))]
-                        exp = [as_dict(x) for x in as_list(output.get("experience"))]
+                        edu = extract_education_entries(output)
+                        exp = extract_experience_entries(output)
 
                         start1, end1 = job_dates(
                             exp[0].get("start") if exp else None,
