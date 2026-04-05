@@ -423,11 +423,57 @@ def debug_preview_output(query: str, output: dict, preview_index: int):
     with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
         debug_file.write(preview_text)
 
+
+def debug_log_query(query: str, pre_count: int, result_count: int):
+    message = (
+        f"\n=== QUERY ===\n"
+        f"{query}\n"
+        f"pre_results={pre_count}\n"
+        f"search_and_contents_results={result_count}\n"
+    )
+    print(message, end="")
+    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
+        debug_file.write(message)
+
+
+def debug_log_result(url: str, output: dict):
+    lines = [
+        f"URL: {url}",
+        f"output_keys: {', '.join(sorted(output.keys()))}",
+        f"first: {safe_text(output.get('first'))}",
+        f"last: {safe_text(output.get('last'))}",
+        f"location: {safe_text(output.get('location'))}",
+        f"headline: {safe_text(output.get('headline'))}",
+        "education_lines:",
+    ]
+
+    education_lines = as_list(output.get("education_lines"))
+    for idx, raw_line in enumerate(education_lines, start=1):
+        lines.append(f"  edu[{idx}]: {raw_line}")
+    if not education_lines:
+        lines.append("  (none)")
+
+    lines.append("experience_lines:")
+    experience_lines = as_list(output.get("experience_lines"))
+    for idx, raw_line in enumerate(experience_lines, start=1):
+        lines.append(f"  exp[{idx}]: {raw_line}")
+    if not experience_lines:
+        lines.append("  (none)")
+
+    preview_text = "\n".join(lines) + "\n"
+    print(preview_text, end="")
+    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
+        debug_file.write(preview_text)
+
 # 5. Execution Loop
+EXA_DEBUG_FILE.write_text(
+    f"Exa debug session started at {time.strftime('%Y-%m-%d %H:%M:%S')}\n",
+    encoding="utf-8",
+)
 print(
     f"🚀 Starting run. Full target: {full_total_target} | "
     f"Divisor: {TARGET_DIVISOR} | Effective target: {effective_total_target}. "
-    f"Staging to {CSV_FILE}. Cloud table: {EXA_CLOUD_TABLE}..."
+    f"Staging to {CSV_FILE}. Cloud table: {EXA_CLOUD_TABLE}. Debug log: {EXA_DEBUG_FILE}..."
 )
 csv_has_header = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
 
@@ -452,6 +498,7 @@ try:
                     # Lightweight URL pass first to avoid content-spend on already-known URLs.
                     pre = exa.search(query, type=search_mode, category="people", num_results=25)
                     pre_results = getattr(pre, "results", []) or []
+                    debug_log_query(query, len(pre_results), 0)
                     candidate_urls = {
                         normalize_url(getattr(item, "url", ""))
                         for item in pre_results
@@ -487,17 +534,22 @@ try:
                             "Include up to the 3 most recent education and 3 most recent experience entries."
                         ),
                     )
+                    res_results = getattr(res, "results", []) or []
+                    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
+                        debug_file.write(f"search_and_contents_results={len(res_results)}\n")
 
                     batch_rows = []
-                    for p in getattr(res, "results", []) or []:
+                    for p in res_results:
                         normalized = normalize_url(getattr(p, "url", ""))
                         if not normalized:
                             continue
-                        if normalized in seen_urls or normalized in cloud_seen_cache:
-                            continue
 
                         output = as_dict(getattr(p, "output", {}) or {})
+                        debug_log_result(normalized, output)
                         if not output:
+                            continue
+
+                        if normalized in seen_urls or normalized in cloud_seen_cache:
                             continue
 
                         if preview_count < EXA_DEBUG_PREVIEW_LIMIT:
