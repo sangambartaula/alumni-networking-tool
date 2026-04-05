@@ -82,6 +82,47 @@ def parse_delimited_entries(lines, field_names, max_items=3):
     return entries
 
 
+def normalize_pipe_segment(raw_segment, expected_fields):
+    text = safe_text(raw_segment)
+    parts = [part.strip() for part in text.split("|", expected_fields - 1)]
+    if len(parts) < expected_fields:
+        parts.extend(["N/A"] * (expected_fields - len(parts)))
+    return ";;".join(safe_text(part) for part in parts[:expected_fields])
+
+
+def parse_summary_output(summary_text: str):
+    text = safe_text(summary_text)
+    if text == "N/A":
+        return {}
+
+    segments = [segment.strip() for segment in text.split(";;")]
+    if len(segments) < 4:
+        return {}
+
+    while len(segments) < 10:
+        segments.append("N/A")
+
+    education = [
+        normalize_pipe_segment(segments[4], expected_fields=5),
+        normalize_pipe_segment(segments[5], expected_fields=5),
+        normalize_pipe_segment(segments[6], expected_fields=5),
+    ]
+    experience = [
+        normalize_pipe_segment(segments[7], expected_fields=4),
+        normalize_pipe_segment(segments[8], expected_fields=4),
+        normalize_pipe_segment(segments[9], expected_fields=4),
+    ]
+
+    return {
+        "first": safe_text(segments[0]),
+        "last": safe_text(segments[1]),
+        "location": safe_text(segments[2]),
+        "headline": safe_text(segments[3]),
+        "education": education,
+        "experience": experience,
+    }
+
+
 def extract_education_entries(output: dict):
     education_lines = output.get("education")
     if education_lines is not None:
@@ -336,26 +377,18 @@ mysql_conn = get_mysql_connection()
 ensure_exa_cloud_table(mysql_conn, EXA_CLOUD_TABLE)
 cloud_seen_cache = set()
 
-# 3. Lean Extraction Schema
-output_schema = {
-    "type": "object",
-    "properties": {
-        "first": {"type": "string"},
-        "last": {"type": "string"},
-        "location": {"type": "string"},
-        "headline": {"type": "string", "description": "Professional tagline"},
-        "education": {
-            "type": "array",
-            "maxItems": 3,
-            "items": {"type": "string"},
-        },
-        "experience": {
-            "type": "array",
-            "maxItems": 3,
-            "items": {"type": "string"},
-        },
-    },
-}
+# 3. Summary Query Template
+SUMMARY_QUERY = (
+    "Extract exactly one line using this format and delimiter rules: "
+    "First;;Last;;Location;;Headline;;"
+    "Edu1School|Edu1Degree|Edu1Major|Edu1Start|Edu1End;;"
+    "Edu2School|Edu2Degree|Edu2Major|Edu2Start|Edu2End;;"
+    "Edu3School|Edu3Degree|Edu3Major|Edu3Start|Edu3End;;"
+    "Exp1Title|Exp1Company|Exp1Start|Exp1End;;"
+    "Exp2Title|Exp2Company|Exp2Start|Exp2End;;"
+    "Exp3Title|Exp3Company|Exp3Start|Exp3End. "
+    "Use N/A for missing fields. Use Present for current roles."
+)
 
 # 4. Balanced Disciplines & Targets
 disciplines = [
@@ -419,16 +452,17 @@ def debug_log_query(query: str, pre_count: int, result_count: int):
         f"\n=== QUERY ===\n"
         f"{query}\n"
         f"pre_results={pre_count}\n"
-        f"search_and_contents_results={result_count}\n"
+        f"summary_results={result_count}\n"
     )
     print(message, end="")
     with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
         debug_file.write(message)
 
 
-def debug_log_result(url: str, output: dict):
+def debug_log_result(url: str, output: dict, summary_text: str):
     lines = [
         f"URL: {url}",
+        f"summary_raw: {safe_text(summary_text)}",
         f"output_keys: {', '.join(sorted(output.keys()))}",
         f"first: {safe_text(output.get('first'))}",
         f"last: {safe_text(output.get('last'))}",
@@ -488,7 +522,6 @@ try:
                     # Lightweight URL pass first to avoid content-spend on already-known URLs.
                     pre = exa.search(query, type=search_mode, category="people", num_results=25)
                     pre_results = getattr(pre, "results", []) or []
-                    debug_log_query(query, len(pre_results), 0)
                     candidate_urls = {
                         normalize_url(getattr(item, "url", ""))
                         for item in pre_results
@@ -506,26 +539,17 @@ try:
                         time.sleep(0.4)
                         continue
 
-                    res = exa.search_and_contents(
+                    res = exa.search(
                         query,
                         type=search_mode,
                         category="people",
                         num_results=25,
-                        text={"max_characters": 12000},
-                        output_schema=output_schema,
-                        system_prompt=(
-                            "Return first,last,location,headline plus two arrays: education and experience. "
-                            "Each array element must be a flat string using the delimiter ;;. "
-                            "Education format: School;;Degree;;Major;;Start;;End. "
-                            "Experience format: Title;;Company;;Start;;End. "
-                            "Use only these fields in that order. Use 'N/A' for missing fields. "
-                            "For current roles set end to 'Present'. "
-                            "Include up to the 3 most recent education and 3 most recent experience entries."
-                        ),
+                        contents={"summary": {"query": SUMMARY_QUERY}},
                     )
                     res_results = getattr(res, "results", []) or []
+                    debug_log_query(query, len(pre_results), len(res_results))
                     with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
-                        debug_file.write(f"search_and_contents_results={len(res_results)}\n")
+                        debug_file.write(f"summary_results={len(res_results)}\n")
 
                     batch_rows = []
                     for p in res_results:
@@ -533,8 +557,9 @@ try:
                         if not normalized:
                             continue
 
-                        output = as_dict(getattr(p, "output", {}) or {})
-                        debug_log_result(normalized, output)
+                        summary_text = getattr(p, "summary", "")
+                        output = parse_summary_output(summary_text)
+                        debug_log_result(normalized, output, summary_text)
                         if not output:
                             continue
 
@@ -545,11 +570,8 @@ try:
                             preview_count += 1
                             debug_preview_output(query, output, preview_count)
 
-                        # --- DEBUG MODE: GATE DISABLED ---
-                        # if not has_unt_education(output):
-                        #     continue
-
-                        # ---------------------------------
+                        if not has_unt_education(output):
+                            continue
 
                         edu = extract_education_entries(output)
                         exp = extract_experience_entries(output)
