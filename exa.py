@@ -4,6 +4,7 @@ import os
 import sqlite3
 import time
 import importlib
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
@@ -100,7 +101,8 @@ def parse_target_divisor() -> int:
     return divisor
 
 
-load_dotenv()
+ENV_FILE = Path(__file__).resolve().with_name(".env")
+load_dotenv(dotenv_path=ENV_FILE, override=True)
 EXA_API_KEY = require_env("EXA_API_KEY")
 DATABASE_URL = require_env("DATABASE_URL")
 
