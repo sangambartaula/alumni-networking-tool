@@ -53,3 +53,10 @@ Only approved users can access the platform; administrative actions are role-gat
 - LinkedIn can impose anti-automation checks and rate limits.
 - Scraper activity should be run by authorized operators only.
 - For multi-staff production use, operate a single centrally hosted UNT instance with shared MySQL.
+
+## Environment & Secrets
+
+- Store API keys and credentials only in `.env`.
+- Never hardcode keys or commit local `.env` files.
+- Use `.env.example` as the committed template for required variables.
+- Before committing, run a quick key scan and verify no credential-like strings were added.
