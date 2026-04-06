@@ -80,7 +80,6 @@ _INLINE_EDU_NOISE_RE = re.compile(
     re.IGNORECASE,
 )
 _NAME_JUNK_RE = re.compile(r"(?:linkedin|company|group|jobs|hiring|http|www\.)", re.IGNORECASE)
-
 # Five required discipline batches.
 BATCH_QUERIES = {
     "Digital": (
@@ -325,6 +324,78 @@ def _chunk_section_lines(lines: list[str]) -> list[list[str]]:
     return chunks
 
 
+def _heading_body(heading: str) -> str:
+    return heading[3:].strip() if heading.startswith("###") else heading.strip()
+
+
+def _is_blank_education_heading(heading: str) -> bool:
+    body = _heading_body(heading)
+    if not body:
+        return True
+    lowered = body.lower()
+    if not lowered.startswith("at "):
+        return False
+    return True
+
+
+def _is_experience_noise_heading(heading: str) -> bool:
+    body = _heading_body(heading)
+    if not body:
+        return True
+    lowered = body.lower()
+    if lowered.startswith("student at ") and "university of north texas" in lowered:
+        return True
+    if lowered.startswith("student ") and "university of north texas" in lowered:
+        return True
+    return False
+
+
+def _clean_section_line(line: str, section_name: str) -> str:
+    compact = _compact_line(line)
+    if not compact or _is_metadata_line(compact):
+        return ""
+    if section_name == "education":
+        compact = _INLINE_EDU_NOISE_RE.sub("", compact).strip(" ,-;|")
+        if not compact or compact.lower().startswith("grade:"):
+            return ""
+    if section_name == "experience":
+        if compact.lower().startswith("show all "):
+            return ""
+        if compact.lower().startswith("see all "):
+            return ""
+    return compact
+
+
+def _looks_like_entry_heading(line: str, section_name: str) -> bool:
+    lowered = line.lower()
+    if line.startswith("###"):
+        return True
+    if section_name == "education":
+        return " at " in lowered and (
+            _DEGREE_SIGNAL_RE.search(line)
+            or "degree" in lowered
+            or "btech" in lowered
+            or "basc" in lowered
+            or "bachelor of technology" in lowered
+        )
+    if section_name == "experience":
+        return " at " in lowered
+    return False
+
+
+def _normalize_section_lines(lines: list[str], section_name: str) -> list[str]:
+    normalized = []
+    for raw_line in lines:
+        compact = _clean_section_line(raw_line, section_name)
+        if not compact:
+            continue
+        if _looks_like_entry_heading(compact, section_name):
+            if not compact.startswith("###"):
+                compact = f"### {compact}"
+        normalized.append(compact)
+    return normalized
+
+
 def _dedupe_preserve_order(values: list[str]) -> list[str]:
     deduped = []
     seen = set()
@@ -363,22 +434,23 @@ def _select_about_lines(lines: list[str]) -> list[str]:
 
 def _compact_profile_section(lines: list[str], max_entries: int, section_name: str) -> list[str]:
     compact_entries = []
-    for chunk in _chunk_section_lines(lines):
+    normalized_lines = _normalize_section_lines(lines, section_name)
+    for chunk in _chunk_section_lines(normalized_lines):
         heading = _compact_line(chunk[0]) if chunk else ""
         if not heading:
             continue
         if section_name == "education" and "certificate" in heading.lower() and not _DEGREE_SIGNAL_RE.search(heading):
             continue
+        if section_name == "education" and _is_blank_education_heading(heading):
+            continue
+        if section_name == "experience" and _is_experience_noise_heading(heading):
+            continue
 
         entry_lines = [heading]
         for line in chunk[1:]:
-            compact = _compact_line(line)
-            if not compact or _is_metadata_line(compact):
+            compact = _clean_section_line(line, section_name)
+            if not compact:
                 continue
-            if section_name == "education":
-                compact = _INLINE_EDU_NOISE_RE.sub("", compact).strip(" ,-;|")
-                if not compact:
-                    continue
             if _DATE_LINE_RE.search(compact):
                 entry_lines.append(compact)
                 break

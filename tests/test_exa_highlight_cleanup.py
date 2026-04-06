@@ -129,3 +129,74 @@ def test_profile_validators_require_real_name_and_unt_signal():
     assert exa.is_valid_name("LinkedIn Jobs") is False
     assert exa.is_valid_unt_profile("Jane Doe | Software Engineer", valid_text) is True
     assert exa.is_valid_unt_profile("Jane Doe | Software Engineer", "## Experience\n\n### Software Engineer at Acme Jan 2024 - Present") is False
+
+
+def test_clean_highlight_text_drops_blank_education_rows_and_student_noise():
+    exa = _load_exa_module()
+
+    raw = """# Ngan Tran
+
+Interested in Data Science and Machine Learning applications. Seeking Internship/Part-time/Full-time position Research Assistant at University of North Texas
+
+## About
+
+I graduated from UNT with a Bachelor in Computer Science and I am currently pursuing a PhD in Information Science.
+
+## Experience
+
+### Research Assistant at University of North Texas (Current)
+Dec 2020 - Present • 5 years and 2 months
+
+### Student at University of North Texas
+2020 - Present • 5 years
+
+## Education
+
+### at University of North Texas
+2018 - 2020 • 2 years
+
+### Doctor of Philosophy - PhD, Computer and Information Sciences, General, 4.0 at University of North Texas
+2020 - 2026 • 6 years
+
+### Bachelor of Applied Science - BASc, Computer Science, 4.0 at University of North Texas
+2018 - 2020 • 2 years
+"""
+
+    cleaned = exa.clean_highlight_text(raw)
+
+    assert "### at University of North Texas" not in cleaned
+    assert "### Student at University of North Texas" not in cleaned
+    assert "Doctor of Philosophy - PhD, Computer and Information Sciences, General" in cleaned
+    assert "Bachelor of Applied Science - BASc, Computer Science" in cleaned
+    assert "Research Assistant at University of North Texas" in cleaned
+
+
+def test_clean_highlight_text_promotes_inline_role_lines_to_headings():
+    exa = _load_exa_module()
+
+    raw = """# Hema Tummapala
+
+## Experience
+
+Data Scientist/ AI-ML Engineer at Fynite Corp.
+Jul 2025 - Present • 10 mos
+
+Instructional Assistant - Fundamentals of Database Systems at University of North Texas
+Jan 2025 - Aug 2025 • 8 mos
+
+Bootcamp Instructor - AI & Machine Learning at Explore STEM Summer Program
+Jun 2024 - Jul 2024 • 2 mos
+
+## Education
+
+Master of Science - MS, Computer Science at University of North Texas
+Aug 2023 - May 2025
+"""
+
+    cleaned = exa.clean_highlight_text(raw)
+
+    assert "### Data Scientist/ AI-ML Engineer at Fynite Corp." in cleaned
+    assert "Jul 2025 - Present" in cleaned
+    assert "### Instructional Assistant - Fundamentals of Database Systems at University of North Texas" in cleaned
+    assert "### Bootcamp Instructor - AI & Machine Learning at Explore STEM Summer Program" in cleaned
+    assert "### Master of Science - MS, Computer Science at University of North Texas" in cleaned
