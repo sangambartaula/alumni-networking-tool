@@ -128,6 +128,39 @@ def test_extract_experiences_with_groq_prompt_stays_lean(monkeypatch):
             break
 
     assert "Standardized job titles" not in user_prompt
+    assert 'Return only JSON' in user_prompt or 'Return ONLY JSON' in user_prompt
+    assert 'Never guess missing titles, companies, or dates' in user_prompt
+
+
+def test_extract_experiences_with_groq_skips_oversized_entries(monkeypatch):
+    class _OversizedCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return _FakeResponse(
+                '{"jobs":['
+                '{"company":"' + ('A' * 300) + '","job_title":"Software Engineer","start_date":"Jan 2024","end_date":"Present"},'
+                '{"company":"RWB Consulting Engineers","job_title":"Mechanical Engineer","start_date":"Jun 2025","end_date":"Present"}'
+                ']}'
+            )
+
+    class _OversizedChat:
+        completions = _OversizedCompletions()
+
+    class _OversizedClient:
+        chat = _OversizedChat()
+
+    monkeypatch.setattr(groq_extractor_experience, "_get_client", lambda: _OversizedClient())
+    monkeypatch.setattr(groq_extractor_experience, "is_groq_available", lambda: True)
+
+    jobs, _ = groq_extractor_experience.extract_experiences_with_groq(
+        "<section><li>dummy</li></section>",
+        max_jobs=3,
+        profile_name="Oversized Test",
+    )
+
+    assert len(jobs) == 1
+    assert jobs[0]["company"] == "RWB Consulting Engineers"
+    assert jobs[0]["job_title"] == "Mechanical Engineer"
 
 
 def test_extract_experiences_strips_trailing_employment_type(monkeypatch):

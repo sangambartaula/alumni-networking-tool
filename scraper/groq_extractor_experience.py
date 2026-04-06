@@ -16,6 +16,20 @@ if BS4_AVAILABLE:
     from bs4 import BeautifulSoup
 
 
+CLOUD_JOB_MAX_LEN = 255
+_BARE_EMPLOYMENT_TYPES = {
+    "internship",
+    "part-time",
+    "full-time",
+    "contract",
+    "seasonal",
+    "temporary",
+    "apprenticeship",
+    "self-employed",
+    "freelance",
+}
+
+
 def _looks_like_location_fragment(fragment: str) -> bool:
     """Heuristic for trailing location fragments like ', Hyderabad' or ' - Austin'."""
     if not fragment:
@@ -64,6 +78,35 @@ def _is_company_title_collision(title: str, company: str) -> bool:
     if not title_key or not company_key:
         return False
     return title_key == company_key
+
+
+def _job_entry_exceeds_cloud_limit(job: dict, max_len: int = CLOUD_JOB_MAX_LEN) -> bool:
+    if not isinstance(job, dict):
+        return False
+    fields = [
+        str(job.get("job_title") or ""),
+        str(job.get("company") or ""),
+        str(job.get("employment_type") or ""),
+        str(job.get("start_date") or ""),
+        str(job.get("end_date") or ""),
+    ]
+    return any(len(value) > max_len for value in fields)
+
+
+def _normalize_job_text(value: str) -> str:
+    text = _clean_doubled((value or "").strip())
+    text = _strip_trailing_location_fragment(text)
+    text = re.sub(
+        r'\s+(?:Full-time|Part-time|Contract|Internship|Self-employed|Freelance|Seasonal|Temporary|Apprenticeship)$',
+        '',
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    return text
+
+
+def _is_bare_employment_type(title: str) -> bool:
+    return (title or "").strip().casefold() in _BARE_EMPLOYMENT_TYPES
 
 
 # Strip common LinkedIn level prefixes from titles for cleaner storage (Sr./Jr./Associate, etc.).
@@ -303,6 +346,15 @@ Rules:
 - DO NOT return bare employment types (Internship, Part-time, Full-time, Contract) as the sole job_title.
 - Order by most recent first.
 
+Validation rules:
+- Return at most {groq_max} jobs.
+- Every job must be a real role/company pair. If the title or company is missing, return nothing for that row.
+- Never use a school, degree, or location as a company or title.
+- Never use a company name as the title, and never use the title as the company.
+- Never guess missing titles, companies, or dates.
+- If a row is ambiguous, omit it rather than guessing.
+- Use empty strings for missing optional values, not "N/A".
+
 Return ONLY JSON:
 {{"jobs": [{{"company":"...","employment_type":"...","job_title":"...","start_date":"...","end_date":"..."}}]}}
 
@@ -319,15 +371,16 @@ Data:
                 {
                     "role": "system",
                     "content": (
-                        "You are a data extraction engine. You must output valid JSON only. "
-                        "No explanations, no code, no markdown, no JavaScript. "
-                        "If extraction fails, return [] exactly."
+                        "You are a strict LinkedIn experience extraction engine. "
+                        "Output valid JSON only. No prose, no markdown, no code fences, no extra keys. "
+                        "Return {\"jobs\": []} if the data is ambiguous or no real jobs are present. "
+                        "Never guess missing titles, companies, or dates."
                     )
                 },
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=1024,
+            max_tokens=768,
             response_format={"type": "json_object"}
         )
         
@@ -364,7 +417,7 @@ Data:
         
         valid_jobs = []
         skill_pattern = re.compile(r'.*and \+\d+ skills?$', re.IGNORECASE)
-        type_pattern = re.compile(r'^(Internship|Part-time|Full-time|Contract|Seasonal|Temporary|Self-employed|Freelance)$', re.IGNORECASE)
+        type_pattern = re.compile(r'^(Internship|Part-time|Full-time|Contract|Seasonal|Temporary|Self-employed|Freelance|Apprenticeship)$', re.IGNORECASE)
         hallucinated_pattern = re.compile(r'^Role\s*\d+$', re.IGNORECASE)
         
         for job in jobs[:groq_max]:
@@ -379,6 +432,15 @@ Data:
             
             if not title or not company:
                 continue
+
+            if _job_entry_exceeds_cloud_limit(job):
+                logger.warning(
+                    "Dropping oversized Groq experience entry for %s (%s @ %s)",
+                    profile_name,
+                    title[:60],
+                    company[:60],
+                )
+                continue
             
             # Filter out skill lines
             if skill_pattern.search(title) or ("skills" in title.lower() and "+" in title):
@@ -389,32 +451,30 @@ Data:
             if type_pattern.match(title):
                 logger.debug(f"Skipping employment type title: {title}")
                 continue
+
+            if _is_bare_employment_type(title):
+                logger.debug(f"Skipping bare employment-type title: {title}")
+                continue
             
             # Filter out hallucinated role names
             if hallucinated_pattern.match(title):
                 logger.debug(f"Skipping hallucinated role name: {title} @ {company}")
                 continue
 
-            # Clean up doubled text (e.g. "EngineerEngineer" -> "Engineer")
-            title = _clean_doubled(title)
-            company = _clean_doubled(company)
-            title = _strip_trailing_location_fragment(title)
-            company = _strip_trailing_location_fragment(company)
+            # Clean up doubled text and trailing location/employment fragments.
+            title = _normalize_job_text(title)
+            company = _normalize_job_text(company)
 
             # Strip trailing employment type suffixes that Groq sometimes
             # appends without the · separator
             # (e.g. "UNT College of Engineering Part-time" → "UNT College of Engineering")
-            _emp_type_re = re.compile(
-                r'\s+(?:Full-time|Part-time|Contract|Internship|Self-employed|Freelance|Seasonal|Temporary|Apprenticeship)$',
-                re.IGNORECASE,
-            )
-            title = _emp_type_re.sub('', title).strip()
-            company = _emp_type_re.sub('', company).strip()
-
             title = strip_seniority_prefixes_from_title(title)
 
             if _is_company_title_collision(title, company):
                 logger.debug(f"Skipping title/company collision: {title} @ {company}")
+                continue
+
+            if not title or not company:
                 continue
                     
             # Filter out duration strings in Company field

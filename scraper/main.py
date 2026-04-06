@@ -336,6 +336,10 @@ def _recover_browser_session(scraper, profile_url, nav=None):
         # Single retry attempt
         logger.info(f"  🔄 Retrying: {profile_url}")
         data = scraper.scrape_profile_page(profile_url)
+
+        if data == "MANUAL_INTERVENTION_REQUIRED":
+            logger.warning(f"  ⏸️  Manual intervention required for {profile_url}")
+            return False, "MANUAL_INTERVENTION_REQUIRED"
         
         if data == "PAGE_NOT_FOUND":
             logger.warning(f"  💀 Profile no longer available: {profile_url}")
@@ -353,12 +357,25 @@ def _recover_browser_session(scraper, profile_url, nav=None):
         return False, None
 
 
+def _request_manual_intervention(reason, profile_url=None):
+    global manual_intervention_requested, exit_requested
+    manual_intervention_requested = True
+    exit_requested = True
+    if profile_url:
+        logger.warning("🔎 LinkedIn likely blocked this profile: %s", profile_url)
+    logger.warning(
+        "⚠️ Likely detected by LinkedIn (%s). Waiting for human input. Restart scraper if you would like to continue.",
+        reason,
+    )
+
+
 # ============================================================
 # Exit Control
 # ============================================================
 exit_requested = False
 force_exit = False
 _exit_listener_active = False
+manual_intervention_requested = False
 session_profiles_scraped = 0
 
 # GUI Limits
@@ -1147,6 +1164,10 @@ def run_names_mode(scraper, nav, history_mgr):
                     logger.error(f"❌ Error processing {url}: {e}")
                     continue
 
+            if data == "MANUAL_INTERVENTION_REQUIRED":
+                _request_manual_intervention("checkpoint_or_signin_overlay", url)
+                return
+
             if data == "PAGE_NOT_FOUND":
                 logger.warning(f"  💀 Dead URL skipped: {url}")
                 continue
@@ -1247,6 +1268,10 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 else:
                     logger.error(f"❌ Error processing {profile_url}: {e}")
                     continue
+
+            if data == "MANUAL_INTERVENTION_REQUIRED":
+                _request_manual_intervention("checkpoint_or_signin_overlay", profile_url)
+                return "manual_intervention", (session_profiles_scraped - mode_start_count)
 
             if data == "PAGE_NOT_FOUND":
                 logger.warning(f"  💀 Dead URL skipped: {profile_url}")
@@ -1492,6 +1517,10 @@ def run_review_mode(scraper, nav, history_mgr):
         try:
             # Scrape the profile (bypassing history check since we're re-reviewing)
             data = scraper.scrape_profile_page(profile_url)
+
+            if data == "MANUAL_INTERVENTION_REQUIRED":
+                _request_manual_intervention("checkpoint_or_signin_overlay", profile_url)
+                break
             
             # Handle dead/removed profiles
             if data == "PAGE_NOT_FOUND":
@@ -1592,6 +1621,9 @@ def run_update_mode(scraper, nav, history_mgr):
 
         try:
             data = scraper.scrape_profile_page(profile_url)
+            if data == "MANUAL_INTERVENTION_REQUIRED":
+                _request_manual_intervention("checkpoint_or_signin_overlay", profile_url)
+                break
             if data == "PAGE_NOT_FOUND":
                 dead_urls.append(profile_url)
                 continue
@@ -1826,6 +1858,8 @@ def main():
         run_status = "failed"
         logger.exception(f"Unhandled scraping error: {unhandled_err}")
     finally:
+        if manual_intervention_requested and run_status == "completed":
+            run_status = "interrupted"
         run_duration_seconds = int((datetime.now() - SCRIPT_START_TIME).total_seconds())
         logger.info("=" * 60)
         logger.info("RUN SUMMARY")
@@ -1912,7 +1946,29 @@ def main():
                 "REVIEW OR CLEAN LOCATION TEXT (E.G., REGION-ONLY LABELS) AND RUN BACKFILL GEOCODE (OPTIONAL) TO RETRY."
             )
             logger.warning("UNKNOWN_LOCATIONS_LIST: %s", "; ".join(sample_unknown_locations))
+
         stop_exit_listener()
+
+        if manual_intervention_requested:
+            logger.warning("Likely detected by LinkedIn. Waiting for human input.")
+            logger.warning("Restart scraper if you would like to continue after clearing the checkpoint.")
+            try:
+                while True:
+                    try:
+                        command = input().strip().lower()
+                    except EOFError:
+                        time.sleep(5)
+                        continue
+
+                    if command in {"quit", "exit", "force exit"}:
+                        break
+
+                    logger.warning(
+                        "Still waiting for human input. Clear the LinkedIn prompt in the browser, then restart the scraper in a new run if needed."
+                    )
+            except KeyboardInterrupt:
+                pass
+
         _restore_system_sleep()
         scraper.quit()
 

@@ -452,17 +452,33 @@ class LinkedInScraper:
         return False
 
     def _page_looks_blocked(self):
+        return self._page_block_reason() is not None
+
+    def _page_block_reason(self):
         try:
             url = (self.driver.current_url or "").lower()
             title = (self.driver.title or "").lower()
             html = (self.driver.page_source or "").lower()
             
-            if any(x in url for x in ("checkpoint", "authwall", "challenge")): return True
-            if any(x in title for x in ("sign in", "security verification")): return True
-            if len(html.strip()) < 1000: return True
-            return False
+            if any(x in url for x in ("checkpoint", "authwall", "challenge")):
+                return "checkpoint_or_authwall_detected"
+            if any(x in title for x in ("sign in", "security verification")):
+                return "signin_or_security_title_detected"
+            overlay_markers = (
+                "blurred-overlay",
+                "blurred-content",
+                "blurred-list",
+                "sign-in-modal",
+                "public_profile_sign-in-modal",
+                "public_profile_v3_desktop-public_profile_sign-in-modal",
+            )
+            if sum(1 for marker in overlay_markers if marker in html) >= 2:
+                return "blurred_signin_overlay_detected"
+            if len(html.strip()) < 1000:
+                return "page_too_small"
+            return None
         except Exception:
-            return False
+            return "page_health_check_failed"
 
     def _page_not_found(self):
         """Detect LinkedIn's 'This page doesn't exist' error page."""
@@ -520,7 +536,14 @@ class LinkedInScraper:
             time.sleep(2)
 
             # Check if blocked
-            if self._page_looks_blocked():
+            block_reason = self._page_block_reason()
+            if block_reason:
+                if block_reason == "blurred_signin_overlay_detected":
+                    logger.warning(
+                        "⚠️ LinkedIn likely detected automation or requires sign-in. "
+                        "Waiting for human input; restart the scraper if you want to continue."
+                    )
+                    return "MANUAL_INTERVENTION_REQUIRED"
                 logger.warning("⚠️ Page looks blocked or empty.")
                 return None
 
@@ -1061,6 +1084,7 @@ class LinkedInScraper:
     # ============================================================
     def _extract_top_card(self, soup):
         name, headline, location = "", "", ""
+        raw_location = ""
         
         # Name - Try h1 first (main profile name)
         h1 = soup.find("h1")
@@ -1136,6 +1160,9 @@ class LinkedInScraper:
             
             # Use EntityClassifier for more robust check
             classifier = get_classifier()
+
+            if not raw_location and (is_location_styled or has_comma or has_location_keyword or has_country):
+                raw_location = text
             
             if classifier.is_location(text):
                 location = text
@@ -1147,6 +1174,12 @@ class LinkedInScraper:
                 if verify_location(text):
                     location = text
                     break
+                if not raw_location:
+                    raw_location = text
+            elif not raw_location and (has_comma or has_location_keyword or has_country):
+                raw_location = text
+        if not location and raw_location:
+            location = raw_location
         name = _normalize_person_name(name)
         return name, headline, location
 

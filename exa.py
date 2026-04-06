@@ -1,28 +1,180 @@
+import argparse
 import csv
-import json
 import os
-import sqlite3
-import time
-import importlib
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 from exa_py import Exa
 
-try:
-    mysql_connector = importlib.import_module("mysql.connector")
-except ImportError as exc:
-    raise RuntimeError(
-        "mysql-connector-python is required for cloud alumni writes. Install with: pip install mysql-connector-python"
-    ) from exc
+
+RAW_CSV_FILE = Path(os.getenv("EXA_RAW_CSV_FILE", "raw_alumni_data.csv"))
+SEEN_URLS_FILE = Path(os.getenv("EXA_SEEN_URLS_FILE", "seen_urls.txt"))
+RESULTS_PER_BATCH = int(os.getenv("EXA_RESULTS_PER_BATCH", "50"))
+MAX_PAGES_PER_BATCH = int(os.getenv("EXA_MAX_PAGES_PER_BATCH", "250"))
+EXA_SEARCH_TYPE = os.getenv("EXA_SEARCH_TYPE", "neural").strip() or "neural"
+EXA_HIGHLIGHT_MAX_CHARACTERS = int(os.getenv("EXA_HIGHLIGHT_MAX_CHARACTERS", "2200"))
+EXA_MAX_AGE_HOURS = int(os.getenv("EXA_MAX_AGE_HOURS", "1"))
+EXA_LIVECRAWL_TIMEOUT_MS = int(os.getenv("EXA_LIVECRAWL_TIMEOUT_MS", "12000"))
+EXA_PAGE_DELAY_SECONDS = float(os.getenv("EXA_PAGE_DELAY_SECONDS", "0.3"))
+EXA_LOW_YIELD_STOP_RATIO = float(os.getenv("EXA_LOW_YIELD_STOP_RATIO", "0.1"))
+
+HIGHLIGHT_GUIDE_QUERY = (
+    "Education at University of North Texas or UNT: school, degree, major, graduation year. "
+    "Work experience: company, job title, start and end date. "
+    "Return the profile header plus education and experience only. "
+    "Exclude skills, activity, licenses, certifications, courses, honors, follower counts, "
+    "company-size metadata, and long descriptions."
+)
+
+_NOISE_SECTION_TITLES = (
+    "activity",
+    "licenses",
+    "certifications",
+    "skills",
+    "courses",
+    "languages",
+    "honors",
+    "projects",
+)
+_NOISE_LINE_PREFIXES = (
+    "view certificate",
+    "view publication",
+    "issued:",
+    "github profile",
+    "username:",
+    "activities:",
+    "activities and societies:",
+    "honors:",
+    "coursework:",
+)
+_METADATA_PATTERNS = [
+    re.compile(r"\bconnections\b.*\bfollowers\b", re.IGNORECASE),
+    re.compile(r"Company:\s*[0-9,+\- ]+employees", re.IGNORECASE),
+    re.compile(r"Founded\s*[0-9]{4}", re.IGNORECASE),
+    re.compile(r"\b(?:Privately Held|Public Company|Nonprofit)\b", re.IGNORECASE),
+    re.compile(r"Department:\s*.*", re.IGNORECASE),
+    re.compile(r"Level:\s*.*", re.IGNORECASE),
+    re.compile(r"^Total Experience:.*", re.IGNORECASE),
+]
+_DATE_LINE_RE = re.compile(
+    r"(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+\d{4}\b|\bPresent\b|\b\d{4}\s*-\s*(?:\d{4}|Present)\b)",
+    re.IGNORECASE,
+)
+_PROFILE_SIGNAL_RE = re.compile(
+    r"(?:university\s+of\s+north\s+texas|\bunt\b|##\s+education|##\s+experience|"
+    r"\bbachelor\b|\bmaster\b|\bph\.?d\b|\bcomputer science\b|\bengineering\b)",
+    re.IGNORECASE,
+)
+_ABOUT_SIGNAL_RE = re.compile(
+    r"(?:university\s+of\s+north\s+texas|\bunt\b|\bmajor(?:ing)?\s+in\b|"
+    r"\bpursuing a major in\b|\bgraduate\b|\bstudent\b|\bbachelor\b|\bmaster\b|\bph\.?d\b)",
+    re.IGNORECASE,
+)
+_UNT_SIGNAL_RE = re.compile(r"(?:university\s+of\s+north\s+texas|\bnorth texas\b|\bunt\b)", re.IGNORECASE)
+_DEGREE_SIGNAL_RE = re.compile(r"\b(?:bachelor|master|ph\.?d|b\.?s\.?|m\.?s\.?|doctorate)\b", re.IGNORECASE)
+_INLINE_EDU_NOISE_RE = re.compile(
+    r"(?:\bHonors?:|\bActivities and societies:|\bActivities:|\bCoursework:).*$",
+    re.IGNORECASE,
+)
+_NAME_JUNK_RE = re.compile(r"(?:linkedin|company|group|jobs|hiring|http|www\.)", re.IGNORECASE)
+
+# Five required discipline batches.
+BATCH_QUERIES = {
+    "Digital": (
+        'site:linkedin.com/in/ ("University of North Texas" OR UNT) '
+        '(alumni OR student OR "bachelor" OR "master" OR "phd") '
+        '("computer science" OR "software engineer" OR "software developer" OR '
+        '"artificial intelligence" OR "machine learning" OR "data science" OR '
+        '"cybersecurity" OR "cloud")'
+    ),
+    "Hardware": (
+        'site:linkedin.com/in/ ("University of North Texas" OR UNT) '
+        '(alumni OR student OR "bachelor" OR "master" OR "phd") '
+        '("electrical engineer" OR "embedded engineer" OR "hardware engineer" OR '
+        '"firmware engineer" OR "vlsi" OR "semiconductor" OR "fpga" OR '
+        '"circuit design") '
+        '-("computer science")'
+    ),
+    "Mechanical": (
+        'site:linkedin.com/in/ ("University of North Texas" OR UNT) '
+        '(alumni OR student OR "bachelor" OR "master" OR "phd") '
+        '("mechanical engineer" OR "manufacturing engineer" OR "design engineer" OR '
+        '"hvac" OR "thermodynamics" OR "robotics" OR "cad") '
+        '-("computer science" OR "construction")'
+    ),
+    "Construction": (
+        'site:linkedin.com/in/ ("University of North Texas" OR UNT) '
+        '(alumni OR student OR "bachelor" OR "master" OR "phd") '
+        '("construction engineer" OR "construction management" OR "project engineer" OR '
+        '"civil engineer" OR "site engineer" OR "bim" OR "revit" OR '
+        '"cost engineer") '
+        '-("computer science" OR "mechanical")'
+    ),
+    "Biomedical": (
+        'site:linkedin.com/in/ ("University of North Texas" OR UNT) '
+        '(alumni OR student OR "bachelor" OR "master" OR "phd") '
+        '("biomedical engineer" OR "medical device" OR "clinical engineer" OR '
+        '"bioinformatics" OR "biomaterials" OR "medical imaging" OR '
+        '"health informatics") '
+        '-("mechanical" OR "computer science")'
+    ),
+}
+
+# Base volume targets per batch family.
+BASE_BATCH_TARGETS = {
+    "Digital": 4000,
+    "Mechanical": 2000,
+    "Electrical": 1500,
+    "Construction": 1500,
+    "Biomedical": 1000,
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Gather raw UNT alumni profiles from Exa.")
+    parser.add_argument("--test", action="store_true", default=False, help="Run at a tiny scale for smoke testing.")
+    return parser.parse_args()
+
+
+def compute_scaled_targets(is_test: bool) -> dict[str, int]:
+    if not is_test:
+        return {
+            "Digital": BASE_BATCH_TARGETS["Digital"],
+            "Hardware": BASE_BATCH_TARGETS["Electrical"],
+            "Mechanical": BASE_BATCH_TARGETS["Mechanical"],
+            "Construction": BASE_BATCH_TARGETS["Construction"],
+            "Biomedical": BASE_BATCH_TARGETS["Biomedical"],
+        }
+
+    scaled = {}
+    for batch_name, base_target in (
+        ("Digital", BASE_BATCH_TARGETS["Digital"]),
+        ("Hardware", BASE_BATCH_TARGETS["Electrical"]),
+        ("Mechanical", BASE_BATCH_TARGETS["Mechanical"]),
+        ("Construction", BASE_BATCH_TARGETS["Construction"]),
+        ("Biomedical", BASE_BATCH_TARGETS["Biomedical"]),
+    ):
+        scaled_value = base_target / 1000.0
+        if scaled_value in {1.0, 1.5}:
+            target = 1
+        else:
+            target = max(1, int(scaled_value))
+        scaled[batch_name] = target
+    return scaled
+
+
+def reset_exa_search_state(exa_api_key: str) -> Exa:
+    # Recreate the client once at process start so each run starts from a fresh Exa session state.
+    return Exa(exa_api_key)
 
 
 def require_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
-        raise ValueError(f"❌ {name} not found in .env file")
+        raise ValueError(f"Missing required environment variable: {name}")
     return value
 
 
@@ -36,690 +188,422 @@ def normalize_url(url: str) -> str:
     return urlunsplit((scheme, netloc, path, "", ""))
 
 
-def safe_text(value) -> str:
-    text = str(value).strip() if value is not None else ""
-    return text if text else "N/A"
+def is_linkedin_profile_url(url: str) -> bool:
+    normalized = normalize_url(url)
+    if not normalized:
+        return False
+    parsed = urlsplit(normalized)
+    return "linkedin.com" in parsed.netloc and parsed.path.startswith("/in/")
 
 
-def clean_range(start, end):
-    start_text = safe_text(start)
-    if start_text == "N/A":
-        return "N/A"
-    end_text = safe_text(end)
-    return f"{start_text} - {('Present' if end_text == 'N/A' else end_text)}"
+def load_seen_urls(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    urls = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            normalized = normalize_url(line.strip())
+            if normalized:
+                urls.add(normalized)
+    return urls
 
 
-def job_dates(start, end):
-    start_text = safe_text(start)
-    if start_text == "N/A":
-        return "N/A", "N/A"
-    end_text = safe_text(end)
-    return start_text, ("Present" if end_text == "N/A" else end_text)
+def append_seen_url(path: Path, url: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"{url}\n")
 
 
-def as_list(value):
-    return value if isinstance(value, list) else []
+def ensure_raw_csv(path: Path) -> tuple[csv.writer, object]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_exists = path.exists() and path.stat().st_size > 0
+    handle = path.open("a", newline="", encoding="utf-8")
+    writer = csv.writer(handle)
+    if not file_exists:
+        writer.writerow(["name", "url", "highlight_text", "discipline_category"])
+        handle.flush()
+    return writer, handle
 
 
-def as_dict(value):
-    return value if isinstance(value, dict) else {}
+def _normalize_whitespace(text: str) -> str:
+    return re.sub(r"\s{2,}", " ", str(text or "").strip())
 
 
-def split_delimited_line(raw, field_names):
-    text = safe_text(raw)
-    parts = [part.strip() for part in text.split(";;", len(field_names) - 1)]
-    if len(parts) < len(field_names):
-        parts.extend(["N/A"] * (len(field_names) - len(parts)))
-    return {field_names[index]: safe_text(parts[index]) for index in range(len(field_names))}
+def _normalize_highlight_text(text: str) -> str:
+    raw = str(text or "")
+    if not raw.strip():
+        return ""
+
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n").replace("\u2022", " • ")
+    raw = re.sub(r"(?<![#\n])(###\s+)", r"\n\1", raw)
+    raw = re.sub(r"(?<![#\n])(##\s+)", r"\n\1", raw)
+    for marker in ("Total Experience:", "Company:", "Department:", "Level:", "Issued:", "View Certificate"):
+        raw = re.sub(rf"(?<!\n){re.escape(marker)}", f"\n{marker}", raw)
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
+    return raw
 
 
-def parse_delimited_entries(lines, field_names, max_items=3):
-    entries = []
-    for raw in as_list(lines):
-        if len(entries) >= max_items:
-            break
-        entries.append(split_delimited_line(raw, field_names))
-    return entries
+def _compact_line(line: str) -> str:
+    compact = _normalize_whitespace(line)
+    if not compact:
+        return ""
+    compact = compact.strip(" |")
+    compact = re.sub(r"\s*\.\.\.\s*", " ... ", compact)
+    return _normalize_whitespace(compact)
 
 
-def normalize_pipe_segment(raw_segment, expected_fields):
-    text = safe_text(raw_segment)
-    parts = [part.strip() for part in text.split("|")]
-    if len(parts) > expected_fields:
-        parts = parts[:expected_fields]
-    if len(parts) < expected_fields:
-        parts.extend(["N/A"] * (expected_fields - len(parts)))
-    return ";;".join(safe_text(part) for part in parts[:expected_fields])
-
-
-def classify_tail_segment(raw_segment: str) -> str:
-    text = safe_text(raw_segment)
-    lowered = text.lower()
-    if text == "N/A":
-        return "unknown"
-
-    education_markers = [
-        "university",
-        "college",
-        "institute",
-        "school",
-        "bachelor",
-        "master",
-        "phd",
-        "ph.d",
-        "degree",
-    ]
-    experience_markers = [
-        " at ",
-        "intern",
-        "engineer",
-        "manager",
-        "director",
-        "analyst",
-        "consultant",
-        "assistant",
-        "technician",
-        "coordinator",
-        "developer",
-    ]
-
-    has_education = any(marker in lowered for marker in education_markers)
-    has_experience = any(marker in lowered for marker in experience_markers)
-
-    if has_education and not has_experience:
-        return "education"
-    if has_experience and not has_education:
-        return "experience"
-
-    # Tie-breaker: most education rows naturally carry 5 pipe fields.
-    pipe_count = text.count("|")
-    if pipe_count >= 4:
-        return "education"
-    return "experience"
-
-
-def parse_summary_output(summary_text: str):
-    text = safe_text(summary_text)
-    if text == "N/A":
-        return {}
-
-    segments = [segment.strip() for segment in text.split(";;")]
-    if len(segments) < 4:
-        return {}
-
-    tail_segments = [segment.strip() for segment in segments[4:] if segment.strip()]
-
-    education = []
-    experience = []
-    for segment in tail_segments:
-        segment_type = classify_tail_segment(segment)
-        if segment_type == "education" and len(education) < 3:
-            education.append(normalize_pipe_segment(segment, expected_fields=5))
-            continue
-        if segment_type == "experience" and len(experience) < 3:
-            experience.append(normalize_pipe_segment(segment, expected_fields=4))
-            continue
-
-        # Fallback if classification is ambiguous or a bucket is already full.
-        if len(education) < 3:
-            education.append(normalize_pipe_segment(segment, expected_fields=5))
-        elif len(experience) < 3:
-            experience.append(normalize_pipe_segment(segment, expected_fields=4))
-
-    while len(education) < 3:
-        education.append(normalize_pipe_segment("N/A", expected_fields=5))
-    while len(experience) < 3:
-        experience.append(normalize_pipe_segment("N/A", expected_fields=4))
-
-    return {
-        "first": safe_text(segments[0]),
-        "last": safe_text(segments[1]),
-        "location": safe_text(segments[2]),
-        "headline": safe_text(segments[3]),
-        "education": education,
-        "experience": experience,
-    }
-
-
-def extract_education_entries(output: dict):
-    education_lines = output.get("education")
-    if education_lines is not None:
-        return parse_delimited_entries(
-            education_lines,
-            field_names=("school", "degree", "major", "start", "end"),
-            max_items=3,
-        )
-
-    # Backward-compatible fallback in case old shape appears.
-    legacy = []
-    for item in as_list(output.get("education"))[:3]:
-        d = as_dict(item)
-        if not d:
-            continue
-        legacy.append(
-            {
-                "school": safe_text(d.get("school")),
-                "degree": safe_text(d.get("degree")),
-                "major": safe_text(d.get("major")),
-                "start": safe_text(d.get("start")),
-                "end": safe_text(d.get("end")),
-            }
-        )
-    return legacy
-
-
-def extract_experience_entries(output: dict):
-    experience_lines = output.get("experience")
-    if experience_lines is not None:
-        return parse_delimited_entries(
-            experience_lines,
-            field_names=("title", "company", "start", "end"),
-            max_items=3,
-        )
-
-    # Backward-compatible fallback in case old shape appears.
-    legacy = []
-    for item in as_list(output.get("experience"))[:3]:
-        d = as_dict(item)
-        if not d:
-            continue
-        legacy.append(
-            {
-                "title": safe_text(d.get("title")),
-                "company": safe_text(d.get("company")),
-                "start": safe_text(d.get("start")),
-                "end": safe_text(d.get("end")),
-            }
-        )
-    return legacy
-
-
-def raw_mentions_unt(lines) -> bool:
-    for raw in as_list(lines):
-        text = safe_text(raw).lower()
-        if "north texas" in text or " unt " in f" {text} ":
-            return True
-    return False
-
-
-def has_unt_education(output: dict) -> bool:
-    education_lines = output.get("education")
-    if raw_mentions_unt(education_lines):
+def _is_metadata_line(line: str) -> bool:
+    lowered = line.lower()
+    if any(pattern.search(line) for pattern in _METADATA_PATTERNS):
         return True
-
-    # Backward-compatible fallback for legacy structured output.
-    for edu in extract_education_entries(output):
-        school = safe_text(edu.get("school")).lower()
-        if "north texas" in school or " unt " in f" {school} ":
-            return True
+    if any(lowered.startswith(prefix) for prefix in _NOISE_LINE_PREFIXES):
+        return True
     return False
 
 
-def sanitize_mysql_identifier(name: str) -> str:
-    cleaned = (name or "").strip()
-    if not cleaned or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", cleaned):
-        raise ValueError(f"❌ Invalid MySQL table name: {name}")
+def split_highlight_sections(text: str) -> dict[str, list[str]]:
+    sections = {"header": [], "about": [], "education": [], "experience": [], "other": []}
+    current_section = "header"
+
+    for raw_line in _normalize_highlight_text(text).splitlines():
+        line = _compact_line(raw_line)
+        if not line or _is_metadata_line(line):
+            continue
+
+        lowered = line.lower()
+        if lowered.startswith("## "):
+            title = line[3:].strip()
+            title_lower = title.lower()
+            remainder = ""
+
+            if title_lower.startswith("about"):
+                current_section = "about"
+                remainder = _compact_line(title[len("about"):].strip(" :-|"))
+            elif title_lower.startswith("education"):
+                current_section = "education"
+                remainder = _compact_line(title[len("education"):].strip(" :-|"))
+            elif title_lower.startswith("experience"):
+                current_section = "experience"
+                remainder = _compact_line(title[len("experience"):].strip(" :-|"))
+            elif any(title_lower.startswith(noise) for noise in _NOISE_SECTION_TITLES):
+                current_section = "other"
+            else:
+                current_section = "other"
+
+            if remainder and current_section in {"about", "education", "experience"} and not _is_metadata_line(remainder):
+                sections[current_section].append(remainder)
+            continue
+
+        sections[current_section].append(line)
+
+    return sections
+
+
+def _split_sentences(text: str) -> list[str]:
+    normalized = _normalize_whitespace(text)
+    if not normalized:
+        return []
+    parts = re.split(r"(?<=[.!?])\s+|\s+\.\.\.\s+", normalized)
+    return [_compact_line(part) for part in parts if _compact_line(part)]
+
+
+def _chunk_section_lines(lines: list[str]) -> list[list[str]]:
+    chunks = []
+    current = []
+    for line in lines:
+        if line.startswith("###"):
+            if current:
+                chunks.append(current)
+            current = [line]
+            continue
+        if current:
+            current.append(line)
+    if current:
+        chunks.append(current)
+    if not chunks and lines:
+        chunks.append(lines[:])
+    return chunks
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    deduped = []
+    seen = set()
+    for value in values:
+        key = value.casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
+
+def _select_header_lines(lines: list[str]) -> list[str]:
+    selected = []
+    for line in lines:
+        if _is_metadata_line(line):
+            continue
+        if "," in line and " at " not in line.lower() and "|" not in line and not line.startswith("#"):
+            continue
+        selected.append(line)
+        if len(selected) >= 2:
+            break
+    return _dedupe_preserve_order(selected)
+
+
+def _select_about_lines(lines: list[str]) -> list[str]:
+    selected = []
+    for sentence in _split_sentences(" ".join(lines)):
+        if not _ABOUT_SIGNAL_RE.search(sentence):
+            continue
+        selected.append(sentence)
+        if len(selected) >= 2:
+            break
+    return _dedupe_preserve_order(selected)
+
+
+def _compact_profile_section(lines: list[str], max_entries: int, section_name: str) -> list[str]:
+    compact_entries = []
+    for chunk in _chunk_section_lines(lines):
+        heading = _compact_line(chunk[0]) if chunk else ""
+        if not heading:
+            continue
+        if section_name == "education" and "certificate" in heading.lower() and not _DEGREE_SIGNAL_RE.search(heading):
+            continue
+
+        entry_lines = [heading]
+        for line in chunk[1:]:
+            compact = _compact_line(line)
+            if not compact or _is_metadata_line(compact):
+                continue
+            if section_name == "education":
+                compact = _INLINE_EDU_NOISE_RE.sub("", compact).strip(" ,-;|")
+                if not compact:
+                    continue
+            if _DATE_LINE_RE.search(compact):
+                entry_lines.append(compact)
+                break
+
+        compact_entries.append("\n".join(entry_lines))
+        if len(compact_entries) >= max_entries:
+            break
+
+    return compact_entries
+
+
+def clean_highlight_text(text: str) -> str:
+    sections = split_highlight_sections(text)
+
+    parts = []
+    header_lines = _select_header_lines(sections.get("header", []))
+    if header_lines:
+        parts.extend(header_lines)
+
+    about_lines = _select_about_lines(sections.get("about", []))
+    if about_lines:
+        parts.append("## About")
+        parts.extend(about_lines)
+
+    experience_entries = _compact_profile_section(sections.get("experience", []), max_entries=4, section_name="experience")
+    if experience_entries:
+        parts.append("## Experience")
+        parts.extend(experience_entries)
+
+    education_entries = _compact_profile_section(sections.get("education", []), max_entries=4, section_name="education")
+    if education_entries:
+        parts.append("## Education")
+        parts.extend(education_entries)
+
+    cleaned = "\n\n".join(_dedupe_preserve_order(parts)).strip()
+    if len(cleaned) > EXA_HIGHLIGHT_MAX_CHARACTERS:
+        cleaned = cleaned[:EXA_HIGHLIGHT_MAX_CHARACTERS].rsplit("\n", 1)[0].strip()
     return cleaned
 
 
-def get_mysql_connection():
-    return mysql_connector.connect(
-        host=require_env("MYSQLHOST"),
-        user=require_env("MYSQLUSER"),
-        password=require_env("MYSQLPASSWORD"),
-        database=require_env("MYSQL_DATABASE"),
-        port=int(os.getenv("MYSQLPORT", "3306")),
+def highlight_has_profile_signal(text: str) -> bool:
+    compact = str(text or "").strip()
+    if not compact:
+        return False
+    if not _PROFILE_SIGNAL_RE.search(compact):
+        return False
+    return "## Experience" in compact or "## Education" in compact or _DATE_LINE_RE.search(compact) is not None
+
+
+def is_valid_name(name: str) -> bool:
+    compact = _normalize_whitespace(name)
+    if len(compact) < 3:
+        return False
+    if _NAME_JUNK_RE.search(compact):
+        return False
+    alpha_tokens = re.findall(r"[A-Za-z][A-Za-z'.-]*", compact.split("|", 1)[0])
+    return len(alpha_tokens) >= 2
+
+
+def is_valid_unt_profile(name: str, highlight_text: str) -> bool:
+    compact = str(highlight_text or "").strip()
+    if not is_valid_name(name):
+        return False
+    if not compact:
+        return False
+    if not _UNT_SIGNAL_RE.search(compact):
+        return False
+    return highlight_has_profile_signal(compact)
+
+
+def extract_highlight_text(result) -> str:
+    highlights = getattr(result, "highlights", None) or []
+    raw_text = ""
+    if isinstance(highlights, list):
+        raw_text = "\n".join(str(part).strip() for part in highlights if str(part).strip()).strip()
+    else:
+        raw_text = str(highlights).strip()
+    return clean_highlight_text(raw_text)
+
+
+def search_people_with_highlights(exa: Exa, query: str, page_size: int):
+    base_kwargs = {
+        "type": EXA_SEARCH_TYPE,
+        "category": "people",
+        "num_results": page_size,
+        "include_domains": ["linkedin.com"],
+        "highlights": {
+            "query": HIGHLIGHT_GUIDE_QUERY,
+            "max_characters": EXA_HIGHLIGHT_MAX_CHARACTERS,
+        },
+        "text": False,
+        "summary": False,
+    }
+
+    attempts = (
+        {**base_kwargs, "max_age_hours": EXA_MAX_AGE_HOURS, "livecrawl_timeout": EXA_LIVECRAWL_TIMEOUT_MS},
+        {**base_kwargs, "maxAgeHours": EXA_MAX_AGE_HOURS, "livecrawlTimeout": EXA_LIVECRAWL_TIMEOUT_MS},
+        {**base_kwargs, "livecrawl": "preferred"},
     )
 
+    last_error = None
+    for kwargs in attempts:
+        try:
+            return exa.search_and_contents(query, **kwargs)
+        except TypeError as err:
+            last_error = err
+            continue
 
-def ensure_exa_cloud_table(mysql_conn, table_name: str):
-    sql = f"""
-        CREATE TABLE IF NOT EXISTS `{table_name}` (
-            id BIGINT NOT NULL AUTO_INCREMENT,
-            linkedin_url VARCHAR(512) NOT NULL,
-            first_name VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            last_name VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            location VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            headline TEXT,
-            discipline VARCHAR(128) NOT NULL DEFAULT 'N/A',
-            school VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            degree VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            major VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            job_title VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            company VARCHAR(255) NOT NULL DEFAULT 'N/A',
-            job_start VARCHAR(64) NOT NULL DEFAULT 'N/A',
-            job_end VARCHAR(64) NOT NULL DEFAULT 'N/A',
-            raw_json JSON,
-            source VARCHAR(64) NOT NULL DEFAULT 'exa_ai',
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY uq_exa_ai_linkedin_url (linkedin_url)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    """
-    with mysql_conn.cursor() as cur:
-        cur.execute(sql)
-    mysql_conn.commit()
+    if last_error is not None:
+        raise last_error
+    return exa.search_and_contents(query, **base_kwargs)
 
 
-def fetch_existing_cloud_urls(mysql_conn, table_name: str, normalized_urls):
-    if not normalized_urls:
-        return set()
-    placeholders = ", ".join(["%s"] * len(normalized_urls))
-    sql = f"SELECT linkedin_url FROM `{table_name}` WHERE linkedin_url IN ({placeholders})"
-    with mysql_conn.cursor() as cur:
-        cur.execute(sql, list(normalized_urls))
-        return {row[0] for row in cur.fetchall() if row and row[0]}
+def gather_batch(
+    exa: Exa,
+    batch_name: str,
+    query: str,
+    batch_target: int,
+    seen_urls: set[str],
+    writer: csv.writer,
+    handle,
+) -> int:
+    inserted = 0
+    page_number = 0
+    skipped_low_signal = 0
 
+    while inserted < batch_target and page_number < MAX_PAGES_PER_BATCH:
+        page_number += 1
+        remaining = batch_target - inserted
+        page_size = min(RESULTS_PER_BATCH, max(1, remaining))
 
-def insert_cloud_row(mysql_conn, table_name: str, normalized_url: str, output: dict, discipline: str):
-    edu = extract_education_entries(output)
-    exp = extract_experience_entries(output)
-    start1, end1 = job_dates(
-        exp[0].get("start") if exp else None,
-        exp[0].get("end") if exp else None,
-    )
+        response = search_people_with_highlights(exa, query, page_size)
 
-    params = (
-        normalized_url,
-        safe_text(output.get("first")),
-        safe_text(output.get("last")),
-        safe_text(output.get("location")),
-        safe_text(output.get("headline")),
-        safe_text(discipline),
-        safe_text(edu[0].get("school") if edu else None),
-        safe_text(edu[0].get("degree") if edu else None),
-        safe_text(edu[0].get("major") if edu else None),
-        safe_text(exp[0].get("title") if exp else None),
-        safe_text(exp[0].get("company") if exp else None),
-        start1,
-        end1,
-        json.dumps(output, ensure_ascii=False),
-    )
+        results = getattr(response, "results", []) or []
+        if not results:
+            break
 
-    sql = f"""
-        INSERT IGNORE INTO `{table_name}` (
-            linkedin_url,
-            first_name,
-            last_name,
-            location,
-            headline,
-            discipline,
-            school,
-            degree,
-            major,
-            job_title,
-            company,
-            job_start,
-            job_end,
-            raw_json
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
-    with mysql_conn.cursor() as cur:
-        cur.execute(sql, params)
-        inserted = cur.rowcount > 0
-    mysql_conn.commit()
+        new_in_page = 0
+        for item in results:
+            if inserted >= batch_target:
+                break
+
+            url = normalize_url(getattr(item, "url", ""))
+            if not is_linkedin_profile_url(url):
+                continue
+            if url in seen_urls:
+                continue
+
+            highlight_text = extract_highlight_text(item)
+            name = str(getattr(item, "title", "") or "").strip()
+            if not is_valid_unt_profile(name, highlight_text):
+                skipped_low_signal += 1
+                continue
+
+            writer.writerow([name, url, highlight_text, batch_name])
+            handle.flush()
+
+            append_seen_url(SEEN_URLS_FILE, url)
+            seen_urls.add(url)
+            inserted += 1
+            new_in_page += 1
+
+        print(
+            f"    Page {page_number}: {new_in_page} new rows ({inserted}/{batch_target}), "
+            f"low-signal skipped={skipped_low_signal}"
+        )
+
+        # Stop when a full page returns no unseen links, which indicates no more usable results.
+        if new_in_page == 0:
+            break
+        if page_number > 3 and new_in_page < max(1, int(page_size * EXA_LOW_YIELD_STOP_RATIO)):
+            print(f"    Low yield ({new_in_page}/{page_size}), stopping batch early")
+            break
+        if EXA_PAGE_DELAY_SECONDS > 0:
+            time.sleep(EXA_PAGE_DELAY_SECONDS)
+
     return inserted
 
 
-def parse_target_divisor() -> int:
-    raw = os.getenv("EXA_TARGET_DIVISOR", "1").strip()
+def main() -> None:
+    args = parse_args()
+    load_dotenv()
+    exa_api_key = require_env("EXA_API_KEY")
+
+    seen_urls = load_seen_urls(SEEN_URLS_FILE)
+    exa = reset_exa_search_state(exa_api_key)
+    batch_targets = compute_scaled_targets(args.test)
+
+    writer, handle = ensure_raw_csv(RAW_CSV_FILE)
     try:
-        divisor = int(raw)
-    except ValueError as exc:
-        raise ValueError(f"❌ EXA_TARGET_DIVISOR must be an integer >= 1, got: {raw}") from exc
-    if divisor < 1:
-        raise ValueError(f"❌ EXA_TARGET_DIVISOR must be >= 1, got: {raw}")
-    return divisor
+        print(
+            f"Starting gather stage. test_mode={args.test}. "
+            f"Existing seen URLs: {len(seen_urls)}"
+        )
+        print(f"Targets: {batch_targets}")
+        total_inserted = 0
+
+        for batch_name, query in BATCH_QUERIES.items():
+            target = batch_targets.get(batch_name, 0)
+            if target <= 0:
+                print(f"Skipping batch: {batch_name} (target={target})")
+                continue
+
+            print(f"Querying batch: {batch_name} (target={target})")
+            try:
+                inserted = gather_batch(
+                    exa,
+                    batch_name,
+                    query,
+                    target,
+                    seen_urls,
+                    writer,
+                    handle,
+                )
+                total_inserted += inserted
+                print(f"  Added {inserted} new profiles from {batch_name}")
+            except Exception as err:
+                print(f"  Skipped {batch_name} due to error: {err}")
+                time.sleep(1.5)
+
+        print(f"Gather stage complete. New rows appended: {total_inserted}")
+        print(f"Raw output file: {RAW_CSV_FILE}")
+    finally:
+        handle.close()
 
 
-ENV_FILE = Path(__file__).resolve().with_name(".env")
-load_dotenv(dotenv_path=ENV_FILE, override=True)
-EXA_API_KEY = require_env("EXA_API_KEY")
-EXA_CLOUD_TABLE = sanitize_mysql_identifier(os.getenv("EXA_CLOUD_TABLE", "exa_ai_alumni"))
-EXA_DEBUG_FILE = Path(os.getenv("EXA_DEBUG_FILE", "exa_debug.log"))
-EXA_DEBUG_PREVIEW_LIMIT = max(1, int(os.getenv("EXA_DEBUG_PREVIEW_LIMIT", "3")))
-
-exa = Exa(EXA_API_KEY)
-
-CSV_FILE = os.getenv("EXA_CSV_FILE", "EXA_STAGING_OUTPUT.csv")
-DB_FILE = os.getenv("EXA_STAGING_DB", "backend/alumni_backup.db")
-
-CSV_COLUMNS = [
-    "first",
-    "last",
-    "linkedin_url",
-    "location",
-    "headline",
-    "discipline",
-    "school",
-    "degree",
-    "major",
-    "s1_start",
-    "s1_end",
-    "s2_school",
-    "s2_degree",
-    "s3_school",
-    "s3_degree",
-    "job_title",
-    "company",
-    "job_start",
-    "job_end",
-    "exp2_title",
-    "exp2_company",
-    "exp2_dates",
-    "exp3_title",
-    "exp3_company",
-    "exp3_dates",
-]
-
-# 2. Database & Staging Table Setup
-conn = sqlite3.connect(DB_FILE)
-cursor = conn.cursor()
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS exa_staging_raw (
-        url TEXT PRIMARY KEY,
-        json_data TEXT,
-        scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """
-)
-conn.commit()
-
-# Load existing URLs to ensure zero double-spending
-cursor.execute("SELECT url FROM exa_staging_raw")
-seen_urls = {normalize_url(row[0]) for row in cursor.fetchall() if row and row[0]}
-
-mysql_conn = get_mysql_connection()
-ensure_exa_cloud_table(mysql_conn, EXA_CLOUD_TABLE)
-cloud_seen_cache = set()
-
-# 3. Summary Query Template
-SUMMARY_QUERY = (
-    "Extract exactly one line using this format and delimiter rules: "
-    "First;;Last;;Location;;Headline;;"
-    "Edu1School|Edu1Degree|Edu1Major|Edu1Start|Edu1End;;"
-    "Edu2School|Edu2Degree|Edu2Major|Edu2Start|Edu2End;;"
-    "Edu3School|Edu3Degree|Edu3Major|Edu3Start|Edu3End;;"
-    "Exp1Title|Exp1Company|Exp1Start|Exp1End;;"
-    "Exp2Title|Exp2Company|Exp2Start|Exp2End;;"
-    "Exp3Title|Exp3Company|Exp3Start|Exp3End. "
-    "Use N/A for missing fields. Use Present for current roles."
-)
-
-# 4. Balanced Disciplines & Targets
-disciplines = [
-    {
-        "name": "Software",
-        "target": 4000,
-        "majors": ["Computer Science", "Cybersecurity", "Artificial Intelligence", "Information Technology"],
-    },
-    {"name": "Mechanical", "target": 2000, "majors": ["Mechanical Engineering", "Materials Science"]},
-    {"name": "Electrical", "target": 1500, "majors": ["Electrical Engineering", "Computer Engineering"]},
-    {
-        "name": "Construction",
-        "target": 1500,
-        "majors": ["Construction Management", "Construction Engineering Technology"],
-    },
-    {"name": "Biomedical", "target": 1000, "majors": ["Biomedical Engineering"]},
-]
-
-TARGET_DIVISOR = parse_target_divisor()
-for group in disciplines:
-    full_target = group["target"]
-    reduced_target = max(1, full_target // TARGET_DIVISOR)
-    group["full_target"] = full_target
-    group["target"] = reduced_target
-
-full_total_target = sum(group["full_target"] for group in disciplines)
-effective_total_target = sum(group["target"] for group in disciplines)
-
-
-def debug_preview_output(query: str, output: dict, preview_index: int):
-    first = safe_text(output.get("first"))
-    last = safe_text(output.get("last"))
-    lines = [
-        f"\n=== DEBUG PREVIEW #{preview_index} ===",
-        f"Query: {query}",
-        f"Name: {first} {last}",
-        f"Raw keys: {', '.join(sorted(output.keys()))}",
-        "education:",
-    ]
-
-    for idx, raw_line in enumerate(as_list(output.get("education")), start=1):
-        lines.append(f"  edu[{idx}]: {raw_line}")
-
-    lines.append("experience:")
-    for idx, raw_line in enumerate(as_list(output.get("experience")), start=1):
-        lines.append(f"  exp[{idx}]: {raw_line}")
-
-    if not as_list(output.get("education")):
-        lines.append("  (none)")
-    if not as_list(output.get("experience")):
-        lines.append("  (none)")
-
-    preview_text = "\n".join(lines) + "\n"
-    print(preview_text, end="")
-    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
-        debug_file.write(preview_text)
-
-
-def debug_log_query(query: str, pre_count: int, result_count: int):
-    message = (
-        f"\n=== QUERY ===\n"
-        f"{query}\n"
-        f"pre_results={pre_count}\n"
-        f"summary_results={result_count}\n"
-    )
-    print(message, end="")
-    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
-        debug_file.write(message)
-
-
-def debug_log_result(url: str, output: dict, summary_text: str):
-    lines = [
-        f"URL: {url}",
-        f"summary_raw: {safe_text(summary_text)}",
-        f"output_keys: {', '.join(sorted(output.keys()))}",
-        f"first: {safe_text(output.get('first'))}",
-        f"last: {safe_text(output.get('last'))}",
-        f"location: {safe_text(output.get('location'))}",
-        f"headline: {safe_text(output.get('headline'))}",
-        "education:",
-    ]
-
-    education_lines = as_list(output.get("education"))
-    for idx, raw_line in enumerate(education_lines, start=1):
-        lines.append(f"  edu[{idx}]: {raw_line}")
-    if not education_lines:
-        lines.append("  (none)")
-
-    lines.append("experience:")
-    experience_lines = as_list(output.get("experience"))
-    for idx, raw_line in enumerate(experience_lines, start=1):
-        lines.append(f"  exp[{idx}]: {raw_line}")
-    if not experience_lines:
-        lines.append("  (none)")
-
-    preview_text = "\n".join(lines) + "\n"
-    print(preview_text, end="")
-    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
-        debug_file.write(preview_text)
-
-# 5. Execution Loop
-EXA_DEBUG_FILE.write_text(
-    f"Exa debug session started at {time.strftime('%Y-%m-%d %H:%M:%S')}\n",
-    encoding="utf-8",
-)
-print(
-    f"🚀 Starting run. Full target: {full_total_target} | "
-    f"Divisor: {TARGET_DIVISOR} | Effective target: {effective_total_target}. "
-    f"Staging to {CSV_FILE}. Cloud table: {EXA_CLOUD_TABLE}. Debug log: {EXA_DEBUG_FILE}..."
-)
-csv_has_header = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
-
-try:
-    for group in disciplines:
-        grp_count = 0
-        search_mode = "deep" if group["name"] in ["Biomedical", "Construction"] else "auto"
-
-        for major in group["majors"]:
-            if grp_count >= group["target"]:
-                break
-
-            for year in range(2015, 2027):
-                if grp_count >= group["target"]:
-                    break
-
-                query = f"site:linkedin.com/in/ \"University of North Texas\" \"{major}\" {year}"
-                print(f"🔎 Querying: {major} ({year}) | Mode: {search_mode}")
-
-                try:
-                    preview_count = 0
-                    # Lightweight URL pass first to avoid content-spend on already-known URLs.
-                    pre = exa.search(query, type=search_mode, category="people", num_results=25)
-                    pre_results = getattr(pre, "results", []) or []
-                    candidate_urls = {
-                        normalize_url(getattr(item, "url", ""))
-                        for item in pre_results
-                        if normalize_url(getattr(item, "url", ""))
-                    }
-
-                    unknown_urls = [u for u in candidate_urls if u not in seen_urls and u not in cloud_seen_cache]
-                    if unknown_urls:
-                        cloud_existing = fetch_existing_cloud_urls(mysql_conn, EXA_CLOUD_TABLE, unknown_urls)
-                        cloud_seen_cache.update(cloud_existing)
-
-                    remaining = [u for u in candidate_urls if u not in seen_urls and u not in cloud_seen_cache]
-                    if not remaining:
-                        print("   ⏭️ Skipped batch: all candidate URLs already exist in staging/cloud.")
-                        time.sleep(0.4)
-                        continue
-
-                    res = exa.search(
-                        query,
-                        type=search_mode,
-                        category="people",
-                        num_results=25,
-                        contents={"summary": {"query": SUMMARY_QUERY}},
-                    )
-                    res_results = getattr(res, "results", []) or []
-                    debug_log_query(query, len(pre_results), len(res_results))
-                    with open(EXA_DEBUG_FILE, "a", encoding="utf-8") as debug_file:
-                        debug_file.write(f"summary_results={len(res_results)}\n")
-
-                    batch_rows = []
-                    for p in res_results:
-                        normalized = normalize_url(getattr(p, "url", ""))
-                        if not normalized:
-                            continue
-
-                        summary_text = getattr(p, "summary", "")
-                        output = parse_summary_output(summary_text)
-                        debug_log_result(normalized, output, summary_text)
-                        if not output:
-                            continue
-
-                        if normalized in seen_urls or normalized in cloud_seen_cache:
-                            continue
-
-                        if preview_count < EXA_DEBUG_PREVIEW_LIMIT:
-                            preview_count += 1
-                            debug_preview_output(query, output, preview_count)
-
-                        if not has_unt_education(output):
-                            continue
-
-                        edu = extract_education_entries(output)
-                        exp = extract_experience_entries(output)
-
-                        start1, end1 = job_dates(
-                            exp[0].get("start") if exp else None,
-                            exp[0].get("end") if exp else None,
-                        )
-
-                        row = [
-                            safe_text(output.get("first")),
-                            safe_text(output.get("last")),
-                            normalized,
-                            safe_text(output.get("location")),
-                            safe_text(output.get("headline")),
-                            group["name"],
-                            # Edu 1
-                            safe_text(edu[0].get("school") if edu else None),
-                            safe_text(edu[0].get("degree") if edu else None),
-                            safe_text(edu[0].get("major") if edu else None),
-                            safe_text(edu[0].get("start") if edu else None),
-                            safe_text(edu[0].get("end") if edu else None),
-                            # Edu 2 & 3
-                            safe_text(edu[1].get("school") if len(edu) > 1 else None),
-                            safe_text(edu[1].get("degree") if len(edu) > 1 else None),
-                            safe_text(edu[2].get("school") if len(edu) > 2 else None),
-                            safe_text(edu[2].get("degree") if len(edu) > 2 else None),
-                            # Job 1
-                            safe_text(exp[0].get("title") if exp else None),
-                            safe_text(exp[0].get("company") if exp else None),
-                            start1,
-                            end1,
-                            # Exp 2
-                            safe_text(exp[1].get("title") if len(exp) > 1 else None),
-                            safe_text(exp[1].get("company") if len(exp) > 1 else None),
-                            clean_range(
-                                exp[1].get("start") if len(exp) > 1 else None,
-                                exp[1].get("end") if len(exp) > 1 else None,
-                            ),
-                            # Exp 3
-                            safe_text(exp[2].get("title") if len(exp) > 2 else None),
-                            safe_text(exp[2].get("company") if len(exp) > 2 else None),
-                            clean_range(
-                                exp[2].get("start") if len(exp) > 2 else None,
-                                exp[2].get("end") if len(exp) > 2 else None,
-                            ),
-                        ]
-
-                        cursor.execute(
-                            "INSERT OR IGNORE INTO exa_staging_raw (url, json_data) VALUES (?, ?)",
-                            (normalized, json.dumps(output, ensure_ascii=False)),
-                        )
-
-                        cloud_inserted = insert_cloud_row(mysql_conn, EXA_CLOUD_TABLE, normalized, output, group["name"])
-                        if cloud_inserted:
-                            cloud_seen_cache.add(normalized)
-
-                        if cursor.rowcount > 0 or cloud_inserted:
-                            seen_urls.add(normalized)
-                            cloud_seen_cache.add(normalized)
-                            if cursor.rowcount > 0:
-                                batch_rows.append(row)
-                            grp_count += 1
-                            if grp_count >= group["target"]:
-                                break
-
-                    # Buffered CSV write: one file open per batch.
-                    if batch_rows:
-                        with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
-                            writer = csv.writer(f)
-                            if not csv_has_header:
-                                writer.writerow(CSV_COLUMNS)
-                                csv_has_header = True
-                            writer.writerows(batch_rows)
-
-                    conn.commit()
-                    print(f"   ✅ Batch complete. {group['name']} Progress: {grp_count}/{group['target']}")
-                    time.sleep(1.2)
-
-                except Exception as e:
-                    print(f"   ⚠️ Error: {e}")
-                    time.sleep(5)
-finally:
-    try:
-        conn.close()
-    except Exception:
-        pass
-    try:
-        mysql_conn.close()
-    except Exception:
-        pass
-
-print("🏁 Production Run Complete.")
+if __name__ == "__main__":
+    main()

@@ -19,6 +19,20 @@ class PageHealthChecker:
         self.block_markers = [
             "try again", "unusual", "verify your", "blocked", "temporarily", "something went wrong"
         ]
+        self.overlay_markers = [
+            "blurred-overlay",
+            "blurred-content",
+            "blurred-list",
+            "sign-in-modal",
+            "public_profile_sign-in-modal",
+            "public_profile_v3_desktop-public_profile_sign-in-modal",
+            "view full experience",
+            "see their title, tenure and more",
+        ]
+
+    def _looks_like_blurred_signin_overlay(self, page_text: str) -> bool:
+        overlay_hits = sum(1 for marker in self.overlay_markers if marker in page_text)
+        return overlay_hits >= 2
 
     def check(self, driver) -> HealthResult:
         try:
@@ -42,6 +56,9 @@ class PageHealthChecker:
             for m in self.block_markers:
                 if m in page_text:
                     return HealthResult(False, f"page_contains_marker({m})", current_url)
+
+            if self._looks_like_blurred_signin_overlay(page_text):
+                return HealthResult(False, "blurred_signin_overlay_detected", current_url)
 
             # Empty-ish page
             if len(page_text) < 2000:
