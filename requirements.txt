@@ -3,6 +3,7 @@ flask
 werkzeug
 mysql-connector-python
 python-dotenv
+exa-py
 pytest
 selenium>=4.0.0
 beautifulsoup4>=4.11.0
