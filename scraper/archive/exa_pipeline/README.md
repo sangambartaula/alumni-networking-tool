@@ -12,10 +12,11 @@ Why it was archived:
 What is here:
 - `exa.py`: Exa gather-stage prototype.
 - `exa_groq.py`: Exa-to-Groq normalization prototype.
-- `tests/`: regression tests that were used while tuning the pipeline.
+- `reference_checks/`: regression snapshots kept for reference only.
+- `legacy/`: older parser experiments kept only for reference.
 - `artifacts/`: local output directory for raw and cleaned prototype files.
 
 Notes:
-- The scripts default to writing under `archive/exa_pipeline/artifacts/`.
+- The scripts default to writing under `scraper/archive/exa_pipeline/artifacts/`.
 - Archived tests are intentionally outside the main `tests/` folder so they do not run with the active suite.
 - `exa-py` was removed from root dependencies because this prototype is no longer part of the live app.

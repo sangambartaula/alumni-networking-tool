@@ -1,9 +1,6 @@
 // heatmap_dual.js - Dual map system with both 2D Leaflet and 3D Cesium
 
-// Set Cesium Ion access token
-if (window.Cesium && Cesium.Ion) {
-  Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzciLCJpZCI6NTc3MzMsImlhdCI6MTYyNzg0NTE4Mn0.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk';
-}
+// This 3D view uses public imagery providers only and does not bundle a Cesium Ion token.
 
 let map2D;
 let map3D;
@@ -940,7 +937,9 @@ function addLayerControls() {
 async function loadHeatmapData(url = '/api/heatmap') {
   const requestToken = ++activeHeatmapRequestToken;
   try {
-    const response = await fetch(url);
+    const separator = url.includes('?') ? '&' : '?';
+    const fetchUrl = url + separator + '_t=' + new Date().getTime();
+    const response = await fetch(fetchUrl);
     const data = await response.json();
 
     // Ignore out-of-order responses from older requests.
