@@ -1,4 +1,25 @@
-import exa_groq
+import importlib.util
+import sys
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+ARCHIVE_ROOT = Path(__file__).resolve().parents[1]
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+EXA_GROQ_PATH = ARCHIVE_ROOT / "exa_groq.py"
+
+
+def _load_exa_groq_module():
+    spec = importlib.util.spec_from_file_location("archived_exa_groq", EXA_GROQ_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+exa_groq = _load_exa_groq_module()
 
 
 MICHELLE_RAW = """# Michelle R. Vargas

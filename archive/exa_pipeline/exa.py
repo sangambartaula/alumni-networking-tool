@@ -10,8 +10,10 @@ from dotenv import load_dotenv
 from exa_py import Exa
 
 
-RAW_CSV_FILE = Path(os.getenv("EXA_RAW_CSV_FILE", "raw_alumni_data.csv"))
-SEEN_URLS_FILE = Path(os.getenv("EXA_SEEN_URLS_FILE", "seen_urls.txt"))
+BASE_DIR = Path(__file__).resolve().parent
+ARTIFACTS_DIR = BASE_DIR / "artifacts"
+RAW_CSV_FILE = Path(os.getenv("EXA_RAW_CSV_FILE", str(ARTIFACTS_DIR / "raw_alumni_data.csv")))
+SEEN_URLS_FILE = Path(os.getenv("EXA_SEEN_URLS_FILE", str(ARTIFACTS_DIR / "seen_urls.txt")))
 RESULTS_PER_BATCH = int(os.getenv("EXA_RESULTS_PER_BATCH", "50"))
 MAX_PAGES_PER_BATCH = int(os.getenv("EXA_MAX_PAGES_PER_BATCH", "250"))
 EXA_SEARCH_TYPE = os.getenv("EXA_SEARCH_TYPE", "neural").strip() or "neural"

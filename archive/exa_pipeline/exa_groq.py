@@ -2,8 +2,13 @@ import csv
 import json
 import os
 import re
+import sys
 import time
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
 try:
@@ -14,8 +19,10 @@ except ImportError:  # pragma: no cover - optional dependency for local tests
 from scraper.degree_normalization import normalize_degree_deterministic
 
 
-RAW_CSV_FILE = Path(os.getenv("EXA_RAW_CSV_FILE", "raw_alumni_data.csv"))
-FINAL_CSV_FILE = Path(os.getenv("EXA_FINAL_CSV_FILE", "final_alumni_clean.csv"))
+BASE_DIR = Path(__file__).resolve().parent
+ARTIFACTS_DIR = BASE_DIR / "artifacts"
+RAW_CSV_FILE = Path(os.getenv("EXA_RAW_CSV_FILE", str(ARTIFACTS_DIR / "raw_alumni_data.csv")))
+FINAL_CSV_FILE = Path(os.getenv("EXA_FINAL_CSV_FILE", str(ARTIFACTS_DIR / "final_alumni_clean.csv")))
 GROQ_MODEL = os.getenv("EXA_GROQ_MODEL", os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"))
 GROQ_FALLBACK_MODELS = [
     model.strip()
