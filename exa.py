@@ -80,6 +80,16 @@ _INLINE_EDU_NOISE_RE = re.compile(
     re.IGNORECASE,
 )
 _NAME_JUNK_RE = re.compile(r"(?:linkedin|company|group|jobs|hiring|http|www\.)", re.IGNORECASE)
+_EDUCATION_TITLE_SIGNAL_RE = re.compile(
+    r"\b(?:degree|bachelor|master|associate|ph\.?d|doctor(?:ate| of philosophy)|b\.?s\.?|m\.?s\.?|"
+    r"btech|b\.?tech|basc|b\.?a\.?s\.?c|mba)\b",
+    re.IGNORECASE,
+)
+_NARRATIVE_CUE_RE = re.compile(
+    r"\b(?:student at|candidate at|with a\b|passionate\b|leverag(?:e|ing)\b|thrilled\b|currently\b|"
+    r"seeking\b|focus(?:ed|ing)\b|experienced\b)\b",
+    re.IGNORECASE,
+)
 # Five required discipline batches.
 BATCH_QUERIES = {
     "Digital": (
@@ -328,6 +338,16 @@ def _heading_body(heading: str) -> str:
     return heading[3:].strip() if heading.startswith("###") else heading.strip()
 
 
+def _trim_narrative_tail(text: str) -> str:
+    compact = _compact_line(text)
+    if "..." not in compact:
+        return compact
+    head, _, tail = compact.partition("...")
+    if tail and _NARRATIVE_CUE_RE.search(tail):
+        return _compact_line(f"{head} ...")
+    return compact
+
+
 def _is_blank_education_heading(heading: str) -> bool:
     body = _heading_body(heading)
     if not body:
@@ -350,6 +370,31 @@ def _is_experience_noise_heading(heading: str) -> bool:
     return False
 
 
+def _is_valid_education_heading(heading: str) -> bool:
+    body = _trim_narrative_tail(_heading_body(heading))
+    if not body:
+        return False
+    lowered = body.lower()
+    if " at " not in lowered:
+        return False
+    if _NARRATIVE_CUE_RE.search(body):
+        return False
+
+    subject, _, school = body.partition(" at ")
+    if not school.strip():
+        return False
+    if _EDUCATION_TITLE_SIGNAL_RE.search(subject):
+        return True
+
+    if "," in subject or "." in subject:
+        return False
+
+    words = re.findall(r"[A-Za-z][A-Za-z&'/.-]*", subject)
+    if 1 <= len(words) <= 6:
+        return True
+    return False
+
+
 def _clean_section_line(line: str, section_name: str) -> str:
     compact = _compact_line(line)
     if not compact or _is_metadata_line(compact):
@@ -358,6 +403,7 @@ def _clean_section_line(line: str, section_name: str) -> str:
         compact = _INLINE_EDU_NOISE_RE.sub("", compact).strip(" ,-;|")
         if not compact or compact.lower().startswith("grade:"):
             return ""
+        compact = _trim_narrative_tail(compact)
     if section_name == "experience":
         if compact.lower().startswith("show all "):
             return ""
@@ -442,6 +488,8 @@ def _compact_profile_section(lines: list[str], max_entries: int, section_name: s
         if section_name == "education" and "certificate" in heading.lower() and not _DEGREE_SIGNAL_RE.search(heading):
             continue
         if section_name == "education" and _is_blank_education_heading(heading):
+            continue
+        if section_name == "education" and not _is_valid_education_heading(heading):
             continue
         if section_name == "experience" and _is_experience_noise_heading(heading):
             continue

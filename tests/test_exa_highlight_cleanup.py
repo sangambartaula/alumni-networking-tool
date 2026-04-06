@@ -200,3 +200,45 @@ Aug 2023 - May 2025
     assert "### Instructional Assistant - Fundamentals of Database Systems at University of North Texas" in cleaned
     assert "### Bootcamp Instructor - AI & Machine Learning at Explore STEM Summer Program" in cleaned
     assert "### Master of Science - MS, Computer Science at University of North Texas" in cleaned
+
+
+def test_clean_highlight_text_rejects_narrative_and_award_rows_in_education():
+    exa = _load_exa_module()
+
+    raw = """# Navya sri Alapati
+
+## Education
+
+### Master's degree, Data Science, A at University of North Texas
+2025 - 2026 • 1 year
+
+### Denton, Texas, US Data Science Master's student at UNT with a strong background in DevOps engineering at TCS. Passionate about leveraging ...
+
+### Bachelor's degree, Electrical and Electronics Engineering at Velagapudi Ramakrishna Siddhartha Engineering College
+2017 - 2021 • 4 years
+
+### District Level Inspire Science Exhibition-2013 by Inspire
+"""
+
+    cleaned = exa.clean_highlight_text(raw)
+
+    assert "### Master's degree, Data Science, A at University of North Texas" in cleaned
+    assert "### Bachelor's degree, Electrical and Electronics Engineering at Velagapudi Ramakrishna Siddhartha Engineering College" in cleaned
+    assert "Passionate about leveraging" not in cleaned
+    assert "District Level Inspire Science Exhibition-2013 by Inspire" not in cleaned
+
+
+def test_clean_highlight_text_trims_narrative_tail_from_education_heading():
+    exa = _load_exa_module()
+
+    raw = """# Mayuri Gevaria
+
+## Education
+
+### Bachelor's degree, Mechanical Engineering at SR University ... Thrilled to announce that I've graduated with a Bachelor of Science in Mechanical and Energy Engineering from the ... I'm
+"""
+
+    cleaned = exa.clean_highlight_text(raw)
+
+    assert "### Bachelor's degree, Mechanical Engineering at SR University ..." in cleaned
+    assert "Thrilled to announce" not in cleaned
