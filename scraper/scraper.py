@@ -660,6 +660,16 @@ class LinkedInScraper:
             name, headline, location = self._extract_top_card(soup)
             if not name:
                 name = self._fallback_name_from_profile_source(soup, canonical_url or profile_url)
+
+            # JS-based location fallback: if BeautifulSoup couldn't find the
+            # location (common on Windows due to DOM/class differences), try
+            # extracting directly from the live browser DOM.
+            if not location:
+                js_location = self._extract_location_via_js()
+                if js_location:
+                    logger.debug("Location found via JS fallback: %s", js_location)
+                    location = js_location
+
             data["name"] = name
             data["headline"] = headline
             data["location"] = location or "Not Found"
@@ -1232,6 +1242,86 @@ class LinkedInScraper:
         if self._looks_like_person_name(candidate):
             return candidate
         return ""
+
+    def _extract_location_via_js(self):
+        """Extract location text directly from the browser DOM using JavaScript.
+
+        LinkedIn's profile location sits in the top-card section, typically as
+        a ``<span>`` with class ``text-body-small inline t-black--light``.
+        This method tries several CSS selector strategies so it survives
+        LinkedIn's frequent A/B tests and class renames.
+        """
+        try:
+            result = self.driver.execute_script(r"""
+                const main = document.querySelector('main') || document.body;
+
+                // --- Strategy 1: Specific LinkedIn location class combo ---
+                const locSpan = main.querySelector(
+                    'span.text-body-small.inline.t-black--light.break-words'
+                );
+                if (locSpan) {
+                    const t = (locSpan.innerText || '').trim();
+                    if (t.length > 2 && t.length < 120) return t;
+                }
+
+                // --- Strategy 2: Find the top-card section and look for
+                //     the first text-body-small span that isn't a badge ---
+                const topCards = main.querySelectorAll(
+                    'section.artdeco-card, .pv-top-card, .ph5, .mt2'
+                );
+                for (const card of topCards) {
+                    const spans = card.querySelectorAll('span.text-body-small');
+                    for (const sp of spans) {
+                        // Skip if inside an inline-show-more-text (badge)
+                        if (sp.closest('.inline-show-more-text')) continue;
+                        // Skip connection/follower text
+                        const t = (sp.innerText || '').trim();
+                        const tl = t.toLowerCase();
+                        if (!t || t.length < 3 || t.length > 120) continue;
+                        if (tl.includes('connection') || tl.includes('follower')
+                            || tl.includes('contact info')) continue;
+                        // Skip badges (company/school names)
+                        if (tl.includes('university') || tl.includes('college')
+                            || tl.includes('school') || tl.includes('institute')) continue;
+                        return t;
+                    }
+                }
+
+                // --- Strategy 3: Position-based: find span.text-body-small
+                //     nearest to / right after the h1 name heading ---
+                const h1 = main.querySelector('h1');
+                if (h1) {
+                    const h1Rect = h1.getBoundingClientRect();
+                    let best = null;
+                    let bestDist = 9999;
+                    const allSmall = main.querySelectorAll('span.text-body-small');
+                    for (const sp of allSmall) {
+                        if (sp.closest('.inline-show-more-text')) continue;
+                        const t = (sp.innerText || '').trim();
+                        const tl = t.toLowerCase();
+                        if (!t || t.length < 3 || t.length > 120) continue;
+                        if (tl.includes('connection') || tl.includes('follower')
+                            || tl.includes('contact info')) continue;
+                        if (tl.includes('university') || tl.includes('college')
+                            || tl.includes('school') || tl.includes('institute')) continue;
+                        const r = sp.getBoundingClientRect();
+                        // Must be below the name heading
+                        if (r.top < h1Rect.bottom) continue;
+                        const dist = r.top - h1Rect.bottom;
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            best = t;
+                        }
+                    }
+                    if (best && bestDist < 300) return best;
+                }
+
+                return '';
+            """)
+            return (result or "").strip()
+        except Exception as e:
+            logger.debug("JS location extraction failed: %s", e)
+            return ""
 
     def _extract_top_card(self, soup):
         name, headline, location = "", "", ""
