@@ -40,7 +40,10 @@ class PageHealthChecker:
             title = (driver.title or "").lower()
             page_text = ""
             try:
+                import re
                 page_text = (driver.page_source or "").lower()
+                # Remove false positive error meta tags that LinkedIn injects into healthy pages
+                page_text = re.sub(r'<meta[^>]*name="como-err"[^>]*>', '', page_text)
             except Exception:
                 page_text = ""
 
