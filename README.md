@@ -50,6 +50,6 @@ Only approved users can access the platform; administrative actions are role-gat
 
 ## Important Notes
 
-- LinkedIn can impose anti-automation checks and rate limits.
+- LinkedIn data is collected via authorized scraping of UNT search results and Connections exports (only LinkedIn OAuth touches the official API), so expect anti-automation checks and rate limits.
 - Scraper activity should be run by authorized operators only.
 - For multi-staff production use, operate a single centrally hosted UNT instance with shared MySQL.
