@@ -1305,7 +1305,18 @@ class LinkedInScraper:
             # 3. Contains country names
             has_comma = "," in text
             has_location_keyword = any(x in text_lower for x in ["metroplex", "area", "metro"])
-            has_country = any(x in text_lower for x in ["united states", "india", "canada", "uk", "germany", "australia"])
+            has_country = any(x in text_lower for x in [
+                "united states", "india", "canada", "uk", "united kingdom",
+                "germany", "australia", "france", "japan", "china", "brazil", "mexico",
+                "saudi arabia", "uae", "united arab emirates", "qatar", "kuwait",
+                "bahrain", "oman", "jordan", "egypt", "turkey", "pakistan",
+                "bangladesh", "sri lanka", "nepal", "malaysia", "singapore",
+                "indonesia", "philippines", "vietnam", "thailand", "south korea",
+                "nigeria", "kenya", "ghana", "south africa", "ethiopia",
+                "italy", "spain", "netherlands", "belgium", "switzerland",
+                "sweden", "norway", "denmark", "finland", "poland",
+                "ireland", "new zealand", "portugal", "greece",
+            ])
             
             # Use EntityClassifier for more robust check
             classifier = get_classifier()
