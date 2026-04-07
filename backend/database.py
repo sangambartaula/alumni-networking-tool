@@ -2160,14 +2160,18 @@ def finalize_scrape_run(
 
 
 def increment_scrape_run_profiles(run_id, delta=1):
-    """Increment profiles_scraped for an active scrape run in real time."""
+    """Increment profiles_scraped for an active scrape run in real time.
+    Always mirrors to local SQLite so run history shows correct counts offline.
+    """
     if not run_id:
         return False
 
     conn = None
+    wrote_to_sqlite_via_primary = False
     try:
         ensure_scrape_run_tracking_schema()
         conn = get_connection()
+        is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
         with conn.cursor() as cur:
             try:
                 cur.execute(
@@ -2188,6 +2192,8 @@ def increment_scrape_run_profiles(run_id, delta=1):
                     (int(delta or 1), int(run_id)),
                 )
             conn.commit()
+            if is_sqlite_routed:
+                wrote_to_sqlite_via_primary = True
             return True
     except Exception as err:
         logger.debug(f"Could not increment scrape run profiles for run_id={run_id}: {err}")
@@ -2198,6 +2204,30 @@ def increment_scrape_run_profiles(run_id, delta=1):
                 conn.close()
             except Exception:
                 pass
+
+        # Mirror to local SQLite (skip if primary was already SQLite)
+        if not wrote_to_sqlite_via_primary:
+            try:
+                from sqlite_fallback import get_connection_manager
+                manager = get_connection_manager()
+                sqlite_conn = manager.get_sqlite_connection()
+                try:
+                    sqlite_conn.execute(
+                        """
+                        UPDATE scrape_runs
+                        SET profiles_scraped = COALESCE(profiles_scraped, 0) + ?
+                        WHERE id = ?
+                        """,
+                        (int(delta or 1), int(run_id)),
+                    )
+                    sqlite_conn.commit()
+                finally:
+                    try:
+                        sqlite_conn.close()
+                    except Exception:
+                        pass
+            except Exception as sqlite_err:
+                logger.debug(f"SQLite mirror of scrape run profiles skipped: {sqlite_err}")
 
 
 def record_scrape_run_flag(run_id, linkedin_url, reason):
