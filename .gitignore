@@ -31,10 +31,13 @@ ENV/
 *.pyd
 .Python
 
-# Distribution / packaging
+# Distribution / packaging (Machine-specific builds)
 dist/
 build/
+bin/
+obj/
 *.spec
+**/*.spec
 *.egg-info/
 *.egg
 *.whl

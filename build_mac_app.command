@@ -22,9 +22,23 @@ echo "Installing PyQt6 and PyInstaller..."
 pip install PyQt6 pyinstaller python-dotenv pillow
 pip install -r requirements.txt
 
+# Detect Python command
+if command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &>/dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "Error: Python not found. Please install Python 3."
+    exit 1
+fi
+
 # Build using PyInstaller
 echo "Squarifying icon to prevent stretching..."
-python scripts/pad_icon.py
+$PYTHON_CMD scripts/pad_icon.py
+
+# Remove extended attributes (detritus) that can cause codesign to fail
+echo "Cleaning extended attributes from source..."
+xattr -cr .
 
 echo "Bundling App..."
 pyinstaller --clean \
@@ -33,6 +47,14 @@ pyinstaller --clean \
             --icon="frontend/public/assets/unt-logo-square.png" \
             --noconfirm \
             scraper_gui.py
+
+# After bundle, clean attributes from the app bundle itself if it was created
+if [ -d "dist/Alumni Scraper App.app" ]; then
+    echo "Cleaning detritus from built app bundle..."
+    xattr -cr "dist/Alumni Scraper App.app"
+    echo "Attempting to re-sign the app bundle ad-hoc..."
+    codesign --force --deep --sign - "dist/Alumni Scraper App.app"
+fi
 
 echo "Build complete! The application has been created inside the 'dist' folder."
 echo "You can move 'UNT Alumni Scraper.app' anywhere, but for it to function correctly, place it in the same parent folder as your 'venv' and 'scraper' directories."

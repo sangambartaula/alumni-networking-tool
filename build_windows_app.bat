@@ -25,9 +25,24 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Detect Python command
+where python3 >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    set PYTHON_CMD=python3
+) else (
+    where python >nul 2>nul
+    if %ERRORLEVEL% equ 0 (
+        set PYTHON_CMD=python
+    ) else (
+        echo Error: Python not found. Please install Python 3.
+        pause
+        exit /b 1
+    )
+)
+
 :: Build using PyInstaller
 echo Squarifying icon to prevent stretching...
-python scripts\pad_icon.py
+%PYTHON_CMD% scripts\pad_icon.py
 if errorlevel 1 (
     echo Icon preparation failed. Aborting build.
     pause
