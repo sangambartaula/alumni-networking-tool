@@ -1001,10 +1001,17 @@ class ConnectionManager:
         return len(rows)
     
     def record_pending_change(self, table_name: str, primary_key: dict, operation: str, 
-                              old_data: dict = None, new_data: dict = None):
-        """Record a pending local change for later sync to cloud."""
-        if not self._is_offline:
-            return  # Only record when offline
+                              old_data: dict = None, new_data: dict = None,
+                              force: bool = False):
+        """Record a pending local change for later sync to cloud.
+        
+        Args:
+            force: If True, record the change even when not officially offline.
+                   Used when cloud writes are disabled mid-run (e.g., after
+                   5 consecutive failures) but the app hasn't gone fully offline.
+        """
+        if not force and not self._is_offline:
+            return  # Only record when offline (unless forced)
         
         with self._sqlite_write_context() as conn:
             conn.execute("""

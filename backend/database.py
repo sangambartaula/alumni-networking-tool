@@ -2610,6 +2610,24 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
                 sqlite_conn.close()
             except Exception:
                 pass
+
+        # Queue for cloud sync if the primary write didn't go to cloud
+        # (e.g., cloud disabled after 5 consecutive failures, or DISABLE_DB=1)
+        if not status.get("cloud_written") and not status.get("cloud_queued"):
+            try:
+                manager.record_pending_change(
+                    table_name="alumni",
+                    primary_key={"linkedin_url": payload.get("linkedin_url")},
+                    operation="INSERT",
+                    old_data=None,
+                    new_data=payload,
+                    force=True,  # Queue even when not officially offline
+                )
+                status["cloud_queued"] = True
+            except Exception as queue_err:
+                logger.debug(
+                    f"Pending cloud-sync queueing skipped for {payload.get('linkedin_url')}: {queue_err}"
+                )
     except Exception as err:
         logger.debug(f"SQLite mirror upsert skipped for {payload.get('linkedin_url')}: {err}")
 
