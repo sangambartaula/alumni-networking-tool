@@ -72,10 +72,18 @@ class EntityClassifier:
             re.I
         )
         
-        # Location patterns - common US states, cities, and location keywords
+        # Location patterns - countries, US states, common cities, and location keywords
         self.location_patterns = re.compile(
             r'\b(United States|USA|U\.S\.A\.?|India|Canada|UK|United Kingdom|'
             r'Germany|Australia|France|Japan|China|Brazil|Mexico|'
+            r'Saudi Arabia|UAE|United Arab Emirates|Qatar|Kuwait|Bahrain|Oman|Jordan|'
+            r'Egypt|Turkey|Pakistan|Bangladesh|Sri Lanka|Nepal|Malaysia|Singapore|'
+            r'Indonesia|Philippines|Vietnam|Thailand|South Korea|Korea|Taiwan|'
+            r'Nigeria|Kenya|Ghana|Ethiopia|South Africa|Morocco|Algeria|Tunisia|'
+            r'Italy|Spain|Netherlands|Belgium|Switzerland|Austria|Sweden|Norway|'
+            r'Denmark|Finland|Poland|Portugal|Greece|Czech Republic|Hungary|Romania|'
+            r'Ireland|Scotland|Wales|England|New Zealand|'
+            r'Eastern Province|Western Province|Central Province|Northern Province|Southern Province|'
             r'Texas|California|New York|Florida|Illinois|Pennsylvania|Ohio|'
             r'Georgia|Michigan|North Carolina|New Jersey|Virginia|Washington|'
             r'Arizona|Massachusetts|Tennessee|Indiana|Missouri|Maryland|'
@@ -91,14 +99,20 @@ class EntityClassifier:
             r'Phoenix|Denver|Chicago|Boston|New York City|NYC|Philadelphia|'
             r'Atlanta|Miami|Orlando|Tampa|Charlotte|Nashville|Memphis|'
             r'Detroit|Minneapolis|Milwaukee|Kansas City|St\\.? Louis|'
+            r'Riyadh|Jeddah|Dammam|Mecca|Medina|Dubai|Abu Dhabi|Doha|'
+            r'Cairo|Istanbul|Karachi|Lahore|Dhaka|Colombo|Kuala Lumpur|'
+            r'Jakarta|Manila|Bangkok|Seoul|Taipei|Lagos|Nairobi|Johannesburg|'
+            r'London|Paris|Berlin|Madrid|Rome|Amsterdam|Brussels|Zurich|'
+            r'Vienna|Stockholm|Oslo|Copenhagen|Helsinki|Warsaw|Lisbon|Athens|'
             r'Metroplex|Area|Metro|Greater|Region|Remote|Hybrid|On-site)\b',
             re.I
         )
         
-        # Pattern for "City, State" or "City, Country" format
+        # Pattern for "City, State", "City, Country", or "City, Region, Country" format
         # Excludes patterns with ", LLC", ", Inc" etc.
+        # Supports 1 or 2 commas (e.g. "Dammam, Eastern, Saudi Arabia")
         self.city_state_pattern = re.compile(
-            r'^[A-Z][a-zA-Z\s\-\.]+,\s*[A-Z][a-zA-Z\s]+$'
+            r'^[A-Z][a-zA-Z\s\-\.]+,\s*[A-Z][a-zA-Z\s\-\.]+(?:,\s*[A-Z][a-zA-Z\s]+)?$'
         )
         
         # Company suffix pattern - these are NOT locations
@@ -160,17 +174,28 @@ class EntityClassifier:
         if self.company_suffix_pattern.search(text):
             return False
         
-        # "City, State" or "City, Country" pattern
+        # "City, State", "City, Country", or "City, Region, Country" pattern
         if self.city_state_pattern.match(text):
-            return True
+            # Extra guard: reject if it matches company suffixes
+            if not self.company_suffix_pattern.search(text):
+                return True
 
-        # Also support common "City, State, Country" style values.
-        # Example: "Denton, Texas, United States".
+        # Support "City, State/Region, Country" style (e.g. "Dammam, Eastern, Saudi Arabia",
+        # "Denton, Texas, United States", "Dubai, Dubai, United Arab Emirates").
         parts = [p.strip() for p in text.split(',') if p.strip()]
         if len(parts) == 3:
-            state_or_region = parts[1]
             country = parts[2]
+            # If the country part is a known location keyword, treat as location
+            # (the city and region don't need to be in the pattern)
+            if self.location_patterns.search(country):
+                return True
+            # Also check state/region in case format is "City, State" (US-style with known state)
+            state_or_region = parts[1]
             if self.location_patterns.search(state_or_region) and self.location_patterns.search(country):
+                return True
+        if len(parts) == 2:
+            # "City, Country" where country is known
+            if self.location_patterns.search(parts[1]):
                 return True
         return False
     
@@ -380,7 +405,16 @@ class EntityClassifier:
         # Only return True if the ENTIRE text is a location
         pure_locations = [
             "remote", "hybrid", "on-site", "onsite",
-            "united states", "usa", "india", "canada", "uk", "germany", "australia",
+            "united states", "usa", "india", "canada", "uk", "united kingdom",
+            "germany", "australia", "france", "japan", "china", "brazil", "mexico",
+            "saudi arabia", "uae", "united arab emirates", "qatar", "kuwait",
+            "bahrain", "oman", "jordan", "egypt", "turkey", "pakistan",
+            "malaysia", "singapore", "indonesia", "philippines", "vietnam",
+            "thailand", "south korea", "korea", "taiwan",
+            "nigeria", "kenya", "ghana", "south africa",
+            "italy", "spain", "netherlands", "belgium", "switzerland",
+            "sweden", "norway", "denmark", "finland", "poland",
+            "ireland", "new zealand",
             "dallas-fort worth metroplex", "greater houston", "bay area"
         ]
         if text_lower in pure_locations:
