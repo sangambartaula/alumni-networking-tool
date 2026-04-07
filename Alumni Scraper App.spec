@@ -3,7 +3,7 @@
 import os
 
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = SPECPATH
 ICON_PATH = os.path.join(PROJECT_ROOT, "frontend", "public", "assets", "unt-logo-square.png")
 
 a = Analysis(

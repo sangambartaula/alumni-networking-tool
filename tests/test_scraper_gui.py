@@ -192,3 +192,49 @@ def test_export_diagnostics_bundle_redacts_secrets(qapp, tmp_path, monkeypatch):
     assert "GROQ_API_KEY=***REDACTED***" in env_redacted
     assert "Cloud Status: Cloud DB setup needed" in summary
     assert "console test line" in console_log
+
+
+def test_cloud_probe_guidance_suggests_network_fix():
+    tip = scraper_gui._build_probe_guidance(
+        "cloud",
+        "Cloud DB unavailable",
+        "Cloud probe failed: InterfaceError: 2003: Can't connect to MySQL server on 'db.example.edu' (timed out)",
+    )
+
+    assert "Wi-Fi/VPN" in tip
+    assert "blocked" in tip
+
+
+def test_probe_setup_guidance_stays_short_for_hover_text():
+    tip = scraper_gui._build_probe_guidance(
+        "cloud",
+        "Probe setup needed",
+        "Could not execute probe with 'python3': [Errno 2] No such file or directory. Install dependencies or configure Python path.",
+    )
+
+    assert tip == "Install Dependencies, then refresh status. If it still fails, reopen the app from the project environment."
+
+
+def test_preflight_status_ready_keeps_friendly_guidance_and_raw_detail(qapp, tmp_path, monkeypatch):
+    _silence_message_boxes(monkeypatch)
+    app = _build_app(monkeypatch, tmp_path, stub_preflight=False)
+
+    app._on_preflight_status_ready({
+        "cloud": {
+            "state": "red",
+            "text": "Cloud DB unavailable",
+            "tip": "Connect to a different Wi-Fi/VPN or check the database host/port; the cloud database connection looks blocked from this network.",
+            "detail": "Cloud probe failed: InterfaceError: 2003: Can't connect to MySQL server on 'db.example.edu' (timed out)",
+        },
+        "geo": {
+            "state": "green",
+            "text": "Geocoding reachable",
+            "tip": "Geocoding is reachable.",
+            "detail": "Fort Worth probe resolved to expected metro coordinates.",
+        },
+    })
+
+    assert "Wi-Fi/VPN" in app._cloud_status_cache[2]
+    assert "timed out" in app._cloud_status_detail_cache
+    assert "Guidance:" in app.preflight_details_box.toPlainText()
+    assert "Details: Cloud probe failed" in app.preflight_details_box.toPlainText()

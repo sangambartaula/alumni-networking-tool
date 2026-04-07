@@ -301,6 +301,117 @@ def _run_json_probe(python_exec, base_dir, script_source):
         }
     return payload
 
+
+def _build_probe_guidance(component, status_text, raw_detail):
+    detail = str(raw_detail or "").strip()
+    detail_lower = detail.lower()
+    text_lower = str(status_text or "").strip().lower()
+
+    missing_dependency = (
+        "missing python dependency" in detail_lower
+        or "modulenotfounderror" in detail_lower
+        or "no module named" in detail_lower
+    )
+    dns_issue = any(
+        token in detail_lower
+        for token in (
+            "getaddrinfo failed",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "nodename nor servname provided",
+            "unknown mysql server host",
+        )
+    )
+    network_block = any(
+        token in detail_lower
+        for token in (
+            "timed out",
+            "timeout",
+            "can't connect to mysql server",
+            "can't connect to server",
+            "connection refused",
+            "no route to host",
+            "network is unreachable",
+            "host is unreachable",
+            "connection reset",
+            "connection aborted",
+        )
+    )
+    auth_issue = any(
+        token in detail_lower
+        for token in (
+            "access denied",
+            "authentication failed",
+            "permission denied",
+            "using password",
+        )
+    )
+
+    if component == "cloud":
+        if "disabled" in text_lower:
+            return "Cloud DB checks are disabled in `.env`."
+        if "sqlite fallback active" in text_lower:
+            return "Cloud DB is offline, but local SQLite fallback is active. You can keep working locally and sync later."
+        if missing_dependency:
+            return "Install Dependencies, then refresh status."
+        if dns_issue:
+            return "Connect to a different Wi-Fi/VPN or check the database host in Settings; this machine could not resolve the cloud database address."
+        if network_block:
+            return "Connect to a different Wi-Fi/VPN or check the database host/port; the cloud database connection looks blocked from this network."
+        if auth_issue:
+            return "Re-check the MySQL host, user, password, and database name in Settings; the cloud database rejected the connection."
+        if "setup needed" in text_lower:
+            return "Install Dependencies, then refresh status. If it still fails, reopen the app from the project environment."
+        if "module failed to load" in detail_lower:
+            return "Install Dependencies first, then refresh status. If it still fails, the database module itself needs attention."
+        return detail or "Cloud DB check failed. Refresh status after fixing the database connection."
+
+    if missing_dependency:
+        return "Install Dependencies, then refresh status."
+    if network_block or "network/api issue" in detail_lower:
+        return "Try Refresh Status again or switch Wi-Fi/VPN; the geocoding request may be blocked by this network."
+    if "out of expected range" in detail_lower:
+        return "Geocoding responded, but the result looked off. Retry later or verify the network/service."
+    if "failed to resolve" in detail_lower:
+        return "Try Refresh Status again; geocoding could not resolve the test location."
+    if "setup needed" in text_lower:
+        return "Install Dependencies, then refresh status. If it still fails, reopen the app from the project environment."
+    if "module failed to load" in detail_lower:
+        return "Install Dependencies first, then refresh status. If it still fails, the geocoding module needs attention."
+    return detail or "Geocoding check failed. Refresh status after fixing the geocoding setup."
+
+
+def _normalize_probe_payload(component, payload, fallback_text):
+    state = str(payload.get("state", "red") or "red")
+    text = str(payload.get("text", fallback_text) or fallback_text)
+    raw_detail = str(payload.get("detail") or payload.get("tip") or f"{fallback_text}.").strip()
+    return {
+        "state": state,
+        "text": text,
+        "tip": _build_probe_guidance(component, text, raw_detail),
+        "detail": raw_detail,
+    }
+
+
+def _coerce_probe_status(component, payload, fallback_text, existing_detail=None):
+    if isinstance(payload, dict):
+        normalized = _normalize_probe_payload(component, payload, fallback_text)
+        return (
+            (normalized["state"], normalized["text"], normalized["tip"]),
+            normalized["detail"],
+        )
+
+    if isinstance(payload, (tuple, list)):
+        state = str(payload[0] if len(payload) > 0 and payload[0] else "red")
+        text = str(payload[1] if len(payload) > 1 and payload[1] else fallback_text)
+        tip = str(payload[2] if len(payload) > 2 and payload[2] else "")
+        detail = str(existing_detail or tip or f"{fallback_text}.")
+        guidance = tip or _build_probe_guidance(component, text, detail)
+        return (state, text, guidance), detail
+
+    detail = str(existing_detail or f"{fallback_text}.")
+    return (("red", fallback_text, _build_probe_guidance(component, fallback_text, detail)), detail)
+
 class ScraperWorker(QThread):
     output_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(int)
@@ -636,7 +747,7 @@ class UpdateNowWorker(QThread):
             self.finished_signal.emit(1)
 
 
-def _probe_cloud_status_sync():
+def _probe_cloud_status_data_sync():
     base_dir = get_base_dir()
     python_exec = _resolve_python_exec(base_dir)
     script = (
@@ -688,10 +799,15 @@ def _probe_cloud_status_sync():
         "    print(json.dumps({'state':'red','text':'Cloud DB unavailable','tip':f'Cloud probe failed: {type(e).__name__}: {e}'}))\n"
     )
     payload = _run_json_probe(python_exec, base_dir, script)
-    return payload.get("state", "red"), payload.get("text", "Cloud DB unavailable"), payload.get("tip", "Cloud probe failed")
+    return _normalize_probe_payload("cloud", payload, "Cloud DB unavailable")
 
 
-def _probe_geocode_status_sync():
+def _probe_cloud_status_sync():
+    payload = _probe_cloud_status_data_sync()
+    return payload["state"], payload["text"], payload["tip"]
+
+
+def _probe_geocode_status_data_sync():
     base_dir = get_base_dir()
     python_exec = _resolve_python_exec(base_dir)
     script = (
@@ -730,7 +846,12 @@ def _probe_geocode_status_sync():
         "    print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':f'Geocode probe failed: {type(e).__name__}: {e}'}))\n"
     )
     payload = _run_json_probe(python_exec, base_dir, script)
-    return payload.get("state", "red"), payload.get("text", "Geocoding unavailable"), payload.get("tip", "Geocode probe failed")
+    return _normalize_probe_payload("geocode", payload, "Geocoding unavailable")
+
+
+def _probe_geocode_status_sync():
+    payload = _probe_geocode_status_data_sync()
+    return payload["state"], payload["text"], payload["tip"]
 
 
 class PreflightStatusWorker(QThread):
@@ -747,9 +868,9 @@ class PreflightStatusWorker(QThread):
         cloud_status = self.cloud_cache
         geo_status = self.geo_cache
         if self.force_cloud or cloud_status is None:
-            cloud_status = _probe_cloud_status_sync()
+            cloud_status = _probe_cloud_status_data_sync()
         if self.force_geo or geo_status is None:
-            geo_status = _probe_geocode_status_sync()
+            geo_status = _probe_geocode_status_data_sync()
         self.finished_signal.emit({"cloud": cloud_status, "geo": geo_status})
 
 class FlagManagerDialog(QDialog):
@@ -1542,6 +1663,8 @@ class SettingsDialog(QDialog):
 
         cloud_status = getattr(parent, "_cloud_status_cache", None) if parent else None
         geo_status = getattr(parent, "_geo_status_cache", None) if parent else None
+        cloud_detail = getattr(parent, "_cloud_status_detail_cache", None) if parent else None
+        geo_detail = getattr(parent, "_geo_status_detail_cache", None) if parent else None
         if parent and hasattr(parent, "_refresh_about_metadata"):
             try:
                 parent._refresh_about_metadata()
@@ -1573,9 +1696,11 @@ class SettingsDialog(QDialog):
             f"MySQL Database: {self._field_text('MYSQL_DATABASE') or 'unset'}",
             "",
             f"Cloud Status: {cloud_status[1] if cloud_status else 'not yet checked'}",
-            f"Cloud Details: {cloud_status[2] if cloud_status else 'n/a'}",
+            f"Cloud Guidance: {cloud_status[2] if cloud_status else 'n/a'}",
+            f"Cloud Details: {cloud_detail or (cloud_status[2] if cloud_status else 'n/a')}",
             f"Geocode Status: {geo_status[1] if geo_status else 'not yet checked'}",
-            f"Geocode Details: {geo_status[2] if geo_status else 'n/a'}",
+            f"Geocode Guidance: {geo_status[2] if geo_status else 'n/a'}",
+            f"Geocode Details: {geo_detail or (geo_status[2] if geo_status else 'n/a')}",
         ]
         return "\n".join(lines)
 
@@ -1590,8 +1715,14 @@ class SettingsDialog(QDialog):
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         bundle_path = os.path.join(export_dir, f"diagnostics-{stamp}.zip")
         preflight_payload = {
-            "cloud": list(getattr(parent, "_cloud_status_cache", ()) or []),
-            "geocode": list(getattr(parent, "_geo_status_cache", ()) or []),
+            "cloud": {
+                "status": list(getattr(parent, "_cloud_status_cache", ()) or []),
+                "detail": getattr(parent, "_cloud_status_detail_cache", "") or "",
+            },
+            "geocode": {
+                "status": list(getattr(parent, "_geo_status_cache", ()) or []),
+                "detail": getattr(parent, "_geo_status_detail_cache", "") or "",
+            },
         }
         console_text = parent.console.toPlainText() if parent and hasattr(parent, "console") else ""
 
@@ -1929,7 +2060,9 @@ class ScraperApp(QMainWindow):
         self._latest_version = "local"
         self._update_url = ""
         self._cloud_status_cache = None
+        self._cloud_status_detail_cache = None
         self._geo_status_cache = None
+        self._geo_status_detail_cache = None
         self._missing_module_prompt_shown = False
         self._live_tracker_timer = None
         self._tracker_refresh_pending = False
@@ -2535,6 +2668,8 @@ class ScraperApp(QMainWindow):
         lines = ["Preflight Details"]
         cloud_status = self._cloud_status_cache
         geo_status = self._geo_status_cache
+        cloud_detail = self._cloud_status_detail_cache or (cloud_status[2] if cloud_status else "")
+        geo_detail = self._geo_status_detail_cache or (geo_status[2] if geo_status else "")
 
         if cloud_status:
             lines.extend([
@@ -2542,7 +2677,8 @@ class ScraperApp(QMainWindow):
                 "Cloud DB",
                 f"State: {cloud_status[0]}",
                 f"Status: {cloud_status[1]}",
-                f"Details: {cloud_status[2]}",
+                f"Guidance: {cloud_status[2]}",
+                f"Details: {cloud_detail}",
             ])
         else:
             lines.extend(["", "Cloud DB", "State: pending", "Details: not yet checked"])
@@ -2553,7 +2689,8 @@ class ScraperApp(QMainWindow):
                 "Geocoding",
                 f"State: {geo_status[0]}",
                 f"Status: {geo_status[1]}",
-                f"Details: {geo_status[2]}",
+                f"Guidance: {geo_status[2]}",
+                f"Details: {geo_detail}",
             ])
         else:
             lines.extend(["", "Geocoding", "State: pending", "Details: not yet checked"])
@@ -2568,7 +2705,9 @@ class ScraperApp(QMainWindow):
         self.preflight_details_btn.setText("Hide Details" if checked else "Show Details")
 
     def _probe_cloud_status(self):
-        return _probe_cloud_status_sync()
+        payload = _probe_cloud_status_data_sync()
+        self._cloud_status_detail_cache = payload["detail"]
+        return payload["state"], payload["text"], payload["tip"]
 
     def _check_cloud_status(self, force_probe=False):
         if force_probe or self._cloud_status_cache is None:
@@ -2576,7 +2715,9 @@ class ScraperApp(QMainWindow):
         return self._cloud_status_cache
 
     def _probe_geocode_status(self):
-        return _probe_geocode_status_sync()
+        payload = _probe_geocode_status_data_sync()
+        self._geo_status_detail_cache = payload["detail"]
+        return payload["state"], payload["text"], payload["tip"]
 
     def _check_geocode_status(self, force_probe=False):
         if force_probe or self._geo_status_cache is None:
@@ -2624,10 +2765,23 @@ class ScraperApp(QMainWindow):
         self.preflight_worker.start()
 
     def _on_preflight_status_ready(self, payload):
-        cloud_status = tuple(payload.get("cloud") or ("red", "Cloud DB unavailable", "Cloud probe failed"))
-        geo_status = tuple(payload.get("geo") or ("red", "Geocoding unavailable", "Geocode probe failed"))
+        payload = payload or {}
+        cloud_status, cloud_detail = _coerce_probe_status(
+            "cloud",
+            payload.get("cloud"),
+            "Cloud DB unavailable",
+            self._cloud_status_detail_cache,
+        )
+        geo_status, geo_detail = _coerce_probe_status(
+            "geocode",
+            payload.get("geo"),
+            "Geocoding unavailable",
+            self._geo_status_detail_cache,
+        )
         self._cloud_status_cache = cloud_status
+        self._cloud_status_detail_cache = cloud_detail
         self._geo_status_cache = geo_status
+        self._geo_status_detail_cache = geo_detail
         self._set_status_badge(self.cloud_status_label, *cloud_status)
         self._set_status_badge(self.geo_status_label, *geo_status)
         self._update_preflight_details_panel()
@@ -3511,9 +3665,9 @@ class ScraperApp(QMainWindow):
         if runtime_minutes > (SAFE_DEFAULT_RUNTIME_HOURS * 60):
             warnings.append(("yellow", f"Runtime cap {runtime_minutes} minutes is above the default {SAFE_DEFAULT_RUNTIME_HOURS * 60} minute window."))
         if self._cloud_status_cache and self._cloud_status_cache[0] != "green":
-            warnings.append(("yellow", f"Cloud DB status: {self._cloud_status_cache[1]}."))
+            warnings.append(("yellow", f"Cloud DB: {self._cloud_status_cache[2]}"))
         if self._geo_status_cache and self._geo_status_cache[0] != "green":
-            warnings.append(("yellow", f"Geocoding status: {self._geo_status_cache[1]}."))
+            warnings.append(("yellow", f"Geocoding: {self._geo_status_cache[2]}"))
 
         estimated_profiles = "time-limited"
         estimated_duration = "open-ended"
@@ -3732,7 +3886,9 @@ class ScraperApp(QMainWindow):
                 "All required dependencies were installed successfully.",
             )
             self._cloud_status_cache = None
+            self._cloud_status_detail_cache = None
             self._geo_status_cache = None
+            self._geo_status_detail_cache = None
             self.refresh_preflight_status(force_cloud_probe=True, force_geo_probe=True)
         else:
             QMessageBox.warning(
@@ -3800,8 +3956,9 @@ class ScraperApp(QMainWindow):
                 self._cloud_status_cache = (
                     "red",
                     "Cloud DB unavailable",
-                    f"Cloud upload failed {cloud_fail} time(s) during the latest scrape run.",
+                    "Cloud upload failed during the latest scrape run. Check the preflight details before the next run.",
                 )
+                self._cloud_status_detail_cache = f"Cloud upload failed {cloud_fail} time(s) during the latest scrape run."
         except Exception:
             pass
         self.refresh_preflight_status(force_cloud_probe=False)
