@@ -2597,28 +2597,53 @@ class ScraperApp(QMainWindow):
                     pass
 
     def refresh_scrape_count(self):
-        """Refresh the scrape count by scraper email table."""
+        """Refresh the scrape count by scraper email table.
+
+        Always reads from local SQLite first (guaranteed available), then
+        merges/overrides with cloud data when reachable so that offline
+        scrape counts are never hidden.
+        """
         if not hasattr(self, "scrape_count_table"):
             return
 
-        rows = []
         current_email = (self.email_input.text() or "").strip().lower()
 
+        # 1) Always read local SQLite (works offline)
+        local_rows = self._fetch_scrape_count_by_person_from_local_sqlite(only_current=False)
+
+        # 2) Try cloud/smart-routed connection on top
+        cloud_rows = []
         try:
             conn = self._get_db_connection()
             try:
-                rows = self._fetch_scrape_count_by_person_from_connection(conn, only_current=False)
+                cloud_rows = self._fetch_scrape_count_by_person_from_connection(conn, only_current=False)
             finally:
                 try:
                     conn.close()
                 except Exception:
                     pass
         except Exception:
-            rows = []
+            cloud_rows = []
 
-        # If cloud query yields nothing, fall back to local SQLite
-        if not rows:
-            rows = self._fetch_scrape_count_by_person_from_local_sqlite(only_current=False)
+        # 3) Merge: use whichever source has the higher count per email
+        merged = {}
+        for row in local_rows:
+            email = str(row.get("email") or "").strip().lower()
+            if email:
+                try:
+                    merged[email] = max(merged.get(email, 0), int(row.get("count") or 0))
+                except (ValueError, TypeError):
+                    merged.setdefault(email, 0)
+
+        for row in cloud_rows:
+            email = str(row.get("email") or "").strip().lower()
+            if email:
+                try:
+                    merged[email] = max(merged.get(email, 0), int(row.get("count") or 0))
+                except (ValueError, TypeError):
+                    merged.setdefault(email, 0)
+
+        rows = [{"email": e, "count": c} for e, c in sorted(merged.items(), key=lambda x: -x[1])]
 
         self.scrape_count_table.setRowCount(len(rows))
         for row_idx, row in enumerate(rows):

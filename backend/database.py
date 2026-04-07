@@ -1879,13 +1879,16 @@ def increment_scraper_activity(email):
     Increment the profiles_scraped counter for a scraper email.
     Upserts: if the email doesn't exist yet, creates a new row.
     Works with both MySQL and SQLite fallback.
+    Always mirrors to local SQLite so the GUI can display counts offline.
     """
     if not email:
         return
     email = email.strip().lower()
     conn = None
+    wrote_to_sqlite_via_primary = False
     try:
         conn = get_connection()
+        is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
         with conn.cursor() as cur:
             try:
                 # MySQL syntax
@@ -1906,6 +1909,8 @@ def increment_scraper_activity(email):
                         last_scraped_at = datetime('now')
                 """, (email,))
             conn.commit()
+            if is_sqlite_routed:
+                wrote_to_sqlite_via_primary = True
     except Exception as err:
         logger.error(f"Error incrementing scraper activity for {email}: {err}")
     finally:
@@ -1914,6 +1919,30 @@ def increment_scraper_activity(email):
                 conn.close()
             except Exception:
                 pass
+
+    # Mirror to local SQLite so GUI scrape count works offline.
+    # Skip if the primary write already went to SQLite (avoid double-count).
+    if not wrote_to_sqlite_via_primary:
+        try:
+            from sqlite_fallback import get_connection_manager
+            manager = get_connection_manager()
+            sqlite_conn = manager.get_sqlite_connection()
+            try:
+                sqlite_conn.execute("""
+                    INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
+                    VALUES (?, 1, datetime('now'))
+                    ON CONFLICT(email) DO UPDATE SET
+                        profiles_scraped = profiles_scraped + 1,
+                        last_scraped_at = datetime('now')
+                """, (email,))
+                sqlite_conn.commit()
+            finally:
+                try:
+                    sqlite_conn.close()
+                except Exception:
+                    pass
+        except Exception as sqlite_err:
+            logger.debug(f"SQLite mirror of scraper activity skipped: {sqlite_err}")
 
 
 def get_scraper_activity():
