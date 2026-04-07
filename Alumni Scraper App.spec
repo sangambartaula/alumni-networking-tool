@@ -3,8 +3,14 @@
 import os
 
 
+import sys
+
 PROJECT_ROOT = SPECPATH
-ICON_PATH = os.path.join(PROJECT_ROOT, "frontend", "public", "assets", "unt-logo-square.png")
+
+# On Windows PyInstaller needs .ico (or Pillow installed for auto-conversion).
+# Use the icon only when the file exists; fall back to no icon to avoid build failures.
+_icon_candidate = os.path.join(PROJECT_ROOT, "frontend", "public", "assets", "unt-logo-square.png")
+ICON_PATH = [_icon_candidate] if os.path.isfile(_icon_candidate) else []
 
 a = Analysis(
     ['scraper_gui.py'],
@@ -37,7 +43,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=[ICON_PATH],
+    icon=ICON_PATH,
 )
 coll = COLLECT(
     exe,
