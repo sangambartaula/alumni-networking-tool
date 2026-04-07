@@ -235,5 +235,65 @@ class TestScraperLogic:
         assert result["school"] == "University of North Texas"
         assert result["education"] == "University of North Texas"
 
+    def test_scroll_full_page_moves_down_then_back_up(self, monkeypatch):
+        scraper = LinkedInScraper()
+        deltas = []
+        edges = []
+
+        monkeypatch.setattr(scraper, "_scroll_active_surfaces", lambda delta: deltas.append(delta))
+        monkeypatch.setattr(scraper, "_scroll_surfaces_to_edge", lambda edge: edges.append(edge))
+        monkeypatch.setattr(scraper_module.time, "sleep", lambda _s: None)
+        monkeypatch.setattr(scraper_module.random, "uniform", lambda _a, _b: 0.01)
+
+        scraper.scroll_full_page()
+
+        assert deltas[:5] == [900, 900, 900, 900, 900]
+        assert deltas[-2:] == [-1200, -1200]
+        assert edges == ["bottom", "top"]
+
+    def test_scrape_profile_page_uses_shared_scroll_routine(self, monkeypatch):
+        profile_url = "https://www.linkedin.com/in/test-user"
+        scraper = LinkedInScraper()
+        scroll_calls = []
+
+        class _FakeDriver:
+            def __init__(self, html, url):
+                self._html = html
+                self.current_url = url
+                self.title = "Test User | LinkedIn"
+                self.page_source = html
+
+            def get(self, url):
+                self.current_url = url
+
+            def execute_script(self, script, *_args):
+                if "return document.body.innerHTML;" in script:
+                    return self._html
+                return None
+
+        scraper.driver = _FakeDriver("<main></main>", profile_url)
+        monkeypatch.setattr(scraper, "_force_focus", lambda: None)
+        monkeypatch.setattr(scraper, "_page_block_reason", lambda: None)
+        monkeypatch.setattr(scraper, "_page_not_found", lambda: False)
+        monkeypatch.setattr(scraper, "scroll_full_page", lambda: scroll_calls.append("scroll"))
+        monkeypatch.setattr(scraper, "_wait_for_top_card", lambda timeout=10: True)
+        monkeypatch.setattr(scraper, "_wait_for_education_ready", lambda timeout=10: True)
+        monkeypatch.setattr(scraper, "_extract_top_card", lambda _soup: ("Test User", "", "Denton, Texas"))
+        monkeypatch.setattr(scraper, "_extract_all_experiences", lambda *_args, **_kwargs: [])
+        monkeypatch.setattr(scraper, "_extract_education_entries_from_detailed_view", lambda *_args, **_kwargs: ([], 0))
+        monkeypatch.setattr(scraper, "_extract_education_entries", lambda _soup: [])
+        monkeypatch.setattr(scraper, "_extract_education_from_top_card", lambda _soup: [])
+        monkeypatch.setattr(scraper, "scrape_all_education", lambda *_args, **_kwargs: ([], None))
+        monkeypatch.setattr(scraper, "_apply_education_and_discipline_normalization", lambda _data: None)
+        monkeypatch.setattr(scraper, "_apply_experience_display_normalization", lambda _data: None)
+        monkeypatch.setattr(scraper, "_log_missing_data_warnings", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(scraper_module, "is_groq_available", lambda: False)
+        monkeypatch.setattr(scraper_module, "print_profile_summary", lambda *_args, **_kwargs: None)
+
+        result = scraper.scrape_profile_page(profile_url)
+
+        assert result["__status__"] == "NOT_UNT_ALUM"
+        assert scroll_calls == ["scroll"]
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

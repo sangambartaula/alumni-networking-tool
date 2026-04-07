@@ -588,7 +588,9 @@ DISCIPLINE_SEARCH_GROUPS = {
 _SEARCH_INPUT_SELECTORS = [
     (By.CSS_SELECTOR, "input[aria-label*='Search by name']"),
     (By.CSS_SELECTOR, "input[aria-label*='Search']"),
+    (By.CSS_SELECTOR, "input[aria-label*='keyword']"),
     (By.CSS_SELECTOR, "input[placeholder*='Search']"),
+    (By.CSS_SELECTOR, "input[placeholder*='keyword']"),
     (By.CSS_SELECTOR, "input.search-global-typeahead__input"),
     (By.CSS_SELECTOR, "input[role='combobox']"),
 ]
@@ -692,8 +694,75 @@ def _find_visible_people_search_input(scraper, timeout_seconds=12):
                         return element
                 except Exception:
                     continue
+
+        try:
+            element = scraper.driver.execute_script(
+                """
+                const candidates = Array.from(document.querySelectorAll('input, textarea')).filter((el) => {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden') return false;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width < 20 || rect.height < 20) return false;
+                    if (el.disabled || el.readOnly) return false;
+                    const type = (el.type || 'text').toLowerCase();
+                    if (type && !['', 'text', 'search'].includes(type)) return false;
+                    const haystack = [
+                        el.getAttribute('aria-label') || '',
+                        el.getAttribute('placeholder') || '',
+                        el.getAttribute('name') || '',
+                        el.getAttribute('role') || '',
+                    ].join(' ').toLowerCase();
+                    return haystack.includes('search') || haystack.includes('keyword') || haystack.includes('combobox');
+                });
+                return candidates[0] || null;
+                """
+            )
+            if element is not None:
+                return element
+        except Exception:
+            pass
         time.sleep(0.25)
     return None
+
+
+def _clear_people_search_input(scraper, search_input):
+    modifier = Keys.COMMAND if sys.platform == "darwin" else Keys.CONTROL
+
+    search_input.click()
+    time.sleep(random.uniform(0.2, 0.5))
+
+    try:
+        search_input.clear()
+    except Exception:
+        pass
+
+    search_input.send_keys(modifier, "a")
+    search_input.send_keys(Keys.DELETE)
+
+    try:
+        scraper.driver.execute_script(
+            """
+            const el = arguments[0];
+            if (!el) return false;
+            el.focus();
+            const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+                || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+            if (descriptor && descriptor.set) {
+                descriptor.set.call(el, '');
+            } else {
+                el.value = '';
+            }
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+            """,
+            search_input,
+        )
+    except Exception:
+        pass
+
+    time.sleep(random.uniform(0.2, 0.5))
 
 
 def _submit_discipline_keywords(scraper, keyword_query):
@@ -704,14 +773,7 @@ def _submit_discipline_keywords(scraper, keyword_query):
 
     previous_url = (scraper.driver.current_url or "").strip()
     try:
-        search_input.click()
-        time.sleep(random.uniform(0.2, 0.5))
-        # Clear field robustly (handles Mac / Windows)
-        search_input.clear()
-        search_input.send_keys(Keys.COMMAND, "a")
-        search_input.send_keys(Keys.CONTROL, "a")
-        search_input.send_keys(Keys.DELETE)
-        time.sleep(random.uniform(0.2, 0.5))
+        _clear_people_search_input(scraper, search_input)
         search_input.send_keys(keyword_query)
         time.sleep(random.uniform(0.3, 0.7))
         search_input.send_keys(Keys.ENTER)

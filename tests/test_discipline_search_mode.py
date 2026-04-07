@@ -93,6 +93,31 @@ class _NoResultScraper:
         }
 
 
+def _patch_minimal_cluster_groups(monkeypatch):
+    monkeypatch.setattr(
+        scraper_main,
+        "DISCIPLINE_SEARCH_GROUPS",
+        {
+            "software": ["software cluster one", "software cluster two"],
+            "mechanical": ["mechanical cluster one", "mechanical cluster two"],
+            "embedded": ["embedded cluster one", "embedded cluster two"],
+        },
+    )
+    monkeypatch.setattr(
+        scraper_main,
+        "DISCIPLINE_ALIAS_LABELS",
+        {
+            "software": "Software",
+            "mechanical": "Mechanical",
+            "embedded": "Embedded",
+        },
+    )
+    monkeypatch.setattr(scraper_main, "load_discipline_rotation", lambda _alias: None)
+    monkeypatch.setattr(scraper_main, "save_discipline_rotation", lambda *_args: None)
+    monkeypatch.setattr(scraper_main, "load_keyword_state", lambda *_args: None)
+    monkeypatch.setattr(scraper_main, "save_keyword_state", lambda *_args: None)
+
+
 def _patch_main_entry_dependencies(monkeypatch):
     monkeypatch.setattr(scraper_main.database_handler, "HistoryManager", lambda: _MainHistoryManager())
     monkeypatch.setattr(scraper_main, "LinkedInScraper", lambda: _MainScraper())
@@ -168,6 +193,7 @@ def test_parse_search_disciplines_case_insensitive_trim_and_dedup():
 
 
 def test_run_discipline_search_mode_processes_selected_aliases_in_order(monkeypatch):
+    _patch_minimal_cluster_groups(monkeypatch)
     nav = _DummyNav(ok=True)
     history = _DummyHistory()
     scraper = types.SimpleNamespace(driver=types.SimpleNamespace(current_url=scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL))
@@ -182,14 +208,16 @@ def test_run_discipline_search_mode_processes_selected_aliases_in_order(monkeypa
         )
         return True
 
-    def _fake_run(*, scraper, nav, history_mgr, base_url, state_mode_key, mode_label):
+    def _fake_run(*, scraper, nav, history_mgr, base_url, state_mode_key, mode_label, max_profiles_for_mode):
         run_calls.append(
             {
                 "base_url": base_url,
                 "state_mode_key": state_mode_key,
                 "mode_label": mode_label,
+                "max_profiles_for_mode": max_profiles_for_mode,
             }
         )
+        return "threshold_reached", max_profiles_for_mode
 
     monkeypatch.setattr(scraper_main, "_submit_discipline_keywords", _fake_submit)
     monkeypatch.setattr(scraper_main, "_run_search_results_mode", _fake_run)
@@ -198,16 +226,16 @@ def test_run_discipline_search_mode_processes_selected_aliases_in_order(monkeypa
     scraper_main.run_discipline_search_mode(scraper, nav, history, ["software", "mechanical"])
 
     assert submit_calls == [
-        scraper_main.DISCIPLINE_KEYWORD_BUCKETS["software"],
-        scraper_main.DISCIPLINE_KEYWORD_BUCKETS["mechanical"],
+        "software cluster one",
+        "mechanical cluster one",
     ]
     assert nav.urls == [
         scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL,
         scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL,
     ]
     assert [call["state_mode_key"] for call in run_calls] == [
-        "search_discipline:software",
-        "search_discipline:mechanical",
+        "discipline:software:cluster_1",
+        "discipline:mechanical:cluster_1",
     ]
     assert all("sid=" not in call["base_url"] for call in run_calls)
     assert run_calls[0]["base_url"] != run_calls[1]["base_url"]
@@ -230,7 +258,14 @@ def test_submit_discipline_keywords_clicks_clears_types_and_enters(monkeypatch):
                     "?schoolFilter=%5B%226464%22%5D&keywords=software"
                 )
 
-    driver = types.SimpleNamespace(current_url=scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL)
+    class _FakeDriver:
+        def __init__(self):
+            self.current_url = scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL
+
+        def execute_script(self, *_args, **_kwargs):
+            return True
+
+    driver = _FakeDriver()
     fake_input = _FakeInput(driver)
     scraper = types.SimpleNamespace(driver=driver)
 
@@ -246,6 +281,66 @@ def test_submit_discipline_keywords_clicks_clears_types_and_enters(monkeypatch):
     assert (scraper_main.Keys.DELETE,) in fake_input.actions
     assert ("software engineering",) in fake_input.actions
     assert (scraper_main.Keys.ENTER,) in fake_input.actions
+
+
+def test_submit_discipline_keywords_uses_command_on_macos(monkeypatch):
+    class _FakeInput:
+        def __init__(self, driver):
+            self.driver = driver
+            self.actions = []
+
+        def click(self):
+            self.actions.append("click")
+
+        def send_keys(self, *keys):
+            self.actions.append(keys)
+            if keys == (scraper_main.Keys.ENTER,):
+                self.driver.current_url = (
+                    "https://www.linkedin.com/search/results/people/"
+                    "?schoolFilter=%5B%226464%22%5D&keywords=software"
+                )
+
+    class _FakeDriver:
+        def __init__(self):
+            self.current_url = scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL
+
+        def execute_script(self, *_args, **_kwargs):
+            return True
+
+    driver = _FakeDriver()
+    fake_input = _FakeInput(driver)
+    scraper = types.SimpleNamespace(driver=driver)
+
+    monkeypatch.setattr(scraper_main, "_find_visible_people_search_input", lambda _scraper: fake_input)
+    monkeypatch.setattr(scraper_main.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(scraper_main.random, "uniform", lambda _a, _b: 0.01)
+    monkeypatch.setattr(scraper_main.sys, "platform", "darwin")
+
+    ok = scraper_main._submit_discipline_keywords(scraper, "software engineering")
+
+    assert ok is True
+    assert (scraper_main.Keys.COMMAND, "a") in fake_input.actions
+    assert (scraper_main.Keys.CONTROL, "a") not in fake_input.actions
+
+
+def test_find_visible_people_search_input_uses_js_fallback(monkeypatch):
+    fake_input = object()
+
+    class _FakeDriver:
+        def find_elements(self, *_args):
+            return []
+
+        def execute_script(self, script):
+            assert "document.querySelectorAll('input, textarea')" in script
+            return fake_input
+
+    monkeypatch.setattr(scraper_main.time, "sleep", lambda _s: None)
+
+    scraper = types.SimpleNamespace(driver=_FakeDriver())
+
+    found = scraper_main._find_visible_people_search_input(scraper, timeout_seconds=0.1)
+
+    assert found is fake_input
 
 
 def test_submit_discipline_keywords_returns_false_when_search_bar_missing(monkeypatch):
@@ -270,11 +365,11 @@ def test_submit_discipline_keywords_returns_false_when_submission_errors(monkeyp
 
 
 def test_run_discipline_search_mode_no_results_continues_to_next_discipline(monkeypatch):
+    _patch_minimal_cluster_groups(monkeypatch)
     nav = _DummyNav(ok=True)
     history = _DummyHistory()
     scraper = _NoResultScraper(batches=[[], []])
     submit_calls = []
-    state_calls = []
 
     def _fake_submit(scraper_obj, keyword_query):
         submit_calls.append(keyword_query)
@@ -285,18 +380,21 @@ def test_run_discipline_search_mode_no_results_continues_to_next_discipline(monk
         return True
 
     monkeypatch.setattr(scraper_main, "_submit_discipline_keywords", _fake_submit)
-    monkeypatch.setattr(scraper_main, "load_scrape_state", lambda: None)
-    monkeypatch.setattr(scraper_main, "save_scrape_state", lambda m, u, p: state_calls.append((m, u, p)))
+    monkeypatch.setattr(
+        scraper_main,
+        "_run_search_results_mode",
+        lambda **_kwargs: ("no_results", 0),
+    )
     monkeypatch.setattr(scraper_main.time, "sleep", lambda _s: None)
 
     scraper_main.run_discipline_search_mode(scraper, nav, history, ["software", "mechanical"])
 
     assert submit_calls == [
-        scraper_main.DISCIPLINE_KEYWORD_BUCKETS["software"],
-        scraper_main.DISCIPLINE_KEYWORD_BUCKETS["mechanical"],
+        "software cluster one",
+        "software cluster two",
+        "mechanical cluster one",
+        "mechanical cluster two",
     ]
-    assert any(call[0] == "search_discipline:software" for call in state_calls)
-    assert any(call[0] == "search_discipline:mechanical" for call in state_calls)
     assert scraper.scraped_urls == []
 
 
@@ -352,6 +450,7 @@ def test_normalize_profile_url_collapses_query_and_slash_variants():
 
 
 def test_same_profile_across_disciplines_processed_once_after_live_visit_update(monkeypatch):
+    _patch_minimal_cluster_groups(monkeypatch)
     profile_url = "https://www.linkedin.com/in/same-person?trk=foo"
     scraper = _NoResultScraper(
         batches=[
@@ -375,8 +474,6 @@ def test_same_profile_across_disciplines_processed_once_after_live_visit_update(
     monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
     monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
     monkeypatch.setattr(scraper_main, "wait_between_profiles", lambda: None)
-    monkeypatch.setattr(scraper_main, "load_scrape_state", lambda: None)
-    monkeypatch.setattr(scraper_main, "save_scrape_state", lambda *_args: None)
     monkeypatch.setattr(scraper_main.time, "sleep", lambda _s: None)
 
     scraper_main.run_discipline_search_mode(scraper, nav, history, ["software", "embedded"])
@@ -386,7 +483,8 @@ def test_same_profile_across_disciplines_processed_once_after_live_visit_update(
     assert history.skip_checks.count("https://www.linkedin.com/in/same-person") >= 2
 
 
-def test_run_discipline_search_mode_skips_failed_submission_and_continues(monkeypatch):
+def test_run_discipline_search_mode_falls_back_to_url_when_submission_fails(monkeypatch):
+    _patch_minimal_cluster_groups(monkeypatch)
     nav = _DummyNav(ok=True)
     history = _DummyHistory()
     scraper = types.SimpleNamespace(driver=types.SimpleNamespace(current_url=scraper_main.UNT_DISCIPLINE_SEARCH_BASE_URL))
@@ -403,10 +501,16 @@ def test_run_discipline_search_mode_skips_failed_submission_and_continues(monkey
         return outcome
 
     monkeypatch.setattr(scraper_main, "_submit_discipline_keywords", _fake_submit)
-    monkeypatch.setattr(scraper_main, "_run_search_results_mode", lambda **kwargs: run_calls.append(kwargs))
+    monkeypatch.setattr(
+        scraper_main,
+        "_run_search_results_mode",
+        lambda **kwargs: run_calls.append(kwargs) or ("threshold_reached", kwargs["max_profiles_for_mode"]),
+    )
     monkeypatch.setattr(scraper_main.time, "sleep", lambda _s: None)
 
     scraper_main.run_discipline_search_mode(scraper, nav, history, ["software", "mechanical"])
 
-    assert len(run_calls) == 1
-    assert run_calls[0]["state_mode_key"] == "search_discipline:mechanical"
+    assert len(run_calls) == 2
+    assert run_calls[0]["state_mode_key"] == "discipline:software:cluster_1"
+    assert run_calls[1]["state_mode_key"] == "discipline:mechanical:cluster_1"
+    assert "keywords=software+cluster+one" in run_calls[0]["base_url"]

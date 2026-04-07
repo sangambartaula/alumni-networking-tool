@@ -361,26 +361,73 @@ class LinkedInScraper:
     # ============================================================
     # Navigation & Waits
     # ============================================================
+    def _scroll_active_surfaces(self, delta):
+        self.driver.execute_script(
+            """
+            const delta = Number(arguments[0] || 0);
+            const scrollables = Array.from(document.querySelectorAll('main, section, div, ul')).filter((el) => {
+                const style = window.getComputedStyle(el);
+                const overflowY = (style.overflowY || '').toLowerCase();
+                const canScroll = ['auto', 'scroll', 'overlay'].includes(overflowY);
+                return canScroll && (el.scrollHeight - el.clientHeight) > 200;
+            }).sort((left, right) => (
+                (right.scrollHeight - right.clientHeight) - (left.scrollHeight - left.clientHeight)
+            ));
+
+            window.scrollBy(0, delta);
+            for (const el of scrollables.slice(0, 6)) {
+                const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+                const nextTop = Math.max(0, Math.min(maxTop, el.scrollTop + delta));
+                if (Math.abs(nextTop - el.scrollTop) > 0) {
+                    el.scrollTop = nextTop;
+                }
+            }
+            return scrollables.length;
+            """,
+            int(delta),
+        )
+
+    def _scroll_surfaces_to_edge(self, edge):
+        self.driver.execute_script(
+            """
+            const edge = (arguments[0] || 'top').toLowerCase();
+            const toTop = edge === 'top';
+            const scrollables = Array.from(document.querySelectorAll('main, section, div, ul')).filter((el) => {
+                const style = window.getComputedStyle(el);
+                const overflowY = (style.overflowY || '').toLowerCase();
+                const canScroll = ['auto', 'scroll', 'overlay'].includes(overflowY);
+                return canScroll && (el.scrollHeight - el.clientHeight) > 200;
+            });
+
+            window.scrollTo(0, toTop ? 0 : Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));
+            for (const el of scrollables.slice(0, 6)) {
+                el.scrollTop = toTop ? 0 : Math.max(0, el.scrollHeight - el.clientHeight);
+            }
+            return scrollables.length;
+            """,
+            edge,
+        )
+
     def scroll_full_page(self):
         """
-        Faster and more reliable scroll using window.scrollBy.
+        Scroll the full LinkedIn page down and back up.
         This is critical for LinkedIn because many profile sections (like Education
         and Experience) are lazy-loaded and only appear in the DOM when scrolled into view.
         """
         logger.debug("Scrolling page...")
         try:
-            # Scroll down in chunks to trigger lazy loading
-            # Reduced steps from 12 to 5 for speed
             for _ in range(5):
-                self.driver.execute_script("window.scrollBy(0, 800);")
-                time.sleep(random.uniform(0.8, 1.2))
+                self._scroll_active_surfaces(900)
+                time.sleep(random.uniform(0.5, 0.9))
 
-            # One final scroll to bottom
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1.5)
+            self._scroll_surfaces_to_edge("bottom")
+            time.sleep(random.uniform(0.8, 1.2))
 
-            # Scroll back up to top to ensure elements are interactable
-            self.driver.execute_script("window.scrollTo(0, 0);")
+            for _ in range(2):
+                self._scroll_active_surfaces(-1200)
+                time.sleep(random.uniform(0.4, 0.7))
+
+            self._scroll_surfaces_to_edge("top")
             time.sleep(0.5)
         except Exception:
             pass
@@ -453,7 +500,7 @@ class LinkedInScraper:
         while time.time() < end:
             try:
                 # Scroll a bit if not found yet to trigger render
-                self.driver.execute_script("window.scrollBy(0, 300);")
+                self._scroll_active_surfaces(300)
                 
                 ok = self.driver.execute_script("""
                     const m = document.querySelector('main') || document.body;
@@ -461,7 +508,7 @@ class LinkedInScraper:
                     // Added 'span' because sometimes headers are inside spans now
                     
                     const h = headings.find(x => (x.innerText || '').trim().toLowerCase().includes('education'));
-                    if (!h) return false;
+                    if (!h && !m.querySelector('a[href*="/school/"]')) return false;
                     
                     return true;
                 """)
@@ -596,14 +643,8 @@ class LinkedInScraper:
                 data["profile_url"] = canonical_url
                 data["_original_url"] = profile_url  # Keep original for history tracking
 
-            # 1. Trigger Full Page Load (Aggressive Scroll)
-            # This is critical for the Education section to appear in DOM
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight / 2);")
-            time.sleep(1)
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1)
-            self.driver.execute_script("window.scrollTo(0, 0);") # Go back up to parse
-            time.sleep(1)
+            # 1. Trigger full-page lazy loading using the same scroll routine on every OS.
+            self.scroll_full_page()
 
             if not self._wait_for_top_card(timeout=10):
                 logger.debug("Top card name not detected quickly for %s", canonical_url or profile_url)
