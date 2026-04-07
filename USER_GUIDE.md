@@ -32,7 +32,9 @@ Behavior:
 Recommended:
 
 - Use randomized delays (30-120 seconds per profile).
+- Keep routine scraping conservative without Sales Navigator: the GUI default is 50 profiles and 2 hours, and roughly 60 profiles/day should be treated as a soft upper bound.
 - Stop runs if LinkedIn shows checkpoint, verification, or repeated rate limiting.
+- If LinkedIn shows a warning, unusual activity notice, checkpoint, or rate limit, pause scraping for a few days before trying again. Light normal LinkedIn use is okay during cooldown, but avoid visiting lots of profiles.
 
 ### Scraper Modes
 

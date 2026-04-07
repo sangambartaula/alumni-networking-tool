@@ -51,5 +51,7 @@ Only approved users can access the platform; administrative actions are role-gat
 ## Important Notes
 
 - LinkedIn data is collected via authorized scraping of UNT search results and Connections exports (only LinkedIn OAuth touches the official API), so expect anti-automation checks and rate limits.
+- Without LinkedIn Sales Navigator, routine scraping should stay conservative: about 50 profiles/day is the default safety target in this tool, and roughly 60/day should be treated as an upper bound.
+- If LinkedIn shows a warning, checkpoint, unusual activity notice, or rate limit, stop scraping for a few days. Light normal LinkedIn use is okay during cooldown, but avoid visiting lots of profiles.
 - Scraper activity should be run by authorized operators only.
 - For multi-staff production use, operate a single centrally hosted UNT instance with shared MySQL.
