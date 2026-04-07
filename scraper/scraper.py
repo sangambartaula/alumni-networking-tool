@@ -2,6 +2,7 @@ import time
 import json
 import random
 import re
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -386,26 +387,28 @@ class LinkedInScraper:
     def extract_profile_urls_from_page(self):
         logger.debug("Extracting profile URLs...")
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
-        profile_urls = set()
+        profile_urls = []
+        seen = set()
 
-        selectors = [
-            "a.app-aware-link[href*='/in/']",
-            "a[href*='/in/'][data-view-name='entity_result']",
-            "a[href*='/in/'][aria-label]",
-            "a[href*='/in/']:not([tabindex='-1'])"
-        ]
+        # Keep DOM order so the scraper processes links as they appear on the page.
+        for anchor in soup.select("a[href*='/in/']"):
+            href = (anchor.get("href") or "").strip()
+            if not href:
+                continue
 
-        for selector in selectors:
-            for a in soup.select(selector):
-                url = a.get("href", "")
-                if "/in/" in url:
-                    url = url.split("?")[0]
-                    if not url.startswith("http"):
-                        url = "https://www.linkedin.com" + url
-                    url = url.rstrip('/')
-                    profile_urls.add(url)
-        
-        return list(profile_urls)
+            # Canonicalize to the public profile slug and drop tracking params.
+            # This avoids queue churn from miniProfile and query-variant links.
+            match = re.search(r"/in/([^/?#]+)", href)
+            if not match:
+                continue
+            url = f"https://www.linkedin.com/in/{match.group(1).strip()}".rstrip("/")
+
+            if url in seen:
+                continue
+            seen.add(url)
+            profile_urls.append(url)
+
+        return profile_urls
 
     def _force_focus(self):
         try:
@@ -420,13 +423,28 @@ class LinkedInScraper:
         while time.time() < end:
             try:
                 ok = self.driver.execute_script("""
-                    const h = document.querySelector('h1, h2');
-                    return (h ? (h.innerText || '').trim().length : 0) >= 2;
+                    const main = document.querySelector('main');
+                    if (!main) return false;
+
+                    const h1 = main.querySelector('h1');
+                    if (!h1) return false;
+
+                    const text = (h1.innerText || '').trim().toLowerCase();
+                    if (text.length < 2) return false;
+                    if (text.includes('notification')) return false;
+                    return true;
                 """)
                 if ok: return True
             except Exception: pass
             time.sleep(0.5)
         return False
+
+    @staticmethod
+    def _looks_like_profile_url(url):
+        text = (url or "").strip().lower()
+        if not text:
+            return False
+        return "/linkedin.com/in/" in text or "/www.linkedin.com/in/" in text
 
     def _wait_for_education_ready(self, timeout=15):
         """Wait for the Education section to become available."""
@@ -535,6 +553,22 @@ class LinkedInScraper:
             # Initial settle
             time.sleep(2)
 
+            current_url = (self.driver.current_url or "").strip()
+            if not self._looks_like_profile_url(current_url):
+                # Occasionally LinkedIn redirects to feed/notifications even after a profile GET.
+                # Retry once before giving up so we don't scrape unrelated pages.
+                logger.warning(
+                    "Navigation diverted away from profile (%s). Retrying target URL once.",
+                    current_url or "unknown",
+                )
+                self.driver.get(profile_url)
+                self._force_focus()
+                time.sleep(2)
+                current_url = (self.driver.current_url or "").strip()
+                if not self._looks_like_profile_url(current_url):
+                    logger.warning("Could not reach profile page after retry: %s", profile_url)
+                    return None
+
             # Check if blocked
             block_reason = self._page_block_reason()
             if block_reason:
@@ -570,6 +604,9 @@ class LinkedInScraper:
             self.driver.execute_script("window.scrollTo(0, 0);") # Go back up to parse
             time.sleep(1)
 
+            if not self._wait_for_top_card(timeout=10):
+                logger.debug("Top card name not detected quickly for %s", canonical_url or profile_url)
+
             # 2. Wait for Education specifically
             found_edu = self._wait_for_education_ready(timeout=10)
             if not found_edu:
@@ -579,6 +616,8 @@ class LinkedInScraper:
 
             # 3. Top Card
             name, headline, location = self._extract_top_card(soup)
+            if not name:
+                name = self._fallback_name_from_profile_source(soup, canonical_url or profile_url)
             data["name"] = name
             data["headline"] = headline
             data["location"] = location or "Not Found"
@@ -759,7 +798,12 @@ class LinkedInScraper:
                         # This pipeline intentionally stores UNT alumni only.
                         # If neither inline extraction nor expanded education view finds UNT,
                         # skip persisting this profile.
-                        return None
+                        return {
+                            "__status__": "NOT_UNT_ALUM",
+                            "profile_url": data.get("profile_url", profile_url),
+                            "_original_url": data.get("_original_url", ""),
+                            "name": data.get("name", ""),
+                        }
 
             # --- Store up to 3 education entries (school2/degree2/major2, etc.) ---
             # Trust the extraction layer (Groq/CSS) to return clean entries.
@@ -1082,27 +1126,96 @@ class LinkedInScraper:
     # ============================================================
     # Parsing Methods
     # ============================================================
+    @staticmethod
+    def _looks_like_person_name(raw_text):
+        text = re.sub(r"\s+", " ", (raw_text or "").strip())
+        if len(text) < 2 or len(text) > 80:
+            return False
+        lowered = text.lower()
+        if re.fullmatch(r"\d+\s+notifications?", lowered):
+            return False
+        banned_tokens = (
+            "notification",
+            "notifications",
+            "messages",
+            "my network",
+            "linkedin",
+            "jobs",
+            "feed",
+            "search",
+        )
+        if any(token in lowered for token in banned_tokens):
+            return False
+        return bool(re.search(r"[a-z]", lowered))
+
+    @staticmethod
+    def _name_from_profile_url(profile_url):
+        text = (profile_url or "").strip()
+        if not text:
+            return ""
+        match = re.search(r"/in/([^/?#]+)", text, flags=re.IGNORECASE)
+        if not match:
+            return ""
+        slug = urllib.parse.unquote(match.group(1) or "")
+        slug = slug.replace("-", " ").replace("_", " ")
+        tokens = [token for token in slug.split() if token]
+        if not tokens:
+            return ""
+        cleaned_tokens = [
+            token for token in tokens
+            if not re.fullmatch(r"[0-9]{3,}[a-z]?", token.lower())
+        ]
+        if not cleaned_tokens:
+            cleaned_tokens = tokens
+        candidate = _normalize_person_name(" ".join(cleaned_tokens[:4]))
+        if not candidate:
+            return ""
+        return candidate
+
+    def _fallback_name_from_profile_source(self, soup, profile_url):
+        if soup is not None:
+            meta = soup.find("meta", attrs={"property": "og:title"})
+            content = (meta.get("content") if meta else "") or ""
+            if content:
+                candidate = content.split("|", 1)[0].strip()
+                if " - " in candidate:
+                    candidate = candidate.split(" - ", 1)[0].strip()
+                if self._looks_like_person_name(candidate):
+                    return _normalize_person_name(candidate)
+
+            title_tag = soup.find("title")
+            title_text = title_tag.get_text(" ", strip=True) if title_tag else ""
+            if title_text:
+                candidate = title_text.split("|", 1)[0].strip()
+                if " - " in candidate:
+                    candidate = candidate.split(" - ", 1)[0].strip()
+                if self._looks_like_person_name(candidate):
+                    return _normalize_person_name(candidate)
+
+        candidate = self._name_from_profile_url(profile_url)
+        if self._looks_like_person_name(candidate):
+            return candidate
+        return ""
+
     def _extract_top_card(self, soup):
         name, headline, location = "", "", ""
         raw_location = ""
+        source_root = soup.find("main") or soup
         
-        # Name - Try h1 first (main profile name)
-        h1 = soup.find("h1")
-        if h1:
-            name = h1.get_text(" ", strip=True)
-            # Clean pronouns if present
-            name = re.sub(r'\s*\(.*?\)\s*$', '', name).strip()
-        
-        # Fallback to h2 if no h1
-        if not name:
-            for h in soup.find_all("h2"):
-                t = h.get_text(" ", strip=True)
-                if len(t) >= 2 and len(t) < 60 and not any(x in t.lower() for x in ["linkedin", "contact info", "experience", "education"]):
-                    name = t
-                    break
+        # Name - prefer H1/H2 inside <main>, ignore global navigation headings.
+        for tag_name in ("h1", "h2"):
+            if name:
+                break
+            for tag in source_root.find_all(tag_name):
+                candidate = tag.get_text(" ", strip=True)
+                candidate = re.sub(r"\s*\(.*?\)\s*$", "", candidate).strip()
+                if not self._looks_like_person_name(candidate):
+                    continue
+                name = candidate
+                break
 
         # Headline - Look for 'text-body-medium' class (LinkedIn's current pattern)
-        for div in soup.find_all("div", class_=lambda x: x and "text-body-medium" in x):
+        for div in source_root.find_all("div", class_=lambda x: x and "text-body-medium" in x):
             text = div.get_text(" ", strip=True)
             if text and len(text) > 5 and len(text) < 200:
                 # Skip if it looks like a date or connection badge
@@ -1112,7 +1225,7 @@ class LinkedInScraper:
         
         # Fallback: Look for headline in data-generated-suggestion-target attribute area
         if not headline:
-            for div in soup.find_all("div", {"data-generated-suggestion-target": True}):
+            for div in source_root.find_all("div", {"data-generated-suggestion-target": True}):
                 text = div.get_text(" ", strip=True)
                 if text and len(text) > 5:
                     headline = text
@@ -1126,7 +1239,7 @@ class LinkedInScraper:
                               "inc", "corp", "llc", "company", "technologies", "solutions",
                               "enterprises", "consulting", "software", "systems", "group"]
         
-        for span in soup.find_all("span", class_=lambda x: x and "text-body-small" in x):
+        for span in source_root.find_all("span", class_=lambda x: x and "text-body-small" in x):
             # Check if this is inside a badge container (inline-show-more-text div)
             parent_div = span.find_parent("div")
             if parent_div:
@@ -1181,6 +1294,8 @@ class LinkedInScraper:
         if not location and raw_location:
             location = raw_location
         name = _normalize_person_name(name)
+        if not self._looks_like_person_name(name):
+            name = ""
         return name, headline, location
 
     def _extract_all_experiences(self, soup, max_entries=3, profile_name="unknown"):

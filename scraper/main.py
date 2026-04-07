@@ -345,6 +345,10 @@ def _recover_browser_session(scraper, profile_url, nav=None):
             logger.warning(f"  💀 Profile no longer available: {profile_url}")
             return True, "PAGE_NOT_FOUND"
         
+        if _is_non_target_scrape_result(data):
+            logger.info("  Recovery visited non-UNT profile: %s", profile_url)
+            return True, data
+
         if data and data != "PAGE_NOT_FOUND":
             logger.info(f"  ✅ Recovery succeeded for {profile_url}")
             return True, data
@@ -912,6 +916,27 @@ def _collect_profile_flag_reasons(profile_data):
     return reasons
 
 
+def _is_non_target_scrape_result(data):
+    return isinstance(data, dict) and data.get("__status__") == "NOT_UNT_ALUM"
+
+
+def _track_non_target_profile_visit(scrape_result, input_url, history_mgr):
+    """
+    Persist visited history for profiles intentionally skipped from alumni storage.
+    This avoids re-visiting the same non-UNT profiles across runs.
+    """
+    canonical_url = _normalize_profile_url((scrape_result or {}).get("profile_url", input_url))
+    original_url = _normalize_profile_url((scrape_result or {}).get("_original_url"))
+    target_url = canonical_url or _normalize_profile_url(input_url)
+
+    if target_url:
+        history_mgr.mark_as_visited(target_url, saved=False)
+    if original_url and target_url and original_url != target_url:
+        history_mgr.mark_as_visited(original_url, saved=False)
+
+    logger.info("  Non-UNT profile visited, skipped persistence: %s", target_url or input_url)
+
+
 def _truncate_cloud_limited_fields(payload):
     """Trim known cloud VARCHAR fields to schema limits before DB upsert."""
     truncated = []
@@ -939,7 +964,7 @@ def _save_and_track(data, input_url, history_mgr):
       - The CSV utility uses drop_duplicates to replace older entries 
         sharing the same canonical URL with the latest data.
     """
-    if not data or data == "PAGE_NOT_FOUND":
+    if not data or data == "PAGE_NOT_FOUND" or _is_non_target_scrape_result(data):
         return False
 
     global _cloud_upsert_consecutive_failures, _cloud_upsert_disabled_for_run
@@ -1100,6 +1125,13 @@ def _save_and_track(data, input_url, history_mgr):
                 record_scrape_run_flag(_current_scrape_run_id, canonical_url, reason)
                 _flagged_urls_this_run.add(canonical_url)
 
+        logger.info(
+            "PROFILE SAVED | %s | %s | %s @ %s",
+            (data.get("name") or "Unknown").strip(),
+            canonical_url,
+            (data.get("job_title") or "").strip() or "Unknown Title",
+            (data.get("company") or "").strip() or "Unknown Company",
+        )
         _emit_progress_line()
 
         return True
@@ -1170,6 +1202,13 @@ def run_names_mode(scraper, nav, history_mgr):
 
             if data == "PAGE_NOT_FOUND":
                 logger.warning(f"  💀 Dead URL skipped: {url}")
+                continue
+
+            if _is_non_target_scrape_result(data):
+                _track_non_target_profile_visit(data, url, history_mgr)
+                if should_stop():
+                    return
+                wait_between_profiles()
                 continue
 
             if data and data != "PAGE_NOT_FOUND":
@@ -1275,6 +1314,13 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
 
             if data == "PAGE_NOT_FOUND":
                 logger.warning(f"  💀 Dead URL skipped: {profile_url}")
+                continue
+
+            if _is_non_target_scrape_result(data):
+                _track_non_target_profile_visit(data, profile_url, history_mgr)
+                if should_stop():
+                    return "stopped", (session_profiles_scraped - mode_start_count)
+                wait_between_profiles()
                 continue
 
             if data and data != "PAGE_NOT_FOUND":
@@ -1527,6 +1573,10 @@ def run_review_mode(scraper, nav, history_mgr):
                 dead_urls.append(profile_url)
                 continue
             
+            if _is_non_target_scrape_result(data):
+                _track_non_target_profile_visit(data, profile_url, history_mgr)
+                continue
+
             if data and data != "PAGE_NOT_FOUND":
                 _save_and_track(data, profile_url, history_mgr)
                 logger.debug(f"Updated: {data.get('name', 'Unknown')}")
@@ -1537,6 +1587,8 @@ def run_review_mode(scraper, nav, history_mgr):
                 if success:
                     if data == "PAGE_NOT_FOUND":
                         dead_urls.append(profile_url)
+                    elif _is_non_target_scrape_result(data):
+                        _track_non_target_profile_visit(data, profile_url, history_mgr)
                     elif data and data != "PAGE_NOT_FOUND":
                         _save_and_track(data, profile_url, history_mgr)
                 else:
@@ -1627,6 +1679,9 @@ def run_update_mode(scraper, nav, history_mgr):
             if data == "PAGE_NOT_FOUND":
                 dead_urls.append(profile_url)
                 continue
+            if _is_non_target_scrape_result(data):
+                _track_non_target_profile_visit(data, profile_url, history_mgr)
+                continue
             if data and data != "PAGE_NOT_FOUND":
                 _save_and_track(data, profile_url, history_mgr)
         except Exception as e:
@@ -1635,6 +1690,8 @@ def run_update_mode(scraper, nav, history_mgr):
                 if success:
                     if data == "PAGE_NOT_FOUND":
                         dead_urls.append(profile_url)
+                    elif _is_non_target_scrape_result(data):
+                        _track_non_target_profile_visit(data, profile_url, history_mgr)
                     elif data and data != "PAGE_NOT_FOUND":
                         _save_and_track(data, profile_url, history_mgr)
                 else:
