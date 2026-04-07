@@ -615,6 +615,78 @@ class DatabaseWorker(QThread):
             self.finished_signal.emit(code)
 
 
+class CloudSyncWorker(QThread):
+    """Background worker to sync offline SQLite changes to cloud without blocking GUI."""
+    output_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(dict)
+
+    def run(self):
+        result = {"pending": 0, "synced": 0, "remaining": 0, "success": True, "error": ""}
+        try:
+            base_dir = get_base_dir()
+            backend_dir = os.path.join(base_dir, "backend")
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+            from sqlite_fallback import get_connection_manager
+
+            manager = get_connection_manager()
+            pending = manager.get_pending_count()
+            result["pending"] = pending
+
+            if pending > 0:
+                if not manager.check_cloud_connection():
+                    self.output_signal.emit(
+                        "⚠️ Cloud database is not reachable from this network.\n"
+                        "   Skipping sync — will proceed with CSV seed only.\n"
+                    )
+                else:
+                    self.output_signal.emit(f"📊 Found {pending} pending offline change(s) to sync.\n")
+                    sync_result = manager.force_sync()
+                    if sync_result.get("success"):
+                        result["synced"] = sync_result.get("synced_count", 0)
+                        result["remaining"] = sync_result.get("remaining", 0)
+                        self.output_signal.emit(
+                            f"✅ Sync completed: {result['synced']} change(s) pushed, "
+                            f"{result['remaining']} remaining.\n"
+                        )
+                    else:
+                        error = sync_result.get("error", "Unknown error")
+                        result["error"] = error
+                        self.output_signal.emit(f"⚠️ Sync issue: {error}. Proceeding with CSV seed.\n")
+            else:
+                self.output_signal.emit("✅ No pending offline changes to sync.\n")
+
+        except Exception as e:
+            result["success"] = False
+            result["error"] = str(e)
+            self.output_signal.emit(f"⚠️ Sync step skipped: {e}\n")
+
+        self.finished_signal.emit(result)
+
+
+class PendingCountWorker(QThread):
+    """Background worker to query SQLite pending count without blocking GUI."""
+    result_signal = pyqtSignal(dict)
+
+    def run(self):
+        data = {"pending": 0, "local_alumni": 0, "is_offline": False, "error": False}
+        try:
+            base_dir = get_base_dir()
+            backend_dir = os.path.join(base_dir, "backend")
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+            from sqlite_fallback import get_connection_manager
+
+            manager = get_connection_manager()
+            data["pending"] = manager.get_pending_count()
+            data["local_alumni"] = manager.get_local_alumni_count()
+            data["is_offline"] = manager.is_offline()
+        except Exception:
+            data["error"] = True
+
+        self.result_signal.emit(data)
+
+
 class GeocodeWorker(QThread):
     output_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(int)
@@ -2245,25 +2317,26 @@ class ScraperApp(QMainWindow):
             self._history_rows = []
             self.run_history_table.setRowCount(0)
             return
-        try:
-            conn = self._get_db_connection()
+        # Skip cloud query during active scraping to prevent main-thread blocking
+        is_scraping = self.worker and self.worker.isRunning()
+        if not is_scraping:
             try:
-                if not (self.worker and self.worker.isRunning()):
-                    self._cleanup_stale_runs_from_connection(
-                        conn,
-                        threshold_hours=2,
-                        current_email=current_email if only_current else None,
-                    )
-                rows = self._fetch_recent_runs_from_connection(conn, current_email, only_current)
-            finally:
+                conn = self._get_db_connection()
                 try:
-                    conn.close()
-                except Exception:
-                    pass
-        except Exception:
-            rows = []
-
-        # If cloud query yields nothing, fall back to local SQLite cache to avoid an empty panel.
+                    if not (self.worker and self.worker.isRunning()):
+                        self._cleanup_stale_runs_from_connection(
+                            conn,
+                            threshold_hours=2,
+                            current_email=current_email if only_current else None,
+                        )
+                    rows = self._fetch_recent_runs_from_connection(conn, current_email, only_current)
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            except Exception:
+                rows = []
         if not rows:
             if not (self.worker and self.worker.isRunning()):
                 self._cleanup_stale_runs_from_local_sqlite(
@@ -2611,19 +2684,22 @@ class ScraperApp(QMainWindow):
         # 1) Always read local SQLite (works offline)
         local_rows = self._fetch_scrape_count_by_person_from_local_sqlite(only_current=False)
 
-        # 2) Try cloud/smart-routed connection on top
+        # 2) Try cloud/smart-routed connection on top — but SKIP during active
+        #    scraping to prevent the main thread from blocking on a network timeout.
         cloud_rows = []
-        try:
-            conn = self._get_db_connection()
+        is_scraping = self.worker and self.worker.isRunning()
+        if not is_scraping:
             try:
-                cloud_rows = self._fetch_scrape_count_by_person_from_connection(conn, only_current=False)
-            finally:
+                conn = self._get_db_connection()
                 try:
-                    conn.close()
-                except Exception:
-                    pass
-        except Exception:
-            cloud_rows = []
+                    cloud_rows = self._fetch_scrape_count_by_person_from_connection(conn, only_current=False)
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            except Exception:
+                cloud_rows = []
 
         # 3) Merge: use whichever source has the higher count per email
         merged = {}
@@ -3986,68 +4062,46 @@ class ScraperApp(QMainWindow):
         self._refresh_pending_count()
 
     def _refresh_pending_count(self):
-        """Update the pending offline changes label from local SQLite."""
-        try:
-            backend_dir = os.path.join(get_base_dir(), "backend")
-            if backend_dir not in sys.path:
-                sys.path.insert(0, backend_dir)
-            from sqlite_fallback import get_connection_manager
-            manager = get_connection_manager()
-            pending = manager.get_pending_count()
-            local_alumni = manager.get_local_alumni_count()
-            is_offline = manager.is_offline()
-            if pending > 0:
-                self.pending_changes_label.setText(
-                    f"⚠️ Pending offline changes: {pending}  |  Local alumni: {local_alumni}"
-                )
-                self.pending_changes_label.setStyleSheet("font-size: 11px; color: #E65100; font-weight: bold;")
-            else:
-                status = "offline" if is_offline else "online"
-                self.pending_changes_label.setText(
-                    f"Pending offline changes: 0  |  Local alumni: {local_alumni}  |  Mode: {status}"
-                )
-                self.pending_changes_label.setStyleSheet("font-size: 11px; color: #888;")
-        except Exception:
+        """Update the pending offline changes label from local SQLite (non-blocking)."""
+        if hasattr(self, '_pending_worker') and self._pending_worker and self._pending_worker.isRunning():
+            return  # Skip if already running
+        self._pending_worker = PendingCountWorker()
+        self._pending_worker.result_signal.connect(self._on_pending_count_ready)
+        self._pending_worker.start()
+
+    def _on_pending_count_ready(self, data):
+        """Handle pending count result from background worker."""
+        if data.get("error"):
             self.pending_changes_label.setText("Pending offline changes: —")
+            self.pending_changes_label.setStyleSheet("font-size: 11px; color: #888;")
+            return
+        pending = data.get("pending", 0)
+        local_alumni = data.get("local_alumni", 0)
+        is_offline = data.get("is_offline", False)
+        if pending > 0:
+            self.pending_changes_label.setText(
+                f"⚠️ Pending offline changes: {pending}  |  Local alumni: {local_alumni}"
+            )
+            self.pending_changes_label.setStyleSheet("font-size: 11px; color: #E65100; font-weight: bold;")
+        else:
+            status = "offline" if is_offline else "online"
+            self.pending_changes_label.setText(
+                f"Pending offline changes: 0  |  Local alumni: {local_alumni}  |  Mode: {status}"
+            )
             self.pending_changes_label.setStyleSheet("font-size: 11px; color: #888;")
 
     def _run_sync_to_cloud_then_seed(self):
-        """Push pending offline changes to cloud, then run CSV seed."""
+        """Push pending offline changes to cloud (background), then run CSV seed."""
         self.append_console("\n☁️ Upload to Cloud — Step 1: Syncing offline changes...\n")
-        try:
-            backend_dir = os.path.join(get_base_dir(), "backend")
-            if backend_dir not in sys.path:
-                sys.path.insert(0, backend_dir)
-            from sqlite_fallback import get_connection_manager
-            manager = get_connection_manager()
 
-            pending = manager.get_pending_count()
-            if pending > 0:
-                # Check cloud reachability
-                if not manager.check_cloud_connection():
-                    self.append_console(
-                        "⚠️ Cloud database is not reachable from this network.\n"
-                        "   Skipping sync — will proceed with CSV seed only.\n"
-                    )
-                else:
-                    self.append_console(f"📊 Found {pending} pending offline change(s) to sync.\n")
-                    result = manager.force_sync()
-                    if result.get("success"):
-                        synced = result.get("synced_count", 0)
-                        remaining = result.get("remaining", 0)
-                        self.append_console(
-                            f"✅ Sync completed: {synced} change(s) pushed, {remaining} remaining.\n"
-                        )
-                    else:
-                        error = result.get("error", "Unknown error")
-                        self.append_console(f"⚠️ Sync issue: {error}. Proceeding with CSV seed.\n")
-            else:
-                self.append_console("✅ No pending offline changes to sync.\n")
+        self._cloud_sync_worker = CloudSyncWorker()
+        self._cloud_sync_worker.output_signal.connect(self.append_console)
+        self._cloud_sync_worker.finished_signal.connect(self._on_cloud_sync_done)
+        self._cloud_sync_worker.start()
 
-        except Exception as e:
-            self.append_console(f"⚠️ Sync step skipped: {e}\n")
-        finally:
-            self._refresh_pending_count()
+    def _on_cloud_sync_done(self, result):
+        """After cloud sync finishes, refresh pending count and launch CSV seed."""
+        self._refresh_pending_count()
 
         # Step 2: Run CSV-to-DB seed
         self.append_console("\n☁️ Upload to Cloud — Step 2: Seeding CSV data to database...\n")

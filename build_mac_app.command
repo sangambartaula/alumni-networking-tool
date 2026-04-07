@@ -37,7 +37,7 @@ python3 scripts/pad_icon.py
 
 # Remove extended attributes (detritus) that can cause codesign to fail
 echo "Cleaning extended attributes from source..."
-xattr -cr .
+xattr -cr . 2>/dev/null || true
 
 echo "Bundling App..."
 pyinstaller --clean \
