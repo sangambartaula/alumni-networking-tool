@@ -1,5 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
+
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+ICON_PATH = os.path.join(PROJECT_ROOT, "frontend", "public", "assets", "unt-logo-square.png")
 
 a = Analysis(
     ['scraper_gui.py'],
@@ -32,7 +37,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['frontend\\public\\assets\\unt-logo-square.png'],
+    icon=[ICON_PATH],
 )
 coll = COLLECT(
     exe,
