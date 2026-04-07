@@ -34,35 +34,35 @@ def test_password_policy_invalid_length():
     pw = "Sh0rt!"
     is_valid, errors = validate_password_policy(pw)
     assert is_valid is False
-    assert "Password must be at least 10 characters long" in errors
+    assert "Password must be at least 10 characters." in errors
 
 def test_password_policy_invalid_missing_upper():
     """Test passwords without uppercase letters."""
     pw = "nouppercase1!"
     is_valid, errors = validate_password_policy(pw)
     assert is_valid is False
-    assert "Password must contain at least one uppercase letter." in errors
+    assert "Password must contain at least 1 uppercase letter." in errors
 
 def test_password_policy_invalid_missing_lower():
     """Test passwords without lowercase letters."""
     pw = "NOLOWERCASE1!"
     is_valid, errors = validate_password_policy(pw)
     assert is_valid is False
-    assert "Password must contain at least one lowercase letter." in errors
+    assert "Password must contain at least 1 lowercase letter." in errors
 
 def test_password_policy_invalid_missing_number():
     """Test passwords without numbers."""
     pw = "MissingNumber!"
     is_valid, errors = validate_password_policy(pw)
     assert is_valid is False
-    assert "Password must contain at least one number." in errors
+    assert "Password must contain at least 1 number." in errors
 
 def test_password_policy_invalid_missing_special():
     """Test passwords without special characters."""
     pw = "NoSpecialChar123"
     is_valid, errors = validate_password_policy(pw)
     assert is_valid is False
-    assert "Password must contain at least one special character." in errors
+    assert "Password must contain at least 1 special character." in errors
 
 def test_password_hashing():
     """Test bcrypt hashing and verification."""
