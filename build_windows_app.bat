@@ -1,30 +1,6 @@
 @echo off
 echo Building standalone Windows Application for UNT Alumni Scraper...
 
-:: Ensure we have a virtual environment loaded
-if exist venv\Scripts\activate.bat (
-    call venv\Scripts\activate.bat
-)
-
-:: Clear old build caches
-echo Clearing old build cache...
-if exist "build" rmdir /s /q "build"
-if exist "build\Alumni Scraper App" rmdir /s /q "build\Alumni Scraper App"
-if exist "dist\UNT Alumni Scraper.exe" del /f /q "dist\UNT Alumni Scraper.exe"
-if exist "dist\Alumni Scraper App.exe" del /f /q "dist\Alumni Scraper App.exe"
-if exist "dist\Alumni Scraper App" rmdir /s /q "dist\Alumni Scraper App"
-del /f /q *.spec
-
-:: Install requirements
-echo Installing build dependencies (PyQt6, PyInstaller, Pillow)...
-pip install PyQt6 pyinstaller python-dotenv pillow
-pip install -r requirements.txt
-if errorlevel 1 (
-    echo Dependency installation failed. Aborting build.
-    pause
-    exit /b 1
-)
-
 :: Detect Python command
 where python3 >nul 2>nul
 if %ERRORLEVEL% equ 0 (
@@ -38,6 +14,29 @@ if %ERRORLEVEL% equ 0 (
         pause
         exit /b 1
     )
+)
+
+:: Ensure we have a virtual environment loaded
+if not exist venv (
+    echo Creating virtual environment...
+    %PYTHON_CMD% -m venv venv
+)
+call venv\Scripts\activate.bat
+
+:: Clear old build caches
+echo Clearing old build cache...
+if exist "build" rmdir /s /q "build"
+if exist "dist\Alumni Scraper App.exe" del /f /q "dist\Alumni Scraper App.exe"
+del /f /q *.spec
+
+:: Install requirements with optimization
+echo Installing build dependencies (using --prefer-binary for speed)...
+pip install --prefer-binary PyQt6 pyinstaller python-dotenv pillow
+pip install --prefer-binary -r requirements.txt
+if errorlevel 1 (
+    echo Dependency installation failed. Aborting build.
+    pause
+    exit /b 1
 )
 
 :: Build using PyInstaller

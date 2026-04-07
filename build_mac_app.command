@@ -3,25 +3,6 @@ cd "$(dirname "$0")"
 
 echo "Building standalone Mac Application for UNT Alumni Scraper..."
 
-# Ensure we have a virtual environment loaded
-if [ -d "venv" ]; then
-    source venv/bin/activate
-fi
-
-# Force clear old cached builds
-echo "Clearing old build cache..."
-rm -rf "build"
-rm -rf "build/Alumni Scraper App"
-rm -rf "dist/UNT Alumni Scraper.app"
-rm -rf "dist/Alumni Scraper App.app"
-rm -rf "dist/Alumni Scraper App"
-rm -f *.spec
-
-# Install requirements
-echo "Installing PyQt6 and PyInstaller..."
-pip install PyQt6 pyinstaller python-dotenv pillow
-pip install -r requirements.txt
-
 # Detect Python command
 if command -v python3 &>/dev/null; then
     PYTHON_CMD="python3"
@@ -32,9 +13,27 @@ else
     exit 1
 fi
 
-# Build using PyInstaller
+# Ensure we have a virtual environment loaded
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    $PYTHON_CMD -m venv venv
+fi
+source venv/bin/activate
+
+# Force clear old cached builds
+echo "Clearing old build cache..."
+rm -rf "build"
+rm -rf "dist/Alumni Scraper App.app"
+rm -f *.spec
+
+# Install requirements with optimization
+echo "Installing dependencies (using --prefer-binary for speed)..."
+pip install --prefer-binary PyQt6 pyinstaller python-dotenv pillow
+pip install --prefer-binary -r requirements.txt
+
+# Build setup
 echo "Squarifying icon to prevent stretching..."
-$PYTHON_CMD scripts/pad_icon.py
+python3 scripts/pad_icon.py
 
 # Remove extended attributes (detritus) that can cause codesign to fail
 echo "Cleaning extended attributes from source..."
