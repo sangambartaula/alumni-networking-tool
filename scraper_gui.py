@@ -19,6 +19,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
 
+_SIMPLE_ENV_VALUE_RE = re.compile(r"^[A-Za-z0-9_./:-]+$")
+
 
 def _format_runtime_short(total_seconds):
     total_seconds = max(0, int(total_seconds))
@@ -34,12 +36,32 @@ def _safe_load_dotenv_values(env_path):
     if not os.path.exists(env_path):
         return {}
     try:
-        return dotenv.dotenv_values(env_path, encoding="utf-8")
+        return dotenv.dotenv_values(env_path, encoding="utf-8", interpolate=False)
     except Exception:
         try:
-            return dotenv.dotenv_values(env_path, encoding="latin-1")
+            return dotenv.dotenv_values(env_path, encoding="latin-1", interpolate=False)
         except Exception:
             return {}
+
+
+def _serialize_env_value(value):
+    text = "" if value is None else str(value)
+    if not text:
+        return ""
+    if _SIMPLE_ENV_VALUE_RE.fullmatch(text):
+        return text
+    escaped = (
+        text
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+    return f'"{escaped}"'
+
+
+def _compose_env_line(key, value):
+    return f"{key}={_serialize_env_value(value)}\n"
 
 def get_base_dir():
     if getattr(sys, 'frozen', False):
@@ -75,14 +97,14 @@ def update_env(key, value):
             
     for i, line in enumerate(lines):
         if line.strip().startswith(f"{key}="):
-            lines[i] = f"{key}={value}\n"
+            lines[i] = _compose_env_line(key, value)
             found = True
             break
             
     if not found:
         if lines and not lines[-1].endswith('\n'):
             lines.append('\n')
-        lines.append(f"{key}={value}\n")
+        lines.append(_compose_env_line(key, value))
         
     with open(env_path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
@@ -106,7 +128,7 @@ def update_env_many(updates):
         if '=' in stripped and not stripped.startswith('#'):
             key = stripped.split('=', 1)[0].strip()
             if key in updates:
-                rewritten.append(f"{key}={updates[key]}\n")
+                rewritten.append(_compose_env_line(key, updates[key]))
                 seen.add(key)
                 continue
         rewritten.append(line)
@@ -115,7 +137,7 @@ def update_env_many(updates):
     if missing_keys and rewritten and not rewritten[-1].endswith('\n'):
         rewritten.append('\n')
     for key in missing_keys:
-        rewritten.append(f"{key}={updates[key]}\n")
+        rewritten.append(_compose_env_line(key, updates[key]))
 
     tmp_path = env_path + '.tmp'
     with open(tmp_path, 'w', encoding='utf-8') as f:
@@ -607,6 +629,123 @@ class UpdateNowWorker(QThread):
         except Exception as e:
             self.output_signal.emit(f"\nError running update script: {e}\n")
             self.finished_signal.emit(1)
+
+
+def _probe_cloud_status_sync():
+    base_dir = get_base_dir()
+    python_exec = _resolve_python_exec(base_dir)
+    script = (
+        "import json, os, sys\n"
+        "base = os.getcwd()\n"
+        "backend = os.path.join(base, 'backend')\n"
+        "if backend not in sys.path:\n"
+        "    sys.path.insert(0, backend)\n"
+        "if os.getenv('DISABLE_DB', '0') == '1':\n"
+        "    print(json.dumps({'state':'gray','text':'Cloud DB disabled','tip':'DISABLE_DB=1 in .env, so cloud DB checks are intentionally bypassed.'}))\n"
+        "    raise SystemExit(0)\n"
+        "try:\n"
+        "    from database import get_connection, get_direct_mysql_connection\n"
+        "except ModuleNotFoundError as e:\n"
+        "    print(json.dumps({'state':'yellow','text':'Cloud DB setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+        "    raise SystemExit(0)\n"
+        "except Exception as e:\n"
+        "    print(json.dumps({'state':'red','text':'Cloud DB unavailable','tip':f'Database module failed to load: {type(e).__name__}: {e}'}))\n"
+        "    raise SystemExit(0)\n"
+        "try:\n"
+        "    conn = get_direct_mysql_connection()\n"
+        "    try:\n"
+        "        cur = conn.cursor()\n"
+        "        cur.execute('SELECT COUNT(*) FROM alumni')\n"
+        "        row = cur.fetchone()\n"
+        "        total = int(row[0]) if row else 0\n"
+        "    finally:\n"
+        "        try:\n"
+        "            conn.close()\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "    print(json.dumps({'state':'green','text':'Cloud DB connected','tip':f'Cloud probe succeeded (alumni rows: {total}).'}))\n"
+        "except ModuleNotFoundError as e:\n"
+        "    print(json.dumps({'state':'yellow','text':'Cloud DB setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+        "except Exception as e:\n"
+        "    try:\n"
+        "        conn = get_connection()\n"
+        "        try:\n"
+        "            if conn.__class__.__name__ == 'SQLiteConnectionWrapper':\n"
+        "                print(json.dumps({'state':'yellow','text':'Cloud DB offline (SQLite fallback active)','tip':'Cloud probe failed; app is writing locally via SQLite fallback.'}))\n"
+        "                raise SystemExit(0)\n"
+        "        finally:\n"
+        "            try:\n"
+        "                conn.close()\n"
+        "            except Exception:\n"
+        "                pass\n"
+        "    except Exception:\n"
+        "        pass\n"
+        "    print(json.dumps({'state':'red','text':'Cloud DB unavailable','tip':f'Cloud probe failed: {type(e).__name__}: {e}'}))\n"
+    )
+    payload = _run_json_probe(python_exec, base_dir, script)
+    return payload.get("state", "red"), payload.get("text", "Cloud DB unavailable"), payload.get("tip", "Cloud probe failed")
+
+
+def _probe_geocode_status_sync():
+    base_dir = get_base_dir()
+    python_exec = _resolve_python_exec(base_dir)
+    script = (
+        "import json, os, sys\n"
+        "base = os.getcwd()\n"
+        "backend = os.path.join(base, 'backend')\n"
+        "if backend not in sys.path:\n"
+        "    sys.path.insert(0, backend)\n"
+        "try:\n"
+        "    from geocoding import geocode_location_with_status\n"
+        "except ModuleNotFoundError as e:\n"
+        "    print(json.dumps({'state':'yellow','text':'Geocoding setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+        "    raise SystemExit(0)\n"
+        "except Exception as e:\n"
+        "    print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':f'Geocoding module failed to load: {type(e).__name__}: {e}'}))\n"
+        "    raise SystemExit(0)\n"
+        "try:\n"
+        "    coords, status = geocode_location_with_status('Fort Worth, Texas, United States')\n"
+        "    if coords:\n"
+        "        lat = float(coords[0])\n"
+        "        lon = float(coords[1])\n"
+        "        ref_lat, ref_lon = 32.7555, -97.3308\n"
+        "        lat_delta = abs(lat - ref_lat)\n"
+        "        lon_delta = abs(lon - ref_lon)\n"
+        "        if lat_delta <= 0.8 and lon_delta <= 0.8:\n"
+        "            print(json.dumps({'state':'green','text':'Geocoding reachable','tip':'Fort Worth probe resolved to expected metro coordinates.'}))\n"
+        "        else:\n"
+        "            print(json.dumps({'state':'yellow','text':'Geocoding unstable','tip':f'Fort Worth probe resolved but out of expected range (delta lat/lon: {lat_delta:.3f}/{lon_delta:.3f}).'}))\n"
+        "    elif status in {'network_error', 'parse_error'}:\n"
+        "        print(json.dumps({'state':'yellow','text':'Geocoding unstable','tip':'Network/API issue while validating Fort Worth geocode probe.'}))\n"
+        "    else:\n"
+        "        print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':'Fort Worth geocode probe failed to resolve.'}))\n"
+        "except ModuleNotFoundError as e:\n"
+        "    print(json.dumps({'state':'yellow','text':'Geocoding setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
+        "except Exception as e:\n"
+        "    print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':f'Geocode probe failed: {type(e).__name__}: {e}'}))\n"
+    )
+    payload = _run_json_probe(python_exec, base_dir, script)
+    return payload.get("state", "red"), payload.get("text", "Geocoding unavailable"), payload.get("tip", "Geocode probe failed")
+
+
+class PreflightStatusWorker(QThread):
+    finished_signal = pyqtSignal(object)
+
+    def __init__(self, force_cloud=False, force_geo=False, cloud_cache=None, geo_cache=None):
+        super().__init__()
+        self.force_cloud = force_cloud
+        self.force_geo = force_geo
+        self.cloud_cache = cloud_cache
+        self.geo_cache = geo_cache
+
+    def run(self):
+        cloud_status = self.cloud_cache
+        geo_status = self.geo_cache
+        if self.force_cloud or cloud_status is None:
+            cloud_status = _probe_cloud_status_sync()
+        if self.force_geo or geo_status is None:
+            geo_status = _probe_geocode_status_sync()
+        self.finished_signal.emit({"cloud": cloud_status, "geo": geo_status})
 
 class FlagManagerDialog(QDialog):
     COLUMN_ORDER = [
@@ -1421,7 +1560,7 @@ class SettingsDialog(QDialog):
             if t == bool:
                 w.setChecked(bool(d))
             else:
-                w.setText("")
+                w.setText("" if d in (None, "") else str(d))
         QMessageBox.information(self, "Reset", "Fields reset. Click Save to apply changes to .env.")
 
     def _collect_updates(self):
@@ -1531,6 +1670,7 @@ class ScraperApp(QMainWindow):
         self.geocode_worker = None
         self.install_worker = None
         self.update_worker = None
+        self.preflight_worker = None
         self._pending_upload_after_geocode = False
         self._manual_intervention_needed = False
         self._manual_intervention_reason = ""
@@ -2151,58 +2291,7 @@ class ScraperApp(QMainWindow):
         label_widget.setToolTip(tooltip)
 
     def _probe_cloud_status(self):
-        base_dir = get_base_dir()
-        python_exec = _resolve_python_exec(base_dir)
-        script = (
-            "import json, os, sys\n"
-            "base = os.getcwd()\n"
-            "backend = os.path.join(base, 'backend')\n"
-            "if backend not in sys.path:\n"
-            "    sys.path.insert(0, backend)\n"
-            "if os.getenv('DISABLE_DB', '0') == '1':\n"
-            "    print(json.dumps({'state':'gray','text':'Cloud DB disabled','tip':'DISABLE_DB=1 in .env, so cloud DB checks are intentionally bypassed.'}))\n"
-            "    raise SystemExit(0)\n"
-            "try:\n"
-            "    from database import get_connection, get_direct_mysql_connection\n"
-            "except ModuleNotFoundError as e:\n"
-            "    print(json.dumps({'state':'yellow','text':'Cloud DB setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
-            "    raise SystemExit(0)\n"
-            "except Exception as e:\n"
-            "    print(json.dumps({'state':'red','text':'Cloud DB unavailable','tip':f'Database module failed to load: {type(e).__name__}: {e}'}))\n"
-            "    raise SystemExit(0)\n"
-            "try:\n"
-            "    conn = get_direct_mysql_connection()\n"
-            "    try:\n"
-            "        cur = conn.cursor()\n"
-            "        cur.execute('SELECT COUNT(*) FROM alumni')\n"
-            "        row = cur.fetchone()\n"
-            "        total = int(row[0]) if row else 0\n"
-            "    finally:\n"
-            "        try:\n"
-            "            conn.close()\n"
-            "        except Exception:\n"
-            "            pass\n"
-            "    print(json.dumps({'state':'green','text':'Cloud DB connected','tip':f'Cloud probe succeeded (alumni rows: {total}).'}))\n"
-            "except ModuleNotFoundError as e:\n"
-            "    print(json.dumps({'state':'yellow','text':'Cloud DB setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
-            "except Exception as e:\n"
-            "    try:\n"
-            "        conn = get_connection()\n"
-            "        try:\n"
-            "            if conn.__class__.__name__ == 'SQLiteConnectionWrapper':\n"
-            "                print(json.dumps({'state':'yellow','text':'Cloud DB offline (SQLite fallback active)','tip':'Cloud probe failed; app is writing locally via SQLite fallback.'}))\n"
-            "                raise SystemExit(0)\n"
-            "        finally:\n"
-            "            try:\n"
-            "                conn.close()\n"
-            "            except Exception:\n"
-            "                pass\n"
-            "    except Exception:\n"
-            "        pass\n"
-            "    print(json.dumps({'state':'red','text':'Cloud DB unavailable','tip':f'Cloud probe failed: {type(e).__name__}: {e}'}))\n"
-        )
-        payload = _run_json_probe(python_exec, base_dir, script)
-        return payload.get("state", "red"), payload.get("text", "Cloud DB unavailable"), payload.get("tip", "Cloud probe failed")
+        return _probe_cloud_status_sync()
 
     def _check_cloud_status(self, force_probe=False):
         if force_probe or self._cloud_status_cache is None:
@@ -2210,45 +2299,7 @@ class ScraperApp(QMainWindow):
         return self._cloud_status_cache
 
     def _probe_geocode_status(self):
-        base_dir = get_base_dir()
-        python_exec = _resolve_python_exec(base_dir)
-        script = (
-            "import json, os, sys\n"
-            "base = os.getcwd()\n"
-            "backend = os.path.join(base, 'backend')\n"
-            "if backend not in sys.path:\n"
-            "    sys.path.insert(0, backend)\n"
-            "try:\n"
-            "    from geocoding import geocode_location_with_status\n"
-            "except ModuleNotFoundError as e:\n"
-            "    print(json.dumps({'state':'yellow','text':'Geocoding setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
-            "    raise SystemExit(0)\n"
-            "except Exception as e:\n"
-            "    print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':f'Geocoding module failed to load: {type(e).__name__}: {e}'}))\n"
-            "    raise SystemExit(0)\n"
-            "try:\n"
-            "    coords, status = geocode_location_with_status('Fort Worth, Texas, United States')\n"
-            "    if coords:\n"
-            "        lat = float(coords[0])\n"
-            "        lon = float(coords[1])\n"
-            "        ref_lat, ref_lon = 32.7555, -97.3308\n"
-            "        lat_delta = abs(lat - ref_lat)\n"
-            "        lon_delta = abs(lon - ref_lon)\n"
-            "        if lat_delta <= 0.8 and lon_delta <= 0.8:\n"
-            "            print(json.dumps({'state':'green','text':'Geocoding reachable','tip':'Fort Worth probe resolved to expected metro coordinates.'}))\n"
-            "        else:\n"
-            "            print(json.dumps({'state':'yellow','text':'Geocoding unstable','tip':f'Fort Worth probe resolved but out of expected range (delta lat/lon: {lat_delta:.3f}/{lon_delta:.3f}).'}))\n"
-            "    elif status in {'network_error', 'parse_error'}:\n"
-            "        print(json.dumps({'state':'yellow','text':'Geocoding unstable','tip':'Network/API issue while validating Fort Worth geocode probe.'}))\n"
-            "    else:\n"
-            "        print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':'Fort Worth geocode probe failed to resolve.'}))\n"
-            "except ModuleNotFoundError as e:\n"
-            "    print(json.dumps({'state':'yellow','text':'Geocoding setup needed','tip':f'Missing Python dependency: {e}. Click Install Dependencies in the main window.'}))\n"
-            "except Exception as e:\n"
-            "    print(json.dumps({'state':'red','text':'Geocoding unavailable','tip':f'Geocode probe failed: {type(e).__name__}: {e}'}))\n"
-        )
-        payload = _run_json_probe(python_exec, base_dir, script)
-        return payload.get("state", "red"), payload.get("text", "Geocoding unavailable"), payload.get("tip", "Geocode probe failed")
+        return _probe_geocode_status_sync()
 
     def _check_geocode_status(self, force_probe=False):
         if force_probe or self._geo_status_cache is None:
@@ -2256,10 +2307,57 @@ class ScraperApp(QMainWindow):
         return self._geo_status_cache
 
     def refresh_preflight_status(self, force_cloud_probe=False, force_geo_probe=False):
-        cloud_state, cloud_text, cloud_tip = self._check_cloud_status(force_probe=force_cloud_probe)
-        geo_state, geo_text, geo_tip = self._check_geocode_status(force_probe=force_geo_probe)
-        self._set_status_badge(self.cloud_status_label, cloud_state, cloud_text, cloud_tip)
-        self._set_status_badge(self.geo_status_label, geo_state, geo_text, geo_tip)
+        refresh_cloud = force_cloud_probe or self._cloud_status_cache is None
+        refresh_geo = force_geo_probe or self._geo_status_cache is None
+
+        if self.preflight_worker and self.preflight_worker.isRunning():
+            return
+
+        if refresh_cloud:
+            self._set_status_badge(
+                self.cloud_status_label,
+                "gray",
+                "Checking cloud DB...",
+                "Running cloud database preflight probe.",
+            )
+        elif self._cloud_status_cache:
+            self._set_status_badge(self.cloud_status_label, *self._cloud_status_cache)
+
+        if refresh_geo:
+            self._set_status_badge(
+                self.geo_status_label,
+                "gray",
+                "Checking geocoding...",
+                "Running geocoding preflight probe.",
+            )
+        elif self._geo_status_cache:
+            self._set_status_badge(self.geo_status_label, *self._geo_status_cache)
+
+        if hasattr(self, "refresh_status_btn"):
+            self.refresh_status_btn.setEnabled(False)
+
+        self.preflight_worker = PreflightStatusWorker(
+            force_cloud=refresh_cloud,
+            force_geo=refresh_geo,
+            cloud_cache=None if refresh_cloud else self._cloud_status_cache,
+            geo_cache=None if refresh_geo else self._geo_status_cache,
+        )
+        self.preflight_worker.finished_signal.connect(self._on_preflight_status_ready)
+        self.preflight_worker.start()
+
+    def _on_preflight_status_ready(self, payload):
+        cloud_status = tuple(payload.get("cloud") or ("red", "Cloud DB unavailable", "Cloud probe failed"))
+        geo_status = tuple(payload.get("geo") or ("red", "Geocoding unavailable", "Geocode probe failed"))
+        self._cloud_status_cache = cloud_status
+        self._geo_status_cache = geo_status
+        self._set_status_badge(self.cloud_status_label, *cloud_status)
+        self._set_status_badge(self.geo_status_label, *geo_status)
+        if hasattr(self, "refresh_status_btn"):
+            self.refresh_status_btn.setEnabled(True)
+        worker = self.preflight_worker
+        self.preflight_worker = None
+        if worker:
+            worker.deleteLater()
 
 
     def open_settings(self):
@@ -2681,11 +2779,18 @@ class ScraperApp(QMainWindow):
             self.max_profiles.setText(saved_max_profiles)
 
         saved_hours = str(env_values.get("GUI_MAX_RUNTIME_HOURS", "") or "").strip()
-        saved_minutes = str(env_values.get("GUI_MAX_RUNTIME_MINUTES", "") or "").strip()
+        saved_display_minutes = str(env_values.get("GUI_MAX_RUNTIME_DISPLAY_MINUTES", "") or "").strip()
+        saved_total_minutes = str(env_values.get("GUI_MAX_RUNTIME_MINUTES", "") or "").strip()
         if saved_hours and saved_hours.isdigit():
             self.hours_input.setText(saved_hours)
-        if saved_minutes and saved_minutes.isdigit():
-            self.mins_input.setText(saved_minutes)
+            if saved_display_minutes and saved_display_minutes.isdigit():
+                self.mins_input.setText(saved_display_minutes)
+            elif saved_total_minutes and saved_total_minutes.isdigit():
+                self.mins_input.setText(saved_total_minutes)
+        elif saved_total_minutes and saved_total_minutes.isdigit():
+            total_minutes = max(0, int(saved_total_minutes))
+            self.hours_input.setText(str(total_minutes // 60))
+            self.mins_input.setText(str(total_minutes % 60))
 
         for checkbox in self.discs.values():
             checkbox.setChecked(False)
@@ -3003,20 +3108,26 @@ class ScraperApp(QMainWindow):
 
     def save_all_settings_to_env(self):
         selected_disciplines = ",".join(self._get_selected_discipline_aliases())
+        hours_text = self.hours_input.text().strip() or "0"
+        minutes_text = self.mins_input.text().strip() or "0"
+        try:
+            total_runtime_minutes = max(0, int(hours_text)) * 60 + max(0, int(minutes_text))
+        except ValueError:
+            total_runtime_minutes = 0
         updates = {
             "LINKEDIN_EMAIL": self.email_input.text().strip().lower(),
+            "LINKEDIN_PASSWORD": self.password_input.text(),
             "GUI_SCRAPER_MODE": self.mode_combo.currentText().strip().lower(),
             "GUI_SEARCH_DISCIPLINES": selected_disciplines,
             "GUI_DELAY_PRESET": self.delay_combo.currentText().strip(),
             "GUI_MIN_DELAY_SECONDS": self.min_delay.text().strip() or "0",
             "GUI_MAX_DELAY_SECONDS": self.max_delay.text().strip() or "0",
             "GUI_MAX_PROFILES": self.max_profiles.text().strip() or "0",
-            "GUI_MAX_RUNTIME_HOURS": self.hours_input.text().strip() or "0",
-            "GUI_MAX_RUNTIME_MINUTES": self.mins_input.text().strip() or "0",
+            "GUI_MAX_RUNTIME_HOURS": hours_text,
+            "GUI_MAX_RUNTIME_DISPLAY_MINUTES": minutes_text,
+            "GUI_MAX_RUNTIME_MINUTES": str(total_runtime_minutes),
             "INPUT_CSV": self.csv_path_input.text().strip(),
         }
-        if self.password_input.text():
-            updates["LINKEDIN_PASSWORD"] = self.password_input.text()
         update_env_many(updates)
 
     def _warn_if_groq_not_ready(self):
