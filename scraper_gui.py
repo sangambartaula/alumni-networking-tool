@@ -9,6 +9,7 @@ import csv
 import json
 import re
 import webbrowser
+import zipfile
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -20,6 +21,10 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
 
 _SIMPLE_ENV_VALUE_RE = re.compile(r"^[A-Za-z0-9_./:-]+$")
+SAFE_DAILY_PROFILE_GUIDANCE = 60
+SAFE_DEFAULT_PROFILE_LIMIT = 50
+SAFE_DEFAULT_RUNTIME_HOURS = 2
+SAFE_DEFAULT_RUNTIME_MINUTES = 0
 
 
 def _format_runtime_short(total_seconds):
@@ -1339,6 +1344,10 @@ class SettingsDialog(QDialog):
         btn_layout.setSpacing(8)
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.clicked.connect(self.reset_to_defaults)
+        copy_diag_btn = QPushButton("Copy Diagnostics")
+        copy_diag_btn.clicked.connect(self.copy_diagnostics)
+        export_diag_btn = QPushButton("Export Diagnostics")
+        export_diag_btn.clicked.connect(self.export_diagnostics_bundle)
         
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
@@ -1352,6 +1361,8 @@ class SettingsDialog(QDialog):
         save_test_btn.setStyleSheet("background-color: #2e6f40; color: white; font-weight: bold; padding: 6px;")
         
         btn_layout.addWidget(reset_btn)
+        btn_layout.addWidget(copy_diag_btn)
+        btn_layout.addWidget(export_diag_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(save_only_btn)
@@ -1384,9 +1395,8 @@ class SettingsDialog(QDialog):
 
     def _create_settings_tabs(self):
         builders = [
-            ("Credentials", self.create_credentials_tab),
-            ("Scraper", self.create_scraper_tab),
-            ("Database", self.create_database_tab),
+            ("Operator", self.create_operator_tab),
+            ("Admin & Dev", self.create_admin_tab),
         ]
         for tab_name, builder in builders:
             try:
@@ -1464,6 +1474,237 @@ class SettingsDialog(QDialog):
         scroll.setWidget(container)
         self.tabs.addTab(scroll, name)
         return form
+
+    def _add_section_note(self, form_layout, title, body):
+        title_label = QLabel(title)
+        title_label.setStyleSheet("color: #1659a6; font-weight: 700; margin-top: 6px;")
+        body_label = QLabel(body)
+        body_label.setWordWrap(True)
+        body_label.setStyleSheet("color: #4a5d73;")
+        form_layout.addRow(title_label, QLabel(""))
+        form_layout.addRow(QLabel(""), body_label)
+
+    def _field_text(self, key):
+        field = self._fields.get(key)
+        if not field:
+            return ""
+        widget = field["widget"]
+        if field["type"] == bool:
+            return "true" if widget.isChecked() else "false"
+        return widget.text().strip()
+
+    def _masked_email_text(self):
+        email = self._field_text("LINKEDIN_EMAIL")
+        if "@" not in email:
+            return "not configured" if not email else "***redacted***"
+        user, domain = email.split("@", 1)
+        if len(user) <= 2:
+            masked_user = user[:1] + "***"
+        else:
+            masked_user = user[:2] + "***"
+        return f"{masked_user}@{domain}"
+
+    def _redacted_env_text(self):
+        if not os.path.exists(self.env_path):
+            return ""
+        redacted_lines = []
+        with open(self.env_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                stripped = raw_line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in raw_line:
+                    redacted_lines.append(raw_line)
+                    continue
+                key, _value = raw_line.split("=", 1)
+                upper_key = key.strip().upper()
+                if upper_key == "LINKEDIN_EMAIL":
+                    redacted_lines.append(f"{key}={self._masked_email_text()}\n")
+                elif any(token in upper_key for token in ("PASSWORD", "SECRET", "TOKEN", "API_KEY", "CLIENT_SECRET")):
+                    redacted_lines.append(f"{key}=***REDACTED***\n")
+                else:
+                    redacted_lines.append(raw_line)
+        return "".join(redacted_lines)
+
+    def _build_diagnostics_summary(self):
+        parent = self.parent()
+        mode = parent.mode_combo.currentText().strip() if parent and hasattr(parent, "mode_combo") else "unknown"
+        delay_preset = parent.delay_combo.currentText().strip() if parent and hasattr(parent, "delay_combo") else "unknown"
+        delay_range = "unknown"
+        if parent and hasattr(parent, "_get_effective_delay_range"):
+            try:
+                min_delay, max_delay = parent._get_effective_delay_range()
+                delay_range = f"{min_delay}-{max_delay}s"
+            except Exception:
+                delay_range = "unknown"
+        max_profiles = parent.max_profiles.text().strip() if parent and hasattr(parent, "max_profiles") else ""
+        runtime_limit = ""
+        if parent and hasattr(parent, "hours_input") and hasattr(parent, "mins_input"):
+            runtime_limit = f"{parent.hours_input.text().strip() or '0'}h {parent.mins_input.text().strip() or '0'}m"
+
+        cloud_status = getattr(parent, "_cloud_status_cache", None) if parent else None
+        geo_status = getattr(parent, "_geo_status_cache", None) if parent else None
+        if parent and hasattr(parent, "_refresh_about_metadata"):
+            try:
+                parent._refresh_about_metadata()
+            except Exception:
+                pass
+
+        lines = [
+            "UNT Alumni Scraper Diagnostics",
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Platform: {sys.platform}",
+            f"Python: {sys.version.split()[0]}",
+            f"Project Root: {self.base_dir}",
+            f"Python Exec: {_resolve_python_exec(self.base_dir)}",
+            f"Version: {getattr(parent, '_about_version_text', 'unknown') if parent else 'unknown'}",
+            f"Last Updated: {getattr(parent, '_about_last_updated_text', 'unknown') if parent else 'unknown'}",
+            "",
+            f"Mode: {mode}",
+            f"Delay Preset: {delay_preset}",
+            f"Delay Range: {delay_range}",
+            f"Max Profiles: {max_profiles or '0'}",
+            f"Runtime Limit: {runtime_limit or '0h 0m'}",
+            f"LinkedIn Email: {self._masked_email_text()}",
+            f"Headless: {self._field_text('HEADLESS') or 'false'}",
+            f"Use Cookies: {self._field_text('USE_COOKIES') or 'false'}",
+            f"Use Groq: {self._field_text('USE_GROQ') or 'false'}",
+            f"Groq Key Configured: {'yes' if self._field_text('GROQ_API_KEY') else 'no'}",
+            f"MySQL Host: {self._field_text('MYSQLHOST') or 'unset'}",
+            f"MySQL Port: {self._field_text('MYSQLPORT') or 'unset'}",
+            f"MySQL Database: {self._field_text('MYSQL_DATABASE') or 'unset'}",
+            "",
+            f"Cloud Status: {cloud_status[1] if cloud_status else 'not yet checked'}",
+            f"Cloud Details: {cloud_status[2] if cloud_status else 'n/a'}",
+            f"Geocode Status: {geo_status[1] if geo_status else 'not yet checked'}",
+            f"Geocode Details: {geo_status[2] if geo_status else 'n/a'}",
+        ]
+        return "\n".join(lines)
+
+    def copy_diagnostics(self):
+        QApplication.clipboard().setText(self._build_diagnostics_summary())
+        QMessageBox.information(self, "Diagnostics Copied", "A redacted diagnostics summary was copied to the clipboard.")
+
+    def export_diagnostics_bundle(self):
+        parent = self.parent()
+        export_dir = os.path.join(self.base_dir, "diagnostics_exports")
+        os.makedirs(export_dir, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        bundle_path = os.path.join(export_dir, f"diagnostics-{stamp}.zip")
+        preflight_payload = {
+            "cloud": list(getattr(parent, "_cloud_status_cache", ()) or []),
+            "geocode": list(getattr(parent, "_geo_status_cache", ()) or []),
+        }
+        console_text = parent.console.toPlainText() if parent and hasattr(parent, "console") else ""
+
+        with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("summary.txt", self._build_diagnostics_summary())
+            zf.writestr("env.redacted", self._redacted_env_text())
+            zf.writestr("preflight.json", json.dumps(preflight_payload, indent=2))
+            zf.writestr("console.log", console_text)
+
+        QMessageBox.information(
+            self,
+            "Diagnostics Exported",
+            f"Created diagnostics bundle:\n{bundle_path}",
+        )
+
+    def create_operator_tab(self):
+        f = self._create_tab("Operator")
+        self._add_section_note(
+            f,
+            "Daily operator settings",
+            "These are the settings most staff users and dean's office operators should touch during normal use.",
+        )
+        self._add_field(f, "LINKEDIN_EMAIL", "LinkedIn Email", str, "", "Email address used for LinkedIn login. Required for headless or expired sessions.", True)
+        self._add_field(f, "LINKEDIN_PASSWORD", "LinkedIn Password", str, "", "Password for LinkedIn. Only needed if cookies expire.", True, True)
+        self._add_field(
+            f,
+            "HEADLESS",
+            "Headless Mode",
+            bool,
+            False,
+            "Runs Chrome in the background so you can keep working, but it is often more detectable and harder to troubleshoot login/challenge flows. Non-headless may occasionally bring browser focus while scraping.",
+            False,
+        )
+        self._add_field(f, "USE_COOKIES", "Use Cookies", bool, True, "Attempt to inject previous session cookies to bypass manual login.", False)
+        self._add_field(
+            f,
+            "USE_GROQ",
+            "Use Groq",
+            bool,
+            True,
+            "Use Groq for extraction. Recommended ON because HTML-only extraction is less reliable for some profile formats.",
+            False,
+        )
+        note = QLabel(
+            "Groq is recommended for scraping reliability. API keys stay hidden in the Admin & Dev tab."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #2f3b4b;")
+        f.addRow(QLabel("Notes"), note)
+
+    def create_admin_tab(self):
+        f = self._create_tab("Admin & Dev")
+        self._add_section_note(
+            f,
+            "Admin and troubleshooting settings",
+            "These controls are intended for maintainers, support, and debugging workflows.",
+        )
+        self._add_field(
+            f,
+            "SCRAPER_DEBUG",
+            "Debug",
+            bool,
+            False,
+            "Enable verbose scraper logs (including defense navigator details).",
+            False,
+        )
+        self._add_field(
+            f,
+            "SCRAPER_DEBUG_HTML",
+            "Debug HTML Dumps",
+            bool,
+            False,
+            "Save scraped HTML dumps on extraction failures for inspection.",
+            False,
+        )
+        self._add_field(
+            f,
+            "SCRAPE_RESUME_MAX_AGE_DAYS",
+            "Resume Max Age",
+            int,
+            7,
+            "In search mode, this keeps track of recent page/progress state so restarts avoid repeating pages you already scraped.",
+            False,
+        )
+        self._add_field(
+            f,
+            "GROQ_API_KEY",
+            "Groq API Key",
+            str,
+            "",
+            "Optional but strongly recommended for stable extraction quality.",
+            False,
+            True,
+        )
+        self._add_field(
+            f,
+            "GEOCODE_USE_GROQ_FALLBACK",
+            "Groq Geocode Fallback",
+            bool,
+            True,
+            "When geocoding returns unknown, ask Groq once to normalize location text before retrying geocode.",
+            False,
+        )
+        self._add_section_note(
+            f,
+            "Database connection",
+            "These values are usually managed by engineering or shared deployment admins.",
+        )
+        self._add_field(f, "MYSQLHOST", "MySQL Host", str, "localhost", "Database server address (e.g., your.domain.com or localhost).", True)
+        self._add_field(f, "MYSQLUSER", "MySQL User", str, "root", "Database username.", True)
+        self._add_field(f, "MYSQLPASSWORD", "MySQL Password", str, "", "Database password.", True, True)
+        self._add_field(f, "MYSQL_DATABASE", "Database Name", str, "linkedinhelper", "Primary catalog/schema name.", True)
+        self._add_field(f, "MYSQLPORT", "MySQL Port", int, 3306, "Database connection port (defaults to 3306).", True)
 
     def create_credentials_tab(self):
         f = self._create_tab("Credentials")
@@ -2290,6 +2531,42 @@ class ScraperApp(QMainWindow):
         label_widget.setStyleSheet(f"color: {color}; font-weight: 600;")
         label_widget.setToolTip(tooltip)
 
+    def _update_preflight_details_panel(self):
+        lines = ["Preflight Details"]
+        cloud_status = self._cloud_status_cache
+        geo_status = self._geo_status_cache
+
+        if cloud_status:
+            lines.extend([
+                "",
+                "Cloud DB",
+                f"State: {cloud_status[0]}",
+                f"Status: {cloud_status[1]}",
+                f"Details: {cloud_status[2]}",
+            ])
+        else:
+            lines.extend(["", "Cloud DB", "State: pending", "Details: not yet checked"])
+
+        if geo_status:
+            lines.extend([
+                "",
+                "Geocoding",
+                f"State: {geo_status[0]}",
+                f"Status: {geo_status[1]}",
+                f"Details: {geo_status[2]}",
+            ])
+        else:
+            lines.extend(["", "Geocoding", "State: pending", "Details: not yet checked"])
+
+        if hasattr(self, "preflight_details_box"):
+            self.preflight_details_box.setPlainText("\n".join(lines))
+
+    def _toggle_preflight_details(self, checked):
+        if not hasattr(self, "preflight_details_box") or not hasattr(self, "preflight_details_btn"):
+            return
+        self.preflight_details_box.setVisible(checked)
+        self.preflight_details_btn.setText("Hide Details" if checked else "Show Details")
+
     def _probe_cloud_status(self):
         return _probe_cloud_status_sync()
 
@@ -2335,6 +2612,7 @@ class ScraperApp(QMainWindow):
 
         if hasattr(self, "refresh_status_btn"):
             self.refresh_status_btn.setEnabled(False)
+        self._update_preflight_details_panel()
 
         self.preflight_worker = PreflightStatusWorker(
             force_cloud=refresh_cloud,
@@ -2352,6 +2630,7 @@ class ScraperApp(QMainWindow):
         self._geo_status_cache = geo_status
         self._set_status_badge(self.cloud_status_label, *cloud_status)
         self._set_status_badge(self.geo_status_label, *geo_status)
+        self._update_preflight_details_panel()
         if hasattr(self, "refresh_status_btn"):
             self.refresh_status_btn.setEnabled(True)
         worker = self.preflight_worker
@@ -2410,9 +2689,21 @@ class ScraperApp(QMainWindow):
         self.geo_status_label = QLabel("● Checking geocoding...")
         status_layout.addWidget(self.cloud_status_label)
         status_layout.addWidget(self.geo_status_label)
+        status_actions = QHBoxLayout()
         self.refresh_status_btn = QPushButton("Refresh Status")
         self.refresh_status_btn.clicked.connect(lambda: self.refresh_preflight_status(force_cloud_probe=True, force_geo_probe=True))
-        status_layout.addWidget(self.refresh_status_btn)
+        status_actions.addWidget(self.refresh_status_btn)
+        self.preflight_details_btn = QPushButton("Show Details")
+        self.preflight_details_btn.setCheckable(True)
+        self.preflight_details_btn.toggled.connect(self._toggle_preflight_details)
+        status_actions.addWidget(self.preflight_details_btn)
+        status_layout.addLayout(status_actions)
+        self.preflight_details_box = QTextEdit()
+        self.preflight_details_box.setReadOnly(True)
+        self.preflight_details_box.setVisible(False)
+        self.preflight_details_box.setMinimumHeight(120)
+        self.preflight_details_box.setStyleSheet("background-color: #f8fbff; color: #2a3441;")
+        status_layout.addWidget(self.preflight_details_box)
         status_group.setLayout(status_layout)
         left_layout.addWidget(status_group)
         
@@ -2517,23 +2808,30 @@ class ScraperApp(QMainWindow):
         limit_layout = QGridLayout()
         
         limit_layout.addWidget(QLabel("Stop after (Profiles):"), 0, 0)
-        self.max_profiles = QLineEdit("0")
-        self.max_profiles.setToolTip("0 for infinite")
+        self.max_profiles = QLineEdit(str(SAFE_DEFAULT_PROFILE_LIMIT))
+        self.max_profiles.setToolTip("0 for infinite (not recommended for regular LinkedIn accounts).")
         limit_layout.addWidget(self.max_profiles, 0, 1)
         
         limit_layout.addWidget(QLabel("Stop after Time:"), 1, 0)
         time_widget = QWidget()
         time_layout = QHBoxLayout(time_widget)
         time_layout.setContentsMargins(0,0,0,0)
-        self.hours_input = QLineEdit("2")
+        self.hours_input = QLineEdit(str(SAFE_DEFAULT_RUNTIME_HOURS))
         self.hours_input.setFixedWidth(40)
-        self.mins_input = QLineEdit("0")
+        self.mins_input = QLineEdit(str(SAFE_DEFAULT_RUNTIME_MINUTES))
         self.mins_input.setFixedWidth(40)
         time_layout.addWidget(self.hours_input)
         time_layout.addWidget(QLabel("hrs"))
         time_layout.addWidget(self.mins_input)
         time_layout.addWidget(QLabel("mins"))
         limit_layout.addWidget(time_widget, 1, 1)
+        self.limit_notice = QLabel(
+            "Recommended without Sales Navigator: stay at 50 profiles/day or fewer. "
+            "If LinkedIn warns or checkpoints the account, pause scraping for a few days and avoid profile-heavy activity."
+        )
+        self.limit_notice.setWordWrap(True)
+        self.limit_notice.setStyleSheet("color: #7a4b00; font-size: 11px;")
+        limit_layout.addWidget(self.limit_notice, 2, 0, 1, 2)
         
         limit_group.setLayout(limit_layout)
         left_layout.addWidget(limit_group)
@@ -3022,6 +3320,14 @@ class ScraperApp(QMainWindow):
                 "- Discipline filters are optional and only apply in search mode."
             )
 
+        details.append(
+            "\n\nSafety notes:\n"
+            f"- Without LinkedIn Sales Navigator, it is strongly recommended to stay at about {SAFE_DAILY_PROFILE_GUIDANCE} profiles/day or less. "
+            f"This GUI defaults to {SAFE_DEFAULT_PROFILE_LIMIT} profiles and a {SAFE_DEFAULT_RUNTIME_HOURS} hour runtime.\n"
+            "- If LinkedIn shows a warning, checkpoint, unusual activity notice, or rate limit, stop scraping for a few days.\n"
+            "- During cooldown, light normal LinkedIn use is okay: browse the feed, like posts, and behave normally, but avoid visiting lots of profiles."
+        )
+
         QMessageBox.information(self, f"Mode Info: {mode}", "".join(details))
 
     def open_flag_manager(self):
@@ -3093,6 +3399,10 @@ class ScraperApp(QMainWindow):
             QMessageBox.critical(self, "Error", "Auto-stop limits (profiles/time) must be valid non-negative integers.")
             return False
 
+        if p_limit == 0 or p_limit > SAFE_DEFAULT_PROFILE_LIMIT:
+            if not self._confirm_profile_safety(p_limit):
+                return False
+
         return True
 
     def toggle_password(self, checked):
@@ -3163,6 +3473,92 @@ class ScraperApp(QMainWindow):
         )
         return choice == QMessageBox.StandardButton.Yes
 
+    def _confirm_profile_safety(self, profile_limit):
+        profile_text = (
+            "No profile cap is currently set."
+            if profile_limit == 0
+            else f"Profile cap is currently set to {profile_limit}."
+        )
+        choice = QMessageBox.question(
+            self,
+            "Profile Safety Warning",
+            (
+                f"Without LinkedIn Sales Navigator, multiple sources recommend staying at about {SAFE_DAILY_PROFILE_GUIDANCE} profiles/day or less.\n\n"
+                f"This GUI defaults to {SAFE_DEFAULT_PROFILE_LIMIT} profiles and a {SAFE_DEFAULT_RUNTIME_HOURS} hour runtime for safety.\n\n"
+                f"{profile_text}\n\n"
+                "If LinkedIn has already shown a warning, checkpoint, unusual activity notice, or rate limit, "
+                "stop scraping for a few days before trying again. During that cooldown you can still use LinkedIn "
+                "normally: browse around, like posts, and do light activity, but avoid visiting lots of profiles.\n\n"
+                "Continue with this run anyway?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return choice == QMessageBox.StandardButton.Yes
+
+    def _confirm_run_plan(self):
+        min_delay_seconds, max_delay_seconds = self._get_effective_delay_range()
+        avg_seconds = ((min_delay_seconds + max_delay_seconds) / 2.0) + 25.0
+        profile_limit = max(0, int(self.max_profiles.text() or 0))
+        runtime_minutes = max(0, int(self.hours_input.text() or 0) * 60 + int(self.mins_input.text() or 0))
+        selected_disciplines = self._get_selected_discipline_aliases() if self.mode_combo.currentText() == "search" else []
+
+        warnings = []
+        if profile_limit == 0:
+            warnings.append(("red", "No profile cap is set; regular accounts should still stay near 50 profiles per day."))
+        elif profile_limit > SAFE_DEFAULT_PROFILE_LIMIT:
+            warnings.append(("yellow", f"Profile cap {profile_limit} is above the recommended default of {SAFE_DEFAULT_PROFILE_LIMIT}."))
+        if runtime_minutes > (SAFE_DEFAULT_RUNTIME_HOURS * 60):
+            warnings.append(("yellow", f"Runtime cap {runtime_minutes} minutes is above the default {SAFE_DEFAULT_RUNTIME_HOURS * 60} minute window."))
+        if self._cloud_status_cache and self._cloud_status_cache[0] != "green":
+            warnings.append(("yellow", f"Cloud DB status: {self._cloud_status_cache[1]}."))
+        if self._geo_status_cache and self._geo_status_cache[0] != "green":
+            warnings.append(("yellow", f"Geocoding status: {self._geo_status_cache[1]}."))
+
+        estimated_profiles = "time-limited"
+        estimated_duration = "open-ended"
+        if profile_limit > 0:
+            estimated_profiles = str(profile_limit)
+            estimated_duration = _format_runtime_short(int(profile_limit * avg_seconds))
+        if runtime_minutes > 0:
+            runtime_text = _format_runtime_short(runtime_minutes * 60)
+            if profile_limit > 0:
+                time_limited_profiles = max(1, int((runtime_minutes * 60) / avg_seconds))
+                estimated_profiles = str(min(profile_limit, time_limited_profiles))
+                estimated_duration = runtime_text if (time_limited_profiles < profile_limit) else estimated_duration
+            else:
+                estimated_profiles = str(max(1, int((runtime_minutes * 60) / avg_seconds)))
+                estimated_duration = runtime_text
+
+        summary_lines = [
+            f"Mode: {self.mode_combo.currentText()}",
+            f"Delay range: {min_delay_seconds}s - {max_delay_seconds}s",
+            f"Estimated target count: {estimated_profiles}",
+            f"Estimated runtime: {estimated_duration}",
+            f"Profile cap: {profile_limit if profile_limit > 0 else 'none'}",
+            f"Runtime cap: {_format_runtime_short(runtime_minutes * 60) if runtime_minutes > 0 else 'none'}",
+        ]
+        if selected_disciplines:
+            summary_lines.append(f"Disciplines: {', '.join(selected_disciplines)}")
+
+        warning_lines = []
+        for level, text in warnings:
+            label = "[High]" if level == "red" else "[Warning]"
+            warning_lines.append(f"{label} {text}")
+
+        message = "\n".join(summary_lines)
+        if warning_lines:
+            message += "\n\nWarnings:\n" + "\n".join(warning_lines)
+
+        choice = QMessageBox.question(
+            self,
+            "Confirm Run",
+            message + "\n\nStart this run?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No if warning_lines else QMessageBox.StandardButton.Yes,
+        )
+        return choice == QMessageBox.StandardButton.Yes
+
     def start_scraper(self):
         if not self.validate_inputs():
             return
@@ -3173,6 +3569,8 @@ class ScraperApp(QMainWindow):
         self.save_all_settings_to_env()
 
         if not self._warn_if_groq_not_ready():
+            return
+        if not self._confirm_run_plan():
             return
         
         self.console.clear()
@@ -3418,14 +3816,18 @@ class ScraperApp(QMainWindow):
             message = (
                 "LinkedIn requires manual intervention before scraping can continue.\n\n"
                 f"Reason: {reason}\n\n"
-                "You can restart now with headless disabled to complete verification in a visible browser window."
+                "If LinkedIn showed an account warning, checkpoint, unusual activity notice, or rate limit, "
+                "do not resume scraping right away. Let the account cool off for a few days. "
+                "Light normal LinkedIn use is okay during that period, but avoid visiting lots of profiles.\n\n"
+                "If this was only a login or challenge flow and you want to clear it now, you can restart with "
+                "headless disabled to complete verification in a visible browser window."
             )
             choice = QMessageBox.question(
                 self,
                 "Manual Intervention Needed",
                 message,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
+                QMessageBox.StandardButton.No,
             )
             if choice == QMessageBox.StandardButton.Yes:
                 update_env("HEADLESS", "false")

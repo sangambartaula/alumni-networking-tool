@@ -1,4 +1,5 @@
 import os
+import zipfile
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -19,6 +20,16 @@ def _silence_message_boxes(monkeypatch):
     monkeypatch.setattr(scraper_gui.QMessageBox, "information", lambda *args, **kwargs: None)
     monkeypatch.setattr(scraper_gui.QMessageBox, "warning", lambda *args, **kwargs: None)
     monkeypatch.setattr(scraper_gui.QMessageBox, "critical", lambda *args, **kwargs: None)
+
+
+def _build_app(monkeypatch, tmp_path, stub_preflight=True):
+    monkeypatch.setattr(scraper_gui, "get_base_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(scraper_gui.ScraperApp, "refresh_run_history", lambda self: None)
+    monkeypatch.setattr(scraper_gui.ScraperApp, "refresh_scrape_count", lambda self: None)
+    monkeypatch.setattr(scraper_gui.ScraperApp, "_start_gui_autoreload_watcher", lambda self: None)
+    if stub_preflight:
+        monkeypatch.setattr(scraper_gui.ScraperApp, "refresh_preflight_status", lambda self, *args, **kwargs: None)
+    return scraper_gui.ScraperApp()
 
 
 def test_update_env_many_round_trips_special_values(tmp_path, monkeypatch):
@@ -55,12 +66,7 @@ def test_save_all_settings_clears_password_and_persists_total_runtime(qapp, tmp_
     _silence_message_boxes(monkeypatch)
     env_path = Path(tmp_path) / ".env"
     env_path.write_text("LINKEDIN_PASSWORD=oldpass\n", encoding="utf-8")
-    monkeypatch.setattr(scraper_gui, "get_base_dir", lambda: str(tmp_path))
-    monkeypatch.setattr(scraper_gui.ScraperApp, "refresh_run_history", lambda self: None)
-    monkeypatch.setattr(scraper_gui.ScraperApp, "refresh_scrape_count", lambda self: None)
-    monkeypatch.setattr(scraper_gui.ScraperApp, "_start_gui_autoreload_watcher", lambda self: None)
-
-    app = scraper_gui.ScraperApp()
+    app = _build_app(monkeypatch, tmp_path, stub_preflight=False)
     app.email_input.setText("tester@example.com")
     app.password_input.clear()
     app.hours_input.setText("2")
@@ -77,10 +83,6 @@ def test_save_all_settings_clears_password_and_persists_total_runtime(qapp, tmp_
 
 def test_refresh_preflight_status_uses_background_worker(qapp, tmp_path, monkeypatch):
     _silence_message_boxes(monkeypatch)
-    monkeypatch.setattr(scraper_gui, "get_base_dir", lambda: str(tmp_path))
-    monkeypatch.setattr(scraper_gui.ScraperApp, "refresh_run_history", lambda self: None)
-    monkeypatch.setattr(scraper_gui.ScraperApp, "refresh_scrape_count", lambda self: None)
-    monkeypatch.setattr(scraper_gui.ScraperApp, "_start_gui_autoreload_watcher", lambda self: None)
 
     worker_calls = []
 
@@ -119,7 +121,7 @@ def test_refresh_preflight_status_uses_background_worker(qapp, tmp_path, monkeyp
 
     monkeypatch.setattr(scraper_gui, "PreflightStatusWorker", _FakeWorker)
 
-    app = scraper_gui.ScraperApp()
+    app = _build_app(monkeypatch, tmp_path, stub_preflight=False)
     app._cloud_status_cache = None
     app._geo_status_cache = None
 
@@ -129,4 +131,64 @@ def test_refresh_preflight_status_uses_background_worker(qapp, tmp_path, monkeyp
     assert worker_calls[-1]["force_geo"] is True
     assert "Cloud DB connected" in app.cloud_status_label.text()
     assert "Geocoding reachable" in app.geo_status_label.text()
+    assert "Cloud DB" in app.preflight_details_box.toPlainText()
     assert app.refresh_status_btn.isEnabled() is True
+
+
+def test_settings_tabs_split_operator_and_admin(qapp, tmp_path, monkeypatch):
+    _silence_message_boxes(monkeypatch)
+    monkeypatch.setattr(scraper_gui, "get_base_dir", lambda: str(tmp_path))
+
+    dialog = scraper_gui.SettingsDialog()
+
+    assert dialog.tabs.tabText(0) == "Operator"
+    assert dialog.tabs.tabText(1) == "Admin & Dev"
+
+
+def test_validate_inputs_warns_when_profile_limit_exceeds_safe_default(qapp, tmp_path, monkeypatch):
+    _silence_message_boxes(monkeypatch)
+    app = _build_app(monkeypatch, tmp_path)
+    app.email_input.setText("tester@example.com")
+    app.max_profiles.setText("55")
+
+    monkeypatch.setattr(
+        scraper_gui.QMessageBox,
+        "question",
+        lambda *args, **kwargs: scraper_gui.QMessageBox.StandardButton.No,
+    )
+
+    assert app.validate_inputs() is False
+
+
+def test_export_diagnostics_bundle_redacts_secrets(qapp, tmp_path, monkeypatch):
+    _silence_message_boxes(monkeypatch)
+    env_path = Path(tmp_path) / ".env"
+    env_path.write_text(
+        "\n".join([
+            "LINKEDIN_EMAIL=tester@example.com",
+            "LINKEDIN_PASSWORD=secretpass",
+            "GROQ_API_KEY=abc123",
+            "MYSQLHOST=db.example.edu",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    app = _build_app(monkeypatch, tmp_path)
+    app.console.setPlainText("console test line")
+    app._cloud_status_cache = ("yellow", "Cloud DB setup needed", "Missing module")
+    app._geo_status_cache = ("green", "Geocoding reachable", "ok")
+
+    dialog = scraper_gui.SettingsDialog(app)
+    dialog.export_diagnostics_bundle()
+
+    bundles = sorted((Path(tmp_path) / "diagnostics_exports").glob("diagnostics-*.zip"))
+    assert bundles
+    with zipfile.ZipFile(bundles[-1]) as zf:
+        env_redacted = zf.read("env.redacted").decode("utf-8")
+        summary = zf.read("summary.txt").decode("utf-8")
+        console_log = zf.read("console.log").decode("utf-8")
+
+    assert "LINKEDIN_PASSWORD=***REDACTED***" in env_redacted
+    assert "GROQ_API_KEY=***REDACTED***" in env_redacted
+    assert "Cloud Status: Cloud DB setup needed" in summary
+    assert "console test line" in console_log
