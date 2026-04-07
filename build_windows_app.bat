@@ -1,61 +1,99 @@
 @echo off
-echo Building standalone Windows Application for UNT Alumni Scraper...
+echo ============================================================
+echo  Building standalone Windows App for UNT Alumni Scraper
+echo ============================================================
 
-:: Detect Python command
+:: --- Detect base Python ---
 where python3 >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     set PYTHON_CMD=python3
-) else (
-    where python >nul 2>nul
-    if %ERRORLEVEL% equ 0 (
-        set PYTHON_CMD=python
-    ) else (
-        echo Error: Python not found. Please install Python 3.
-        pause
+    goto :python_found
+)
+where python >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    set PYTHON_CMD=python
+    goto :python_found
+)
+echo ERROR: Python not found. Please install Python 3 and add it to PATH.
+exit /b 1
+
+:python_found
+
+:: --- Ensure virtual environment exists ---
+if not exist "venv\Scripts\python.exe" (
+    echo Creating virtual environment...
+    %PYTHON_CMD% -m venv venv
+    if %ERRORLEVEL% neq 0 (
+        echo ERROR: Failed to create virtual environment.
         exit /b 1
     )
 )
 
-:: Ensure we have a virtual environment loaded
-if not exist venv (
-    echo Creating virtual environment...
-    %PYTHON_CMD% -m venv venv
-)
-call venv\Scripts\activate.bat
+echo Using Python from venv:
+venv\Scripts\python.exe --version
 
-:: Clear old build caches
+:: --- Clear old build caches ---
+echo.
 echo Clearing old build cache...
 if exist "build" rmdir /s /q "build"
-if exist "dist\Alumni Scraper App.exe" del /f /q "dist\Alumni Scraper App.exe"
-del /f /q *.spec
+if exist "dist\Alumni Scraper App" rmdir /s /q "dist\Alumni Scraper App"
+if exist "Alumni Scraper App.spec" del /f /q "Alumni Scraper App.spec"
 
-:: Install requirements with optimization
-echo Installing build dependencies (using --prefer-binary for speed)...
-pip install --prefer-binary PyQt6 pyinstaller python-dotenv pillow
-pip install --prefer-binary -r requirements.txt
-if errorlevel 1 (
-    echo Dependency installation failed. Aborting build.
-    pause
+:: --- Install build dependencies ---
+echo.
+echo Installing build dependencies...
+venv\Scripts\pip.exe install --prefer-binary --quiet --disable-pip-version-check PyQt6 pyinstaller python-dotenv pillow
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: Failed to install core build dependencies.
     exit /b 1
 )
 
-:: Build using PyInstaller
-echo Squarifying icon to prevent stretching...
-%PYTHON_CMD% scripts\pad_icon.py
-if errorlevel 1 (
-    echo Icon preparation failed. Aborting build.
-    pause
+venv\Scripts\pip.exe install --prefer-binary --quiet --disable-pip-version-check -r requirements.txt
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: Failed to install requirements.txt dependencies.
+    exit /b 1
+)
+echo Dependencies installed.
+
+:: --- Prepare icon ---
+echo.
+echo Preparing icon...
+if not exist "scripts\pad_icon.py" goto :skip_icon
+venv\Scripts\python.exe scripts\pad_icon.py
+if %ERRORLEVEL% neq 0 (
+    echo WARNING: Icon script failed. Building without custom icon.
+    goto :build_no_icon
+)
+goto :build_with_icon
+
+:skip_icon
+echo WARNING: scripts\pad_icon.py not found. Skipping icon step.
+goto :build_no_icon
+
+:build_with_icon
+echo.
+echo Bundling application with PyInstaller (with icon)...
+venv\Scripts\python.exe -m PyInstaller --clean --name "Alumni Scraper App" --windowed --icon="frontend\public\assets\unt-logo-square.png" --noconfirm scraper_gui.py
+goto :check_build
+
+:build_no_icon
+echo.
+echo Bundling application with PyInstaller (no icon)...
+venv\Scripts\python.exe -m PyInstaller --clean --name "Alumni Scraper App" --windowed --noconfirm scraper_gui.py
+
+:check_build
+:: PyInstaller may return exit code 1 for warnings even on success.
+:: Check if the exe was actually created instead.
+if not exist "dist\Alumni Scraper App\Alumni Scraper App.exe" (
+    echo ERROR: PyInstaller build failed - exe not found in dist folder.
     exit /b 1
 )
 
-echo Bundling App...
-pyinstaller --clean --name "Alumni Scraper App" --windowed --icon="frontend/public/assets/unt-logo-square.png" --noconfirm scraper_gui.py
-if errorlevel 1 (
-    echo PyInstaller build failed. Ensure Pillow is installed and icon path is valid.
-    pause
-    exit /b 1
-)
-
-echo Build complete! The application has been created inside the 'dist' folder.
-echo You can move 'UNT Alumni Scraper.exe' anywhere, but for it to function correctly, place it in the same parent folder as your 'venv' and 'scraper' directories.
-pause
+:build_done
+echo.
+echo ============================================================
+echo  BUILD COMPLETE!
+echo  Find your app at:
+echo    dist\Alumni Scraper App\Alumni Scraper App.exe
+echo ============================================================
+exit /b 0
