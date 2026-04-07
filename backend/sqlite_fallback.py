@@ -1018,6 +1018,30 @@ class ConnectionManager:
                 json.dumps(new_data) if new_data else None,
                 utc_now()
             ))
+
+    def get_pending_count(self) -> int:
+        """Return the number of pending local changes waiting to be synced to cloud."""
+        try:
+            conn = self.get_sqlite_connection()
+            try:
+                row = conn.execute("SELECT COUNT(*) FROM _pending_sync").fetchone()
+                return row[0] if row else 0
+            finally:
+                conn.close()
+        except Exception:
+            return 0
+
+    def get_local_alumni_count(self) -> int:
+        """Return the number of alumni records in local SQLite."""
+        try:
+            conn = self.get_sqlite_connection()
+            try:
+                row = conn.execute("SELECT COUNT(*) FROM alumni").fetchone()
+                return row[0] if row else 0
+            finally:
+                conn.close()
+        except Exception:
+            return 0
     
     def force_sync(self) -> dict:
         """Manually trigger a sync. Returns status dict."""
@@ -1025,11 +1049,23 @@ class ConnectionManager:
             return {"success": False, "error": "Cloud is not reachable"}
         
         try:
+            pending_before = self.get_pending_count()
             self._push_pending_changes()
             self._pull_cloud_to_local(incremental=True)
+            pending_after = self.get_pending_count()
             self._last_cloud_sync = utc_now()
             self._save_sync_state()
-            return {"success": True, "last_sync": self._last_cloud_sync}
+
+            # If we were offline, go online now
+            if self._is_offline:
+                self._go_online()
+
+            return {
+                "success": True,
+                "last_sync": self._last_cloud_sync,
+                "synced_count": max(0, pending_before - pending_after),
+                "remaining": pending_after,
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
