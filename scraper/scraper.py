@@ -90,6 +90,7 @@ _EMP_LINE_TAIL = re.compile(
 
 
 _NAME_SUFFIX_TOKENS = {"ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
+_UNT_SCHOOL_ID = "6464"
 
 
 def _normalize_person_name(raw_name: str) -> str:
@@ -637,9 +638,9 @@ class LinkedInScraper:
             detailed_entries, detail_tokens = self._extract_education_entries_from_detailed_view(profile_url, soup)
             _total_tokens += detail_tokens
             if detailed_entries:
-                edu_entries = detailed_entries
+                edu_entries = self._merge_education_entries(edu_entries, detailed_entries)
 
-            if (not edu_entries) and is_groq_available():
+            if is_groq_available():
                 edu_root = self._find_section_root(soup, "Education")
                 if edu_root:
                     edu_html = str(edu_root)
@@ -663,35 +664,21 @@ class LinkedInScraper:
                     _total_tokens += edu_tokens
                     if groq_results:
                         logger.debug(f"Using Groq education results ({len(groq_results)} entries)")
-                        for ge in groq_results:
-                            start_raw = ge.get("start_date", "") or ge.get("start_year", "")
-                            end_raw = ge.get("end_date", "") or ge.get("end_year", "")
-                            start_info, end_info = self._parse_education_dates(start_raw, end_raw)
-                            grad_year = ""
-                            if end_info and end_info.get("year") and end_info["year"] != 9999:
-                                grad_year = str(end_info["year"])
-                            edu_entries.append({
-                                "school": ge.get("school", ""),
-                                "degree": ge.get("degree_raw", ge.get("raw_degree", "")),
-                                "major": ge.get("major_raw", ""),
-                                "raw_degree": ge.get("degree_raw", ge.get("raw_degree", "")),
-                                "graduation_year": grad_year,
-                                "school_start": start_info,
-                                "school_end": end_info,
-                            })
+                        edu_entries = self._merge_education_entries(
+                            self._build_education_entries_from_groq(groq_results),
+                            edu_entries,
+                        )
 
-                        # Groq can miss dates on some entries; fill from CSS extraction when possible.
-                        css_entries = self._extract_education_entries(soup)
-                        if css_entries:
-                            edu_entries = self._merge_education_entries(edu_entries, css_entries)
-
-            # CSS fallback if Groq didn't produce results
-            if not edu_entries:
-                edu_entries = self._extract_education_entries(soup)
+            css_entries = self._extract_education_entries(soup)
+            if css_entries:
+                edu_entries = self._merge_education_entries(edu_entries, css_entries)
             
-            # Fallback: Check top card shortcuts for education if no Education section found
-            if not edu_entries:
-                edu_entries = self._extract_education_from_top_card(soup)
+            if not self._has_unt_education(edu_entries):
+                top_card_entries = self._extract_education_from_top_card(soup)
+                if top_card_entries:
+                    edu_entries = self._merge_education_entries(edu_entries, top_card_entries)
+
+            edu_entries = self._sort_education_entries(edu_entries)
 
             # Filter out entries where Groq mistakenly used activities text as a school name
             # (activities text contains "UNT" which falsely passes _is_unt_school_name)
@@ -1042,11 +1029,19 @@ class LinkedInScraper:
     # ============================================================
     _UNT_FULL_NAME_RE = re.compile(r'university\s+of\s+north\s+texas', re.IGNORECASE)
     _UNT_TOKEN_RE = re.compile(r'\bunt\b', re.IGNORECASE)
+    _SCHOOL_ID_RE = re.compile(r"/school/(\d+)", re.IGNORECASE)
 
     def _is_unt_school_name(self, name: str) -> bool:
         if not name:
             return False
         return bool(self._UNT_FULL_NAME_RE.search(name) or self._UNT_TOKEN_RE.search(name))
+
+    def _school_id_from_href(self, href: str) -> str:
+        match = self._SCHOOL_ID_RE.search(href or "")
+        return match.group(1) if match else ""
+
+    def _is_unt_school_href(self, href: str) -> bool:
+        return self._school_id_from_href(href) == _UNT_SCHOOL_ID
 
     def _is_unt_employer(self, raw_company: str) -> bool:
         if not raw_company or not raw_company.strip():
@@ -1685,13 +1680,23 @@ class LinkedInScraper:
             for i, f in enumerate(fallback_entries):
                 if i in used_fallback:
                     continue
-                if not self._schools_match(p_school, f.get("school", "")):
+                fallback_school = f.get("school", "")
+                if not (
+                    self._schools_match(p_school, fallback_school)
+                    or (self._is_unt_school_name(p_school) and self._is_unt_school_name(fallback_school))
+                ):
                     continue
 
+                if (not p.get("school")) or (
+                    self._is_unt_school_name(fallback_school) and not self._is_unt_school_name(p_school)
+                ):
+                    p["school"] = fallback_school
                 if not p.get("degree") and f.get("degree"):
                     p["degree"] = f.get("degree", "")
                 if not p.get("major") and f.get("major"):
                     p["major"] = f.get("major", "")
+                if not p.get("raw_degree") and f.get("raw_degree"):
+                    p["raw_degree"] = f.get("raw_degree", "")
                 if not p.get("school_start") and f.get("school_start"):
                     p["school_start"] = f.get("school_start")
                 if not p.get("school_end") and f.get("school_end"):
@@ -1711,6 +1716,52 @@ class LinkedInScraper:
             merged.append(dict(f))
 
         return merged
+
+    def _sort_education_entries(self, entries):
+        def _entry_sort_key(entry):
+            school = entry.get("school", "")
+            end_info = entry.get("school_end") or {}
+            year = 0
+            month = 0
+            if isinstance(end_info, dict):
+                year = int(end_info.get("year") or 0)
+                month = int(end_info.get("month") or 0)
+                if end_info.get("is_present"):
+                    year, month = 9999, 12
+            if not year:
+                grad_year = str(entry.get("graduation_year", "") or "").strip()
+                if grad_year.isdigit():
+                    year = int(grad_year)
+            has_degree = 1 if (entry.get("degree") or entry.get("raw_degree")) else 0
+            return (
+                0 if self._is_unt_school_name(school) else 1,
+                -year,
+                -month,
+                -has_degree,
+                self._school_match_key(school),
+            )
+
+        return sorted(entries or [], key=_entry_sort_key)
+
+    def _build_education_entries_from_groq(self, groq_results):
+        entries = []
+        for ge in groq_results or []:
+            start_raw = ge.get("start_date", "") or ge.get("start_year", "")
+            end_raw = ge.get("end_date", "") or ge.get("end_year", "")
+            start_info, end_info = self._parse_education_dates(start_raw, end_raw)
+            grad_year = ""
+            if end_info and end_info.get("year") and end_info["year"] != 9999:
+                grad_year = str(end_info["year"])
+            entries.append({
+                "school": ge.get("school", ""),
+                "degree": ge.get("degree_raw", ge.get("raw_degree", "")),
+                "major": ge.get("major_raw", ""),
+                "raw_degree": ge.get("degree_raw", ge.get("raw_degree", "")),
+                "graduation_year": grad_year,
+                "school_start": start_info,
+                "school_end": end_info,
+            })
+        return entries
 
     @staticmethod
     def _parse_education_dates(start_raw: str, end_raw: str):
@@ -1748,17 +1799,44 @@ class LinkedInScraper:
 
     def _extract_education_entries(self, soup):
         edu_root = self._find_section_root(soup, "Education")
-        if not edu_root: return []
+        if not edu_root:
+            return []
 
         entries = []
-        for div in edu_root.find_all("div"):
+        candidate_containers = (
+            edu_root.select("li.artdeco-list__item")
+            or edu_root.select("li.pvs-list__paged-list-item")
+            or edu_root.select("div[data-view-name='profile-component-entity']")
+            or edu_root.find_all("div")
+        )
+
+        for div in candidate_containers:
             lines = self._p_texts_clean(div)
-            if len(lines) < 1: continue
+            if len(lines) < 1:
+                continue
 
             school = lines[0].strip()
+            school_links = [
+                (a.get("href") or "").strip()
+                for a in div.find_all("a", href=True)
+                if "/school/" in ((a.get("href") or "").lower())
+            ]
+            unt_link_present = any(self._is_unt_school_href(href) for href in school_links)
+            if unt_link_present:
+                school = "University of North Texas"
+            elif school_links and (not school or len(school) < 3):
+                for anchor in div.find_all("a", href=True):
+                    href = (anchor.get("href") or "").strip()
+                    if "/school/" not in href.lower():
+                        continue
+                    school_text = anchor.get_text(" ", strip=True)
+                    if school_text and len(school_text) > 2:
+                        school = school_text
+                        break
             
             # Validate school name
-            if not school or len(school) < 3: continue
+            if not school or len(school) < 3:
+                continue
             
             # Initialize
             degree = ""
@@ -1805,10 +1883,11 @@ class LinkedInScraper:
                         grad_year = years[-1]
 
             # Heuristic check for validity
-            school_hint = bool(re.search(r"(university|college|institute|school)", school, re.I))
+            school_hint = unt_link_present or bool(re.search(r"(university|college|institute|school)", school, re.I))
             degree_hint = bool(degree and re.search(r"(degree|bachelor|master|phd|mba|\bbs\b|\bba\b)", degree, re.I))
             
-            if not (school_hint or degree_hint): continue
+            if not (school_hint or degree_hint):
+                continue
 
             # Filter bad degree text (e.g. date ranges masquerading as degrees)
             if degree and utils.DATE_RANGE_RE.search(degree):
@@ -1831,7 +1910,7 @@ class LinkedInScraper:
             if key not in seen:
                 seen.add(key)
                 unique_entries.append(e)
-        return unique_entries
+        return self._sort_education_entries(unique_entries)
 
     def _pick_best_unt_education(self, entries):
         best = None
@@ -1910,8 +1989,7 @@ class LinkedInScraper:
         for a in soup.find_all('a'):
             href = a.get('href', '')
             if '/school/' in href:
-                # Get the school name from the link text
-                school_text = a.get_text(" ", strip=True)
+                school_text = "University of North Texas" if self._is_unt_school_href(href) else a.get_text(" ", strip=True)
                 if school_text and len(school_text) > 2:
                     # Clean up the text
                     school_text = school_text.replace('Following', '').strip()
@@ -1933,7 +2011,7 @@ class LinkedInScraper:
                 seen.add(school_key)
                 unique_entries.append(e)
         
-        return unique_entries
+        return self._sort_education_entries(unique_entries)
 
     def scrape_all_education(self, profile_url):
         """
@@ -1941,15 +2019,12 @@ class LinkedInScraper:
         This is only used when the main profile card cannot confidently identify UNT.
         """
         all_edus = []
+        unique_edus = []
         unt_details = None
         
         try:
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            link = None
-            for a in soup.find_all('a'):
-                if 'show all' in a.get_text(strip=True).lower() and 'education' in a.get('href', '').lower():
-                    link = a.get('href')
-                    break
+            link = self._find_show_all_education_link(soup)
             
             if not link:
                 logger.debug("No 'Show all education' link found.")
@@ -1960,46 +2035,33 @@ class LinkedInScraper:
             self.driver.get(link)
             time.sleep(3)
             
-            soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            main = soup.find('main') or soup
-            
-            for div in main.find_all("div"):
-                lines = self._p_texts_clean(div)
-                if len(lines) < 2: continue
-                
-                school = lines[0].strip()
-                degree = lines[1].strip()
-                
-                # Check keywords
-                if not any(k in school.lower() for k in ["university", "college", "school", "institute"]):
-                    if not any(k in degree.lower() for k in ["degree", "bachelor", "master"]):
-                        continue
+            detail_soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            entries = self._extract_education_entries(detail_soup)
+            if is_groq_available():
+                groq_results, _edu_tokens = extract_education_with_groq(
+                    str(detail_soup.find("main") or detail_soup),
+                    profile_name="unknown",
+                )
+                if groq_results:
+                    entries = self._merge_education_entries(
+                        self._build_education_entries_from_groq(groq_results),
+                        entries,
+                    )
 
-                all_edus.append(school)
-                logger.debug(f"Found: {school} | {degree}")
-                
-                # Capture UNT details if found
-                if unt_details is None and self._is_unt_school_name(school):
-                    unt_details = {
-                        "education": school,
-                        "major": degree,
-                        "graduation_year": "",
-                        "school_start_date": "",
-                        "school_start": None,
-                        "school_end": None
-                    }
-                    # Find dates
-                    for t in lines[2:]:
-                        s_d, e_d = utils.parse_date_range_line(t)
-                        if s_d and e_d:
-                            unt_details["school_start"] = s_d
-                            unt_details["school_end"] = e_d
-                            unt_details["school_start_date"] = utils.format_date_for_storage(s_d)
-                            if not e_d.get("is_present") and e_d.get("year"):
-                                unt_details["graduation_year"] = str(e_d.get("year"))
-                            break
-                        if re.findall(r"\d{4}", t) and not unt_details["graduation_year"]:
-                            unt_details["graduation_year"] = re.findall(r"\d{4}", t)[-1]
+            entries = self._sort_education_entries(entries)
+            all_edus = list(dict.fromkeys([e.get("school", "") for e in entries if e.get("school")]))
+
+            best_unt = self._pick_best_unt_education(entries)
+            if best_unt:
+                unt_details = {
+                    "education": best_unt.get("school", ""),
+                    "degree": best_unt.get("degree", "").strip(),
+                    "major": best_unt.get("major", "").strip() or best_unt.get("degree", "").strip(),
+                    "graduation_year": best_unt.get("graduation_year", ""),
+                    "school_start_date": utils.format_date_for_storage(best_unt.get("school_start")),
+                    "school_start": best_unt.get("school_start"),
+                    "school_end": best_unt.get("school_end"),
+                }
             
             unique_edus = list(dict.fromkeys(all_edus))
             logger.info(f"    ✓ Extracted {len(unique_edus)} education(s) from detailed view.")
@@ -2068,27 +2130,13 @@ class LinkedInScraper:
                     if strict_results:
                         groq_results = strict_results
 
-                for ge in (groq_results or [])[:3]:
-                    start_raw = ge.get("start_date", "") or ge.get("start_year", "")
-                    end_raw = ge.get("end_date", "") or ge.get("end_year", "")
-                    start_info, end_info = self._parse_education_dates(start_raw, end_raw)
-                    grad_year = ""
-                    if end_info and end_info.get("year") and end_info["year"] != 9999:
-                        grad_year = str(end_info["year"])
-                    entries.append({
-                        "school": ge.get("school", ""),
-                        "degree": ge.get("degree_raw", ge.get("raw_degree", "")),
-                        "major": ge.get("major_raw", ""),
-                        "raw_degree": ge.get("degree_raw", ge.get("raw_degree", "")),
-                        "graduation_year": grad_year,
-                        "school_start": start_info,
-                        "school_end": end_info,
-                    })
+                entries = self._build_education_entries_from_groq(groq_results)
 
-            if not entries:
-                entries = self._extract_education_entries(detail_soup)[:3]
+            css_entries = self._extract_education_entries(detail_soup)
+            entries = self._merge_education_entries(entries, css_entries)
+            entries = self._sort_education_entries(entries)
 
-            return entries[:3], token_count
+            return entries, token_count
         except Exception as e:
             logger.debug(f"Detailed education extraction failed: {e}")
             return [], token_count
@@ -2125,6 +2173,24 @@ class LinkedInScraper:
                 parent = span.find_parent("section")
                 if parent:
                     return parent
+
+        component_markers = (
+            f"{norm}toplevelsection",
+            f"profile_{norm}_top_anchor",
+            f"/details/{norm}",
+        )
+        for tag in soup.find_all(["section", "div"]):
+            haystack = " ".join(
+                str(tag.get(attr, "") or "")
+                for attr in ("componentkey", "id", "data-view-name", "aria-label")
+            ).lower()
+            if any(marker in haystack for marker in component_markers):
+                return tag
+
+        if norm == "education":
+            school_link = soup.find("a", href=lambda href: href and "/school/" in href.lower())
+            if school_link:
+                return school_link.find_parent("section") or school_link.find_parent("div")
         
         return None
 
