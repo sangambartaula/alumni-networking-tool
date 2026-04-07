@@ -3053,9 +3053,13 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setToolTip("Optional: re-geocode existing records in the database.")
         self.geocode_btn.clicked.connect(self.run_geocode)
 
-        self.upload_db_btn = QPushButton("Upload to Database")
+        self.upload_db_btn = QPushButton("☁️ Upload to Cloud")
         self.upload_db_btn.setMinimumHeight(40)
-        self.upload_db_btn.setStyleSheet("background-color: #005A9C; color: white; font-weight: bold;")
+        self.upload_db_btn.setStyleSheet("background-color: #0078D4; color: white; font-weight: bold;")
+        self.upload_db_btn.setToolTip(
+            "Sync offline data to cloud DB, then seed CSV data.\n"
+            "Use this after scraping on a network where the cloud DB was unreachable."
+        )
         self.upload_db_btn.clicked.connect(self.upload_to_db)
 
         self.install_deps_btn = QPushButton("Install Dependencies")
@@ -3069,25 +3073,13 @@ class ScraperApp(QMainWindow):
         sync_btn_layout.addWidget(self.install_deps_btn)
         left_layout.addLayout(sync_btn_layout)
 
-        # Sync to Cloud row
-        cloud_sync_layout = QHBoxLayout()
-        self.sync_to_cloud_btn = QPushButton("☁️ Sync to Cloud")
-        self.sync_to_cloud_btn.setMinimumHeight(36)
-        self.sync_to_cloud_btn.setStyleSheet(
-            "background-color: #0078D4; color: white; font-weight: bold; border-radius: 4px;"
-        )
-        self.sync_to_cloud_btn.setToolTip(
-            "Push locally saved offline data to the cloud database.\n"
-            "Use this after scraping on a network where the cloud DB was unreachable."
-        )
-        self.sync_to_cloud_btn.clicked.connect(self._run_sync_to_cloud)
-        cloud_sync_layout.addWidget(self.sync_to_cloud_btn)
-
+        # Pending offline changes indicator
+        pending_row = QHBoxLayout()
         self.pending_changes_label = QLabel("Pending offline changes: —")
         self.pending_changes_label.setStyleSheet("font-size: 11px; color: #888;")
-        cloud_sync_layout.addWidget(self.pending_changes_label)
-        cloud_sync_layout.addStretch()
-        left_layout.addLayout(cloud_sync_layout)
+        pending_row.addWidget(self.pending_changes_label)
+        pending_row.addStretch()
+        left_layout.addLayout(pending_row)
 
         left_layout.addStretch()
         
@@ -3792,7 +3784,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.install_deps_btn.setEnabled(False)
-        self.sync_to_cloud_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
         self.stop_after_profile_btn.setVisible(False)
@@ -3831,7 +3822,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.install_deps_btn.setEnabled(False)
-        self.sync_to_cloud_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
 
         self.geocode_worker = GeocodeWorker()
@@ -3866,13 +3856,10 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.install_deps_btn.setEnabled(False)
-        self.sync_to_cloud_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
-        
-        self.db_worker = DatabaseWorker()
-        self.db_worker.output_signal.connect(self.append_console)
-        self.db_worker.finished_signal.connect(self.on_db_finished)
-        self.db_worker.start()
+
+        # Step 1: Sync any pending offline changes to cloud first
+        self._run_sync_to_cloud_then_seed()
 
     def install_dependencies(self):
         if self.install_worker and self.install_worker.isRunning():
@@ -3883,7 +3870,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.install_deps_btn.setEnabled(False)
-        self.sync_to_cloud_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
 
         self.install_worker = InstallDepsWorker()
@@ -3901,7 +3887,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(False)
         self.upload_db_btn.setEnabled(False)
         self.install_deps_btn.setEnabled(False)
-        self.sync_to_cloud_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
 
         self.update_worker = UpdateNowWorker()
@@ -3997,7 +3982,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.install_deps_btn.setEnabled(True)
-        self.sync_to_cloud_btn.setEnabled(True)
         self._reset_stop_controls()
         self._refresh_pending_count()
 
@@ -4027,10 +4011,9 @@ class ScraperApp(QMainWindow):
             self.pending_changes_label.setText("Pending offline changes: —")
             self.pending_changes_label.setStyleSheet("font-size: 11px; color: #888;")
 
-    def _run_sync_to_cloud(self):
-        """Push pending offline changes to the cloud database."""
-        self.sync_to_cloud_btn.setEnabled(False)
-        self.append_console("\n☁️ Starting Sync to Cloud...\n")
+    def _run_sync_to_cloud_then_seed(self):
+        """Push pending offline changes to cloud, then run CSV seed."""
+        self.append_console("\n☁️ Upload to Cloud — Step 1: Syncing offline changes...\n")
         try:
             backend_dir = os.path.join(get_base_dir(), "backend")
             if backend_dir not in sys.path:
@@ -4038,44 +4021,40 @@ class ScraperApp(QMainWindow):
             from sqlite_fallback import get_connection_manager
             manager = get_connection_manager()
 
-            # Check cloud reachability first
-            if not manager.check_cloud_connection():
-                self.append_console(
-                    "❌ Cloud database is not reachable from this network.\n"
-                    "   Connect to a network that allows MySQL connections and try again.\n"
-                )
-                self.sync_to_cloud_btn.setEnabled(True)
-                self._refresh_pending_count()
-                return
-
             pending = manager.get_pending_count()
-            self.append_console(f"📊 Found {pending} pending offline change(s) to sync.\n")
-
-            result = manager.force_sync()
-            if result.get("success"):
-                synced = result.get("synced_count", 0)
-                remaining = result.get("remaining", 0)
-                last_sync = result.get("last_sync", "")
-                self.append_console(
-                    f"✅ Sync completed successfully!\n"
-                    f"   Synced: {synced} change(s)\n"
-                    f"   Remaining: {remaining}\n"
-                    f"   Last sync: {last_sync}\n"
-                )
-                if remaining > 0:
+            if pending > 0:
+                # Check cloud reachability
+                if not manager.check_cloud_connection():
                     self.append_console(
-                        f"⚠️ {remaining} change(s) could not be synced (conflicts logged locally).\n"
+                        "⚠️ Cloud database is not reachable from this network.\n"
+                        "   Skipping sync — will proceed with CSV seed only.\n"
                     )
+                else:
+                    self.append_console(f"📊 Found {pending} pending offline change(s) to sync.\n")
+                    result = manager.force_sync()
+                    if result.get("success"):
+                        synced = result.get("synced_count", 0)
+                        remaining = result.get("remaining", 0)
+                        self.append_console(
+                            f"✅ Sync completed: {synced} change(s) pushed, {remaining} remaining.\n"
+                        )
+                    else:
+                        error = result.get("error", "Unknown error")
+                        self.append_console(f"⚠️ Sync issue: {error}. Proceeding with CSV seed.\n")
             else:
-                error = result.get("error", "Unknown error")
-                self.append_console(f"❌ Sync failed: {error}\n")
+                self.append_console("✅ No pending offline changes to sync.\n")
 
         except Exception as e:
-            self.append_console(f"❌ Sync error: {e}\n")
+            self.append_console(f"⚠️ Sync step skipped: {e}\n")
         finally:
-            self.sync_to_cloud_btn.setEnabled(True)
             self._refresh_pending_count()
-            self.refresh_scrape_count()
+
+        # Step 2: Run CSV-to-DB seed
+        self.append_console("\n☁️ Upload to Cloud — Step 2: Seeding CSV data to database...\n")
+        self.db_worker = DatabaseWorker()
+        self.db_worker.output_signal.connect(self.append_console)
+        self.db_worker.finished_signal.connect(self.on_db_finished)
+        self.db_worker.start()
 
     def on_scraper_finished(self):
         self._stop_live_tracker_updates()
@@ -4083,7 +4062,6 @@ class ScraperApp(QMainWindow):
         self.geocode_btn.setEnabled(True)
         self.upload_db_btn.setEnabled(True)
         self.install_deps_btn.setEnabled(True)
-        self.sync_to_cloud_btn.setEnabled(True)
         self._reset_stop_controls()
         self._refresh_pending_count()
         self._append_gui_summary_block()
