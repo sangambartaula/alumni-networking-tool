@@ -6,36 +6,129 @@ Tier 2: spaCy NER classification (handles unknowns)
 Tier 3: Regex-based heuristics (fallback)
 """
 
+import importlib
 import json
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional, Tuple
 from config import logger
 
 # Lazy load spaCy to avoid import cost if not needed
 _nlp = None
+_SPACY_MODEL_NAME = "en_core_web_sm"
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse a boolean environment variable."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_spacy_model(spacy, model_name: str):
+    """Load a spaCy model by name or package module."""
+    try:
+        return spacy.load(model_name)
+    except OSError as load_err:
+        try:
+            model_module = importlib.import_module(model_name)
+            load_model = getattr(model_module, "load", None)
+            if callable(load_model):
+                return load_model()
+        except Exception:
+            pass
+        raise load_err
+
+
+def _download_spacy_model(model_name: str) -> None:
+    """
+    Install the requested spaCy model using the current interpreter.
+
+    Auto-download is opt-in so the live scraper does not stall when the model
+    is unavailable or the machine is offline.
+    """
+    command = [sys.executable, "-m", "spacy", "download", model_name]
+    logger.info(
+        f"spaCy model '{model_name}' is missing. Attempting one-time install via: {' '.join(command)}"
+    )
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        if details:
+            details = details.splitlines()[-1]
+        else:
+            details = "no output captured"
+        raise RuntimeError(f"spaCy download failed with exit code {result.returncode}: {details}")
 
 
 def _get_nlp():
-    """Lazy load spaCy model, auto-downloading if needed."""
+    """Lazy load spaCy model without blocking the scraper by default."""
+    global _nlp
+    return _get_nlp_nonblocking()
+    if _nlp is None:
+        try:
+            import spacy
+            try:
+                _nlp = _load_spacy_model(spacy, _SPACY_MODEL_NAME)
+                logger.info("✓ spaCy model loaded")
+            except OSError as model_err:
+                if _env_flag("SPACY_AUTO_DOWNLOAD_MODEL", default=False):
+                    _download_spacy_model(_SPACY_MODEL_NAME)
+                    _nlp = _load_spacy_model(spacy, _SPACY_MODEL_NAME)
+                else:
+                    logger.warning(
+                        "spaCy model '%s' is not installed. Continuing with regex fallback. "
+                        "Install it once with: %s -m spacy download %s",
+                        _SPACY_MODEL_NAME,
+                        sys.executable,
+                        _SPACY_MODEL_NAME,
+                    )
+                    logger.debug(f"spaCy model load error: {model_err}")
+                    _nlp = False
+                logger.info("✓ spaCy model downloaded and loaded")
+        except Exception as e:
+            logger.warning(f"Could not load spaCy: {e}. Entity classification will use regex fallback.")
+            _nlp = False  # Mark as unavailable
+    return _nlp if _nlp else None
+
+
+def _get_nlp_nonblocking():
+    """Lazy load spaCy without forcing a model download during a scrape."""
     global _nlp
     if _nlp is None:
         try:
             import spacy
             try:
-                _nlp = spacy.load("en_core_web_sm")
-                logger.info("✓ spaCy model loaded")
-            except OSError:
-                # Model not found - try to download it
-                logger.info("Downloading spaCy model (one-time setup)...")
-                import subprocess
-                subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], 
-                              check=True, capture_output=True)
-                _nlp = spacy.load("en_core_web_sm")
-                logger.info("✓ spaCy model downloaded and loaded")
+                _nlp = _load_spacy_model(spacy, _SPACY_MODEL_NAME)
+                logger.info("spaCy model loaded")
+            except OSError as model_err:
+                if _env_flag("SPACY_AUTO_DOWNLOAD_MODEL", default=False):
+                    _download_spacy_model(_SPACY_MODEL_NAME)
+                    _nlp = _load_spacy_model(spacy, _SPACY_MODEL_NAME)
+                    logger.info("spaCy model downloaded and loaded")
+                else:
+                    logger.warning(
+                        "spaCy model '%s' is not installed. Continuing with regex fallback. "
+                        "Install it once with: %s -m spacy download %s",
+                        _SPACY_MODEL_NAME,
+                        sys.executable,
+                        _SPACY_MODEL_NAME,
+                    )
+                    logger.debug(f"spaCy model load error: {model_err}")
+                    _nlp = False
         except Exception as e:
             logger.warning(f"Could not load spaCy: {e}. Entity classification will use regex fallback.")
-            _nlp = False  # Mark as unavailable
+            _nlp = False
     return _nlp if _nlp else None
 
 
@@ -242,7 +335,7 @@ class EntityClassifier:
     
     def _tier2_spacy_ner(self, text: str) -> Optional[Tuple[str, float]]:
         """Use spaCy NER to classify entities."""
-        nlp = _get_nlp()
+        nlp = _get_nlp_nonblocking()
         if not nlp:
             return None
         

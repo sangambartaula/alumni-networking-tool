@@ -7,6 +7,7 @@ Run with: pytest tests/test_entity_classifier.py -v
 import sys
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 # Add scraper to path for imports
 project_root = Path(__file__).parent.parent
@@ -14,6 +15,7 @@ sys.path.insert(0, str(project_root / 'scraper'))
 os.chdir(project_root)  # Change to project root for relative paths
 
 import pytest
+import entity_classifier as entity_classifier_module
 from entity_classifier import (
     EntityClassifier, 
     classify_entity, 
@@ -29,6 +31,8 @@ class TestEntityClassifier:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Set up test fixtures."""
+        entity_classifier_module._nlp = None
+        entity_classifier_module._classifier = None
         self.classifier = get_classifier()
     
     # === Company Classification Tests ===
@@ -149,6 +153,83 @@ class TestEntityClassifier:
         
         entity_type, _ = classify_entity("GOOGLE")
         assert entity_type == "company"
+
+    def test_get_nlp_nonblocking_skips_download_when_model_missing(self, monkeypatch):
+        """Missing spaCy model should fall back immediately unless auto-download is enabled."""
+        entity_classifier_module._nlp = None
+
+        class _FakeSpacy:
+            def load(self, _model_name):
+                raise OSError("model missing")
+
+        download_attempted = {"called": False}
+
+        def _unexpected_download(*_args, **_kwargs):
+            download_attempted["called"] = True
+            raise AssertionError("download should not be attempted")
+
+        monkeypatch.setitem(sys.modules, "spacy", _FakeSpacy())
+        monkeypatch.setattr(
+            entity_classifier_module.importlib,
+            "import_module",
+            lambda _name: (_ for _ in ()).throw(ModuleNotFoundError("missing model package")),
+        )
+        monkeypatch.setattr(entity_classifier_module.subprocess, "run", _unexpected_download)
+        monkeypatch.delenv("SPACY_AUTO_DOWNLOAD_MODEL", raising=False)
+
+        assert entity_classifier_module._get_nlp_nonblocking() is None
+        assert entity_classifier_module._nlp is False
+        assert download_attempted["called"] is False
+
+    def test_get_nlp_nonblocking_uses_model_package_when_available(self, monkeypatch):
+        """If the model package is importable, the classifier should load it without downloading."""
+        entity_classifier_module._nlp = None
+        expected_nlp = object()
+
+        class _FakeSpacy:
+            def load(self, _model_name):
+                raise OSError("model shortcut unavailable")
+
+        monkeypatch.setitem(sys.modules, "spacy", _FakeSpacy())
+        monkeypatch.setattr(
+            entity_classifier_module.importlib,
+            "import_module",
+            lambda name: SimpleNamespace(load=lambda: expected_nlp) if name == "en_core_web_sm" else None,
+        )
+        monkeypatch.delenv("SPACY_AUTO_DOWNLOAD_MODEL", raising=False)
+
+        assert entity_classifier_module._get_nlp_nonblocking() is expected_nlp
+
+    def test_get_nlp_nonblocking_uses_current_interpreter_for_opt_in_download(self, monkeypatch):
+        """Auto-download should use the current interpreter so venv installs land in the right place."""
+        entity_classifier_module._nlp = None
+        expected_nlp = object()
+        load_attempts = {"count": 0}
+        download_calls = []
+
+        class _FakeSpacy:
+            def load(self, _model_name):
+                load_attempts["count"] += 1
+                if load_attempts["count"] == 1:
+                    raise OSError("model missing")
+                return expected_nlp
+
+        def _fake_download(command, **_kwargs):
+            download_calls.append(command)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setitem(sys.modules, "spacy", _FakeSpacy())
+        monkeypatch.setattr(
+            entity_classifier_module.importlib,
+            "import_module",
+            lambda _name: (_ for _ in ()).throw(ModuleNotFoundError("missing model package")),
+        )
+        monkeypatch.setattr(entity_classifier_module.subprocess, "run", _fake_download)
+        monkeypatch.setenv("SPACY_AUTO_DOWNLOAD_MODEL", "1")
+
+        assert entity_classifier_module._get_nlp_nonblocking() is expected_nlp
+        assert download_calls
+        assert download_calls[0][0] == sys.executable
 
 
 class TestDatabaseHandler:
