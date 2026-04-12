@@ -2072,6 +2072,144 @@ def api_get_alumni_detail(alumni_id):
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
+@app.route('/api/alumni/<int:alumni_id>', methods=['PUT'])
+@api_login_required
+def update_alumni(alumni_id):
+    """Update alumni record with validation"""
+    try:
+        user_id = get_current_user_id()
+        if not user_id:
+            return jsonify({"error": "User not found"}), 401
+
+        # Parse JSON body
+        data = request.get_json() or {}
+
+        # Server-side validation
+        errors = {}
+
+        # Validate grad_year (must be int if provided)
+        grad_year = data.get('grad_year')
+        if grad_year is not None:
+            try:
+                grad_year = int(grad_year)
+                if grad_year < 1900 or grad_year > 2100:
+                    errors['grad_year'] = 'Graduation year must be between 1900 and 2100'
+            except (ValueError, TypeError):
+                errors['grad_year'] = 'Graduation year must be a number'
+
+        # Validate location length
+        location = data.get('location')
+        if location and len(str(location)) > 255:
+            errors['location'] = 'Location must be 255 characters or less'
+
+        # Validate first_name and last_name
+        first_name = data.get('first_name')
+        if first_name and len(str(first_name)) > 100:
+            errors['first_name'] = 'First name must be 100 characters or less'
+
+        last_name = data.get('last_name')
+        if last_name and len(str(last_name)) > 100:
+            errors['last_name'] = 'Last name must be 100 characters or less'
+
+        # Validate job title
+        job_title = data.get('current_job_title')
+        if job_title and len(str(job_title)) > 255:
+            errors['current_job_title'] = 'Job title must be 255 characters or less'
+
+        # Validate company
+        company = data.get('company')
+        if company and len(str(company)) > 255:
+            errors['company'] = 'Company name must be 255 characters or less'
+
+        # Validate degree and major
+        degree = data.get('degree')
+        if degree and len(str(degree)) > 255:
+            errors['degree'] = 'Degree must be 255 characters or less'
+
+        major = data.get('major')
+        if major and len(str(major)) > 255:
+            errors['major'] = 'Major must be 255 characters or less'
+
+        # Validate headline
+        headline = data.get('headline')
+        if headline and len(str(headline)) > 500:
+            errors['headline'] = 'Headline must be 500 characters or less'
+
+        # Validate working_while_studying_status
+        wws_status = data.get('working_while_studying_status')
+        if wws_status and wws_status not in ['yes', 'no', 'currently', '']:
+            errors['working_while_studying_status'] = 'Invalid working while studying status'
+
+        if errors:
+            return jsonify({"error": "Validation failed", "errors": errors}), 400
+
+        # Update database
+        if DISABLE_DB:
+            return jsonify({"error": "Database access disabled"}), 503
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database connection failed"}), 500
+
+        try:
+            cur = conn.cursor(dictionary=True)
+
+            # Verify alumni exists
+            cur.execute("SELECT id FROM alumni WHERE id = %s", (alumni_id,))
+            if not cur.fetchone():
+                return jsonify({"error": "Alumni not found"}), 404
+
+            # Build update query dynamically
+            update_fields = []
+            update_values = []
+            
+            field_mapping = {
+                'first_name': 'first_name',
+                'last_name': 'last_name',
+                'grad_year': 'grad_year',
+                'degree': 'degree',
+                'major': 'major',
+                'location': 'location',
+                'headline': 'headline',
+                'current_job_title': 'current_job_title',
+                'company': 'company',
+                'school_start_date': 'school_start_date',
+                'job_start_date': 'job_start_date',
+                'job_end_date': 'job_end_date',
+                'working_while_studying_status': 'working_while_studying_status',
+            }
+
+            for key, db_column in field_mapping.items():
+                if key in data and data[key] is not None:
+                    update_fields.append(f"{db_column} = %s")
+                    update_values.append(data[key])
+
+            if not update_fields:
+                return jsonify({"error": "No fields to update"}), 400
+
+            update_values.append(alumni_id)
+            query = f"UPDATE alumni SET {', '.join(update_fields)} WHERE id = %s"
+            
+            cur.execute(query, update_values)
+            conn.commit()
+
+            return jsonify({"success": True, "message": "Alumni record updated"}), 200
+
+        except Exception as err:
+            app.logger.error(f"❌ Database error updating alumni {alumni_id}: {err}")
+            return jsonify({"error": f"Database error: {str(err)}"}), 500
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    except Exception as e:
+        app.logger.error(f"❌ Error updating alumni: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
 @app.route('/profile_modal.js')
 def serve_profile_modal_js():
     return send_from_directory('../frontend/public', 'profile_modal.js')
