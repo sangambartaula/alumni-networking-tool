@@ -1255,13 +1255,47 @@ class LinkedInScraper:
             result = self.driver.execute_script(r"""
                 const main = document.querySelector('main') || document.body;
 
+                function normalizeLocationText(text) {
+                    let t = (text || '').replace(/\s+/g, ' ').trim();
+                    if (!t) return '';
+                    // LinkedIn often renders location and contact on one row.
+                    t = t.replace(/\s*[·|]\s*contact info\s*$/i, '').trim();
+                    return t;
+                }
+
+                function looksLikeLocation(text) {
+                    const t = normalizeLocationText(text);
+                    if (!t || t.length < 3 || t.length > 120) return false;
+                    const tl = t.toLowerCase();
+                    if (tl.includes('connection') || tl.includes('follower') || tl.includes('contact info')) return false;
+                    if (tl.includes('full-time') || tl.includes('part-time') || tl.includes('contract') || tl.includes('internship')) return false;
+                    if (tl.includes('present') || tl.includes('university') || tl.includes('college') || tl.includes('school') || tl.includes('institute')) return false;
+                    if (tl.includes('company') || tl.includes('llc') || tl.includes('inc') || tl.includes('corp')) return false;
+
+                    // Common LinkedIn location shape: City, State/Region, Country.
+                    if (t.includes(',')) return true;
+
+                    // Handle non-comma locations such as "Remote".
+                    if (/^(remote|hybrid|on-site|onsite)$/i.test(t)) return true;
+
+                    return false;
+                }
+
                 // --- Strategy 1: Specific LinkedIn location class combo ---
                 const locSpan = main.querySelector(
                     'span.text-body-small.inline.t-black--light.break-words'
                 );
                 if (locSpan) {
-                    const t = (locSpan.innerText || '').trim();
-                    if (t.length > 2 && t.length < 120) return t;
+                    const t = normalizeLocationText(locSpan.innerText || '');
+                    if (looksLikeLocation(t)) return t;
+                }
+
+                const locDiv = main.querySelector(
+                    'div.text-body-small.inline.t-black--light.break-words, div.text-body-small.t-black--light.break-words'
+                );
+                if (locDiv) {
+                    const t = normalizeLocationText(locDiv.innerText || '');
+                    if (looksLikeLocation(t)) return t;
                 }
 
                 // --- Strategy 2: Find the top-card section and look for
@@ -1270,20 +1304,12 @@ class LinkedInScraper:
                     'section.artdeco-card, .pv-top-card, .ph5, .mt2'
                 );
                 for (const card of topCards) {
-                    const spans = card.querySelectorAll('span.text-body-small');
-                    for (const sp of spans) {
+                    const nodes = card.querySelectorAll('span.text-body-small, div.text-body-small, span.t-black--light, div.t-black--light');
+                    for (const node of nodes) {
                         // Skip if inside an inline-show-more-text (badge)
-                        if (sp.closest('.inline-show-more-text')) continue;
-                        // Skip connection/follower text
-                        const t = (sp.innerText || '').trim();
-                        const tl = t.toLowerCase();
-                        if (!t || t.length < 3 || t.length > 120) continue;
-                        if (tl.includes('connection') || tl.includes('follower')
-                            || tl.includes('contact info')) continue;
-                        // Skip badges (company/school names)
-                        if (tl.includes('university') || tl.includes('college')
-                            || tl.includes('school') || tl.includes('institute')) continue;
-                        return t;
+                        if (node.closest('.inline-show-more-text')) continue;
+                        const t = normalizeLocationText(node.innerText || '');
+                        if (looksLikeLocation(t)) return t;
                     }
                 }
 
@@ -1294,17 +1320,12 @@ class LinkedInScraper:
                     const h1Rect = h1.getBoundingClientRect();
                     let best = null;
                     let bestDist = 9999;
-                    const allSmall = main.querySelectorAll('span.text-body-small');
-                    for (const sp of allSmall) {
-                        if (sp.closest('.inline-show-more-text')) continue;
-                        const t = (sp.innerText || '').trim();
-                        const tl = t.toLowerCase();
-                        if (!t || t.length < 3 || t.length > 120) continue;
-                        if (tl.includes('connection') || tl.includes('follower')
-                            || tl.includes('contact info')) continue;
-                        if (tl.includes('university') || tl.includes('college')
-                            || tl.includes('school') || tl.includes('institute')) continue;
-                        const r = sp.getBoundingClientRect();
+                    const allSmall = main.querySelectorAll('span.text-body-small, div.text-body-small, span.t-black--light, div.t-black--light');
+                    for (const node of allSmall) {
+                        if (node.closest('.inline-show-more-text')) continue;
+                        const t = normalizeLocationText(node.innerText || '');
+                        if (!looksLikeLocation(t)) continue;
+                        const r = node.getBoundingClientRect();
                         // Must be below the name heading
                         if (r.top < h1Rect.bottom) continue;
                         const dist = r.top - h1Rect.bottom;
@@ -1314,6 +1335,23 @@ class LinkedInScraper:
                         }
                     }
                     if (best && bestDist < 300) return best;
+                }
+
+                // --- Strategy 4: Use Contact info row adjacency ---
+                // On some layouts, location appears as plain text directly before
+                // the Contact info link and lacks the expected text-body-small span.
+                const contactAnchors = Array.from(main.querySelectorAll('a, span, div'))
+                    .filter(el => /contact info/i.test((el.innerText || '').trim()));
+                for (const anchor of contactAnchors) {
+                    let current = anchor;
+                    for (let i = 0; i < 4 && current; i++) {
+                        const prev = current.previousElementSibling;
+                        if (prev) {
+                            const t = normalizeLocationText(prev.innerText || prev.textContent || '');
+                            if (looksLikeLocation(t)) return t;
+                        }
+                        current = current.parentElement;
+                    }
                 }
 
                 return '';
@@ -1365,7 +1403,7 @@ class LinkedInScraper:
                               "inc", "corp", "llc", "company", "technologies", "solutions",
                               "enterprises", "consulting", "software", "systems", "group"]
         
-        for span in source_root.find_all("span", class_=lambda x: x and "text-body-small" in x):
+        for span in source_root.find_all(["span", "div"], class_=lambda x: x and "text-body-small" in x):
             # Check if this is inside a badge container (inline-show-more-text div)
             parent_div = span.find_parent("div")
             if parent_div:
@@ -1379,14 +1417,15 @@ class LinkedInScraper:
             is_location_styled = "inline" in span_class and "t-black--light" in span_class
             
             text = span.get_text(" ", strip=True)
+            text = re.sub(r"\s*[·|]\s*Contact info\s*$", "", text, flags=re.IGNORECASE).strip()
             text_lower = text.lower()
             
             # Skip badge-like entries (schools, companies)
             if any(x in text_lower for x in location_blacklist):
                 continue
             
-            # Skip connection/follower/contact text
-            if any(x in text_lower for x in ["connection", "follower", "contact info"]):
+            # Skip connection/follower/contact and employment-type text
+            if any(x in text_lower for x in ["connection", "follower", "contact info", "full-time", "part-time", "contract", "internship"]):
                 continue
             
             # Valid location patterns:
@@ -1428,6 +1467,33 @@ class LinkedInScraper:
                     raw_location = text
             elif not raw_location and (has_comma or has_location_keyword or has_country):
                 raw_location = text
+
+        # Contact-info adjacency fallback for top-card layouts where location is not
+        # rendered inside the expected text-body-small span.
+        if not location:
+            contact_nodes = source_root.find_all(
+                ["a", "span", "div"],
+                string=re.compile(r"contact info", re.IGNORECASE),
+            )
+            for node in contact_nodes:
+                for prev in node.find_all_previous(["span", "div"], limit=6):
+                    candidate = prev.get_text(" ", strip=True)
+                    candidate = re.sub(r"\s*[·|]\s*Contact info\s*$", "", candidate, flags=re.IGNORECASE).strip()
+                    if not candidate:
+                        continue
+                    if any(token in candidate.lower() for token in [
+                        "connection", "follower", "company", "full-time", "part-time", "contract", "internship"
+                    ]):
+                        continue
+                    if classifier.is_location(candidate):
+                        location = candidate
+                        break
+                    if "," in candidate and not any(token in candidate.lower() for token in ["university", "college", "school", "institute"]):
+                        location = candidate
+                        break
+                if location:
+                    break
+
         if not location and raw_location:
             location = raw_location
         name = _normalize_person_name(name)
