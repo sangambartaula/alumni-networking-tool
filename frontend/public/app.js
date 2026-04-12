@@ -194,6 +194,220 @@ class NotesModal {
 
 const notesModal = new NotesModal();
 
+/**
+ * Modal for editing alumni entries.
+ * Provides form validation on both client and server side.
+ */
+class EditModal {
+  constructor() {
+    this.currentAlumniId = null;
+    this.currentAlumniData = null;
+    this.setupModal();
+  }
+
+  setupModal() {
+    // Create modal HTML if it doesn't exist
+    if (!document.getElementById('editModal')) {
+      const modalHTML = `
+        <div id="editModal" class="modal">
+          <div class="modal-content" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">
+            <div class="modal-header">
+              <h2>Edit Alumni Entry</h2>
+              <button type="button" class="modal-close" id="editModalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+              <form id="editForm">
+                <div class="form-group">
+                  <label for="editFirstName">First Name</label>
+                  <input type="text" id="editFirstName" name="first_name" maxlength="100">
+                  <small class="error" id="editFirstNameError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editLastName">Last Name</label>
+                  <input type="text" id="editLastName" name="last_name" maxlength="100">
+                  <small class="error" id="editLastNameError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editGradYear">Graduation Year</label>
+                  <input type="number" id="editGradYear" name="grad_year" min="1900" max="2100">
+                  <small class="error" id="editGradYearError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editDegree">Degree</label>
+                  <input type="text" id="editDegree" name="degree" maxlength="255">
+                  <small class="error" id="editDegreeError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editMajor">Major</label>
+                  <input type="text" id="editMajor" name="major" maxlength="255">
+                  <small class="error" id="editMajorError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editLocation">Location</label>
+                  <input type="text" id="editLocation" name="location" maxlength="255">
+                  <small class="error" id="editLocationError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editHeadline">Headline</label>
+                  <input type="text" id="editHeadline" name="headline" maxlength="500">
+                  <small class="error" id="editHeadlineError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editJobTitle">Job Title</label>
+                  <input type="text" id="editJobTitle" name="current_job_title" maxlength="255">
+                  <small class="error" id="editJobTitleError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editCompany">Company</label>
+                  <input type="text" id="editCompany" name="company" maxlength="255">
+                  <small class="error" id="editCompanyError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editJobStartDate">Job Start Date</label>
+                  <input type="text" id="editJobStartDate" name="job_start_date" placeholder="e.g., Jan 2020">
+                  <small class="error" id="editJobStartDateError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editJobEndDate">Job End Date</label>
+                  <input type="text" id="editJobEndDate" name="job_end_date" placeholder="e.g., Dec 2023">
+                  <small class="error" id="editJobEndDateError"></small>
+                </div>
+
+                <div class="form-group">
+                  <label for="editWWS">Working While Studying</label>
+                  <select id="editWWS" name="working_while_studying_status">
+                    <option value="">Not specified</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                    <option value="currently">Currently (or other)</option>
+                  </select>
+                  <small class="error" id="editWWSError"></small>
+                </div>
+              </form>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn secondary" id="editModalCancel">Cancel</button>
+              <button type="button" class="btn primary" id="editModalSave">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+
+    // Setup event listeners
+    document.getElementById('editModalClose').addEventListener('click', () => this.close());
+    document.getElementById('editModalCancel').addEventListener('click', () => this.close());
+    document.getElementById('editModalSave').addEventListener('click', () => this.saveChanges());
+  }
+
+  open(alumniId, alumniData) {
+    this.currentAlumniId = alumniId;
+    this.currentAlumniData = alumniData;
+
+    // Populate form with current data
+    document.getElementById('editFirstName').value = (alumniData.first_name || '').trim();
+    document.getElementById('editLastName').value = (alumniData.last_name || '').trim();
+    document.getElementById('editGradYear').value = alumniData.grad_year || '';
+    document.getElementById('editDegree').value = (alumniData.degree || '').trim();
+    document.getElementById('editMajor').value = (alumniData.major || '').trim();
+    document.getElementById('editLocation').value = (alumniData.location || '').trim();
+    document.getElementById('editHeadline').value = (alumniData.headline || '').trim();
+    document.getElementById('editJobTitle').value = (alumniData.current_job_title || '').trim();
+    document.getElementById('editCompany').value = (alumniData.company || '').trim();
+    document.getElementById('editJobStartDate').value = (alumniData.job_start_date || '').trim();
+    document.getElementById('editJobEndDate').value = (alumniData.job_end_date || '').trim();
+    document.getElementById('editWWS').value = (alumniData.working_while_studying_status || '').trim();
+
+    // Clear all error messages
+    document.querySelectorAll('#editModal .error').forEach(el => el.textContent = '');
+
+    // Show modal with flex display
+    const modal = document.getElementById('editModal');
+    modal.style.display = 'flex';
+    modal.style.justifyContent = 'center';
+    modal.style.alignItems = 'center';
+    document.body.style.overflow = 'hidden';
+  }
+
+  close() {
+    document.getElementById('editModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+    this.currentAlumniId = null;
+    this.currentAlumniData = null;
+  }
+
+  async saveChanges() {
+    // Clear previous errors
+    document.querySelectorAll('.error').forEach(el => el.textContent = '');
+
+    const formData = {
+      first_name: document.getElementById('editFirstName').value.trim(),
+      last_name: document.getElementById('editLastName').value.trim(),
+      grad_year: document.getElementById('editGradYear').value ? parseInt(document.getElementById('editGradYear').value) : null,
+      degree: document.getElementById('editDegree').value.trim(),
+      major: document.getElementById('editMajor').value.trim(),
+      location: document.getElementById('editLocation').value.trim(),
+      headline: document.getElementById('editHeadline').value.trim(),
+      current_job_title: document.getElementById('editJobTitle').value.trim(),
+      company: document.getElementById('editCompany').value.trim(),
+      job_start_date: document.getElementById('editJobStartDate').value.trim(),
+      job_end_date: document.getElementById('editJobEndDate').value.trim(),
+      working_while_studying_status: document.getElementById('editWWS').value.trim(),
+    };
+
+    // Remove empty values
+    Object.keys(formData).forEach(key => {
+      if (!formData[key]) delete formData[key];
+    });
+
+    try {
+      const response = await fetch(`/api/alumni/${this.currentAlumniId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert('Changes saved successfully!');
+        this.close();
+        // Reload the alumni list to reflect changes
+        if (activeQueryState) {
+          queryAlumni(activeQueryState);
+        }
+      } else if (data.errors) {
+        // Display server-side validation errors
+        Object.keys(data.errors).forEach(fieldName => {
+          const errorEl = document.getElementById(`edit${fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/_/g, '')}Error`);
+          if (errorEl) {
+            errorEl.textContent = data.errors[fieldName];
+          }
+        });
+        alert('Validation errors - please check the form');
+      } else {
+        alert('Error saving changes: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error saving changes:', error);
+      alert('Error saving changes: ' + error.message);
+    }
+  }
+}
+
+const editModal = new EditModal();
+
 // ===== NOTES CACHING & OPTIMIZATION =====
 const notesStatusCache = {}; // { id: boolean }
 let notesVisibilityObserver = null;
@@ -495,7 +709,17 @@ function createListItem(p) {
           </a>
           <button class="btn connect" type="button">Connect</button>
           <button class="btn star" type="button" title="Bookmark this alumni">&#9734;</button>
-          <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${p.name}"><img src="/assets/note.svg" alt="Notes" class="notes-icon" /></button>
+          <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${p.name}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </button>
+          <button class="btn edit" type="button" title="Edit entry" data-alumni-id="${p.id}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
         </div>
       </div>
     `;
@@ -570,6 +794,17 @@ function createListItem(p) {
     const alumniName = notesBtn.dataset.alumniName;
     notesModal.open(alumniId, alumniName);
   });
+
+  // Edit button action - OPEN EDIT MODAL
+  const editBtn = item.querySelector('.btn.edit');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      const alumniId = parseInt(editBtn.dataset.alumniId);
+      if (typeof editModal !== 'undefined') {
+        editModal.open(alumniId, p);
+      }
+    });
+  }
 
   return item;
 }
