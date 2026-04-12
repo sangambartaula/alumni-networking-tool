@@ -32,11 +32,28 @@ if not exist "venv\Scripts\python.exe" (
 echo Using Python from venv:
 venv\Scripts\python.exe --version
 
+:: --- Stop stale processes that lock dist files ---
+echo.
+echo Stopping running app/processes that may lock build artifacts...
+taskkill /f /im "Alumni Scraper App.exe" >nul 2>nul
+taskkill /f /im "pyinstaller.exe" >nul 2>nul
+
 :: --- Clear old build caches ---
 echo.
 echo Clearing old build cache...
 if exist "build" rmdir /s /q "build"
-if exist "dist\Alumni Scraper App" rmdir /s /q "dist\Alumni Scraper App"
+if exist "dist\Alumni Scraper App" (
+    rmdir /s /q "dist\Alumni Scraper App"
+    if exist "dist\Alumni Scraper App" (
+        echo Waiting for file handles to release...
+        timeout /t 2 /nobreak >nul
+        rmdir /s /q "dist\Alumni Scraper App"
+    )
+)
+if exist "dist\Alumni Scraper App" (
+    echo ERROR: Could not remove dist\Alumni Scraper App. Close Explorer windows or AV locks and retry.
+    exit /b 1
+)
 if exist "Alumni Scraper App.spec" del /f /q "Alumni Scraper App.spec"
 
 :: --- Install build dependencies ---
