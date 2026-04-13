@@ -1403,6 +1403,9 @@ class LinkedInScraper:
                               "inc", "corp", "llc", "company", "technologies", "solutions",
                               "enterprises", "consulting", "software", "systems", "group"]
         
+        # Initialize classifier before the loop so it's available in fallback code below
+        classifier = get_classifier()
+
         for span in source_root.find_all(["span", "div"], class_=lambda x: x and "text-body-small" in x):
             # Check if this is inside a badge container (inline-show-more-text div)
             parent_div = span.find_parent("div")
@@ -1446,9 +1449,6 @@ class LinkedInScraper:
                 "sweden", "norway", "denmark", "finland", "poland",
                 "ireland", "new zealand", "portugal", "greece",
             ])
-            
-            # Use EntityClassifier for more robust check
-            classifier = get_classifier()
 
             if not raw_location and (is_location_styled or has_comma or has_location_keyword or has_country):
                 raw_location = text
