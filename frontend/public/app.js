@@ -31,6 +31,40 @@ let currentDirectoryPage = 1;
 const alumniChunkSize = 500;
 const directoryPageSize = 25;
 
+const ALUMNI_EXPORT_FIELDS = Object.freeze([
+  'first',
+  'last',
+  'linkedin_url',
+  'school',
+  'degree',
+  'major',
+  'school_start',
+  'grad_year',
+  'school2',
+  'degree2',
+  'major2',
+  'school3',
+  'degree3',
+  'major3',
+  'discipline',
+  'location',
+  'working_while_studying',
+  'title',
+  'company',
+  'job_employment_type',
+  'job_start',
+  'job_end',
+  'exp_2_title',
+  'exp_2_company',
+  'exp_2_dates',
+  'exp_2_employment_type',
+  'exp_3_title',
+  'exp_3_company',
+  'exp_3_dates',
+  'exp_3_employment_type',
+  'seniority_level',
+]);
+
 const listContainer = document.getElementById('list');
 const count = document.getElementById('count');
 
@@ -981,6 +1015,192 @@ function renderLoadMoreControl() {
   );
 }
 
+function csvEscape(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    value = value.filter(v => v !== null && v !== undefined && String(v).trim() !== '').join('; ');
+  } else if (value instanceof Date) {
+    value = value.toISOString();
+  } else if (typeof value === 'object') {
+    value = JSON.stringify(value);
+  }
+
+  const text = String(value);
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function getAlumniExportValue(record, field) {
+  if (!record) return '';
+
+  switch (field) {
+    case 'linkedin_url':
+      return record.linkedin_url || record.linkedin || '';
+    case 'degree':
+      return record.degree_raw || record.full_degree || record.degree || '';
+    case 'major':
+      return record.major_raw || record.full_major || record.major || '';
+    case 'working_while_studying':
+      if (record.working_while_studying === true) return 'yes';
+      if (record.working_while_studying === false) return 'no';
+      return record.working_while_studying || '';
+    case 'title':
+      return record.title || record.current_job_title || record.role || '';
+    default:
+      return record[field] ?? '';
+  }
+}
+
+function buildAlumniCsv(records, fields) {
+  const header = fields.map(csvEscape).join(',');
+  const rows = (records || []).map(record =>
+    fields.map(field => csvEscape(getAlumniExportValue(record, field))).join(',')
+  );
+  return [header, ...rows].join('\r\n');
+}
+
+function buildCsvExportFilename() {
+  const date = new Date().toISOString().slice(0, 10);
+  return `unt-alumni-export-${date}.csv`;
+}
+
+function downloadCsv(csvText, filename) {
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function setupCsvExport() {
+  const openBtn = document.getElementById('exportCsvBtn');
+  const modal = document.getElementById('csvExportModal');
+  const fieldList = document.getElementById('csvFieldList');
+  const selectedCount = document.getElementById('csvSelectedCount');
+  const validation = document.getElementById('csvExportValidation');
+  const selectAllBtn = document.getElementById('csvSelectAll');
+  const clearAllBtn = document.getElementById('csvClearAll');
+  const downloadBtn = document.getElementById('downloadCsvExport');
+  const closeBtn = document.getElementById('closeCsvExportModal');
+  const cancelBtn = document.getElementById('cancelCsvExport');
+
+  if (!openBtn || !modal || !fieldList || !downloadBtn) return;
+
+  const getCheckboxes = () => Array.from(fieldList.querySelectorAll('input[name="csvExportField"]'));
+
+  const setValidation = message => {
+    if (validation) validation.textContent = message || '';
+  };
+
+  const getSelectedFields = () => {
+    const checked = new Set(getCheckboxes().filter(input => input.checked).map(input => input.value));
+    return ALUMNI_EXPORT_FIELDS.filter(field => checked.has(field));
+  };
+
+  const updateSelectedCount = () => {
+    if (!selectedCount) return;
+    const selectedTotal = getSelectedFields().length;
+    selectedCount.textContent = `${selectedTotal} of ${ALUMNI_EXPORT_FIELDS.length} selected`;
+  };
+
+  const renderFieldOptions = () => {
+    if (fieldList.childElementCount) return;
+
+    ALUMNI_EXPORT_FIELDS.forEach(field => {
+      const label = document.createElement('label');
+      label.className = 'check csv-export-field';
+
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.name = 'csvExportField';
+      input.value = field;
+      input.checked = true;
+
+      const text = document.createElement('span');
+      text.textContent = field;
+
+      label.appendChild(input);
+      label.appendChild(text);
+      fieldList.appendChild(label);
+    });
+  };
+
+  const openModal = () => {
+    renderFieldOptions();
+    setValidation('');
+    updateSelectedCount();
+    modal.style.display = 'block';
+    if (closeBtn) closeBtn.focus();
+  };
+
+  const closeModal = () => {
+    modal.style.display = 'none';
+    setValidation('');
+    openBtn.focus();
+  };
+
+  openBtn.addEventListener('click', openModal);
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+  const overlay = modal.querySelector('.modal-overlay');
+  if (overlay) overlay.addEventListener('click', closeModal);
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', () => {
+      getCheckboxes().forEach(input => {
+        input.checked = true;
+      });
+      setValidation('');
+      updateSelectedCount();
+    });
+  }
+
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', () => {
+      getCheckboxes().forEach(input => {
+        input.checked = false;
+      });
+      updateSelectedCount();
+    });
+  }
+
+  fieldList.addEventListener('change', event => {
+    if (event.target && event.target.matches('input[name="csvExportField"]')) {
+      if (event.target.checked) setValidation('');
+      updateSelectedCount();
+    }
+  });
+
+  modal.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      closeModal();
+    }
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const fields = getSelectedFields();
+    if (!fields.length) {
+      setValidation('Select at least one field before exporting.');
+      return;
+    }
+    if (isLoadingAlumni) {
+      setValidation('Alumni are still loading. Try again when the list finishes.');
+      return;
+    }
+
+    const csv = buildAlumniCsv(loadedAlumni, fields);
+    downloadCsv(csv, buildCsvExportFilename());
+    closeModal();
+  });
+}
+
 function getCanonicalRoleTitle(value) {
   const title = (value || '').trim();
   if (!title) return '';
@@ -1115,24 +1335,67 @@ function populateFilters(list) {
 }
 
 function mapAlumniRecord(a) {
+  const sourceName = String(a.name || '').trim();
+  const nameParts = sourceName ? sourceName.split(/\s+/) : [];
+  const first = a.first || a.first_name || nameParts[0] || '';
+  const last = a.last || a.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+
   return {
     id: a.id,
-    name: a.name || '',
-    role: a.role || '',
+    first,
+    last,
+    name: sourceName || `${first} ${last}`.trim(),
+    role: a.role || a.current_job_title || a.title || '',
+    title: a.title || a.current_job_title || a.role || '',
+    current_job_title: a.current_job_title || a.title || a.role || '',
     normalized_title: a.normalized_title || '',
     company: a.company || '',
-    class: a.class || '',
+    class: a.class || a.grad_year || '',
     location: a.location || '',
     headline: a.headline || '',
-    linkedin: a.linkedin || '',
+    linkedin: a.linkedin || a.linkedin_url || '',
+    linkedin_url: a.linkedin_url || a.linkedin || '',
     degree: a.degree || '',
+    degree_raw: a.degree_raw || a.full_degree || '',
     full_degree: a.full_degree || '',
     full_major: a.full_major || '',
     major: a.major || '',
+    major_raw: a.major_raw || '',
     standardized_majors: a.standardized_majors || [],
     discipline: a.discipline || '',
+    school: a.school || '',
+    school_start: a.school_start || a.school_start_date || '',
+    school_start_date: a.school_start_date || a.school_start || '',
+    grad_year: a.grad_year || a.class || '',
+    school2: a.school2 || '',
+    degree2: a.degree2 || '',
+    major2: a.major2 || '',
+    school3: a.school3 || '',
+    degree3: a.degree3 || '',
+    major3: a.major3 || '',
     updated_at: a.updated_at || '',
     working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
+    job_employment_type: a.job_employment_type || '',
+    job_start: a.job_start || a.job_start_date || '',
+    job_start_date: a.job_start_date || a.job_start || '',
+    job_end: a.job_end || a.job_end_date || '',
+    job_end_date: a.job_end_date || a.job_end || '',
+    exp_2_title: a.exp_2_title || a.exp2_title || '',
+    exp2_title: a.exp2_title || a.exp_2_title || '',
+    exp_2_company: a.exp_2_company || a.exp2_company || '',
+    exp2_company: a.exp2_company || a.exp_2_company || '',
+    exp_2_dates: a.exp_2_dates || a.exp2_dates || '',
+    exp2_dates: a.exp2_dates || a.exp_2_dates || '',
+    exp_2_employment_type: a.exp_2_employment_type || a.exp2_employment_type || '',
+    exp2_employment_type: a.exp2_employment_type || a.exp_2_employment_type || '',
+    exp_3_title: a.exp_3_title || a.exp3_title || '',
+    exp3_title: a.exp3_title || a.exp_3_title || '',
+    exp_3_company: a.exp_3_company || a.exp3_company || '',
+    exp3_company: a.exp3_company || a.exp_3_company || '',
+    exp_3_dates: a.exp_3_dates || a.exp3_dates || '',
+    exp3_dates: a.exp3_dates || a.exp_3_dates || '',
+    exp_3_employment_type: a.exp_3_employment_type || a.exp3_employment_type || '',
+    exp3_employment_type: a.exp3_employment_type || a.exp_3_employment_type || '',
     unt_alumni_status: a.unt_alumni_status || 'unknown',
     seniority_level: a.seniority_level || '',
     seniority_bucket: a.seniority_bucket || '',
@@ -1498,6 +1761,7 @@ function setupFiltering() {
 // Initialize and auto-load all alumni rows for the active query in backend-sized chunks.
 (async function init() {
   notesModal.create();
+  setupCsvExport();
   setupFiltering();
   await fetchAlumniPage({ reset: true, initializeFilters: true });
 })();

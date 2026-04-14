@@ -30,12 +30,24 @@ def _alumni_row(
         "working_while_studying": None,
         "working_while_studying_status": None,
         "school": school,
+        "school_start_date": "Aug 2018",
         "school2": None,
         "school3": None,
         "degree2": None,
         "degree3": None,
         "major2": None,
         "major3": None,
+        "job_start_date": "Jan 2021",
+        "job_end_date": "Present",
+        "job_employment_type": "Full-time",
+        "exp2_title": None,
+        "exp2_company": None,
+        "exp2_dates": None,
+        "exp2_employment_type": None,
+        "exp3_title": None,
+        "exp3_company": None,
+        "exp3_dates": None,
+        "exp3_employment_type": None,
         "seniority_level": None,
         "relevant_experience_months": relevant_experience_months,
     }
@@ -267,6 +279,74 @@ def test_api_alumni_caps_limit_to_500(client, monkeypatch):
     assert len(payload["items"]) == 500
     assert payload["has_more"] is True
     assert payload["total"] == 600
+
+
+def test_api_alumni_includes_csv_export_fields(client, monkeypatch):
+    row = _alumni_row(1, "Ada", "Lovelace", grad_year=2024)
+    row.update({
+        "school2": "Tarrant County College",
+        "degree2": "Associate of Science",
+        "major2": "Engineering",
+        "school3": "Dallas College",
+        "degree3": "Certificate",
+        "major3": "Data Analytics",
+        "exp2_title": "Data Analyst",
+        "exp2_company": "Meta",
+        "exp2_dates": "Jan 2020 - Dec 2020",
+        "exp2_employment_type": "Internship",
+        "exp3_title": "Tutor",
+        "exp3_company": "UNT",
+        "exp3_dates": "Aug 2019 - May 2020",
+        "exp3_employment_type": "Part-time",
+    })
+    query_log = []
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor([row], query_log)),
+    )
+
+    resp = client.get("/api/alumni?limit=1&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    item = payload["items"][0]
+    assert item["first"] == "Ada"
+    assert item["last"] == "Lovelace"
+    assert item["linkedin_url"] == "https://www.linkedin.com/in/ada-1"
+    assert item["school"] == "University of North Texas"
+    assert item["degree_raw"] == "Bachelor of Science"
+    assert item["major_raw"] == "Software, Data, AI & Cybersecurity"
+    assert item["school_start"] == "Aug 2018"
+    assert item["grad_year"] == 2024
+    assert item["school2"] == "Tarrant County College"
+    assert item["degree2"] == "Associate of Science"
+    assert item["major2"] == "Engineering"
+    assert item["school3"] == "Dallas College"
+    assert item["degree3"] == "Certificate"
+    assert item["major3"] == "Data Analytics"
+    assert item["discipline"] == "Software, Data, AI & Cybersecurity"
+    assert item["location"] == "Austin, TX"
+    assert item["working_while_studying"] is None
+    assert item["title"] == "Software Engineer"
+    assert item["company"] == "Acme Corp"
+    assert item["job_employment_type"] == "Full-time"
+    assert item["job_start"] == "Jan 2021"
+    assert item["job_end"] == "Present"
+    assert item["exp_2_title"] == "Data Analyst"
+    assert item["exp_2_company"] == "Meta"
+    assert item["exp_2_dates"] == "Jan 2020 - Dec 2020"
+    assert item["exp_2_employment_type"] == "Internship"
+    assert item["exp_3_title"] == "Tutor"
+    assert item["exp_3_company"] == "UNT"
+    assert item["exp_3_dates"] == "Aug 2019 - May 2020"
+    assert item["exp_3_employment_type"] == "Part-time"
+    assert item["seniority_level"] == "Mid"
+
+    select_query = _latest_select_query(query_log)
+    assert "a.school_start_date" in select_query
+    assert "a.job_employment_type" in select_query
+    assert "a.exp2_title" in select_query
 
 
 def test_api_alumni_classifies_seniority_buckets_from_title(client, monkeypatch):
