@@ -192,4 +192,10 @@ jobs:
 
       - name: Validate PyInstaller spec
         shell: bash
-        run: python -m PyInstaller --noconfirm --clean --distpath pyinstaller-dist --workpath pyinstaller-build "Alumni Scraper App.spec"
+        run: |
+          target="Alumni Scraper App.spec"
+          if [[ ! -f "$target" ]]; then
+            echo "Spec file not found in checkout; falling back to scraper_gui.py"
+            target="scraper_gui.py"
+          fi
+          python -m PyInstaller --noconfirm --clean --distpath pyinstaller-dist --workpath pyinstaller-build "$target"
