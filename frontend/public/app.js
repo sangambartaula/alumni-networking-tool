@@ -327,6 +327,16 @@ class EditModal {
                   </select>
                   <small class="error" id="editWWSError"></small>
                 </div>
+
+                <div class="form-group" style="margin-top: 10px;">
+                  <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+                    <input type="checkbox" id="editStandardizeWithGroq" name="standardize_with_groq" checked>
+                    Standardize with Groq (if available)
+                  </label>
+                  <small class="hint" style="display:block; color:#666; margin-top:4px;">
+                    If unchecked, raw and normalized values are stored exactly as entered.
+                  </small>
+                </div>
               </form>
             </div>
             <div class="modal-footer">
@@ -345,23 +355,36 @@ class EditModal {
     document.getElementById('editModalSave').addEventListener('click', () => this.saveChanges());
   }
 
-  open(alumniId, alumniData) {
+  async open(alumniId, alumniData) {
     this.currentAlumniId = alumniId;
     this.currentAlumniData = alumniData;
 
+    let source = alumniData || {};
+    try {
+      // Fetch full record so edit form prefill is complete even when list payload is partial.
+      const resp = await fetch(`/api/alumni/${alumniId}`);
+      const payload = await resp.json();
+      if (resp.ok && payload && payload.success && payload.alumni) {
+        source = payload.alumni;
+      }
+    } catch (err) {
+      console.warn('Falling back to list payload for edit prefill:', err);
+    }
+
     // Populate form with current data
-    document.getElementById('editFirstName').value = (alumniData.first_name || '').trim();
-    document.getElementById('editLastName').value = (alumniData.last_name || '').trim();
-    document.getElementById('editGradYear').value = alumniData.grad_year || '';
-    document.getElementById('editDegree').value = (alumniData.degree || '').trim();
-    document.getElementById('editMajor').value = (alumniData.major || '').trim();
-    document.getElementById('editLocation').value = (alumniData.location || '').trim();
-    document.getElementById('editHeadline').value = (alumniData.headline || '').trim();
-    document.getElementById('editJobTitle').value = (alumniData.current_job_title || '').trim();
-    document.getElementById('editCompany').value = (alumniData.company || '').trim();
-    document.getElementById('editJobStartDate').value = (alumniData.job_start_date || '').trim();
-    document.getElementById('editJobEndDate').value = (alumniData.job_end_date || '').trim();
-    document.getElementById('editWWS').value = (alumniData.working_while_studying_status || '').trim();
+    document.getElementById('editFirstName').value = (source.first_name || source.first || '').trim();
+    document.getElementById('editLastName').value = (source.last_name || source.last || '').trim();
+    document.getElementById('editGradYear').value = source.grad_year || source.class || '';
+    document.getElementById('editDegree').value = (source.degree_raw || source.full_degree || source.degree || '').trim();
+    document.getElementById('editMajor').value = (source.major_raw || source.full_major || source.major || '').trim();
+    document.getElementById('editLocation').value = (source.location || '').trim();
+    document.getElementById('editHeadline').value = (source.headline || '').trim();
+    document.getElementById('editJobTitle').value = (source.current_job_title || source.title || source.role || '').trim();
+    document.getElementById('editCompany').value = (source.company || '').trim();
+    document.getElementById('editJobStartDate').value = (source.job_start_date || source.job_start || '').trim();
+    document.getElementById('editJobEndDate').value = (source.job_end_date || source.job_end || '').trim();
+    document.getElementById('editWWS').value = (source.working_while_studying_status || source.working_while_studying || '').toString().trim();
+    document.getElementById('editStandardizeWithGroq').checked = true;
 
     // Clear all error messages
     document.querySelectorAll('#editModal .error').forEach(el => el.textContent = '');
@@ -398,6 +421,7 @@ class EditModal {
       job_start_date: document.getElementById('editJobStartDate').value.trim(),
       job_end_date: document.getElementById('editJobEndDate').value.trim(),
       working_while_studying_status: document.getElementById('editWWS').value.trim(),
+      standardize_with_groq: !!document.getElementById('editStandardizeWithGroq').checked,
     };
 
     // Remove empty values

@@ -5,6 +5,7 @@ Uses shared Groq client infrastructure from groq_client.py.
 """
 
 import re
+from pathlib import Path
 from config import logger
 from groq_client import (
     _get_client, is_groq_available, GROQ_MODEL, BS4_AVAILABLE,
@@ -17,6 +18,7 @@ if BS4_AVAILABLE:
 
 
 CLOUD_JOB_MAX_LEN = 255
+_FLAGGED_REVIEW_PATH = Path(__file__).resolve().parent / "output" / "flagged_for_review.txt"
 _BARE_EMPLOYMENT_TYPES = {
     "internship",
     "part-time",
@@ -129,6 +131,16 @@ def _looks_like_non_role_title(title: str) -> bool:
         return True
 
     return False
+
+
+def _flag_profile_for_review(profile_name: str, reason: str):
+    """Append profile to manual-review list when extraction safety checks fail."""
+    try:
+        _FLAGGED_REVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_FLAGGED_REVIEW_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{(profile_name or 'unknown').strip()} # {reason}\n")
+    except Exception as exc:
+        logger.warning(f"Could not append flagged review row: {exc}")
 
 
 # Strip common LinkedIn level prefixes from titles for cleaner storage (Sr./Jr./Associate, etc.).
@@ -325,6 +337,7 @@ def extract_experiences_with_groq_from_text(
     structured_text: str,
     max_jobs: int = 3,
     profile_name: str = "unknown",
+    strict_mode: bool = False,
 ) -> tuple:
     """
     Same as extract_experiences_with_groq but accepts pre-built text (e.g. DB backfill).
@@ -358,6 +371,13 @@ For each job return:
 - start_date: "Mon YYYY" when month is visible; "YYYY" only if month is truly missing
 - end_date: "Mon YYYY", "Present" if current, or "YYYY" when month is not available
 
+Strict length limits (must never exceed):
+- company <= {CLOUD_JOB_MAX_LEN} characters
+- job_title <= {CLOUD_JOB_MAX_LEN} characters
+- employment_type <= {CLOUD_JOB_MAX_LEN} characters
+- start_date <= {CLOUD_JOB_MAX_LEN} characters
+- end_date <= {CLOUD_JOB_MAX_LEN} characters
+
 Rules:
 - Keep subtitle lines in the source (employment type, location, date) — they disambiguate roles.
 - Extract ALL jobs found. Match each title to its company and dates — never mix across jobs.
@@ -376,6 +396,7 @@ Validation rules:
 - Never guess missing titles, companies, or dates.
 - If a row is ambiguous, omit it rather than guessing.
 - Use empty strings for missing optional values, not "N/A".
+{"- STRICT MODE: if any field would exceed the max length, shorten or omit that row. Do not emit oversized fields." if strict_mode else ""}
 
 Return ONLY JSON:
 {{"jobs": [{{"company":"...","employment_type":"...","job_title":"...","start_date":"...","end_date":"..."}}]}}
@@ -438,6 +459,7 @@ Data:
             return [], 0
         
         valid_jobs = []
+        oversized_detected = False
         skill_pattern = re.compile(r'.*and \+\d+ skills?$', re.IGNORECASE)
         type_pattern = re.compile(r'^(Internship|Part-time|Full-time|Contract|Seasonal|Temporary|Self-employed|Freelance|Apprenticeship)$', re.IGNORECASE)
         hallucinated_pattern = re.compile(r'^Role\s*\d+$', re.IGNORECASE)
@@ -456,6 +478,7 @@ Data:
                 continue
 
             if _job_entry_exceeds_cloud_limit(job):
+                oversized_detected = True
                 logger.warning(
                     "Dropping oversized Groq experience entry for %s (%s @ %s)",
                     profile_name,
@@ -546,6 +569,21 @@ Data:
                 "start_date": start,
                 "end_date": end,
             })
+
+        if oversized_detected and not strict_mode:
+            logger.warning(
+                "Groq experience output exceeded length caps for %s. Retrying once in strict mode.",
+                profile_name,
+            )
+            return extract_experiences_with_groq_from_text(
+                structured_text,
+                max_jobs=max_jobs,
+                profile_name=profile_name,
+                strict_mode=True,
+            )
+
+        if oversized_detected and strict_mode:
+            _flag_profile_for_review(profile_name, "experience_field_length_exceeded_after_retry")
         
         # Sort jobs by date (Most recent first)
         valid_jobs.sort(key=_job_sort_key, reverse=True)

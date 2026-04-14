@@ -15,6 +15,32 @@ from unt_alumni_status import (
     UNT_ALUMNI_STATUS_VALUES,
     compute_unt_alumni_status_from_row,
 )
+import sys
+
+_SCRAPER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scraper"))
+if _SCRAPER_DIR not in sys.path:
+    sys.path.insert(0, _SCRAPER_DIR)
+
+try:
+    from job_title_normalization import (
+        normalize_title_deterministic,
+        normalize_title_with_groq,
+        get_all_normalized_titles,
+    )
+    from company_normalization import (
+        normalize_company_deterministic,
+        normalize_company_with_groq,
+        get_all_normalized_companies,
+    )
+except Exception as _norm_import_err:
+    app_logger = logging.getLogger(__name__)
+    app_logger.warning(f"Normalization imports unavailable in app.py: {_norm_import_err}")
+    normalize_title_deterministic = None
+    normalize_title_with_groq = None
+    get_all_normalized_titles = None
+    normalize_company_deterministic = None
+    normalize_company_with_groq = None
+    get_all_normalized_companies = None
 
 load_dotenv()
 
@@ -181,6 +207,37 @@ def _resolve_scraper_display_name(email, users_by_email):
             return display_name
 
     return email_lower
+
+
+def _get_or_create_normalized_entity_id(cur, table, column, value):
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        cur.execute(
+            f"INSERT INTO {table} ({column}) VALUES (%s) ON DUPLICATE KEY UPDATE {column}=VALUES({column})",
+            (value,),
+        )
+    except Exception:
+        cur.execute(f"INSERT OR IGNORE INTO {table} ({column}) VALUES (?)", (value,))
+
+    try:
+        cur.execute(f"SELECT id FROM {table} WHERE {column} = %s", (value,))
+    except Exception:
+        cur.execute(f"SELECT id FROM {table} WHERE {column} = ?", (value,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return row["id"] if isinstance(row, dict) else row[0]
+
+
+def _looks_like_location_text(text):
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    if re.fullmatch(r"[a-z\s]+,\s*[a-z\s]+", t):
+        return any(token in t for token in ("texas", "united states", "county", "metroplex", "area"))
+    return t in {"denton", "denton, texas", "denton county, texas", "texas", "united states"}
 
 # ---------------------- Helper functions ----------------------
 
@@ -2124,6 +2181,12 @@ def update_alumni(alumni_id):
         # Parse JSON body
         data = request.get_json() or {}
 
+        standardize_with_groq = data.get('standardize_with_groq', True)
+        if isinstance(standardize_with_groq, str):
+            standardize_with_groq = standardize_with_groq.strip().lower() in {'1', 'true', 'yes', 'on'}
+        else:
+            standardize_with_groq = bool(standardize_with_groq)
+
         # Server-side validation
         errors = {}
 
@@ -2141,6 +2204,17 @@ def update_alumni(alumni_id):
         location = data.get('location')
         if location and len(str(location)) > 255:
             errors['location'] = 'Location must be 255 characters or less'
+
+        # Common strict limits to keep update payloads DB-safe and LLM-safe.
+        field_limits = {
+            'job_start_date': 50,
+            'job_end_date': 50,
+            'working_while_studying_status': 20,
+        }
+        for key, max_len in field_limits.items():
+            value = data.get(key)
+            if value is not None and len(str(value)) > max_len:
+                errors[key] = f'{key} must be {max_len} characters or less'
 
         # Validate first_name and last_name
         first_name = data.get('first_name')
@@ -2194,9 +2268,10 @@ def update_alumni(alumni_id):
         try:
             cur = conn.cursor(dictionary=True)
 
-            # Verify alumni exists
-            cur.execute("SELECT id FROM alumni WHERE id = %s", (alumni_id,))
-            if not cur.fetchone():
+            # Verify alumni exists and fetch current values.
+            cur.execute("SELECT id, current_job_title, company FROM alumni WHERE id = %s", (alumni_id,))
+            existing = cur.fetchone()
+            if not existing:
                 return jsonify({"error": "Alumni not found"}), 404
 
             # Build update query dynamically
@@ -2224,6 +2299,68 @@ def update_alumni(alumni_id):
                     update_fields.append(f"{db_column} = %s")
                     update_values.append(data[key])
 
+            current_job_title_raw = (
+                str(data.get('current_job_title', existing.get('current_job_title') if isinstance(existing, dict) else existing[1]) or '').strip()
+            )
+            company_raw = (
+                str(data.get('company', existing.get('company') if isinstance(existing, dict) else existing[2]) or '').strip()
+            )
+
+            warnings = []
+            if _looks_like_location_text(current_job_title_raw):
+                warning_msg = f"Job title looks like a location for alumni_id={alumni_id}: {current_job_title_raw}"
+                app.logger.warning(warning_msg)
+                warnings.append(warning_msg)
+
+            # Sync normalized title/company IDs with the requested standardization mode.
+            if 'current_job_title' in data:
+                normalized_title = ""
+                if standardize_with_groq:
+                    if normalize_title_deterministic:
+                        normalized_title = normalize_title_deterministic(current_job_title_raw)
+                    if normalize_title_with_groq and get_all_normalized_titles and current_job_title_raw:
+                        try:
+                            existing_titles_rows = get_all_normalized_titles(conn) or []
+                            existing_titles = [r.get('normalized_title') for r in existing_titles_rows if isinstance(r, dict) and r.get('normalized_title')]
+                            normalized_title = normalize_title_with_groq(current_job_title_raw, existing_titles) or normalized_title
+                        except Exception as norm_err:
+                            app.logger.warning(f"Groq title standardization failed for alumni_id={alumni_id}: {norm_err}")
+                else:
+                    normalized_title = current_job_title_raw
+
+                normalized_title_id = _get_or_create_normalized_entity_id(
+                    cur,
+                    'normalized_job_titles',
+                    'normalized_title',
+                    normalized_title,
+                )
+                update_fields.append("normalized_job_title_id = %s")
+                update_values.append(normalized_title_id)
+
+            if 'company' in data:
+                normalized_company = ""
+                if standardize_with_groq:
+                    if normalize_company_deterministic:
+                        normalized_company = normalize_company_deterministic(company_raw)
+                    if normalize_company_with_groq and get_all_normalized_companies and company_raw:
+                        try:
+                            existing_companies_rows = get_all_normalized_companies(conn) or []
+                            existing_companies = [r.get('normalized_company') for r in existing_companies_rows if isinstance(r, dict) and r.get('normalized_company')]
+                            normalized_company = normalize_company_with_groq(company_raw, existing_companies) or normalized_company
+                        except Exception as norm_err:
+                            app.logger.warning(f"Groq company standardization failed for alumni_id={alumni_id}: {norm_err}")
+                else:
+                    normalized_company = company_raw
+
+                normalized_company_id = _get_or_create_normalized_entity_id(
+                    cur,
+                    'normalized_companies',
+                    'normalized_company',
+                    normalized_company,
+                )
+                update_fields.append("normalized_company_id = %s")
+                update_values.append(normalized_company_id)
+
             if not update_fields:
                 return jsonify({"error": "No fields to update"}), 400
 
@@ -2233,7 +2370,7 @@ def update_alumni(alumni_id):
             cur.execute(query, update_values)
             conn.commit()
 
-            return jsonify({"success": True, "message": "Alumni record updated"}), 200
+            return jsonify({"success": True, "message": "Alumni record updated", "warnings": warnings}), 200
 
         except Exception as err:
             app.logger.error(f"❌ Database error updating alumni {alumni_id}: {err}")
