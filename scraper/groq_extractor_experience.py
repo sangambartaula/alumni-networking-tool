@@ -29,6 +29,12 @@ _BARE_EMPLOYMENT_TYPES = {
     "freelance",
 }
 
+_YEAR_RANGE_PREFIX_RE = re.compile(
+    r"^\s*(?:[A-Za-z]{3,9}\s+)?(?:19|20)\d{2}\s*[-–—]\s*(?:[A-Za-z]{3,9}\s+)?(?:(?:19|20)\d{2}|present)\b",
+    re.IGNORECASE,
+)
+_CLASS_OF_RE = re.compile(r"\bclass\s+of\s+(?:19|20)\d{2}\b", re.IGNORECASE)
+
 
 def _looks_like_location_fragment(fragment: str) -> bool:
     """Heuristic for trailing location fragments like ', Hyderabad' or ' - Austin'."""
@@ -107,6 +113,22 @@ def _normalize_job_text(value: str) -> str:
 
 def _is_bare_employment_type(title: str) -> bool:
     return (title or "").strip().casefold() in _BARE_EMPLOYMENT_TYPES
+
+
+def _looks_like_non_role_title(title: str) -> bool:
+    """Return True for date/education snippets that should never be a job title."""
+    t = (title or "").strip()
+    if not t:
+        return True
+
+    if _CLASS_OF_RE.search(t):
+        return True
+
+    # Common bad extraction: "2023 - 2025 - Engineering Management"
+    if _YEAR_RANGE_PREFIX_RE.match(t):
+        return True
+
+    return False
 
 
 # Strip common LinkedIn level prefixes from titles for cleaner storage (Sr./Jr./Associate, etc.).
@@ -469,6 +491,10 @@ Data:
             # appends without the · separator
             # (e.g. "UNT College of Engineering Part-time" → "UNT College of Engineering")
             title = strip_seniority_prefixes_from_title(title)
+
+            if _looks_like_non_role_title(title):
+                logger.debug(f"Skipping non-role title candidate: {title} @ {company}")
+                continue
 
             if _is_company_title_collision(title, company):
                 logger.debug(f"Skipping title/company collision: {title} @ {company}")

@@ -194,3 +194,35 @@ def test_extract_experiences_strips_trailing_employment_type(monkeypatch):
     assert jobs[0]["company"] == "RWB Consulting Engineers"  # no change needed
     assert jobs[1]["company"] == "UNT College of Engineering"  # "Part-time" stripped
     assert "Part-time" not in jobs[1]["company"]
+
+
+def test_extract_experiences_skips_year_range_education_title(monkeypatch):
+    """Date-range education snippets must not be treated as job titles."""
+    class _YearRangeCompletions:
+        @staticmethod
+        def create(**_kwargs):
+            return _FakeResponse(
+                '{"jobs":['
+                '{"company":"University of North Texas","job_title":"2023 - 2025 - Engineering Management","start_date":"2023","end_date":"2025"},'
+                '{"company":"Acme PMO","job_title":"Project Manager","start_date":"2025","end_date":"Present"}'
+                ']}'
+            )
+
+    class _YearRangeChat:
+        completions = _YearRangeCompletions()
+
+    class _YearRangeClient:
+        chat = _YearRangeChat()
+
+    monkeypatch.setattr(groq_extractor_experience, "_get_client", lambda: _YearRangeClient())
+    monkeypatch.setattr(groq_extractor_experience, "is_groq_available", lambda: True)
+
+    jobs, _ = groq_extractor_experience.extract_experiences_with_groq(
+        "<section><li>dummy</li></section>",
+        max_jobs=3,
+        profile_name="Year Range Title Test",
+    )
+
+    assert len(jobs) == 1
+    assert jobs[0]["job_title"] == "Project Manager"
+    assert jobs[0]["company"] == "Acme PMO"

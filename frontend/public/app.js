@@ -645,6 +645,28 @@ function _isMeaningfulEducationValue(value) {
   return true;
 }
 
+function _sanitizeEducationSnippet(value) {
+  if (!value) return '';
+  let text = String(value).trim();
+  if (!text) return '';
+
+  // Remove prefixed date ranges mistakenly captured into degree/major fields.
+  text = text.replace(
+    /^\s*(?:[A-Za-z]{3,9}\s+)?(?:19|20)\d{2}\s*[-–—]\s*(?:[A-Za-z]{3,9}\s+)?(?:(?:19|20)\d{2}|Present)\s*[-–—:]\s*/i,
+    ''
+  );
+
+  // Remove stale "Class of YYYY" prefixes if they leaked into education text.
+  text = text.replace(/^\s*Class\s+of\s+(?:19|20)\d{2}\s*[-–—:]\s*/i, '');
+
+  // If only a date span remains, suppress it from the education line.
+  if (/^(?:[A-Za-z]{3,9}\s+)?(?:19|20)\d{2}\s*[-–—]\s*(?:[A-Za-z]{3,9}\s+)?(?:(?:19|20)\d{2}|Present)$/i.test(text)) {
+    return '';
+  }
+
+  return text.replace(/\s{2,}/g, ' ').trim();
+}
+
 function _isMeaningfulLocationValue(value) {
   if (!value) return false;
   const trimmed = String(value).trim();
@@ -654,8 +676,12 @@ function _isMeaningfulLocationValue(value) {
 }
 
 function _buildEducationLine(profile) {
-  const fullDegree = _isMeaningfulEducationValue(profile.full_degree) ? String(profile.full_degree).trim() : '';
-  const fullMajor = _isMeaningfulEducationValue(profile.full_major) ? String(profile.full_major).trim() : '';
+  const fullDegree = _isMeaningfulEducationValue(profile.full_degree)
+    ? _sanitizeEducationSnippet(profile.full_degree)
+    : '';
+  const fullMajor = _isMeaningfulEducationValue(profile.full_major)
+    ? _sanitizeEducationSnippet(profile.full_major)
+    : '';
 
   if (!fullDegree && !fullMajor) return '';
   if (fullDegree && fullMajor) {
