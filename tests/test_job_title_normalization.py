@@ -110,3 +110,25 @@ def test_member_of_technical_staff():
 def test_graduate_student_maps_to_student():
     assert normalize_title_deterministic("Graduate Student") == "Student"
     assert normalize_title_deterministic("Graduate Student at University of North Texas") == "Student"
+
+
+@pytest.mark.parametrize(
+    ("raw_title", "expected"),
+    [
+        ("Summer Intern", "Intern"),
+        ("Software Engineer Intern", "Software Engineer"),
+        ("Associate Engineer", "Mechanical Engineer"),
+        ("Workday Engineer", "Software Engineer"),
+        ("Apple Engineer", "Software Engineer"),
+    ],
+)
+def test_intern_associate_and_company_prefixed_titles(raw_title, expected):
+    assert normalize_title_deterministic(raw_title) == expected
+
+
+@pytest.mark.parametrize(
+    "raw_title",
+    ["Denton, Texas", "Denton County, Texas", "United States", "Texas"],
+)
+def test_location_strings_do_not_become_normalized_titles(raw_title):
+    assert normalize_title_deterministic(raw_title) == ""

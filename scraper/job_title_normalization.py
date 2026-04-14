@@ -401,11 +401,11 @@ TITLE_MAP = {
     "wicys": "Student",
 
     # ── Internships (generic) ──
-    "intern": "Student",
-    "summer internship": "Student",
-    "summer intern": "Student",
-    "development intern": "Student",
-    "trainee": "Student",
+    "intern": "Intern",
+    "summer internship": "Intern",
+    "summer intern": "Intern",
+    "development intern": "Intern",
+    "trainee": "Intern",
     "jp morgan all star code": "Student",
     "jp morgan all star code": "Student",
 
@@ -542,6 +542,8 @@ _PREFERRED_TITLE_BUCKETS = [
     "Ambassador",
     "Peer Mentor",
     "Technician",
+    "Intern",
+    "Associate",
 ]
 
 # Quick set for O(1) membership checks
@@ -571,6 +573,31 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     if low in {"yes", "no", "n/a", "na", "none", "null", "unknown"}:
         return ""
 
+    # Reject obvious location-only artifacts.
+    if _looks_like_location_only_title(text):
+        return ""
+
+    source = text
+    low = source.lower()
+
+    # Intern / Associate handling:
+    # - Keep plain intern-only roles as "Intern"
+    # - Drop Intern/Associate modifiers when the base role is present.
+    if low in {"intern", "internship", "summer intern", "summer internship"}:
+        return "Intern"
+    if low == "associate":
+        return "Associate"
+
+    intern_base = re.sub(r"\s+intern(ship)?$", "", low).strip()
+    if intern_base and intern_base != low:
+        low = intern_base
+        source = intern_base
+
+    assoc_base = re.sub(r"^associate\s+", "", low).strip()
+    if assoc_base and assoc_base != low:
+        low = assoc_base
+        source = assoc_base
+
     # If the candidate is already a preferred bucket, return it.
     if source.casefold() in _PREFERRED_BUCKETS_SET:
         return source
@@ -580,6 +607,20 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     mapped = TITLE_MAP.get(source.lower())
     if mapped:
         return mapped
+
+    # If a likely company token prefixes "Engineer" (e.g., Apple Engineer),
+    # normalize to Software Engineer rather than keeping brand text.
+    company_prefixed_engineer = re.match(r"^([a-z0-9&.+-]+)\s+engineer$", low)
+    if company_prefixed_engineer:
+        prefix = company_prefixed_engineer.group(1)
+        generic_engineering_prefixes = {
+            "software", "data", "devops", "cloud", "network", "systems",
+            "mechanical", "civil", "field", "project", "research", "application",
+            "database", "quality", "security", "test", "manufacturing", "industrial",
+            "electrical", "automation", "process",
+        }
+        if prefix not in generic_engineering_prefixes:
+            return "Software Engineer"
 
     # Regex-driven compaction for common families.
     low = (source or raw).lower()
@@ -778,6 +819,52 @@ def _cleanup_title(raw: str) -> str:
     return t.strip()
 
 
+def _looks_like_location_only_title(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    low = t.lower()
+
+    # Common location-only patterns that should never become normalized titles.
+    if re.fullmatch(r"[a-z\s]+,\s*[a-z\s]+", low):
+        if any(tok in low for tok in ("texas", "united states", "county", "metroplex", "area")):
+            return True
+
+    if any(low == x for x in {"denton", "denton, texas", "denton county, texas", "texas", "united states"}):
+        return True
+
+    # If no role-like terms are present but location words are, treat as location artifact.
+    role_hint = re.search(r"\b(engineer|developer|analyst|manager|director|consultant|architect|scientist|assistant|officer|administrator|researcher|professor|technician|intern|student)\b", low)
+    location_hint = re.search(r"\b(county|texas|united states|metroplex|city|dallas|houston|austin|denton|fort worth|plano|frisco|irving|arlington|carrollton|richardson)\b", low)
+    return bool(location_hint and not role_hint)
+
+
+def _strip_company_prefix_from_role(text: str) -> str:
+    t = (text or "").strip()
+    if not t:
+        return ""
+
+    # One-token org prefix + one-token role (e.g., Workday Engineer).
+    m_simple = re.match(
+        r"^[A-Za-z0-9&.+'-]+\s+(Engineer|Developer|Analyst|Manager|Consultant|Architect|Scientist|Designer|Technician|Administrator|Specialist)$",
+        t,
+        re.IGNORECASE,
+    )
+    if m_simple:
+        return m_simple.group(1)
+
+    # One-token org prefix + two-word role family (e.g., Apple Software Engineer).
+    m_two = re.match(
+        r"^[A-Za-z0-9&.+'-]+\s+((?:Software|Data|DevOps|Cloud|Network|Systems|Mechanical|Civil|Project|Research|Security|Quality|Product|Application|Database)\s+(?:Engineer|Developer|Analyst|Manager|Consultant|Architect|Scientist|Administrator|Specialist))$",
+        t,
+        re.IGNORECASE,
+    )
+    if m_two:
+        return m_two.group(1)
+
+    return t
+
+
 def normalize_title_deterministic(raw_title: str) -> str:
     """
     Deterministic normalization with multi-pass matching:
@@ -792,6 +879,17 @@ def normalize_title_deterministic(raw_title: str) -> str:
     cleaned = _cleanup_title(raw_title)
     if not cleaned:
         return ""
+
+    # Explicit intern/associate fallbacks before broader stripping logic.
+    low_clean = cleaned.casefold()
+    if low_clean in {"intern", "internship", "summer intern", "summer internship"}:
+        return "Intern"
+    if low_clean == "associate":
+        return "Associate"
+
+    if _looks_like_location_only_title(cleaned):
+        return ""
+
     key = cleaned.lower()
 
     candidate = None
@@ -935,6 +1033,14 @@ Rules:
 12. Civil Engineer, Field Engineer, Project Engineer remain distinct titles.
 13. Graduate students in experience sections with no assistant title → "Student".
 14. If the title is ambiguous, create a reasonable standardized title for a professional dashboard — do NOT default to "Other".
+15. Never include company names in normalized titles (e.g., "Workday Engineer" -> "Software Engineer").
+16. Never output location text as a normalized title (e.g., "Denton, Texas").
+17. Intern handling:
+    - Keep "Intern" only when role context is truly absent (e.g., "Summer Intern").
+    - If role context exists (e.g., "Software Engineer Intern"), return the base role ("Software Engineer").
+18. Associate handling:
+    - Drop "Associate" when a concrete role exists (e.g., "Associate Engineer" -> "Engineer" family bucket).
+    - Return "Associate" only when no role context exists.
 
 Existing normalized titles:
 {titles_list}
@@ -1022,6 +1128,9 @@ def get_or_create_normalized_title(conn, raw_title: str, use_groq: bool = False)
         existing = get_all_normalized_titles(conn)
         existing_titles = [r['normalized_title'] for r in existing]
         norm = normalize_title_with_groq(raw_title, existing_titles)
+
+    if not norm or not str(norm).strip():
+        return None
 
     # Step 3: upsert into normalized_job_titles
     try:
