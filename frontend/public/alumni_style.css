@@ -560,7 +560,7 @@ select:focus {
   gap: 16px;
 }
 
-.csv-export-content {
+.modal-content.csv-export-content {
   max-width: 780px;
 }
 
