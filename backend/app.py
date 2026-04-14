@@ -2187,7 +2187,7 @@ def update_alumni(alumni_id):
         if DISABLE_DB:
             return jsonify({"error": "Database access disabled"}), 503
 
-        conn = get_db_connection()
+        conn = get_connection()
         if not conn:
             return jsonify({"error": "Database connection failed"}), 500
 
