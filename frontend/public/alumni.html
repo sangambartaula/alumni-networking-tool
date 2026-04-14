@@ -319,6 +319,15 @@
           <span class="pill" id="count">(0)</span>
         </div>
         <div class="results-toolbar">
+          <button id="exportCsvBtn" class="btn action-btn" type="button" title="Export filtered alumni to CSV">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" style="width: 18px; height: 18px;">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Export CSV
+          </button>
           <div class="sort-control">
             <label for="sortSelect">Sort by:</label>
             <select id="sortSelect" aria-label="Sort alumni">
@@ -502,6 +511,36 @@
       <div class="modal-footer">
         <button id="confirmNo" class="btn secondary">Cancel</button>
         <button id="confirmYes" class="btn primary">Yes, Add Them</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSV Export Modal -->
+  <div id="csvExportModal" class="modal csv-export-modal" role="dialog" aria-modal="true" aria-labelledby="csvExportTitle">
+    <div class="modal-overlay"></div>
+    <div class="modal-content csv-export-content">
+      <div class="modal-header">
+        <h2 id="csvExportTitle">Export CSV</h2>
+        <button id="closeCsvExportModal" class="modal-close" title="Close" aria-label="Close export options">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="help-text">Choose the fields to include in the downloaded file.</p>
+        <div class="csv-export-actions">
+          <button id="csvSelectAll" class="btn-sm" type="button">Select All</button>
+          <button id="csvClearAll" class="btn-sm" type="button">Clear All</button>
+          <span id="csvSelectedCount" class="csv-selected-count" aria-live="polite"></span>
+        </div>
+        <div id="csvFieldList" class="csv-export-field-grid"></div>
+        <div id="csvExportValidation" class="csv-export-validation" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelCsvExport" class="btn secondary" type="button">Cancel</button>
+        <button id="downloadCsvExport" class="btn primary" type="button">Download CSV</button>
       </div>
     </div>
   </div>
