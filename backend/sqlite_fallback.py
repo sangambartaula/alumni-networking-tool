@@ -172,6 +172,7 @@ class ConnectionManager:
         self._last_cloud_sync = None
         self._sqlite_lock = threading.Lock()  # Protect SQLite writes
         self._shutting_down = False
+        self._mysql_table_columns_cache = {}
         
         # Initialize SQLite tables
         self._init_sqlite()
@@ -781,15 +782,28 @@ class ConnectionManager:
     
     def _apply_change_to_mysql(self, mysql_conn, table_name, operation, pk, new_data):
         """Apply a change to MySQL."""
+        valid_columns = self._get_mysql_table_columns(mysql_conn, table_name)
+        filtered_pk = {k: v for k, v in (pk or {}).items() if k in valid_columns}
+        filtered_new_data = {k: v for k, v in (new_data or {}).items() if k in valid_columns}
+
+        dropped_columns = sorted(set((new_data or {}).keys()) - set(filtered_new_data.keys()))
+        if dropped_columns:
+            logger.warning(
+                f"⚠️ Skipping unknown cloud columns for {table_name}: {', '.join(dropped_columns)}"
+            )
+
         with mysql_conn.cursor() as cur:
             if operation == 'INSERT':
-                columns = list(new_data.keys())
+                columns = list(filtered_new_data.keys())
+                if not columns:
+                    logger.warning(f"⚠️ Skipping INSERT for {table_name}: no schema-compatible columns")
+                    return
                 placeholders = ', '.join(['%s'] * len(columns))
                 col_names = ', '.join(columns)
-                values = [new_data[c] for c in columns]
+                values = [filtered_new_data[c] for c in columns]
                 
                 # Use INSERT ... ON DUPLICATE KEY UPDATE for upsert
-                update_clause = ', '.join([f"{c} = VALUES({c})" for c in columns if c not in pk])
+                update_clause = ', '.join([f"{c} = VALUES({c})" for c in columns if c not in filtered_pk])
                 
                 if update_clause:
                     cur.execute(f"""
@@ -804,17 +818,20 @@ class ConnectionManager:
                     """, values)
                 
             elif operation == 'UPDATE':
+                if not filtered_pk:
+                    logger.warning(f"⚠️ Skipping UPDATE for {table_name}: primary key not present in cloud schema")
+                    return
                 # Build SET clause
                 set_clauses = []
                 values = []
-                for key, value in new_data.items():
-                    if key not in pk:
+                for key, value in filtered_new_data.items():
+                    if key not in filtered_pk:
                         set_clauses.append(f"{key} = %s")
                         values.append(value)
                 
                 # Build WHERE clause
                 where_clauses = []
-                for key, value in pk.items():
+                for key, value in filtered_pk.items():
                     where_clauses.append(f"{key} = %s")
                     values.append(value)
                 
@@ -825,14 +842,30 @@ class ConnectionManager:
                     cur.execute(f"UPDATE {table_name} SET {set_sql} WHERE {where_sql}", values)
                 
             elif operation == 'DELETE':
+                if not filtered_pk:
+                    logger.warning(f"⚠️ Skipping DELETE for {table_name}: primary key not present in cloud schema")
+                    return
                 where_clauses = []
                 values = []
-                for key, value in pk.items():
+                for key, value in filtered_pk.items():
                     where_clauses.append(f"{key} = %s")
                     values.append(value)
                 
                 where_sql = " AND ".join(where_clauses)
                 cur.execute(f"DELETE FROM {table_name} WHERE {where_sql}", values)
+
+    def _get_mysql_table_columns(self, mysql_conn, table_name) -> set:
+        """Return available cloud columns for a table, cached for sync performance."""
+        cached = self._mysql_table_columns_cache.get(table_name)
+        if cached is not None:
+            return cached
+
+        with mysql_conn.cursor() as cur:
+            cur.execute(f"SHOW COLUMNS FROM {table_name}")
+            cols = {row[0] for row in cur.fetchall()}
+
+        self._mysql_table_columns_cache[table_name] = cols
+        return cols
     
     def _log_discarded_change(self, sqlite_conn, table_name, pk, local_data, cloud_data, reason):
         """Log a discarded local change for user awareness."""
