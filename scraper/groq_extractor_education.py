@@ -20,6 +20,20 @@ if BS4_AVAILABLE:
 CLOUD_EDU_MAX_LEN = 255
 
 
+def _looks_like_description_blob(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    if len(t) > 180:
+        return True
+    # Sentence-like marketing copy should not be treated as school name.
+    if re.search(r"\b(you can|our vision|bookmark|explore|hours|occupancy|calendar|updated)\b", t, re.IGNORECASE):
+        return True
+    if t.count(" - ") >= 2 and len(t.split()) > 20:
+        return True
+    return False
+
+
 def _degree_level_key(degree_str: str) -> str:
     """
     Reduce a degree string to a canonical level key for dedup comparison.
@@ -314,6 +328,8 @@ Rules:
 - If a single entry mentions a degree and then repeats it or a similar one in the description (e.g. "Masters in X" ... "MS in Y"), treat it as ONE degree. DO NOT split into two entries unless the SCHOOL NAME is different.
 - If duplicate information appears (e.g. parent item + child detail item), merge them into one entry.
 - PRIORITY: If any entry is for University of North Texas (or UNT), list those entries FIRST in the returned array.
+- Never output narrative paragraphs, marketing copy, activity descriptions, or app descriptions as school names.
+- If school is a university/college and degree text says "High School Diploma", treat degree_raw as empty string.
 {strict_rules}
 
 Return ONLY a JSON object with an "education" key:
@@ -387,6 +403,10 @@ Data:
             if not school:
                 continue
 
+            if _looks_like_description_blob(school):
+                logger.debug(f"Skipping description-like school entry: {school[:80]}...")
+                continue
+
             # Skip entries where Groq mistakenly used activities text as a school
             if re.match(r'^\s*Activities and societies:', school, re.IGNORECASE):
                 logger.debug(f"Skipping activities-as-school entry: {school[:60]}...")
@@ -402,6 +422,11 @@ Data:
             major_raw = _act_re.sub('', major_raw).strip()
             degree_raw = _act_re.sub('', degree_raw).strip()
             school = re.sub(r'\s*—\s*$', '', school).strip()  # trailing em-dash
+
+            # University + High School Diploma is an invalid combination.
+            if re.search(r"\b(university|college|institute)\b", school, re.IGNORECASE) and re.search(r"\bhigh\s*school\b", degree_raw, re.IGNORECASE):
+                logger.debug(f"Clearing impossible degree for university school entry: {school} | {degree_raw}")
+                degree_raw = ""
 
             # Drop clearly malformed school values in strict mode.
             if strict_mode and _entry_exceeds_cloud_limit(

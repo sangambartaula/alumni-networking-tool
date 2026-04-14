@@ -132,3 +132,79 @@ def test_trailing_em_dash_stripped_from_school(monkeypatch):
 
     assert entries
     assert entries[0]["school"] == "University of North Texas"
+
+
+def test_description_blob_not_treated_as_school(monkeypatch):
+    """Long narrative text should never survive as an education school value."""
+    import json
+
+    class _Completions:
+        @staticmethod
+        def create(**_kwargs):
+            return _FakeResponse(json.dumps({"education": [
+                {
+                    "school": "Cornell University",
+                    "degree_raw": "Bachelor of Science",
+                    "major_raw": "Computer Science",
+                    "start_year": "2016",
+                    "end_year": "2020"
+                },
+                {
+                    "school": "Staying fit at Cornell is easier than ever! With Uplift, you can: - Check gym hours and occupancy - Explore fitness classes and add them to your calendar",
+                    "degree_raw": "",
+                    "major_raw": "",
+                    "start_year": "",
+                    "end_year": ""
+                }
+            ]}))
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    monkeypatch.setattr(groq_extractor_education, "_get_client", lambda: _Client())
+    monkeypatch.setattr(groq_extractor_education, "is_groq_available", lambda: True)
+
+    entries, _ = groq_extractor_education.extract_education_with_groq(
+        "<section><li>Cornell University</li></section>",
+        profile_name="Blob Test",
+    )
+
+    assert len(entries) == 1
+    assert entries[0]["school"] == "Cornell University"
+
+
+def test_university_high_school_degree_is_cleared(monkeypatch):
+    """University entries should not retain High School Diploma degrees."""
+    import json
+
+    class _Completions:
+        @staticmethod
+        def create(**_kwargs):
+            return _FakeResponse(json.dumps({"education": [{
+                "school": "University of North Texas",
+                "degree_raw": "Advanced High School Diploma",
+                "major_raw": "Computer Science",
+                "start_year": "2014",
+                "end_year": "2016"
+            }]}))
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    monkeypatch.setattr(groq_extractor_education, "_get_client", lambda: _Client())
+    monkeypatch.setattr(groq_extractor_education, "is_groq_available", lambda: True)
+
+    entries, _ = groq_extractor_education.extract_education_with_groq(
+        "<section><li>University of North Texas</li></section>",
+        profile_name="HS Degree Test",
+    )
+
+    assert len(entries) == 1
+    assert entries[0]["school"] == "University of North Texas"
+    assert entries[0]["degree_raw"] == ""

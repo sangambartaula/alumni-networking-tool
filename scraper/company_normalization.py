@@ -225,6 +225,7 @@ def _cleanup_company(raw: str) -> str:
         return ""
     t = raw.strip()
     t = re.sub(r'\s+', ' ', t)
+    t = _extract_company_from_mixed_role_company(t)
     t = _strip_trailing_location_fragment(t)
     # Remove trailing period, comma, dash
     t = re.sub(r'[.,\-]+$', '', t).strip()
@@ -232,6 +233,40 @@ def _cleanup_company(raw: str) -> str:
     t = _SUFFIX_PATTERN.sub('', t).strip()
     # Remove dangling ampersand left by patterns like "& Co."
     t = re.sub(r'\s*&\s*$', '', t).strip()
+    return t
+
+
+def _extract_company_from_mixed_role_company(text: str) -> str:
+    """Extract likely company name when role and company are merged into one string.
+
+    Example:
+      "Director, New Product Development, ... , Johnson & Johnson MedTech"
+      -> "Johnson & Johnson MedTech"
+    """
+    t = (text or "").strip()
+    if not t or "," not in t:
+        return t
+
+    parts = [p.strip() for p in t.split(",") if p.strip()]
+    if len(parts) < 2:
+        return t
+
+    role_hint_re = re.compile(
+        r"\b(director|manager|engineer|developer|analyst|consultant|scientist|architect|lead|intern|specialist|officer|professor|research)\b",
+        re.IGNORECASE,
+    )
+
+    first_joined = " ".join(parts[:-1])
+    last = parts[-1]
+
+    # If prefix clearly looks role-heavy and suffix looks employer-ish, keep suffix.
+    if role_hint_re.search(first_joined):
+        if re.search(r"\b(&|inc\.?|llc\.?|ltd\.?|corp\.?|university|technologies|tech|health|medtech|systems|group|company)\b", last, re.IGNORECASE):
+            return last
+        # Also accept title-case short suffix as likely org name.
+        if 2 <= len(last.split()) <= 6 and not role_hint_re.search(last):
+            return last
+
     return t
 
 
