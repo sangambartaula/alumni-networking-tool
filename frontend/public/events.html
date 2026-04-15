@@ -1,0 +1,169 @@
+<!-- events.html -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Events – UNT Alumni Network</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" />
+  <style>*, *::before, *::after { font-family: 'Inter', system-ui, sans-serif; }</style>
+  <link rel="stylesheet" href="alumni_style.css" />
+  <link rel="stylesheet" href="profile_modal.css" />
+  <link rel="stylesheet" href="events_style.css" />
+  <!-- Leaflet CSS for simplified map -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+</head>
+
+<body>
+  <!-- Header with UNT branding -->
+  <header class="appbar" role="banner">
+    <div class="appbar-inner">
+      <div class="brand" aria-label="UNT Alumni Network">
+        <img src="/assets/unt-logo.png" alt="UNT Logo" class="unt-logo" />
+        <div class="brand-text">
+          <span class="brand-title">Alumni Network</span>
+          <small>Events</small>
+        </div>
+      </div>
+      <div class="app-actions">
+        <a class="btn action-btn" href="/alumni" title="View alumni directory">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" style="width: 18px; height: 18px;">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          Directory
+        </a>
+        <a class="btn action-btn" href="/analytics" title="View analytics dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" style="width: 18px; height: 18px;">
+            <path d="M18 20V10"></path>
+            <path d="M12 20V4"></path>
+            <path d="M6 20v-6"></path>
+          </svg>
+          Analytics
+        </a>
+        <a class="btn action-btn" href="/heatmap" title="View alumni location heatmap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" style="width: 18px; height: 18px;">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          Heatmap
+        </a>
+        <a class="btn secondary" href="/logout">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="events-page" role="main">
+    <!-- Page Header -->
+    <section class="events-header">
+      <h1>Event Location Finder</h1>
+      <p>Select a location to find nearby alumni for event planning</p>
+    </section>
+
+    <!-- Map Section -->
+    <section class="events-map-section">
+      <div class="events-map-header">
+        <div class="events-map-title">
+          <svg class="map-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          <h2>Alumni Locations</h2>
+        </div>
+
+        <!-- Location Search -->
+        <div class="events-search-container" id="eventsSearchContainer">
+          <svg class="events-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.35-4.35"></path>
+          </svg>
+          <input id="eventsSearchInput" class="events-search-input" type="text"
+            placeholder="Search city, state, or country…" autocomplete="off" />
+          <div id="eventsSuggestionsDropdown" class="events-suggestions-dropdown"></div>
+        </div>
+      </div>
+
+      <!-- Simplified Map (Leaflet 2D only) -->
+      <div id="eventsMapContainer" class="events-map-container"></div>
+
+      <!-- Controls Bar -->
+      <div class="events-controls-bar" id="eventsControlsBar" style="display: none;">
+        <div class="events-location-badge" id="eventsLocationBadge">
+          <span class="badge-type" id="eventsBadgeType">CITY</span>
+          <span class="badge-name" id="eventsBadgeName">—</span>
+        </div>
+
+        <div class="events-radius-control" id="eventsRadiusControl">
+          <label for="eventsRadiusInput">Radius:</label>
+          <input id="eventsRadiusInput" class="events-radius-input" type="number" min="0" max="500" value="50"
+            step="5" />
+          <span class="events-radius-unit">miles</span>
+        </div>
+
+        <button class="events-clear-btn" id="eventsClearBtn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          Clear
+        </button>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section class="events-results-section">
+      <div class="events-results-head">
+        <div class="events-results-title">
+          <h2>Filtered Alumni</h2>
+          <span class="events-results-count" id="eventsResultsCount">0</span>
+        </div>
+        <div class="events-results-sort">
+          <label for="eventsSortSelect">Sort by:</label>
+          <select id="eventsSortSelect">
+            <option value="name" selected>Name</option>
+            <option value="distance">Distance</option>
+            <option value="location">Location</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="eventsListContainer" class="events-list list" aria-live="polite">
+        <div class="events-empty-state" id="eventsEmptyState">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          <h3>Select a Location</h3>
+          <p>Search for a city, state, or country — or click on the map to drop a pin and find nearby alumni.</p>
+        </div>
+      </div>
+
+      <div id="eventsLoading" class="events-loading" style="display: none;">
+        <div class="events-spinner"></div>
+        <span>Loading alumni…</span>
+      </div>
+
+      <div id="eventsPagination" class="events-pagination"></div>
+    </section>
+  </main>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+  <script src="/profile_modal.js"></script>
+  <script src="/events.js"></script>
+</body>
+
+</html>

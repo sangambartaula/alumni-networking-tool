@@ -1313,6 +1313,19 @@ def heatmap_page():
 def analytics_page():
     return send_from_directory('../frontend/public', 'analytics.html')
 
+@app.route('/events')
+@login_required
+def events_page():
+    return send_from_directory('../frontend/public', 'events.html')
+
+@app.route('/events.js')
+def serve_events_js():
+    return send_from_directory('../frontend/public', 'events.js')
+
+@app.route('/events_style.css')
+def serve_events_css():
+    return send_from_directory('../frontend/public', 'events_style.css')
+
 @app.route('/heatmap.js')
 def serve_heatmap_js():
     return send_from_directory('../frontend/public', 'heatmap.js')
