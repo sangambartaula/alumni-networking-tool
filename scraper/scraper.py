@@ -1069,6 +1069,49 @@ class LinkedInScraper:
         return sanitized
 
     @staticmethod
+    def _looks_like_company_noise(raw_company: str) -> bool:
+        """
+        Guardrail for experience-company extraction.
+        Reject pure location strings and long narrative blobs that are not employers.
+        """
+        company = " ".join((raw_company or "").split()).strip()
+        if not company:
+            return True
+
+        if is_location(company):
+            return True
+
+        lowered = company.casefold()
+        if lowered in {"remote", "hybrid", "on-site", "onsite"}:
+            return True
+
+        if len(company) > 140:
+            return True
+
+        if re.search(
+            r"\b(goal\s+of\s+this\s+project|gained\s+extensive\s+experience|known\s+for|"
+            r"hard\s+work|responsible\s+for|worked\s+on|enhancement|carbon\s+footprint)\b",
+            lowered,
+            re.IGNORECASE,
+        ):
+            return True
+
+        token_count = len(re.findall(r"[a-z0-9]+", lowered))
+        has_company_signal = bool(
+            re.search(
+                r"\b(inc|llc|ltd|corp|company|co\.?|technologies|technology|systems|solutions|"
+                r"group|partners|health|hospital|university|college|school|institute|"
+                r"laboratory|lab|bureau|foundation|association)\b",
+                lowered,
+                re.IGNORECASE,
+            )
+        )
+        if token_count >= 14 and not has_company_signal:
+            return True
+
+        return False
+
+    @staticmethod
     def _log_missing_data_warnings(data, all_experiences, edu_entries):
         if not all_experiences:
             logger.warning(f"No experience found for {data.get('name', 'Unknown')}")
@@ -1539,6 +1582,10 @@ class LinkedInScraper:
                         title = (job.get("job_title") or "").strip()
                         company = (job.get("company") or "").strip()
 
+                        if self._looks_like_company_noise(company):
+                            logger.debug(f"Skipping Groq experience with invalid company text: {title} @ {company}")
+                            continue
+
                         if _is_company_title_collision(title, company):
                             logger.debug(f"Skipping Groq experience with title/company collision: {title} @ {company}")
                             continue
@@ -1616,6 +1663,8 @@ class LinkedInScraper:
                                 if outer_title_elem:
                                     candidate_company = _clean_doubled(self._clean_company(outer_title_elem.get_text(strip=True)))
                                     emp_css = ""
+                    if self._looks_like_company_noise(candidate_company):
+                        continue
                     company = candidate_company
                     employment_type_css = emp_css
                     break
@@ -1798,6 +1847,8 @@ class LinkedInScraper:
                     title = _clean_doubled(title)
                 if company:
                     company = _clean_doubled(company)
+                    if self._looks_like_company_noise(company):
+                        company = ""
 
                 if title or company:
                     u_key = f"{(title or '').lower()}|{(company or '').lower()}|{start_d}|{end_d}"

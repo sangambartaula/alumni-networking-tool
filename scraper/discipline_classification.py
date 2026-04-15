@@ -93,7 +93,9 @@ DISCIPLINES = [
         "hardware engineer", "electronics", "circuit design", "pcb",
         "schematic", "altium", "orcad", "cadence", "fpga", "verilog",
         "vhdl", "asic", "silicon", "semiconductor", "microcontroller",
-        "arm", "stm32", "esp32",
+        # Avoid generic "arm" token: it false-matches non-engineering titles like
+        # "Armed Security Guard". Keep specific ARM platform signals instead.
+        "stm32", "esp32", "arm cortex",
         "bare metal", "low level", "device driver",
         "linux kernel", "robotics", "controls engineer", "mechatronics",
         "signal processing", "digital design", "analog design", "power systems",

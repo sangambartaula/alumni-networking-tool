@@ -169,23 +169,32 @@ def _sanitize_major_and_discipline(major, standardized_major, discipline):
     normalized_standardized_major = _clean_optional_text(standardized_major)
     normalized_discipline = _clean_optional_text(discipline) or ""
     review_reason = None
+    major_was_discipline_label = False
 
     if normalized_discipline and normalized_discipline not in APPROVED_ENGINEERING_DISCIPLINES:
         normalized_discipline = ""
 
     if normalized_major in APPROVED_ENGINEERING_DISCIPLINES:
+        major_was_discipline_label = True
         review_reason = "major_equals_discipline_label"
         if not normalized_discipline:
             normalized_discipline = normalized_major
 
-        if normalized_standardized_major and normalized_standardized_major in UNT_ALLOWED_MAJORS:
-            normalized_major = normalized_standardized_major
-        else:
-            normalized_major = None
+        # When major is actually a discipline label, drop polluted major text.
+        # Keep discipline separate and avoid forcing standardized values into raw major.
+        normalized_major = None
 
-    if normalized_major and normalized_major not in UNT_ALLOWED_MAJORS:
-        if normalized_standardized_major and normalized_standardized_major in UNT_ALLOWED_MAJORS:
-            normalized_major = normalized_standardized_major
+    # Preserve raw major text when present, even if it is outside the engineering-only
+    # approved list. Standardized major is stored separately for filtering.
+    #
+    # Only backfill major from standardized_major when raw major is truly missing.
+    if (
+        not normalized_major
+        and not major_was_discipline_label
+        and normalized_standardized_major
+        and normalized_standardized_major in UNT_ALLOWED_MAJORS
+    ):
+        normalized_major = normalized_standardized_major
 
     return normalized_major, normalized_discipline, review_reason
 

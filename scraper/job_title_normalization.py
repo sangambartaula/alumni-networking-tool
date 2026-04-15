@@ -537,6 +537,7 @@ _PREFERRED_TITLE_BUCKETS = [
     "VP",
     "Director",
     "Professor",
+    "Doctoral Candidate",
     "Postdoctoral Researcher",
     "Operations",
     "Ambassador",
@@ -707,6 +708,8 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     # 10. Academic Hierarchy Structure
     if re.search(r"\bprofessor\b", low):
         return "Professor"
+    if re.search(r"\b(ph\.?d\.?\s*candidate|doctoral candidate|doctoral scholar)\b", low):
+        return "Doctoral Candidate"
     if re.search(r"\bpostdoc\b", low):
         return "Postdoctoral Researcher"
     if re.search(r"\b(researcher|research assistant|research technician|lab assistant|undergraduate research)\b", low):

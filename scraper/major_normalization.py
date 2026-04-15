@@ -224,6 +224,7 @@ def standardize_major_list(raw_major: str, job_title: str = "") -> List[str]:
             return _resolve(canonical)
 
     # --- Groq LLM fallback for unrecognized raw strings ---
+    # Default ON: keep AI assistance enabled, but raw fields are protected at DB upsert.
     use_llm_fallback = os.getenv("MAJOR_USE_GROQ_FALLBACK", "1") == "1"
     if use_llm_fallback and os.getenv("GROQ_API_KEY"):
         llm_result = _standardize_major_with_llm(text, job_title)
@@ -270,9 +271,10 @@ Approved majors (ID -> name):
 
 Rules:
 1. Output ONLY one major_id from 0-{len(CANONICAL_MAJORS)}.
-2. major_id=0 means Other.
+2. major_id=0 means Other, and Other is a valid preferred answer when uncertain.
 3. Ignore minors/concentrations/certificates and map the PRIMARY major.
 4. Do not invent labels outside the approved list.
+5. If the raw major is out-of-taxonomy, generic, or ambiguous, choose major_id=0.
 
 Return JSON only:
 {{ "major_id": <integer 0-{len(CANONICAL_MAJORS)}> }}
