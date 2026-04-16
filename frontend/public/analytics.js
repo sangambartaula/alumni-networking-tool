@@ -122,6 +122,15 @@ function getCanonicalRoleTitle(value) {
   const withoutSeniority = withoutLevelSuffix.replace(/^(?:senior|sr\.?)\s+/i, '').trim();
   const canonicalTitle = withoutSeniority || withoutLevelSuffix || title;
   const low = canonicalTitle.toLowerCase().replace(/\s+/g, ' ');
+  const flat = low.replace(/[^a-z0-9]+/g, ' ').trim();
+
+  if (!flat.includes('ai4all')) {
+    const aiSignal = /\b(ai|aiml|ml|llm)\b/.test(flat) || flat.includes('machine learning') || flat.includes('generative ai');
+    const aiRoleSignal = /\b(engineer|developer|scientist|software|mlops|data|python|associate|project|projects)\b/.test(flat);
+    if (aiSignal && aiRoleSignal) {
+      return 'AI / ML Engineer';
+    }
+  }
 
   if (low === 'director' || low === 'director of' || low === 'director of engineering') {
     return 'Director';

@@ -1,5 +1,6 @@
 import importlib
 import re
+import sys
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
@@ -16,7 +17,7 @@ _SENIORITY_ALLOWED = ["Intern", "Mid", "Senior", "Manager", "Executive"]
 
 
 def _app_mod():
-    return importlib.import_module("app")
+    return sys.modules.get("app") or sys.modules.get("__main__") or importlib.import_module("app")
 
 
 def _validation_error(message, field):
@@ -137,6 +138,20 @@ def _canonical_role_title(value):
     without_seniority = re.sub(r"^(?:senior|sr\.?)\s+", "", without_level_suffix, flags=re.I).strip()
     canonical_title = without_seniority or without_level_suffix or title
     low = re.sub(r"\s+", " ", canonical_title.lower())
+    flat = re.sub(r"[^a-z0-9]+", " ", low).strip()
+
+    # Keep education/program labels separate from professional role buckets.
+    if "ai4all" not in flat:
+        ai_signal = (
+            bool(re.search(r"\b(ai|aiml|ml|llm)\b", flat))
+            or "machine learning" in flat
+            or "generative ai" in flat
+        )
+        ai_role_signal = bool(
+            re.search(r"\b(engineer|developer|scientist|software|mlops|data|python|associate|project|projects)\b", flat)
+        )
+        if ai_signal and ai_role_signal:
+            return "AI / ML Engineer"
 
     if low in {"director", "director of", "director of engineering"}:
         return "Director"

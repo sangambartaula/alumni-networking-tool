@@ -409,6 +409,28 @@ def test_api_alumni_rejects_invalid_seniority_filter(client):
     assert payload["error"] == "Invalid seniority. Use Intern, Mid, Senior, Manager, or Executive."
 
 
+def test_api_alumni_role_filter_collapses_ai_ml_variants(client, monkeypatch):
+    rows = [
+        _alumni_row(1, "AI", "Engineer", job_title="AI Engineer"),
+        _alumni_row(2, "AI", "Data", job_title="AI Data Scientist"),
+        _alumni_row(3, "AIML", "Software", job_title="AIML Software Engineer"),
+        _alumni_row(4, "Campus", "Participant", job_title="AI4ALL College Pathways Participant"),
+    ]
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, [])),
+    )
+
+    resp = client.get("/api/alumni?role=AI%20/%20ML%20Engineer&limit=10&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+    ids = {item["id"] for item in payload["items"]}
+    assert ids == {1, 2, 3}
+
+
 def test_api_alumni_name_sort_uses_first_name_then_last_name(client, monkeypatch):
     rows = [_alumni_row(1, "Alice", "Zulu"), _alumni_row(2, "Bob", "Alpha")]
     query_log = []

@@ -1,4 +1,5 @@
 import importlib
+import sys
 
 from flask import Blueprint, jsonify
 
@@ -22,7 +23,7 @@ _SCRAPER_ACTIVITY_NAME_HINTS = {
 
 
 def _app_mod():
-    return importlib.import_module("app")
+    return sys.modules.get("app") or sys.modules.get("__main__") or importlib.import_module("app")
 
 
 def _resolve_scraper_display_name(email, users_by_email):

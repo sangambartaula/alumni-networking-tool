@@ -1,4 +1,5 @@
 import importlib
+import sys
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -10,7 +11,7 @@ interaction_bp = Blueprint("interaction", __name__)
 
 
 def _app_mod():
-	return importlib.import_module("app")
+	return sys.modules.get("app") or sys.modules.get("__main__") or importlib.import_module("app")
 
 
 @interaction_bp.route("/api/interaction", methods=["POST"])

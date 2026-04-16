@@ -1,5 +1,6 @@
 import importlib
 import time as _time
+import sys
 
 import mysql.connector
 from flask import Blueprint, jsonify, request, send_from_directory
@@ -24,7 +25,7 @@ _HEATMAP_CACHE_TTL = 60
 
 
 def _app_mod():
-    return importlib.import_module("app")
+    return sys.modules.get("app") or sys.modules.get("__main__") or importlib.import_module("app")
 
 
 def classify_degree(degree, _headline):
