@@ -1,0 +1,2932 @@
+import mysql.connector
+import pandas as pd
+import os
+import logging
+import re
+from dotenv import load_dotenv
+from pathlib import Path
+try:
+    from .db_helpers import managed_db_cursor, execute_sql
+except ImportError:
+    from db_helpers import managed_db_cursor, execute_sql
+
+_env_path = Path(__file__).resolve().parent.parent / '.env'
+for _enc in ('utf-8', 'latin-1'):
+    try:
+        load_dotenv(_env_path, encoding=_enc)
+        break
+    except Exception:
+        continue
+
+APPROVED_ENGINEERING_DISCIPLINES = {
+    "Software, Data, AI & Cybersecurity",
+    "Embedded, Electrical & Hardware Engineering",
+    "Mechanical Engineering & Manufacturing",
+    "Biomedical Engineering",
+    "Construction & Engineering Management",
+}
+
+UNT_ALLOWED_MAJORS = {
+    "Artificial Intelligence",
+    "Biomedical Engineering",
+    "Computer Engineering",
+    "Computer Science",
+    "Construction Engineering Technology",
+    "Construction Management",
+    "Cybersecurity",
+    "Data Engineering",
+    "Electrical Engineering",
+    "Engineering Management",
+    "Geographic Information Systems + Computer Science",
+    "Information Technology",
+    "Materials Science and Engineering",
+    "Mechanical and Energy Engineering",
+    "Mechanical Engineering Technology",
+    "Semiconductor Manufacturing Engineering",
+    "Other",
+}
+
+FLAGGED_REVIEW_PATH = (
+    Path(__file__).resolve().parent.parent / "scraper" / "output" / "flagged_for_review.txt"
+)
+
+
+def _clean_optional_text(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+    return text
+
+
+def _truncate_optional_text(value, max_len=255):
+    """Return cleaned optional text truncated to DB-safe length."""
+    text = _clean_optional_text(value)
+    if text is None:
+        return None
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip()
+
+
+def _csv_optional_str(row, *keys):
+    """First non-empty CSV column among keys (supports new vs legacy column names)."""
+    for k in keys:
+        v = row.get(k)
+        if pd.isna(v):
+            continue
+        text = str(v).strip()
+        if text:
+            return text
+    return None
+
+
+def _parse_float(value):
+    """Parse a value to float, returning None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, float):
+        return value if not pd.isna(value) else None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "na", "n/a", ""}:
+        return None
+    try:
+        return float(text)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_bool(value):
+    """Parse a value to bool, returning None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if pd.isna(value):
+            return None
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"true", "1", "1.0", "yes"}:
+        return True
+    if text in {"false", "0", "0.0", "no"}:
+        return False
+    return None
+
+
+def _parse_int(value):
+    """Parse a value to int, returning None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        if pd.isna(value):
+            return None
+        if value.is_integer():
+            return int(value)
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "na", "n/a", ""}:
+        return None
+    try:
+        f = float(text)
+        if f.is_integer():
+            return int(f)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+_NAME_SUFFIX_TOKENS = {"ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"}
+
+
+def _normalize_person_name(raw_name):
+    """Normalize person-name casing while preserving punctuation."""
+    text = re.sub(r"\s+", " ", str(raw_name or "").strip())
+    if not text:
+        return ""
+    text = re.sub(r"[,\s]+$", "", text).strip()
+
+    def _cap_word(match):
+        word = match.group(0)
+        low = word.lower()
+        if low in _NAME_SUFFIX_TOKENS:
+            return low.upper()
+        if len(word) == 1:
+            return word.upper()
+        return word[0].upper() + word[1:].lower()
+
+    return re.sub(r"[A-Za-z]+", _cap_word, text)
+
+
+def _sanitize_major_and_discipline(major, standardized_major, discipline):
+    """
+    Ensure major and discipline remain separate:
+    - `major` must never contain a discipline label.
+    - `discipline` must be one of the approved discipline labels (or empty).
+    """
+    normalized_major = _clean_optional_text(major)
+    normalized_standardized_major = _clean_optional_text(standardized_major)
+    normalized_discipline = _clean_optional_text(discipline) or ""
+    review_reason = None
+    major_was_discipline_label = False
+
+    if normalized_discipline and normalized_discipline not in APPROVED_ENGINEERING_DISCIPLINES:
+        normalized_discipline = ""
+
+    if normalized_major in APPROVED_ENGINEERING_DISCIPLINES:
+        major_was_discipline_label = True
+        review_reason = "major_equals_discipline_label"
+        if not normalized_discipline:
+            normalized_discipline = normalized_major
+
+        # When major is actually a discipline label, drop polluted major text.
+        # Keep discipline separate and avoid forcing standardized values into raw major.
+        normalized_major = None
+
+    # Preserve raw major text when present, even if it is outside the engineering-only
+    # approved list. Standardized major is stored separately for filtering.
+    #
+    # Only backfill major from standardized_major when raw major is truly missing.
+    if (
+        not normalized_major
+        and not major_was_discipline_label
+        and normalized_standardized_major
+        and normalized_standardized_major in UNT_ALLOWED_MAJORS
+    ):
+        normalized_major = normalized_standardized_major
+
+    return normalized_major, normalized_discipline, review_reason
+
+
+def _append_flagged_review_urls(url_reason_map):
+    if not url_reason_map:
+        return
+
+    try:
+        FLAGGED_REVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
+        existing_urls = set()
+        if FLAGGED_REVIEW_PATH.exists():
+            with open(FLAGGED_REVIEW_PATH, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    existing_url = line.split("#")[0].strip().rstrip("/")
+                    if existing_url:
+                        existing_urls.add(existing_url)
+
+        pending_lines = []
+        for raw_url, reason in sorted(url_reason_map.items()):
+            url = normalize_url(raw_url)
+            if not url:
+                continue
+            if url in existing_urls:
+                continue
+            pending_lines.append(f"{url} # {reason}\n")
+            existing_urls.add(url)
+
+        if pending_lines:
+            with open(FLAGGED_REVIEW_PATH, "a", encoding="utf-8") as handle:
+                handle.writelines(pending_lines)
+            logger.info(f"Flagged {len(pending_lines)} profile(s) for major/discipline review")
+    except Exception as flag_err:
+        logger.warning(f"Could not append major/discipline review flags: {flag_err}")
+
+def _get_or_create_normalized_entity(cur, table, column, value):
+    """
+    Inline helper to insert normalized strings and return their DB ID.
+    We normalize job titles and company names to a separate lookup table
+    to ensure consistency and save disk space by avoiding redundant strings
+    in the main 'alumni' table.
+    """
+    if not value or str(value).strip() == '': return None
+    value = str(value).strip()
+    try:
+        cur.execute(f"INSERT INTO {table} ({column}) VALUES (%s) ON DUPLICATE KEY UPDATE {column}=VALUES({column})", (value,))
+    except Exception:
+        # SQLite fallback syntax
+        cur.execute(f"INSERT OR IGNORE INTO {table} ({column}) VALUES (?)", (value,))
+    
+    try:
+        cur.execute(f"SELECT id FROM {table} WHERE {column} = %s", (value,))
+    except Exception:
+        cur.execute(f"SELECT id FROM {table} WHERE {column} = ?", (value,))
+    
+    row = cur.fetchone()
+    if not row: return None
+    return row['id'] if isinstance(row, dict) else row[0]
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# MySQL connection parameters (for direct access when needed)
+MYSQL_HOST = os.getenv('MYSQLHOST')
+MYSQL_USER = os.getenv('MYSQLUSER')
+MYSQL_PASSWORD = os.getenv('MYSQLPASSWORD')
+MYSQL_DATABASE = os.getenv('MYSQL_DATABASE')
+MYSQL_PORT = int(os.getenv('MYSQLPORT', 3306))
+
+# Flag to control whether to use fallback system
+USE_SQLITE_FALLBACK = os.getenv('USE_SQLITE_FALLBACK', '1') == '1'
+
+
+def normalize_url(url):
+    """Strip trailing slashes from URL."""
+    if pd.isna(url) or url is None: return None
+    s = str(url).strip()
+    if not s or s.lower() == 'nan': return None
+    return s.rstrip('/')
+
+
+def _coerce_grad_year(value):
+    """
+    Convert a grad year value into an integer when possible.
+    Returns None when parsing fails or the year is out of a reasonable range.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if pd.isna(value):
+        return None
+
+    def _in_range(year):
+        return 1900 <= year <= 2100
+
+    if isinstance(value, int):
+        return value if _in_range(value) else None
+
+    if isinstance(value, float):
+        if value.is_integer():
+            year = int(value)
+            return year if _in_range(year) else None
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+
+    try:
+        numeric = float(text)
+        if numeric.is_integer():
+            year = int(numeric)
+            return year if _in_range(year) else None
+    except ValueError:
+        pass
+
+    matches = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
+    if not matches:
+        return None
+
+    year = int(matches[-1])
+    return year if _in_range(year) else None
+
+
+def _infer_grad_year_from_school_start_date(value):
+    """
+    Infer grad_year from school_start_date only when the value contains a single
+    date/year signal (legacy data quirk where one date was put in start field).
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"nan", "none", "null", "na", "n/a"}:
+        return None
+
+    # Skip explicit ranges; this rule is only for single-date entries.
+    if re.search(r"[-–—]", text):
+        return None
+
+    years = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
+    if len(years) != 1:
+        return None
+
+    return _coerce_grad_year(years[0])
+
+
+def _normalize_primary_education_dates(grad_year_value, school_start_value):
+    """
+    Normalize primary education date fields:
+    - keep explicit grad_year when present
+    - if grad_year missing and school_start has a single date/year, treat it as grad_year
+      and clear school_start
+    """
+    grad_year = _coerce_grad_year(grad_year_value)
+
+    school_start_text = None
+    if school_start_value is not None and not pd.isna(school_start_value):
+        school_start_text = str(school_start_value).strip() or None
+
+    if grad_year is not None:
+        return grad_year, school_start_text
+
+    inferred_grad_year = _infer_grad_year_from_school_start_date(school_start_text)
+    if inferred_grad_year is None:
+        return None, school_start_text
+
+    return inferred_grad_year, None
+
+
+
+def get_connection():
+    """
+    Get a database connection.
+    If USE_SQLITE_FALLBACK is enabled, routes to MySQL or SQLite based on availability.
+    This "smart routing" allows the application to remain functional in local
+    dev environments or during remote database outages by falling back to a 
+    local .db file.
+    """
+    # Check if DB is explicitly disabled (dev mode)
+    # in this mode, we force SQLite if fallback is enabled, regardless of cloud availability
+    disable_db = os.getenv("DISABLE_DB", "0") == "1"
+    
+    if USE_SQLITE_FALLBACK:
+        try:
+            from sqlite_fallback import get_connection_manager, SQLiteConnectionWrapper
+            manager = get_connection_manager()
+            
+            if disable_db:
+                # Force offline/SQLite mode
+                return SQLiteConnectionWrapper(manager.get_sqlite_connection(), manager)
+            
+            return manager.get_connection()
+        except ImportError:
+            logger.warning("sqlite_fallback module not found, falling back to direct MySQL")
+    
+    # MySQL connection
+    return mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DATABASE,
+        port=MYSQL_PORT
+    )
+
+
+def get_direct_mysql_connection():
+    """Get a direct MySQL connection (bypasses fallback system)."""
+    return mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DATABASE,
+        port=MYSQL_PORT
+    )
+
+
+def init_db():
+    """Initialize database tables if they don't exist"""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            # Create users table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    linkedin_id VARCHAR(255) UNIQUE NOT NULL,
+                    email VARCHAR(255),
+                    first_name VARCHAR(100),
+                    last_name VARCHAR(100),
+                    password_hash VARCHAR(255) DEFAULT NULL,
+                    auth_type VARCHAR(20) DEFAULT 'linkedin_only',
+                    role VARCHAR(10) DEFAULT 'user',
+                    must_change_password BOOLEAN DEFAULT FALSE,
+                    failed_attempts INT DEFAULT 0,
+                    lock_until DATETIME DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+            logger.info("users table created/verified")
+
+            # Create authorized_emails table (full schema with tracking fields)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS authorized_emails (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    added_by_user_id INT,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes VARCHAR(500),
+                    CONSTRAINT fk_added_by_user FOREIGN KEY (added_by_user_id) 
+                        REFERENCES users(id) ON DELETE SET NULL,
+                    INDEX idx_email (email)
+                )
+            """)
+            logger.info("authorized_emails table created/verified")
+
+            # Seed authorized email (ignore if already exists)
+            cur.execute("""
+                INSERT IGNORE INTO authorized_emails (email)
+                VALUES (%s)
+            """, ("lamichhaneabishek451@gmail.com",))
+
+            # Create scraper_activity table (internal tracking: who scraped how much)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scraper_activity (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    profiles_scraped INT DEFAULT 0,
+                    last_scraped_at TIMESTAMP NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_scraper_email (email)
+                )
+            """)
+            logger.info("scraper_activity table created/verified")
+
+            # Seed scraper_activity with all authorized emails (initialized to 0)
+            cur.execute("""
+                INSERT IGNORE INTO scraper_activity (email)
+                SELECT email FROM authorized_emails
+            """)
+
+            # Create scrape_runs table (one row per scraper run invocation)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scrape_runs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    run_uuid VARCHAR(64) UNIQUE NOT NULL,
+                    scraper_email VARCHAR(255),
+                    scraper_mode VARCHAR(50),
+                    selected_disciplines VARCHAR(500),
+                    status VARCHAR(20) DEFAULT 'running',
+                    profiles_scraped INT DEFAULT 0,
+                    cloud_disabled BOOLEAN DEFAULT FALSE,
+                    geocode_unknown_count INT DEFAULT 0,
+                    geocode_network_failure_count INT DEFAULT 0,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP NULL,
+                    notes VARCHAR(500),
+                    INDEX idx_scrape_runs_started_at (started_at),
+                    INDEX idx_scrape_runs_email (scraper_email)
+                )
+            """)
+            logger.info("scrape_runs table created/verified")
+
+            # Create scrape_run_flags table (flagged profile reasons by run)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scrape_run_flags (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    scrape_run_id INT NOT NULL,
+                    linkedin_url VARCHAR(500) NOT NULL,
+                    reason VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_run_flag (scrape_run_id, linkedin_url, reason),
+                    INDEX idx_run_flags_url (linkedin_url),
+                    CONSTRAINT fk_run_flags_scrape_run_id
+                        FOREIGN KEY (scrape_run_id) REFERENCES scrape_runs(id)
+                        ON DELETE CASCADE
+                )
+            """)
+            logger.info("scrape_run_flags table created/verified")
+
+
+            # Create alumni table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS alumni (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    first_name VARCHAR(100),
+                    last_name VARCHAR(100),
+                    grad_year INT,
+                    degree VARCHAR(255),
+                    major VARCHAR(255) DEFAULT NULL,
+                    discipline VARCHAR(255) DEFAULT NULL,
+                    linkedin_url VARCHAR(500) NOT NULL,
+                    current_job_title VARCHAR(255),
+                    company VARCHAR(255),
+                    location VARCHAR(255),
+                    headline VARCHAR(500),
+                    school_start_date VARCHAR(20) DEFAULT NULL,
+                    job_start_date VARCHAR(20) DEFAULT NULL,
+                    job_end_date VARCHAR(20) DEFAULT NULL,
+                    working_while_studying BOOLEAN DEFAULT NULL,
+                    working_while_studying_status VARCHAR(20) DEFAULT NULL,
+                    scrape_run_id INT DEFAULT NULL,
+                    latitude DOUBLE NULL,
+                    longitude DOUBLE NULL,
+                    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_alumni_linkedin_url (linkedin_url),
+                    INDEX idx_coordinates (latitude, longitude)
+                )
+            """)
+            logger.info("alumni table created/verified")
+
+            # Create visited_profiles table (tracks ALL visited profiles, including non-UNT)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS visited_profiles (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    # We normalize the URL to ensure 'linkedin.com/in/user/' 
+                    # matches 'linkedin.com/in/user' without a slash.
+                    linkedin_url VARCHAR(500) NOT NULL UNIQUE,
+                    is_unt_alum BOOLEAN DEFAULT FALSE,
+                    last_scrape_run_id INT DEFAULT NULL,
+                    visited_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_checked DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    needs_update BOOLEAN DEFAULT FALSE,
+                    notes VARCHAR(255) DEFAULT NULL,
+                    INDEX idx_linkedin_url (linkedin_url),
+                    INDEX idx_is_unt_alum (is_unt_alum),
+                    INDEX idx_needs_update (needs_update)
+                )
+            """)
+            logger.info("visited_profiles table created/verified")
+
+            # Create user_interactions table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_interactions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    alumni_id INT NOT NULL,
+                    interaction_type ENUM('bookmarked', 'connected') NOT NULL,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_interaction (user_id, alumni_id, interaction_type),
+                    CONSTRAINT fk_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_alumni_id FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
+                )
+            """)
+            logger.info("user_interactions table created/verified")
+
+            # Create notes table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS notes (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    alumni_id INT NOT NULL,
+                    note_content LONGTEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_user_alumni (user_id, alumni_id),
+                    CONSTRAINT fk_notes_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_notes_alumni_id FOREIGN KEY (alumni_id) REFERENCES alumni(id) ON DELETE CASCADE
+                )
+            """)
+            logger.info("notes table created/verified")
+
+            # Create normalized_job_titles lookup table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS normalized_job_titles (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    normalized_title VARCHAR(255) NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_normalized_title (normalized_title)
+                )
+            """)
+            logger.info("normalized_job_titles table created/verified")
+
+            # Create normalized_degrees lookup table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS normalized_degrees (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    normalized_degree VARCHAR(255) NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_normalized_degree (normalized_degree)
+                )
+            """)
+            logger.info("normalized_degrees table created/verified")
+
+            # Create normalized_companies lookup table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS normalized_companies (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    normalized_company VARCHAR(255) NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_normalized_company (normalized_company)
+                )
+            """)
+            logger.info("normalized_companies table created/verified")
+
+            # Performance indexes for common dashboard and notes queries.
+            # MySQL variants may not support "CREATE INDEX IF NOT EXISTS", so
+            # we create directly and ignore duplicate-index errors.
+            index_definitions = [
+                ("idx_alumni_name_sort", "alumni", "last_name, first_name, id"),
+                ("idx_alumni_updated_sort", "alumni", "updated_at, id"),
+                ("idx_user_interactions_user_updated", "user_interactions", "user_id, updated_at"),
+                ("idx_user_interactions_user_alumni_type", "user_interactions", "user_id, alumni_id, interaction_type"),
+                ("idx_notes_user_alumni_lookup", "notes", "user_id, alumni_id"),
+            ]
+            for index_name, table_name, columns in index_definitions:
+                statement = f"CREATE INDEX {index_name} ON {table_name}({columns})"
+                try:
+                    cur.execute(statement)
+                except mysql.connector.Error as idx_err:
+                    # MySQL duplicate index name.
+                    if getattr(idx_err, "errno", None) == 1061 or "Duplicate key name" in str(idx_err):
+                        logger.debug(f"Index already exists: {index_name}")
+                    else:
+                        logger.warning(f"Index ensure skipped for statement '{statement}': {idx_err}")
+                except Exception as idx_err:
+                    # SQLite fallback / generic duplicate index phrasing.
+                    if "already exists" in str(idx_err).lower():
+                        logger.debug(f"Index already exists: {index_name}")
+                    else:
+                        logger.warning(f"Index ensure skipped for statement '{statement}': {idx_err}")
+            logger.info("All tables initialized successfully")
+
+    except mysql.connector.Error as err:
+        logger.error(f"Database error: {err}")
+        raise
+
+
+# ============================================================
+# MIGRATIONS / COLUMN ENSURANCE
+# ============================================================
+
+def ensure_normalized_job_title_column():
+    """
+    Ensure normalized_job_title_id column exists in alumni table.
+    This is part of our retroactive normalization strategy: first we add
+    the ID column, then we run a migration script to populate it based on 
+    raw text titles.
+    """
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni
+                    ADD COLUMN normalized_job_title_id INT DEFAULT NULL
+                """)
+                logger.info("Added normalized_job_title_id column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("normalized_job_title_id column already exists")
+                else:
+                    raise
+            except Exception as err:
+                # SQLite fallback: "duplicate column name" phrasing differs
+                if "duplicate column name" in str(err).lower():
+                    logger.info("normalized_job_title_id column already exists (SQLite)")
+                else:
+                    raise
+    except Exception as e:
+        logger.error(f"Error ensuring normalized_job_title_id column: {e}")
+
+def ensure_normalized_degree_column():
+    """Ensure normalized_degree_id and raw_degree columns exist in alumni table."""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            for col_name, col_def in [
+                ("normalized_degree_id", "INT DEFAULT NULL"),
+                ("raw_degree", "VARCHAR(255) DEFAULT NULL"),
+            ]:
+                try:
+                    cur.execute(f"""
+                        ALTER TABLE alumni
+                        ADD COLUMN {col_name} {col_def}
+                    """)
+                    logger.info(f"Added {col_name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        logger.info(f"{col_name} column already exists")
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        logger.info(f"{col_name} column already exists (SQLite)")
+                    else:
+                        raise
+    except Exception as e:
+        logger.error(f"Error ensuring degree columns: {e}")
+
+def ensure_normalized_company_column():
+    """Ensure normalized_company_id column exists in alumni table."""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni
+                    ADD COLUMN normalized_company_id INT DEFAULT NULL
+                """)
+                logger.info("Added normalized_company_id column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("normalized_company_id column already exists")
+                else:
+                    raise
+            except Exception as err:
+                if "duplicate column name" in str(err).lower():
+                    logger.info("normalized_company_id column already exists (SQLite)")
+                else:
+                    raise
+    except Exception as e:
+        logger.error(f"Error ensuring normalized_company_id column: {e}")
+
+def ensure_alumni_timestamp_columns():
+    """Ensure scraped_at and last_updated columns exist in alumni table"""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            # Add scraped_at column if it doesn't exist
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                """)
+                logger.info("Added scraped_at column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("scraped_at column already exists")
+                else:
+                    raise
+
+            # Add last_updated column if it doesn't exist
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                """)
+                logger.info("Added last_updated column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("last_updated column already exists")
+                else:
+                    raise
+    except mysql.connector.Error as err:
+        logger.error(f"Error ensuring timestamp columns: {err}")
+        raise
+
+
+def ensure_alumni_work_school_date_columns():
+    """Ensure columns for school and job dates exist in the alumni table."""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            def add_col(sql, name):
+                try:
+                    cur.execute(sql)
+                    logger.info(f"Added {name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        logger.info(f"{name} column already exists")
+                    else:
+                        raise
+
+            add_col("ALTER TABLE alumni ADD COLUMN school_start_date VARCHAR(20) DEFAULT NULL", "school_start_date")
+            add_col("ALTER TABLE alumni ADD COLUMN job_start_date VARCHAR(20) DEFAULT NULL", "job_start_date")
+            add_col("ALTER TABLE alumni ADD COLUMN job_end_date VARCHAR(20) DEFAULT NULL", "job_end_date")
+            add_col("ALTER TABLE alumni ADD COLUMN working_while_studying BOOLEAN DEFAULT NULL", "working_while_studying")
+            add_col("ALTER TABLE alumni ADD COLUMN working_while_studying_status VARCHAR(20) DEFAULT NULL", "working_while_studying_status")
+            
+            # Experience 2 and 3 columns
+            add_col("ALTER TABLE alumni ADD COLUMN exp2_title VARCHAR(255) DEFAULT NULL", "exp2_title")
+            add_col("ALTER TABLE alumni ADD COLUMN exp2_company VARCHAR(255) DEFAULT NULL", "exp2_company")
+            add_col("ALTER TABLE alumni ADD COLUMN exp2_dates VARCHAR(50) DEFAULT NULL", "exp2_dates")
+            add_col("ALTER TABLE alumni ADD COLUMN exp3_title VARCHAR(255) DEFAULT NULL", "exp3_title")
+            add_col("ALTER TABLE alumni ADD COLUMN exp3_company VARCHAR(255) DEFAULT NULL", "exp3_company")
+            add_col("ALTER TABLE alumni ADD COLUMN exp3_dates VARCHAR(50) DEFAULT NULL", "exp3_dates")
+    except mysql.connector.Error as err:
+        logger.error(f"Error ensuring work/school date columns: {err}")
+        raise
+
+
+def ensure_alumni_major_column():
+    """
+    Ensure major column exists in alumni table for major text.
+    Engineering discipline is stored in the separate `discipline` column.
+    """
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            try:
+                cur.execute("""
+                    ALTER TABLE alumni 
+                    ADD COLUMN major VARCHAR(255) DEFAULT NULL
+                """)
+                logger.info("Added major column to alumni table")
+            except mysql.connector.Error as err:
+                if "Duplicate column name" in str(err):
+                    logger.info("Major column already exists")
+                else:
+                    raise
+    except mysql.connector.Error as err:
+        logger.error(f"Error ensuring major column: {err}")
+        raise
+
+
+def ensure_education_columns():
+    """Ensure all education refactor columns exist: school*, degree*, major*, standardized_*."""
+    NEW_COLS = [
+        # Raw columns
+        ("school",                "VARCHAR(255) DEFAULT NULL"),
+        ("school2",               "VARCHAR(255) DEFAULT NULL"),
+        ("school3",               "VARCHAR(255) DEFAULT NULL"),
+        ("degree2",               "VARCHAR(255) DEFAULT NULL"),
+        ("degree3",               "VARCHAR(255) DEFAULT NULL"),
+        ("major2",                "VARCHAR(255) DEFAULT NULL"),
+        ("major3",                "VARCHAR(255) DEFAULT NULL"),
+        # Standardized columns
+        ("standardized_degree",   "VARCHAR(50) DEFAULT NULL"),
+        ("standardized_degree2",  "VARCHAR(50) DEFAULT NULL"),
+        ("standardized_degree3",  "VARCHAR(50) DEFAULT NULL"),
+        ("standardized_major",    "VARCHAR(255) DEFAULT NULL"),
+        ("standardized_major2",   "VARCHAR(255) DEFAULT NULL"),
+        ("standardized_major3",   "VARCHAR(255) DEFAULT NULL"),
+        # Secondary major for multi-entry mapping (CS&E -> CS + CE)
+        ("standardized_major_alt","VARCHAR(255) DEFAULT NULL"),
+        ("discipline",            "VARCHAR(255) DEFAULT NULL"),
+    ]
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            for col_name, col_def in NEW_COLS:
+                try:
+                    cur.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_def}")
+                    logger.info(f"Added {col_name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        pass  # already exists
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        pass  # SQLite: already exists
+                    else:
+                        raise
+
+            # Migrate: copy education → school where school is still NULL
+            try:
+                cur.execute("""
+                    UPDATE alumni
+                    SET school = education
+                    WHERE school IS NULL AND education IS NOT NULL
+                """)
+                migrated = cur.rowcount
+                if migrated:
+                    logger.info(f"Migrated {migrated} rows: education → school")
+            except Exception as e:
+                logger.warning(f"education → school migration skipped: {e}")
+            logger.info("✅ Education columns ensured")
+    except Exception as e:
+        logger.error(f"Error ensuring education columns: {e}")
+
+
+def ensure_experience_analysis_columns():
+    """Ensure columns for job relevance scoring, relevant experience months, and seniority level exist."""
+    NEW_COLS = [
+        ("job_1_relevance_score", "FLOAT DEFAULT NULL"),
+        ("job_2_relevance_score", "FLOAT DEFAULT NULL"),
+        ("job_3_relevance_score", "FLOAT DEFAULT NULL"),
+        ("job_1_is_relevant",     "BOOLEAN DEFAULT NULL"),
+        ("job_2_is_relevant",     "BOOLEAN DEFAULT NULL"),
+        ("job_3_is_relevant",     "BOOLEAN DEFAULT NULL"),
+        ("relevant_experience_months", "INT DEFAULT NULL"),
+        ("seniority_level",       "VARCHAR(20) DEFAULT NULL"),
+        ("job_employment_type",   "VARCHAR(120) DEFAULT NULL"),
+        ("exp2_employment_type",  "VARCHAR(120) DEFAULT NULL"),
+        ("exp3_employment_type",  "VARCHAR(120) DEFAULT NULL"),
+    ]
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            for col_name, col_def in NEW_COLS:
+                try:
+                    cur.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_def}")
+                    logger.info(f"Added {col_name} column to alumni table")
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        pass  # already exists
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        pass  # SQLite: already exists
+                    else:
+                        raise
+            logger.info("✅ Experience analysis columns ensured")
+    except Exception as e:
+        logger.error(f"Error ensuring experience analysis columns: {e}")
+
+
+def ensure_scrape_run_tracking_schema():
+    """Ensure scrape run tracking tables and run_id linkage columns exist."""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            # Ensure tables for run metadata and run-level flagged entries.
+            try:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_runs (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        run_uuid VARCHAR(64) UNIQUE NOT NULL,
+                        scraper_email VARCHAR(255),
+                        scraper_mode VARCHAR(50),
+                        selected_disciplines VARCHAR(500),
+                        status VARCHAR(20) DEFAULT 'running',
+                        profiles_scraped INT DEFAULT 0,
+                        cloud_disabled BOOLEAN DEFAULT FALSE,
+                        geocode_unknown_count INT DEFAULT 0,
+                        geocode_network_failure_count INT DEFAULT 0,
+                        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        completed_at TIMESTAMP NULL,
+                        notes VARCHAR(500)
+                    )
+                    """
+                )
+            except Exception:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_uuid TEXT UNIQUE NOT NULL,
+                        scraper_email TEXT,
+                        scraper_mode TEXT,
+                        selected_disciplines TEXT,
+                        status TEXT DEFAULT 'running',
+                        profiles_scraped INTEGER DEFAULT 0,
+                        cloud_disabled INTEGER DEFAULT 0,
+                        geocode_unknown_count INTEGER DEFAULT 0,
+                        geocode_network_failure_count INTEGER DEFAULT 0,
+                        started_at TEXT DEFAULT (datetime('now')),
+                        completed_at TEXT,
+                        notes TEXT
+                    )
+                    """
+                )
+
+            try:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_run_flags (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        scrape_run_id INT NOT NULL,
+                        linkedin_url VARCHAR(500) NOT NULL,
+                        reason VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_run_flag (scrape_run_id, linkedin_url, reason)
+                    )
+                    """
+                )
+            except Exception:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scrape_run_flags (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        scrape_run_id INTEGER NOT NULL,
+                        linkedin_url TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        created_at TEXT DEFAULT (datetime('now')),
+                        UNIQUE(scrape_run_id, linkedin_url, reason)
+                    )
+                    """
+                )
+
+            for statement in (
+                "ALTER TABLE alumni ADD COLUMN scrape_run_id INT DEFAULT NULL",
+                "ALTER TABLE visited_profiles ADD COLUMN last_scrape_run_id INT DEFAULT NULL",
+            ):
+                try:
+                    cur.execute(statement)
+                except mysql.connector.Error as err:
+                    if "Duplicate column name" in str(err):
+                        pass
+                    else:
+                        raise
+                except Exception as err:
+                    if "duplicate column name" in str(err).lower():
+                        pass
+                    else:
+                        raise
+            logger.info("✅ Scrape run tracking schema ensured")
+    except Exception as e:
+        logger.error(f"Error ensuring scrape run tracking schema: {e}")
+
+
+def ensure_all_alumni_schema_migrations():
+    """
+    Apply every idempotent ALTER TABLE migration for the `alumni` table.
+
+    Call this after init_db() whenever the web app (or CLI) starts. init_db()
+    only creates missing tables; it does not add new columns to existing DBs.
+    When you introduce a new alumni column, add it via a dedicated ensure_*
+    function above, then register that function here so startup stays in sync
+    with SELECT/INSERT in app code.
+    """
+    ensure_alumni_timestamp_columns()
+    ensure_alumni_work_school_date_columns()
+    ensure_alumni_major_column()
+    ensure_education_columns()
+    ensure_normalized_job_title_column()
+    ensure_normalized_degree_column()
+    ensure_normalized_company_column()
+    ensure_experience_analysis_columns()
+    ensure_scrape_run_tracking_schema()
+
+
+# ============================================================
+# VISITED PROFILES FUNCTIONS
+# ============================================================
+
+def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
+    """
+    Save a visited profile to the visited_profiles table.
+    This tracks ALL profiles we've ever visited (UNT and non-UNT).
+    """
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(cur, """
+                INSERT INTO visited_profiles (linkedin_url, is_unt_alum, visited_at, last_checked, notes)
+                VALUES (%s, %s, NOW(), NOW(), %s)
+                ON DUPLICATE KEY UPDATE
+                    is_unt_alum = VALUES(is_unt_alum),
+                    last_checked = NOW(),
+                    notes = COALESCE(VALUES(notes), notes)
+            """, (normalize_url(linkedin_url), is_unt_alum, notes), connection=conn)
+
+        logger.debug(f"Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
+        return True
+
+    except mysql.connector.Error as err:
+        logger.error(f"Error saving visited profile: {err}")
+        return False
+
+
+def get_all_visited_profiles():
+    """
+    Get all visited profiles from the visited_profiles table.
+    Returns a list of dicts with linkedin_url, is_unt_alum, visited_at, last_checked, needs_update.
+    """
+    try:
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
+            cur.execute("""
+                SELECT linkedin_url, is_unt_alum, visited_at, last_checked, needs_update
+                FROM visited_profiles
+            """)
+            profiles = cur.fetchall()
+
+        logger.info(f"Retrieved {len(profiles)} visited profiles from database")
+        return profiles
+
+    except mysql.connector.Error as err:
+        logger.error(f"Error fetching visited profiles: {err}")
+        return []
+
+
+def mark_profile_needs_update(linkedin_url, needs_update=True):
+    """Mark a profile as needing update in the visited_profiles table."""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(cur, """
+                UPDATE visited_profiles
+                SET needs_update = %s
+                WHERE linkedin_url = %s
+            """, (needs_update, linkedin_url.strip()), connection=conn)
+
+        return True
+
+    except mysql.connector.Error as err:
+        logger.error(f"Error updating profile needs_update flag: {err}")
+        return False
+
+
+def sync_alumni_to_visited_profiles():
+    """
+    Sync all existing alumni records to the visited_profiles table.
+    This ensures all UNT alumni are marked as visited.
+    """
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            # Insert all alumni into visited_profiles (if not already there)
+            cur.execute("""
+                INSERT INTO visited_profiles (linkedin_url, is_unt_alum, visited_at, last_checked)
+                SELECT linkedin_url, TRUE, COALESCE(scraped_at, NOW()), COALESCE(last_updated, NOW())
+                FROM alumni
+                WHERE linkedin_url IS NOT NULL AND linkedin_url != ''
+                ON DUPLICATE KEY UPDATE
+                    is_unt_alum = TRUE,
+                    last_checked = VALUES(last_checked)
+            """)
+            synced = cur.rowcount
+
+        logger.info(f"Synced {synced} alumni to visited_profiles table")
+        return synced
+
+    except mysql.connector.Error as err:
+        logger.error(f"Error syncing alumni to visited_profiles: {err}")
+        return 0
+
+
+def migrate_visited_history_csv_to_db():
+    """
+    One-time migration: Import visited_history.csv into the visited_profiles table.
+    This preserves all the non-UNT profiles we've already visited.
+    """
+    # Find the CSV file
+    backend_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+    project_root = backend_dir.parent
+    csv_path = project_root / 'scraper' / 'output' / 'visited_history.csv'
+
+    if not csv_path.exists():
+        logger.info("No visited_history.csv found to migrate")
+        return 0
+
+    try:
+        df = pd.read_csv(csv_path)
+        logger.info(f"📂 Migrating {len(df)} entries from visited_history.csv to database...")
+
+        migrated = 0
+
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            for _, row in df.iterrows():
+                url = normalize_url(row.get('profile_url'))
+                if not url:
+                    continue
+
+                saved = str(row.get('saved', 'no')).strip().lower() == 'yes'
+                visited_at = row.get('visited_at', None)
+
+                # Handle NaN/empty visited_at
+                if pd.isna(visited_at) or visited_at == 'nan' or visited_at == '':
+                    visited_at = None
+
+                try:
+                    cur.execute("""
+                        INSERT INTO visited_profiles (linkedin_url, is_unt_alum, visited_at, last_checked)
+                        VALUES (%s, %s, %s, NOW())
+                        ON DUPLICATE KEY UPDATE
+                            is_unt_alum = GREATEST(is_unt_alum, VALUES(is_unt_alum)),
+                            last_checked = NOW()
+                    """, (url, saved, visited_at))
+                    migrated += 1
+                except mysql.connector.Error as err:
+                    logger.warning(f"Skipping {url}: {err}")
+                    continue
+
+        logger.info(f"Migrated {migrated} profiles from CSV to database")
+        return migrated
+
+    except Exception as e:
+        logger.error(f"Error migrating visited history: {e}")
+        return 0
+
+
+def get_visited_profiles_stats():
+    """Get statistics about visited profiles."""
+    try:
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(is_unt_alum) as unt_alumni,
+                    SUM(CASE WHEN is_unt_alum = 0 THEN 1 ELSE 0 END) as non_unt,
+                    SUM(needs_update) as needs_update
+                FROM visited_profiles
+            """)
+            stats = cur.fetchone()
+
+        return stats
+
+    except mysql.connector.Error as err:
+        logger.error(f"Error getting visited profiles stats: {err}")
+        return None
+
+
+# ============================================================
+# AUTHORIZED EMAILS FUNCTIONS
+# ============================================================
+
+def get_authorized_emails():
+    """
+    Get all authorized emails from the database.
+    Returns a list of dicts with email, added_at, added_by_user_id, and notes.
+    """
+    try:
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
+            cur.execute("""
+                SELECT email, added_at, added_by_user_id, notes
+                FROM authorized_emails
+                ORDER BY added_at DESC
+            """)
+            emails = cur.fetchall()
+        
+        # Convert datetime objects to strings for JSON serialization
+        for email_record in emails:
+            added_at = email_record.get('added_at')
+            if hasattr(added_at, 'isoformat'):
+                email_record['added_at'] = added_at.isoformat()
+        
+        return emails
+    except Exception as err:
+        logger.error(f"Error fetching authorized emails: {err}")
+        return []
+
+
+def is_email_authorized(email):
+    """
+    Fast existence check for authorized email whitelist membership.
+    Returns True if email exists in authorized_emails, otherwise False.
+    """
+    if not email:
+        return False
+
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection) as (conn, cur):
+            execute_sql(
+                cur,
+                "SELECT 1 FROM authorized_emails WHERE LOWER(email) = LOWER(%s) LIMIT 1",
+                (email,),
+                connection=conn,
+            )
+            row = cur.fetchone()
+
+        return bool(row)
+    except Exception as err:
+        logger.error(f"Error checking authorized email {email}: {err}")
+        return False
+
+
+def add_authorized_email(email, added_by_user_id=None, notes=None):
+    """
+    Add an email to the authorized emails list.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(cur, """
+                INSERT INTO authorized_emails (email, added_by_user_id, notes)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    notes = VALUES(notes),
+                    added_by_user_id = VALUES(added_by_user_id)
+            """, (email, added_by_user_id, notes), connection=conn, sqlite_query="""
+                INSERT INTO authorized_emails (email, added_by_user_id, notes, added_at)
+                VALUES (?, ?, ?, datetime('now'))
+                ON CONFLICT(email) DO UPDATE SET
+                    notes = excluded.notes,
+                    added_by_user_id = excluded.added_by_user_id
+            """)
+        
+        logger.info(f"Added authorized email: {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error adding authorized email {email}: {err}")
+        return False
+
+
+def remove_authorized_email(email):
+    """
+    Remove an email from the authorized emails list.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "DELETE FROM authorized_emails WHERE email = %s",
+                (email,),
+                connection=conn,
+            )
+        
+        logger.info(f"Removed authorized email: {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error removing authorized email {email}: {err}")
+        return False
+
+
+def migrate_env_emails_to_db():
+    """
+    One-time migration: Import authorized emails from .env to database.
+    Reads AUTHORIZED_EMAILS from environment and adds them to the database.
+    """
+    env_emails = os.getenv('AUTHORIZED_EMAILS', '')
+    if not env_emails:
+        logger.info("No authorized emails in .env to migrate")
+        return 0
+    
+    emails = [e.strip().lower() for e in env_emails.split(',') if e.strip()]
+    if not emails:
+        logger.info("No valid authorized emails in .env to migrate")
+        return 0
+    
+    logger.info(f"Migrating {len(emails)} authorized emails from .env to database...")
+    migrated = 0
+    
+    for email in emails:
+        if add_authorized_email(email, added_by_user_id=None, notes="Migrated from .env"):
+            migrated += 1
+    
+    logger.info(f"✅ Migrated {migrated}/{len(emails)} authorized emails to database")
+    return migrated
+
+
+# ============================================================
+# AUTH: USER MANAGEMENT
+# ============================================================
+
+def get_user_by_email(email):
+    """
+    Fetch a user row by email.  Returns dict or None.
+    Used by the login and session flows (see backend/app.py § /api/auth/login).
+    """
+    if not email:
+        return None
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection, dictionary=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "SELECT * FROM users WHERE LOWER(email) = LOWER(%s)",
+                (email,),
+                connection=conn,
+            )
+            return cur.fetchone()
+    except Exception as err:
+        logger.error(f"Error fetching user by email {email}: {err}")
+        return None
+
+
+def create_user_with_password(email, password_hash, role="user"):
+    """
+    Create a new user with email/password auth.
+    Caller must verify whitelist *before* calling this function.
+    Returns True on success.
+    """
+    if not email:
+        return False
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                """INSERT INTO users
+                   (email, linkedin_id, password_hash, auth_type, role, must_change_password)
+                   VALUES (%s, %s, %s, 'email_password', %s, FALSE)""",
+                (email, f"email_{email}", password_hash, role),
+                connection=conn,
+                sqlite_query="""INSERT INTO users
+                   (email, linkedin_id, password_hash, auth_type, role, must_change_password)
+                   VALUES (?, ?, ?, 'email_password', ?, 0)""",
+            )
+
+        logger.info(f"Created user {email} with role={role}")
+        return True
+    except Exception as err:
+        logger.error(f"Error creating user {email}: {err}")
+        return False
+
+
+def update_user_password(email, password_hash, auth_type=None):
+    """
+    Update a user's password hash.  Optionally update auth_type
+    (e.g. 'both' when a LinkedIn user creates a password).
+    """
+    if not email:
+        return False
+    try:
+        email = email.lower().strip()
+        if auth_type:
+            sql_sqlite = "UPDATE users SET password_hash = ?, auth_type = ?, must_change_password = 0 WHERE LOWER(email) = LOWER(?)"
+            sql_mysql = "UPDATE users SET password_hash = %s, auth_type = %s, must_change_password = FALSE WHERE LOWER(email) = LOWER(%s)"
+            params = (password_hash, auth_type, email)
+        else:
+            sql_sqlite = "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE LOWER(email) = LOWER(?)"
+            sql_mysql = "UPDATE users SET password_hash = %s, must_change_password = FALSE WHERE LOWER(email) = LOWER(%s)"
+            params = (password_hash, email)
+
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                sql_mysql,
+                params,
+                connection=conn,
+                sqlite_query=sql_sqlite,
+            )
+
+        logger.info(f"Updated password for {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error updating password for {email}: {err}")
+        return False
+
+
+def set_must_change_password(email, value=True):
+    """Set the must_change_password flag for a user."""
+    if not email:
+        return False
+    try:
+        email = email.lower().strip()
+        bool_val = 1 if value else 0
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "UPDATE users SET must_change_password = %s WHERE LOWER(email) = LOWER(%s)",
+                (value, email),
+                connection=conn,
+                sqlite_query="UPDATE users SET must_change_password = ? WHERE LOWER(email) = LOWER(?)",
+            )
+
+        return True
+    except Exception as err:
+        logger.error(f"Error setting must_change_password for {email}: {err}")
+        return False
+
+
+def update_user_role(email, role):
+    """Set the role ('admin' or 'user') for a user."""
+    if role not in ("admin", "user"):
+        return False
+    if not email:
+        return False
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "UPDATE users SET role = %s WHERE LOWER(email) = LOWER(%s)",
+                (role, email),
+                connection=conn,
+                sqlite_query="UPDATE users SET role = ? WHERE LOWER(email) = LOWER(?)",
+            )
+
+        logger.info(f"Updated role for {email} to {role}")
+        return True
+    except Exception as err:
+        logger.error(f"Error updating role for {email}: {err}")
+        return False
+
+
+def get_all_users():
+    """Return all user rows (admin dashboard). Sensitive fields omitted."""
+    try:
+        sql = """SELECT id, email, first_name, last_name, auth_type, role,
+                        must_change_password, created_at
+                 FROM users ORDER BY email"""
+
+        with managed_db_cursor(get_connection, dictionary=True) as (conn, cur):
+            execute_sql(cur, sql, connection=conn)
+            rows = cur.fetchall()
+
+        # Serialize datetimes
+        for row in rows:
+            for key in ("created_at",):
+                val = row.get(key)
+                if hasattr(val, "isoformat"):
+                    row[key] = val.isoformat()
+            # Coerce must_change_password to bool for JSON
+            row["must_change_password"] = bool(row.get("must_change_password"))
+
+        return rows
+    except Exception as err:
+        logger.error(f"Error fetching all users: {err}")
+        return []
+
+
+def delete_user(email):
+    """Remove a user by email."""
+    if not email:
+        return False
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "DELETE FROM users WHERE LOWER(email) = LOWER(%s)",
+                (email,),
+                connection=conn,
+            )
+
+        logger.info(f"Deleted user {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error deleting user {email}: {err}")
+        return False
+
+
+def admin_reset_password(email):
+    """
+    Admin resets a user's password: clear the hash and flag for change.
+    """
+    if not email:
+        return False
+    try:
+        email = email.lower().strip()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "UPDATE users SET password_hash = NULL, must_change_password = TRUE WHERE LOWER(email) = LOWER(%s)",
+                (email,),
+                connection=conn,
+                sqlite_query="UPDATE users SET password_hash = NULL, must_change_password = 1 WHERE LOWER(email) = LOWER(?)",
+            )
+
+        logger.info(f"Admin reset password for {email}")
+        return True
+    except Exception as err:
+        logger.error(f"Error in admin_reset_password for {email}: {err}")
+        return False
+
+
+
+def increment_scraper_activity(email):
+    """
+    Increment the profiles_scraped counter for a scraper email.
+    Upserts: if the email doesn't exist yet, creates a new row.
+    Works with both MySQL and SQLite fallback.
+    Always mirrors to local SQLite so the GUI can display counts offline.
+    """
+    if not email:
+        return
+    email = email.strip().lower()
+    wrote_to_sqlite_via_primary = False
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
+            execute_sql(
+                cur,
+                """
+                    INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
+                    VALUES (%s, 1, NOW())
+                    ON DUPLICATE KEY UPDATE
+                        profiles_scraped = profiles_scraped + 1,
+                        last_scraped_at = NOW()
+                """,
+                (email,),
+                connection=conn,
+                sqlite_query="""
+                    INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
+                    VALUES (?, 1, datetime('now'))
+                    ON CONFLICT(email) DO UPDATE SET
+                        profiles_scraped = profiles_scraped + 1,
+                        last_scraped_at = datetime('now')
+                """,
+            )
+            if is_sqlite_routed:
+                wrote_to_sqlite_via_primary = True
+    except Exception as err:
+        logger.error(f"Error incrementing scraper activity for {email}: {err}")
+
+    # Mirror to local SQLite so GUI scrape count works offline.
+    # Skip if the primary write already went to SQLite (avoid double-count).
+    if not wrote_to_sqlite_via_primary:
+        try:
+            from sqlite_fallback import get_connection_manager
+            manager = get_connection_manager()
+            sqlite_conn = manager.get_sqlite_connection()
+            try:
+                sqlite_conn.execute("""
+                    INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
+                    VALUES (?, 1, datetime('now'))
+                    ON CONFLICT(email) DO UPDATE SET
+                        profiles_scraped = profiles_scraped + 1,
+                        last_scraped_at = datetime('now')
+                """, (email,))
+                sqlite_conn.commit()
+            finally:
+                try:
+                    sqlite_conn.close()
+                except Exception:
+                    pass
+        except Exception as sqlite_err:
+            logger.debug(f"SQLite mirror of scraper activity skipped: {sqlite_err}")
+
+
+def get_scraper_activity():
+    """
+    Get all scraper activity records.
+    Returns a list of dicts with email, profiles_scraped, last_scraped_at, created_at.
+    Works with both MySQL and SQLite fallback.
+    """
+    try:
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
+            cur.execute("""
+                SELECT email, profiles_scraped, last_scraped_at, created_at
+                FROM scraper_activity
+                ORDER BY profiles_scraped DESC
+            """)
+            rows = cur.fetchall()
+
+        # Convert datetime objects to strings for JSON serialization
+        for row in rows:
+            for key in ('last_scraped_at', 'created_at'):
+                val = row.get(key)
+                if hasattr(val, 'isoformat'):
+                    row[key] = val.isoformat()
+
+        return rows
+    except Exception as err:
+        logger.error(f"Error fetching scraper activity: {err}")
+        return []
+
+
+def create_scrape_run(run_uuid, scraper_email=None, scraper_mode=None, selected_disciplines=None):
+    """Create a scrape run metadata row and return the numeric run id."""
+    if not run_uuid:
+        return None
+
+    selected_text = None
+    if isinstance(selected_disciplines, (list, tuple, set)):
+        selected_text = ",".join([str(x).strip() for x in selected_disciplines if str(x).strip()]) or None
+    elif selected_disciplines:
+        selected_text = str(selected_disciplines).strip() or None
+
+    clean_email = _clean_optional_text(scraper_email)
+    try:
+        ensure_scrape_run_tracking_schema()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            if clean_email:
+                execute_sql(
+                    cur,
+                    """
+                    UPDATE scrape_runs
+                    SET status = 'interrupted',
+                        completed_at = NOW(),
+                        notes = %s
+                    WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(%s)
+                      AND LOWER(COALESCE(status, '')) = 'running'
+                      AND run_uuid <> %s
+                    """,
+                    ("Auto-closed due to newer run start", clean_email, run_uuid),
+                    connection=conn,
+                    sqlite_query="""
+                    UPDATE scrape_runs
+                    SET status = 'interrupted',
+                        completed_at = datetime('now'),
+                        notes = ?
+                    WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(?)
+                      AND LOWER(COALESCE(status, '')) = 'running'
+                      AND run_uuid <> ?
+                    """,
+                )
+            execute_sql(
+                cur,
+                """
+                INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
+                VALUES (%s, %s, %s, %s, 'running')
+                ON DUPLICATE KEY UPDATE
+                    scraper_email = VALUES(scraper_email),
+                    scraper_mode = VALUES(scraper_mode),
+                    selected_disciplines = VALUES(selected_disciplines),
+                    status = 'running'
+                """,
+                (run_uuid, clean_email, _clean_optional_text(scraper_mode), selected_text),
+                connection=conn,
+                sqlite_query="""
+                INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
+                VALUES (?, ?, ?, ?, 'running')
+                ON CONFLICT(run_uuid) DO UPDATE SET
+                    scraper_email = excluded.scraper_email,
+                    scraper_mode = excluded.scraper_mode,
+                    selected_disciplines = excluded.selected_disciplines,
+                    status = 'running'
+                """,
+            )
+            execute_sql(
+                cur,
+                "SELECT id FROM scrape_runs WHERE run_uuid = %s",
+                (run_uuid,),
+                connection=conn,
+            )
+            row = cur.fetchone()
+            run_id = row[0] if row and not isinstance(row, dict) else (row or {}).get("id")
+            return run_id
+    except Exception as err:
+        logger.warning(f"Could not create scrape run metadata for run_uuid={run_uuid}: {err}")
+        return None
+
+
+def finalize_scrape_run(
+    run_id,
+    status="completed",
+    profiles_scraped=0,
+    cloud_disabled=False,
+    geocode_unknown_count=0,
+    geocode_network_failure_count=0,
+    notes=None,
+):
+    """Finalize scrape run metadata after a run exits."""
+    if not run_id:
+        return False
+
+    try:
+        ensure_scrape_run_tracking_schema()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                """
+                UPDATE scrape_runs
+                SET status = %s,
+                    profiles_scraped = %s,
+                    cloud_disabled = %s,
+                    geocode_unknown_count = %s,
+                    geocode_network_failure_count = %s,
+                    completed_at = NOW(),
+                    notes = %s
+                WHERE id = %s
+                """,
+                (
+                    _clean_optional_text(status) or "completed",
+                    int(profiles_scraped or 0),
+                    bool(cloud_disabled),
+                    int(geocode_unknown_count or 0),
+                    int(geocode_network_failure_count or 0),
+                    _clean_optional_text(notes),
+                    int(run_id),
+                ),
+                connection=conn,
+                sqlite_query="""
+                UPDATE scrape_runs
+                SET status = ?,
+                    profiles_scraped = ?,
+                    cloud_disabled = ?,
+                    geocode_unknown_count = ?,
+                    geocode_network_failure_count = ?,
+                    completed_at = datetime('now'),
+                    notes = ?
+                WHERE id = ?
+                """,
+            )
+            return True
+    except Exception as err:
+        logger.warning(f"Could not finalize scrape run id={run_id}: {err}")
+        return False
+
+
+def increment_scrape_run_profiles(run_id, delta=1):
+    """Increment profiles_scraped for an active scrape run in real time.
+    Always mirrors to local SQLite so run history shows correct counts offline.
+    """
+    if not run_id:
+        return False
+
+    wrote_to_sqlite_via_primary = False
+    try:
+        ensure_scrape_run_tracking_schema()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
+            execute_sql(
+                cur,
+                """
+                UPDATE scrape_runs
+                SET profiles_scraped = COALESCE(profiles_scraped, 0) + %s
+                WHERE id = %s
+                """,
+                (int(delta or 1), int(run_id)),
+                connection=conn,
+                sqlite_query="""
+                UPDATE scrape_runs
+                SET profiles_scraped = COALESCE(profiles_scraped, 0) + ?
+                WHERE id = ?
+                """,
+            )
+            if is_sqlite_routed:
+                wrote_to_sqlite_via_primary = True
+            return True
+    except Exception as err:
+        logger.debug(f"Could not increment scrape run profiles for run_id={run_id}: {err}")
+        return False
+    finally:
+        # Mirror to local SQLite (skip if primary was already SQLite)
+        if not wrote_to_sqlite_via_primary:
+            try:
+                from sqlite_fallback import get_connection_manager
+                manager = get_connection_manager()
+                sqlite_conn = manager.get_sqlite_connection()
+                try:
+                    sqlite_conn.execute(
+                        """
+                        UPDATE scrape_runs
+                        SET profiles_scraped = COALESCE(profiles_scraped, 0) + ?
+                        WHERE id = ?
+                        """,
+                        (int(delta or 1), int(run_id)),
+                    )
+                    sqlite_conn.commit()
+                finally:
+                    try:
+                        sqlite_conn.close()
+                    except Exception:
+                        pass
+            except Exception as sqlite_err:
+                logger.debug(f"SQLite mirror of scrape run profiles skipped: {sqlite_err}")
+
+
+def record_scrape_run_flag(run_id, linkedin_url, reason):
+    """Record a flagged profile reason against the scrape run."""
+    normalized_url = normalize_url(linkedin_url)
+    if not run_id or not normalized_url or not reason:
+        return False
+
+    try:
+        ensure_scrape_run_tracking_schema()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                """
+                INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+                """,
+                (int(run_id), normalized_url, str(reason).strip()),
+                connection=conn,
+                sqlite_query="""
+                INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
+                VALUES (?, ?, ?)
+                ON CONFLICT(scrape_run_id, linkedin_url, reason) DO NOTHING
+                """,
+            )
+            return True
+    except Exception as err:
+        logger.debug(f"Could not record scrape run flag for run_id={run_id}: {err}")
+        return False
+
+
+def _build_alumni_upsert_payload(profile_data):
+    """Normalize a scraped profile dict into the alumni upsert payload."""
+    if not isinstance(profile_data, dict):
+        return None
+
+    profile_url = normalize_url(profile_data.get('profile_url'))
+    name = _normalize_person_name(profile_data.get('name'))
+    if not profile_url or not name:
+        return None
+
+    name_parts = name.split()
+    first_name = name_parts[0] if name_parts else ''
+    last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
+
+    grad_year, school_start_date = _normalize_primary_education_dates(
+        profile_data.get('graduation_year'),
+        profile_data.get('school_start_date'),
+    )
+
+    payload = {
+        'first_name': first_name,
+        'last_name': last_name,
+        'grad_year': grad_year,
+        'degree': _clean_optional_text(profile_data.get('degree')),
+        'major': _clean_optional_text(profile_data.get('major')),
+        'discipline': _clean_optional_text(profile_data.get('discipline')),
+        'linkedin_url': profile_url,
+        'current_job_title': _clean_optional_text(profile_data.get('job_title')),
+        'company': _clean_optional_text(profile_data.get('company')),
+        'location': _clean_optional_text(profile_data.get('location')),
+        'latitude': _parse_float(profile_data.get('latitude')),
+        'longitude': _parse_float(profile_data.get('longitude')),
+        'headline': _clean_optional_text(profile_data.get('headline')),
+        'school_start_date': school_start_date,
+        'job_start_date': _clean_optional_text(profile_data.get('job_start_date')),
+        'job_end_date': _clean_optional_text(profile_data.get('job_end_date')),
+        'working_while_studying': _parse_bool(profile_data.get('working_while_studying')),
+        'working_while_studying_status': _clean_optional_text(profile_data.get('working_while_studying_status')),
+        'scrape_run_id': _parse_int(profile_data.get('scrape_run_id')),
+        'exp2_title': _clean_optional_text(profile_data.get('exp2_title')),
+        'exp2_company': _clean_optional_text(profile_data.get('exp2_company')),
+        'exp2_dates': _clean_optional_text(profile_data.get('exp2_dates')),
+        'exp3_title': _clean_optional_text(profile_data.get('exp3_title')),
+        'exp3_company': _clean_optional_text(profile_data.get('exp3_company')),
+        'exp3_dates': _clean_optional_text(profile_data.get('exp3_dates')),
+        'job_employment_type': _clean_optional_text(profile_data.get('job_employment_type')),
+        'exp2_employment_type': _clean_optional_text(profile_data.get('exp2_employment_type')),
+        'exp3_employment_type': _clean_optional_text(profile_data.get('exp3_employment_type')),
+        'school': _clean_optional_text(profile_data.get('school') or profile_data.get('education')),
+        'school2': _clean_optional_text(profile_data.get('school2')),
+        'school3': _clean_optional_text(profile_data.get('school3')),
+        'degree2': _clean_optional_text(profile_data.get('degree2')),
+        'degree3': _clean_optional_text(profile_data.get('degree3')),
+        'major2': _clean_optional_text(profile_data.get('major2')),
+        'major3': _clean_optional_text(profile_data.get('major3')),
+        'standardized_degree': _clean_optional_text(profile_data.get('standardized_degree')),
+        'standardized_degree2': _clean_optional_text(profile_data.get('standardized_degree2')),
+        'standardized_degree3': _clean_optional_text(profile_data.get('standardized_degree3')),
+        'standardized_major': _clean_optional_text(profile_data.get('standardized_major')),
+        'standardized_major_alt': _clean_optional_text(profile_data.get('standardized_major_alt')),
+        'standardized_major2': _clean_optional_text(profile_data.get('standardized_major2')),
+        'standardized_major3': _clean_optional_text(profile_data.get('standardized_major3')),
+        'scraped_at': _clean_optional_text(profile_data.get('scraped_at')),
+        'normalized_job_title': _clean_optional_text(profile_data.get('normalized_job_title')),
+        'normalized_company': _clean_optional_text(profile_data.get('normalized_company')),
+        'job_1_relevance_score': _parse_float(profile_data.get('job_1_relevance_score')),
+        'job_2_relevance_score': _parse_float(profile_data.get('job_2_relevance_score')),
+        'job_3_relevance_score': _parse_float(profile_data.get('job_3_relevance_score')),
+        'job_1_is_relevant': _parse_bool(profile_data.get('job_1_is_relevant')),
+        'job_2_is_relevant': _parse_bool(profile_data.get('job_2_is_relevant')),
+        'job_3_is_relevant': _parse_bool(profile_data.get('job_3_is_relevant')),
+        'relevant_experience_months': _parse_int(profile_data.get('relevant_experience_months')),
+        'seniority_level': _clean_optional_text(profile_data.get('seniority_level')),
+    }
+
+    major, discipline, _ = _sanitize_major_and_discipline(
+        major=payload.get('major'),
+        standardized_major=payload.get('standardized_major'),
+        discipline=payload.get('discipline'),
+    )
+    payload['major'] = major
+    payload['discipline'] = discipline
+
+    return payload
+
+
+def _upsert_alumni_payload(cur, payload):
+    """Execute alumni upsert for a normalized payload using an active cursor."""
+    norm_title_id = _get_or_create_normalized_entity(
+        cur,
+        'normalized_job_titles',
+        'normalized_title',
+        payload.get('normalized_job_title'),
+    )
+    norm_company_id = _get_or_create_normalized_entity(
+        cur,
+        'normalized_companies',
+        'normalized_company',
+        payload.get('normalized_company'),
+    )
+
+    cur.execute(
+        """
+        INSERT INTO alumni
+        (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, latitude, longitude, headline,
+         school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status, scrape_run_id,
+         exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
+         job_employment_type, exp2_employment_type, exp3_employment_type,
+         school, school2, school3, degree2, degree3, major2, major3,
+         standardized_degree, standardized_degree2, standardized_degree3,
+         standardized_major, standardized_major_alt, standardized_major2, standardized_major3,
+         scraped_at, last_updated, normalized_job_title_id, normalized_company_id,
+         job_1_relevance_score, job_2_relevance_score, job_3_relevance_score,
+         job_1_is_relevant, job_2_is_relevant, job_3_is_relevant,
+         relevant_experience_months, seniority_level)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s)
+        ON DUPLICATE KEY UPDATE
+            first_name=VALUES(first_name),
+            last_name=VALUES(last_name),
+            grad_year=VALUES(grad_year),
+            degree=VALUES(degree),
+            major=VALUES(major),
+            discipline=COALESCE(NULLIF(VALUES(discipline), ''), discipline),
+            current_job_title=VALUES(current_job_title),
+            company=VALUES(company),
+            location=VALUES(location),
+            latitude=COALESCE(VALUES(latitude), latitude),
+            longitude=COALESCE(VALUES(longitude), longitude),
+            headline=VALUES(headline),
+            school_start_date=VALUES(school_start_date),
+            job_start_date=VALUES(job_start_date),
+            job_end_date=VALUES(job_end_date),
+            working_while_studying=VALUES(working_while_studying),
+            working_while_studying_status=VALUES(working_while_studying_status),
+            scrape_run_id=COALESCE(VALUES(scrape_run_id), scrape_run_id),
+            exp2_title=VALUES(exp2_title),
+            exp2_company=VALUES(exp2_company),
+            exp2_dates=VALUES(exp2_dates),
+            exp3_title=VALUES(exp3_title),
+            exp3_company=VALUES(exp3_company),
+            exp3_dates=VALUES(exp3_dates),
+            job_employment_type=VALUES(job_employment_type),
+            exp2_employment_type=VALUES(exp2_employment_type),
+            exp3_employment_type=VALUES(exp3_employment_type),
+            school=VALUES(school),
+            school2=VALUES(school2),
+            school3=VALUES(school3),
+            degree2=VALUES(degree2),
+            degree3=VALUES(degree3),
+            major2=VALUES(major2),
+            major3=VALUES(major3),
+            standardized_degree=VALUES(standardized_degree),
+            standardized_degree2=VALUES(standardized_degree2),
+            standardized_degree3=VALUES(standardized_degree3),
+            standardized_major=VALUES(standardized_major),
+            standardized_major_alt=VALUES(standardized_major_alt),
+            standardized_major2=VALUES(standardized_major2),
+            standardized_major3=VALUES(standardized_major3),
+            last_updated=VALUES(last_updated),
+            normalized_job_title_id=VALUES(normalized_job_title_id),
+            normalized_company_id=VALUES(normalized_company_id),
+            job_1_relevance_score=VALUES(job_1_relevance_score),
+            job_2_relevance_score=VALUES(job_2_relevance_score),
+            job_3_relevance_score=VALUES(job_3_relevance_score),
+            job_1_is_relevant=VALUES(job_1_is_relevant),
+            job_2_is_relevant=VALUES(job_2_is_relevant),
+            job_3_is_relevant=VALUES(job_3_is_relevant),
+            relevant_experience_months=VALUES(relevant_experience_months),
+            seniority_level=VALUES(seniority_level)
+        """,
+        (
+            payload.get('first_name'),
+            payload.get('last_name'),
+            payload.get('grad_year'),
+            payload.get('degree'),
+            payload.get('major'),
+            payload.get('discipline'),
+            payload.get('linkedin_url'),
+            payload.get('current_job_title'),
+            payload.get('company'),
+            payload.get('location'),
+            payload.get('latitude'),
+            payload.get('longitude'),
+            payload.get('headline'),
+            payload.get('school_start_date'),
+            payload.get('job_start_date'),
+            payload.get('job_end_date'),
+            payload.get('working_while_studying'),
+            payload.get('working_while_studying_status'),
+            payload.get('scrape_run_id'),
+            payload.get('exp2_title'),
+            payload.get('exp2_company'),
+            payload.get('exp2_dates'),
+            payload.get('exp3_title'),
+            payload.get('exp3_company'),
+            payload.get('exp3_dates'),
+            payload.get('job_employment_type'),
+            payload.get('exp2_employment_type'),
+            payload.get('exp3_employment_type'),
+            payload.get('school'),
+            payload.get('school2'),
+            payload.get('school3'),
+            payload.get('degree2'),
+            payload.get('degree3'),
+            payload.get('major2'),
+            payload.get('major3'),
+            payload.get('standardized_degree'),
+            payload.get('standardized_degree2'),
+            payload.get('standardized_degree3'),
+            payload.get('standardized_major'),
+            payload.get('standardized_major_alt'),
+            payload.get('standardized_major2'),
+            payload.get('standardized_major3'),
+            payload.get('scraped_at'),
+            payload.get('scraped_at'),
+            norm_title_id,
+            norm_company_id,
+            payload.get('job_1_relevance_score'),
+            payload.get('job_2_relevance_score'),
+            payload.get('job_3_relevance_score'),
+            payload.get('job_1_is_relevant'),
+            payload.get('job_2_is_relevant'),
+            payload.get('job_3_is_relevant'),
+            payload.get('relevant_experience_months'),
+            payload.get('seniority_level'),
+        ),
+    )
+
+
+def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
+    """
+    Persist one scraped profile immediately.
+
+        Behavior:
+        - Attempts cloud write when allowed and DISABLE_DB != 1.
+    - Also mirrors to local SQLite when fallback module is available, so local backup
+      stays current even when cloud is reachable.
+    """
+    payload = _build_alumni_upsert_payload(profile_data)
+    if not payload:
+        return False
+
+    if run_id is not None and payload.get("scrape_run_id") is None:
+        payload["scrape_run_id"] = _parse_int(run_id)
+
+    status = {
+        "cloud_attempted": False,
+        "cloud_written": False,
+        "sqlite_written": False,
+        "cloud_routed_to_sqlite": False,
+        "cloud_queued": False,
+        "cloud_mode": "not_attempted",
+        "cloud_reason": "",
+    }
+
+    disable_db = os.getenv("DISABLE_DB", "0") == "1"
+    should_attempt_cloud = allow_cloud and not disable_db
+    if disable_db:
+        status["cloud_reason"] = "DISABLE_DB=1"
+    elif not allow_cloud:
+        status["cloud_reason"] = "cloud_disabled_for_run"
+
+    wrote_primary = False
+    conn = None
+    if should_attempt_cloud:
+        status["cloud_attempted"] = True
+        try:
+            conn = get_connection()
+            is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
+            with conn.cursor() as cur:
+                _upsert_alumni_payload(cur, payload)
+            conn.commit()
+            wrote_primary = True
+            if is_sqlite_routed:
+                status["sqlite_written"] = True
+                status["cloud_routed_to_sqlite"] = True
+                status["cloud_mode"] = "routed_to_sqlite"
+                status["cloud_reason"] = "cloud_unreachable"
+                # When cloud is unreachable and writes are routed to SQLite fallback,
+                # queue this upsert for later cloud synchronization.
+                try:
+                    manager = getattr(conn, "_manager", None)
+                    if manager:
+                        manager.record_pending_change(
+                            table_name="alumni",
+                            primary_key={"linkedin_url": payload.get("linkedin_url")},
+                            operation="INSERT",
+                            old_data=None,
+                            new_data=payload,
+                        )
+                        status["cloud_queued"] = True
+                except Exception as queue_err:
+                    logger.debug(
+                        f"Pending cloud-sync queueing skipped for {payload.get('linkedin_url')}: {queue_err}"
+                    )
+            else:
+                status["cloud_written"] = True
+                status["cloud_mode"] = "cloud_written"
+                status["cloud_reason"] = ""
+        except Exception as err:
+            status["cloud_mode"] = "cloud_failed"
+            status["cloud_reason"] = str(err)
+            logger.warning(f"Primary DB upsert failed for {payload.get('linkedin_url')}: {err}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    # Mirror to local SQLite when possible so offline backup is always fresh.
+    wrote_sqlite_mirror = False
+    try:
+        from sqlite_fallback import get_connection_manager, SQLiteConnectionWrapper
+
+        manager = get_connection_manager()
+        sqlite_conn = SQLiteConnectionWrapper(manager.get_sqlite_connection(), manager)
+        try:
+            with sqlite_conn.cursor() as cur:
+                _upsert_alumni_payload(cur, payload)
+            sqlite_conn.commit()
+            wrote_sqlite_mirror = True
+            status["sqlite_written"] = True
+        finally:
+            try:
+                sqlite_conn.close()
+            except Exception:
+                pass
+
+        # Queue for cloud sync if the primary write didn't go to cloud
+        # (e.g., cloud disabled after 5 consecutive failures, or DISABLE_DB=1)
+        if not status.get("cloud_written") and not status.get("cloud_queued"):
+            try:
+                manager.record_pending_change(
+                    table_name="alumni",
+                    primary_key={"linkedin_url": payload.get("linkedin_url")},
+                    operation="INSERT",
+                    old_data=None,
+                    new_data=payload,
+                    force=True,  # Queue even when not officially offline
+                )
+                status["cloud_queued"] = True
+            except Exception as queue_err:
+                logger.debug(
+                    f"Pending cloud-sync queueing skipped for {payload.get('linkedin_url')}: {queue_err}"
+                )
+    except Exception as err:
+        logger.debug(f"SQLite mirror upsert skipped for {payload.get('linkedin_url')}: {err}")
+
+    if wrote_primary or wrote_sqlite_mirror:
+        return status
+    return status
+
+
+# ============================================================
+# EXISTING FUNCTIONS
+# ============================================================
+
+def seed_alumni_data():
+    """Import alumni data from CSV file"""
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(backend_dir)
+    csv_path = os.path.join(project_root, 'scraper', 'output', 'UNT_Alumni_Data.csv')
+
+    if not os.path.exists(csv_path):
+        logger.warning(f"CSV file not found at {csv_path}, skipping import")
+        return
+
+    try:
+        df = pd.read_csv(csv_path)
+        logger.info(f"✅ Importing alumni data from {csv_path}")
+        logger.info(f"📊 Found {len(df)} records to import")
+
+        conn = get_connection()
+        added = 0
+        updated = 0
+        processed = 0
+        flagged_major_issue_urls = {}
+        try:
+            commit_every = max(1, int(os.getenv("SEED_COMMIT_EVERY", "50")))
+        except Exception:
+            commit_every = 50
+
+        try:
+            with conn.cursor() as cur:
+                for index, row in df.iterrows():
+                    processed += 1
+
+                    # Parse name (Handle New 'first', 'last' OR Old 'name')
+                    first_name = str(row.get('first', '')).strip() if pd.notna(row.get('first')) else ''
+                    last_name = str(row.get('last', '')).strip() if pd.notna(row.get('last')) else ''
+                    first_name = _normalize_person_name(first_name)
+                    last_name = _normalize_person_name(last_name)
+                    
+                    if not first_name and not last_name:
+                        # Fallback to old 'name' column
+                        name = str(row.get('name', '')).strip() if pd.notna(row.get('name')) else ''
+                        name = _normalize_person_name(name)
+                        if name:
+                            parts = name.split()
+                            first_name = parts[0]
+                            last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                    if not first_name and not last_name:
+                        continue
+
+                    # Extract fields with New/Old keys
+                    headline = str(row.get('headline', '')).strip() if pd.notna(row.get('headline')) else None
+                    location = str(row.get('location', '')).strip() if pd.notna(row.get('location')) else None
+                    
+                    # title (new) vs job_title (old)
+                    job_title = str(row.get('title', '')).strip() if pd.notna(row.get('title')) else \
+                                str(row.get('job_title', '')).strip() if pd.notna(row.get('job_title')) else None
+
+                    company = str(row.get('company', '')).strip() if pd.notna(row.get('company')) else None
+                    major = str(row.get('major', '')).strip() if pd.notna(row.get('major')) else None
+                    degree = str(row.get('degree', '')).strip() if pd.notna(row.get('degree')) else None
+
+                    # school (new) vs education (old)
+                    school = str(row.get('school', '')).strip() if pd.notna(row.get('school')) else \
+                             str(row.get('education', '')).strip() if pd.notna(row.get('education')) else None
+
+                    # Education entries 2 and 3
+                    school2 = str(row.get('school2', '')).strip() if pd.notna(row.get('school2')) else None
+                    school3 = str(row.get('school3', '')).strip() if pd.notna(row.get('school3')) else None
+                    degree2 = str(row.get('degree2', '')).strip() if pd.notna(row.get('degree2')) else None
+                    degree3 = str(row.get('degree3', '')).strip() if pd.notna(row.get('degree3')) else None
+                    major2 = str(row.get('major2', '')).strip() if pd.notna(row.get('major2')) else None
+                    major3 = str(row.get('major3', '')).strip() if pd.notna(row.get('major3')) else None
+
+                    # Guard DB upload against oversized education fields.
+                    school = _truncate_optional_text(school, 255)
+                    school2 = _truncate_optional_text(school2, 255)
+                    school3 = _truncate_optional_text(school3, 255)
+                    degree = _truncate_optional_text(degree, 255)
+                    degree2 = _truncate_optional_text(degree2, 255)
+                    degree3 = _truncate_optional_text(degree3, 255)
+                    major = _truncate_optional_text(major, 255)
+                    major2 = _truncate_optional_text(major2, 255)
+                    major3 = _truncate_optional_text(major3, 255)
+
+                    # Preserve discipline from CSV and normalize separately from major.
+                    saved_discipline = str(row.get('discipline', '')).strip() if pd.notna(row.get('discipline')) else ''
+                    
+                    # grad_year (new) vs graduation_year (old)
+                    raw_grad_year = _coerce_grad_year(row.get('grad_year'))
+                    if raw_grad_year is None:
+                        raw_grad_year = _coerce_grad_year(row.get('graduation_year'))
+
+                    # linkedin_url (new) vs profile_url (old)
+                    raw_url = row.get('linkedin_url') if pd.notna(row.get('linkedin_url')) else row.get('profile_url')
+                    profile_url = normalize_url(raw_url)
+                    
+                    scraped_at = str(row.get('scraped_at', '')).strip() if pd.notna(row.get('scraped_at')) else None
+
+                    # New fields (may not exist in older CSVs)
+                    # school_start (new) vs school_start_date (old)
+                    raw_school_start_date = str(row.get('school_start', '')).strip() if pd.notna(row.get('school_start')) else \
+                        str(row.get('school_start_date', '')).strip() if pd.notna(row.get('school_start_date')) else None
+                    grad_year, school_start_date = _normalize_primary_education_dates(
+                        raw_grad_year,
+                        raw_school_start_date,
+                    )
+                    inferred_grad_from_school_start = (
+                        raw_grad_year is None
+                        and grad_year is not None
+                        and bool(raw_school_start_date)
+                        and school_start_date is None
+                    )
+
+                    # job_start (new) vs job_start_date (old)
+                    job_start_date = str(row.get('job_start', '')).strip() if pd.notna(row.get('job_start')) else \
+                                     str(row.get('job_start_date', '')).strip() if pd.notna(row.get('job_start_date')) else None
+
+                    # job_end (new) vs job_end_date (old)
+                    job_end_date = str(row.get('job_end', '')).strip() if pd.notna(row.get('job_end')) else \
+                                   str(row.get('job_end_date', '')).strip() if pd.notna(row.get('job_end_date')) else None
+
+                    wws_raw = row.get('working_while_studying', None)
+                    working_while_studying = None
+                    working_while_studying_status = None
+                    if pd.notna(wws_raw):
+                        if isinstance(wws_raw, str):
+                            v = wws_raw.strip().lower()
+                            if v in ("yes", "currently", "true", "1"):
+                                # "currently" = actively working while still studying → treat as True
+                                working_while_studying = True
+                                working_while_studying_status = v if v in ("yes", "no", "currently") else "yes"
+                            elif v in ("no", "false", "0"):
+                                working_while_studying = False
+                                working_while_studying_status = "no"
+                        elif isinstance(wws_raw, (int, float, bool)):
+                            working_while_studying = bool(wws_raw)
+                            working_while_studying_status = "yes" if working_while_studying else "no"
+
+                    # Experience 2 and 3 fields (New: exp_2_title vs Old: exp2_title)
+                    exp2_title = str(row.get('exp_2_title', '')).strip() if pd.notna(row.get('exp_2_title')) else \
+                                 str(row.get('exp2_title', '')).strip() if pd.notna(row.get('exp2_title'),) else None
+                    
+                    exp2_company = str(row.get('exp_2_company', '')).strip() if pd.notna(row.get('exp_2_company')) else \
+                                   str(row.get('exp2_company', '')).strip() if pd.notna(row.get('exp2_company')) else None
+                    
+                    exp2_dates = str(row.get('exp_2_dates', '')).strip() if pd.notna(row.get('exp_2_dates')) else \
+                                 str(row.get('exp2_dates', '')).strip() if pd.notna(row.get('exp2_dates')) else None
+                    
+                    exp3_title = str(row.get('exp_3_title', '')).strip() if pd.notna(row.get('exp_3_title')) else \
+                                 str(row.get('exp3_title', '')).strip() if pd.notna(row.get('exp3_title')) else None
+                    
+                    exp3_company = str(row.get('exp_3_company', '')).strip() if pd.notna(row.get('exp_3_company')) else \
+                                   str(row.get('exp3_company', '')).strip() if pd.notna(row.get('exp3_company')) else None
+                    
+                    exp3_dates = str(row.get('exp_3_dates', '')).strip() if pd.notna(row.get('exp_3_dates')) else \
+                                 str(row.get('exp3_dates', '')).strip() if pd.notna(row.get('exp3_dates')) else None
+
+                    job_employment_type = _csv_optional_str(row, 'job_employment_type')
+                    exp2_employment_type = _csv_optional_str(row, 'exp_2_employment_type', 'exp2_employment_type')
+                    exp3_employment_type = _csv_optional_str(row, 'exp_3_employment_type', 'exp3_employment_type')
+
+                    if inferred_grad_from_school_start:
+                        try:
+                            from working_while_studying_status import (
+                                recompute_working_while_studying_status,
+                                status_to_bool,
+                            )
+                            recomputed_status = (recompute_working_while_studying_status({
+                                "grad_year": grad_year,
+                                "school_start_date": school_start_date,
+                                "school": school,
+                                "school2": school2,
+                                "school3": school3,
+                                "current_job_title": job_title,
+                                "company": company,
+                                "job_start_date": job_start_date,
+                                "job_end_date": job_end_date,
+                                "exp2_title": exp2_title,
+                                "exp2_company": exp2_company,
+                                "exp2_dates": exp2_dates,
+                                "exp3_title": exp3_title,
+                                "exp3_company": exp3_company,
+                                "exp3_dates": exp3_dates,
+                            }) or "").strip().lower()
+                            if recomputed_status in {"yes", "no", "currently"}:
+                                working_while_studying_status = recomputed_status
+                                working_while_studying = status_to_bool(recomputed_status)
+                        except Exception as recompute_err:
+                            logger.warning(
+                                "Could not recompute working_while_studying for %s: %s",
+                                profile_url or f"{first_name} {last_name}".strip(),
+                                recompute_err,
+                            )
+
+                    # Read standardized values from CSV (now handled purely by scraper)
+                    std_degree = str(row.get('standardized_degree', '')).strip() if pd.notna(row.get('standardized_degree')) else None
+                    std_degree2 = str(row.get('standardized_degree2', '')).strip() if pd.notna(row.get('standardized_degree2')) else None
+                    std_degree3 = str(row.get('standardized_degree3', '')).strip() if pd.notna(row.get('standardized_degree3')) else None
+                    
+                    std_major = str(row.get('standardized_major', '')).strip() if pd.notna(row.get('standardized_major')) else None
+                    std_major_alt = str(row.get('standardized_major_alt', '')).strip() if pd.notna(row.get('standardized_major_alt')) else None
+                    std_major2 = str(row.get('standardized_major2', '')).strip() if pd.notna(row.get('standardized_major2')) else None
+                    std_major3 = str(row.get('standardized_major3', '')).strip() if pd.notna(row.get('standardized_major3')) else None
+
+                    major, saved_discipline, major_review_reason = _sanitize_major_and_discipline(
+                        major=major,
+                        standardized_major=std_major,
+                        discipline=saved_discipline,
+                    )
+                    if major_review_reason and profile_url:
+                        flagged_major_issue_urls[profile_url] = major_review_reason
+
+                    # Insert or update into database
+                    try:
+                        # Get normalized job title and company IDs directly using SQL helper
+                        norm_title = str(row.get('normalized_job_title', '')).strip() if pd.notna(row.get('normalized_job_title')) else None
+                        norm_title_id = _get_or_create_normalized_entity(cur, 'normalized_job_titles', 'normalized_title', norm_title)
+
+                        norm_comp = str(row.get('normalized_company', '')).strip() if pd.notna(row.get('normalized_company')) else None
+                        norm_company_id = _get_or_create_normalized_entity(cur, 'normalized_companies', 'normalized_company', norm_comp)
+
+                        cur.execute("""
+                            INSERT INTO alumni 
+                            (first_name, last_name, grad_year, degree, major, discipline, linkedin_url, current_job_title, company, location, headline, 
+                             school_start_date, job_start_date, job_end_date, working_while_studying, working_while_studying_status,
+                             exp2_title, exp2_company, exp2_dates, exp3_title, exp3_company, exp3_dates,
+                             job_employment_type, exp2_employment_type, exp3_employment_type,
+                             school, school2, school3, degree2, degree3, major2, major3,
+                             standardized_degree, standardized_degree2, standardized_degree3,
+                             standardized_major, standardized_major_alt, standardized_major2, standardized_major3,
+                             scraped_at, last_updated, normalized_job_title_id, normalized_company_id,
+                             job_1_relevance_score, job_2_relevance_score, job_3_relevance_score,
+                             job_1_is_relevant, job_2_is_relevant, job_3_is_relevant,
+                             relevant_experience_months, seniority_level)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s,
+                                    %s, %s, %s, %s,
+                                    %s, %s, %s, %s,
+                                    %s, %s, %s,
+                                    %s, %s, %s,
+                                    %s, %s)
+                            ON DUPLICATE KEY UPDATE
+                                first_name=VALUES(first_name),
+                                last_name=VALUES(last_name),
+                                grad_year=VALUES(grad_year),
+                                degree=VALUES(degree),
+                                major=VALUES(major),
+                                discipline=COALESCE(NULLIF(VALUES(discipline), ''), discipline),
+                                current_job_title=VALUES(current_job_title),
+                                company=VALUES(company),
+                                location=VALUES(location),
+                                headline=VALUES(headline),
+                                school_start_date=VALUES(school_start_date),
+                                job_start_date=VALUES(job_start_date),
+                                job_end_date=VALUES(job_end_date),
+                                working_while_studying=VALUES(working_while_studying),
+                                working_while_studying_status=VALUES(working_while_studying_status),
+                                exp2_title=VALUES(exp2_title),
+                                exp2_company=VALUES(exp2_company),
+                                exp2_dates=VALUES(exp2_dates),
+                                exp3_title=VALUES(exp3_title),
+                                exp3_company=VALUES(exp3_company),
+                                exp3_dates=VALUES(exp3_dates),
+                                job_employment_type=VALUES(job_employment_type),
+                                exp2_employment_type=VALUES(exp2_employment_type),
+                                exp3_employment_type=VALUES(exp3_employment_type),
+                                school=VALUES(school),
+                                school2=VALUES(school2),
+                                school3=VALUES(school3),
+                                degree2=VALUES(degree2),
+                                degree3=VALUES(degree3),
+                                major2=VALUES(major2),
+                                major3=VALUES(major3),
+                                standardized_degree=VALUES(standardized_degree),
+                                standardized_degree2=VALUES(standardized_degree2),
+                                standardized_degree3=VALUES(standardized_degree3),
+                                standardized_major=VALUES(standardized_major),
+                                standardized_major_alt=VALUES(standardized_major_alt),
+                                standardized_major2=VALUES(standardized_major2),
+                                standardized_major3=VALUES(standardized_major3),
+                                last_updated=VALUES(last_updated),
+                                normalized_job_title_id=VALUES(normalized_job_title_id),
+                                normalized_company_id=VALUES(normalized_company_id),
+                                job_1_relevance_score=VALUES(job_1_relevance_score),
+                                job_2_relevance_score=VALUES(job_2_relevance_score),
+                                job_3_relevance_score=VALUES(job_3_relevance_score),
+                                job_1_is_relevant=VALUES(job_1_is_relevant),
+                                job_2_is_relevant=VALUES(job_2_is_relevant),
+                                job_3_is_relevant=VALUES(job_3_is_relevant),
+                                relevant_experience_months=VALUES(relevant_experience_months),
+                                seniority_level=VALUES(seniority_level)
+                        """, (
+                            first_name,
+                            last_name,
+                            grad_year,
+                            degree,
+                            major,
+                            saved_discipline,
+                            profile_url,
+                            job_title,
+                            company,
+                            location,
+                            headline,
+                            school_start_date,
+                            job_start_date,
+                            job_end_date,
+                            working_while_studying,
+                            working_while_studying_status,
+                            exp2_title,
+                            exp2_company,
+                            exp2_dates,
+                            exp3_title,
+                            exp3_company,
+                            exp3_dates,
+                            job_employment_type,
+                            exp2_employment_type,
+                            exp3_employment_type,
+                            school,
+                            school2,
+                            school3,
+                            degree2,
+                            degree3,
+                            major2,
+                            major3,
+                            std_degree,
+                            std_degree2,
+                            std_degree3,
+                            std_major,
+                            std_major_alt,
+                            std_major2,
+                            std_major3,
+                            scraped_at,
+                            scraped_at,
+                            norm_title_id,
+                            norm_company_id,
+                            _parse_float(row.get('job_1_relevance_score')),
+                            _parse_float(row.get('job_2_relevance_score')),
+                            _parse_float(row.get('job_3_relevance_score')),
+                            _parse_bool(row.get('job_1_is_relevant')),
+                            _parse_bool(row.get('job_2_is_relevant')),
+                            _parse_bool(row.get('job_3_is_relevant')),
+                            _parse_int(row.get('relevant_experience_months')),
+                            _clean_optional_text(row.get('seniority_level')),
+                        ))
+
+                        if cur.rowcount == 1:
+                            added += 1
+                        elif cur.rowcount == 2:
+                            updated += 1
+                    except Exception as err:
+                        logger.warning(f"Skipping record for {first_name} {last_name}: {err}")
+                        if "Lost connection" in str(err) or "MySQL Connection not available" in str(err):
+                            logger.error("🛑 MySQL connection lost. Exiting loop to save progress.")
+                            break
+                        continue
+
+                    # Incremental commit protects progress if a long import is interrupted.
+                    if processed % commit_every == 0:
+                        try:
+                            conn.commit()
+                            logger.debug(f"Auto-committed batch at record {processed}")
+                        except Exception as commit_err:
+                            logger.error(f"❌ Auto-commit failed: {commit_err}")
+
+                conn.commit()
+                logger.info(f"✅ Added {added} new alumni records")
+                logger.info(f"✅ Updated {updated} existing alumni records")
+                logger.info(f"Successfully processed {processed} total alumni records")
+                _append_flagged_review_urls(flagged_major_issue_urls)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.error(f"❌ Critical setup failed: {e}")
+        raise
+
+
+def has_alumni_records():
+    """Return True when the alumni table already has at least one record."""
+    try:
+        with managed_db_cursor(get_connection) as (_conn, cur):
+            cur.execute("SELECT COUNT(*) FROM alumni")
+            row = cur.fetchone()
+            if isinstance(row, dict):
+                count = next(iter(row.values()), 0)
+            elif isinstance(row, (tuple, list)):
+                count = row[0]
+            else:
+                count = int(row or 0)
+            return int(count) > 0
+    except Exception as e:
+        logger.warning(f"Could not determine alumni table size: {e}")
+        return False
+
+
+def truncate_dot_fields():
+    """Remove anything after '·' in location, company, and current_job_title"""
+    try:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
+            cur.execute("""
+                UPDATE alumni
+                SET 
+                    location = TRIM(SUBSTRING_INDEX(location, '·', 1)),
+                    company = TRIM(SUBSTRING_INDEX(company, '·', 1)),
+                    current_job_title = TRIM(SUBSTRING_INDEX(current_job_title, '·', 1))
+                WHERE 
+                    location LIKE '%·%' 
+                    OR company LIKE '%·%'
+                    OR current_job_title LIKE '%·%';
+            """)
+            logger.info("✅ Truncated '·' fields in alumni table")
+    except mysql.connector.Error as err:
+        logger.error(f"❌ Error truncating dot fields: {err}")
+        raise
+
+
+def cleanup_trailing_slashes():
+    """Remove trailing slashes from existing URLs, handling duplicates."""
+    logger.info("🧹 Cleaning up trailing slashes from URLs...")
+    try:
+        tables = ['visited_profiles', 'alumni']
+        with managed_db_cursor(get_connection) as (conn, cur):
+            for table in tables:
+                # Find URLs with trailing slash
+                cur.execute(f"SELECT id, linkedin_url FROM {table} WHERE linkedin_url LIKE '%/'")
+                rows = cur.fetchall()
+                if not rows:
+                    continue
+                
+                logger.info(f"Found {len(rows)} URLs with trailing slash in {table}")
+                fixed = 0
+                deleted = 0
+                
+                for row_id, url in rows:
+                    clean_url = url.rstrip('/')
+                    try:
+                        # Try to update
+                        cur.execute(f"UPDATE {table} SET linkedin_url = %s WHERE id = %s", (clean_url, row_id))
+                        fixed += 1
+                    except Exception as err:
+                        err_str = str(err)
+                        # MySQL errno 1062 = Duplicate entry; SQLite raises IntegrityError
+                        is_duplicate = (
+                            (hasattr(err, 'errno') and err.errno == 1062) or
+                            'UNIQUE constraint' in err_str
+                        )
+                        if is_duplicate:
+                            # Collision! The clean URL matches another record.
+                            # We delete the current record with the slash, keeping the other one.
+                            logger.info(f"  Collision for {clean_url}. Deleting duplicate record ID {row_id}.")
+                            cur.execute(f"DELETE FROM {table} WHERE id = %s", (row_id,))
+                            deleted += 1
+                        else:
+                            logger.error(f"❌ Failed to fix {url}: {err}")
+                
+                conn.commit()
+                logger.info(f"✨ Fixed {fixed} URLs, Deleted {deleted} duplicates in {table}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error during cleanup: {e}")
+
+
+def normalize_existing_grad_years():
+    """
+    Retroactively normalize alumni.grad_year to integer values where possible.
+    Leaves unparseable values unchanged.
+    """
+    normalized = 0
+    scanned = 0
+
+    try:
+        with managed_db_cursor(get_connection, dictionary=True, commit=True) as (_conn, cur):
+            cur.execute("SELECT id, grad_year FROM alumni WHERE grad_year IS NOT NULL")
+            rows = cur.fetchall() or []
+            scanned = len(rows)
+
+            for row in rows:
+                row_id = row.get("id")
+                raw_year = row.get("grad_year")
+                parsed_year = _coerce_grad_year(raw_year)
+
+                if parsed_year is None:
+                    continue
+
+                if isinstance(raw_year, int) and not isinstance(raw_year, bool) and raw_year == parsed_year:
+                    continue
+
+                cur.execute(
+                    "UPDATE alumni SET grad_year = %s WHERE id = %s",
+                    (parsed_year, row_id)
+                )
+                normalized += 1
+
+        logger.info(f"✅ Grad year normalization complete: updated {normalized} of {scanned} rows")
+    except Exception as e:
+        logger.error(f"❌ Error normalizing grad years: {e}")
+
+
+def normalize_single_date_education_semantics():
+    """
+    Retroactively apply primary education single-date semantics:
+    if grad_year is missing and school_start_date has a single date/year, move it
+    into grad_year and clear school_start_date.
+
+    Recomputes working_while_studying_status for updated rows so filter behavior
+    stays aligned with the corrected education dates.
+    """
+    scanned = 0
+    updated = 0
+
+    try:
+        from working_while_studying_status import (
+            recompute_working_while_studying_status,
+            status_to_bool,
+        )
+    except Exception as import_err:
+        logger.error(f"❌ Could not import working_while_studying_status helpers: {import_err}")
+        return
+
+    try:
+        with managed_db_cursor(get_connection, dictionary=True, commit=True) as (_conn, cur):
+            cur.execute(
+                """
+                SELECT id,
+                       grad_year,
+                       school_start_date,
+                       school,
+                       school2,
+                       school3,
+                       current_job_title,
+                       company,
+                       job_start_date,
+                       job_end_date,
+                       exp2_title,
+                       exp2_company,
+                       exp2_dates,
+                       exp3_title,
+                       exp3_company,
+                       exp3_dates
+                FROM alumni
+                WHERE grad_year IS NULL
+                  AND school_start_date IS NOT NULL
+                  AND school_start_date <> ''
+                """
+            )
+            rows = cur.fetchall() or []
+            scanned = len(rows)
+
+            for row in rows:
+                inferred_grad_year = _infer_grad_year_from_school_start_date(row.get("school_start_date"))
+                if inferred_grad_year is None:
+                    continue
+
+                row_for_status = dict(row)
+                row_for_status["grad_year"] = inferred_grad_year
+                row_for_status["school_start_date"] = None
+                recomputed_status = (recompute_working_while_studying_status(row_for_status) or "").strip().lower()
+                if recomputed_status not in {"yes", "no", "currently"}:
+                    recomputed_status = ""
+
+                cur.execute(
+                    """
+                    UPDATE alumni
+                    SET grad_year = %s,
+                        school_start_date = NULL,
+                        working_while_studying = %s,
+                        working_while_studying_status = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        inferred_grad_year,
+                        status_to_bool(recomputed_status),
+                        recomputed_status or None,
+                        row.get("id"),
+                    ),
+                )
+                updated += 1
+
+        logger.info(
+            "✅ Single-date education normalization complete: updated %s of %s candidate rows",
+            updated,
+            scanned,
+        )
+    except Exception as e:
+        logger.error(f"❌ Error normalizing single-date education semantics: {e}")
+
+
+if __name__ == "__main__":
+    try:
+        # Validate environment variables
+        required_vars = ['MYSQLHOST', 'MYSQLUSER', 'MYSQLPASSWORD', 'MYSQL_DATABASE']
+        missing = [var for var in required_vars if not os.getenv(var)]
+        if missing:
+            raise ValueError(f"Missing environment variables: {', '.join(missing)}")
+
+        logger.info("✅ All required environment variables validated")
+        logger.info("🚀 Starting database initialization...")
+        logger.info(f"📦 Database '{MYSQL_DATABASE}' ensured")
+
+        # Initialize tables and apply alumni column migrations (same as Flask startup)
+        init_db()
+        ensure_all_alumni_schema_migrations()
+
+        run_seed_mode = os.getenv("DB_RUN_SEED", "1").strip().lower()
+        run_seed = run_seed_mode in {"1", "true", "yes", "sync", "force"}
+        run_visited_migration = os.getenv("DB_RUN_VISITED_MIGRATION", "0") == "1"
+        run_maintenance = os.getenv("DB_RUN_MAINTENANCE", "0") == "1"
+
+        if run_seed:
+            seed_alumni_data()
+        else:
+            logger.info("⏭️  Skipping alumni seed (set DB_RUN_SEED=1|sync to run)")
+
+        if run_maintenance:
+            normalize_existing_grad_years()
+            truncate_dot_fields()
+            cleanup_trailing_slashes()
+            sync_alumni_to_visited_profiles()
+        else:
+            logger.info("⏭️  Skipping maintenance pass (set DB_RUN_MAINTENANCE=1 to run)")
+
+        if run_visited_migration:
+            logger.info("\n" + "=" * 60)
+            logger.info("📦 MIGRATING VISITED HISTORY TO DATABASE")
+            logger.info("=" * 60)
+            migrate_visited_history_csv_to_db()
+        else:
+            logger.info("⏭️  Skipping visited_history migration (set DB_RUN_VISITED_MIGRATION=1 to run)")
+
+        # Show stats
+        stats = get_visited_profiles_stats()
+        if stats:
+            logger.info(f"\n📊 Visited Profiles Stats:")
+            logger.info(f"   Total visited: {stats['total']}")
+            logger.info(f"   UNT Alumni: {stats['unt_alumni']}")
+            logger.info(f"   Non-UNT: {stats['non_unt']}")
+            logger.info(f"   Needs update: {stats['needs_update']}")
+
+        # Test connection
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT NOW()")
+            db_time = cur.fetchone()[0]
+            logger.info(f"\nDatabase connection successful. DB time: {db_time}")
+
+            cur.execute("SELECT COUNT(*) FROM alumni")
+            count = cur.fetchone()[0]
+            logger.info(f"Alumni in database: {count} records")
+
+            cur.execute("SELECT COUNT(*) FROM visited_profiles")
+            visited_count = cur.fetchone()[0]
+            logger.info(f"Visited profiles in database: {visited_count} records")
+
+            if count > 0:
+                cur.execute("""
+                    SELECT id, first_name, last_name, current_job_title, headline, grad_year,
+                           school_start_date, job_start_date, job_end_date, working_while_studying
+                    FROM alumni
+                    LIMIT 10
+                """)
+                for row in cur.fetchall():
+                    (
+                        alumni_id, fname, lname, job, head, grad,
+                        school_start, job_start, job_end, wws
+                    ) = row
+                    display_job = job or head or 'None'
+                    logger.info(
+                        f"  - {fname} {lname} ({display_job}) - Grad: {grad} | "
+                        f"SchoolStart: {school_start} | Job: {job_start}-{job_end} | WorkingWhileStudying: {wws}"
+                    )
+
+        conn.close()
+
+        logger.info("=" * 60)
+        logger.info("✓ ALUMNI NETWORKING TOOL - BACKEND")
+        logger.info("=" * 60)
+
+    except Exception as e:
+        logger.error(f"❌ Database initialization failed: {e}")
+        exit(1)
