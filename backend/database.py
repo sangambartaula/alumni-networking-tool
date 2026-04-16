@@ -420,10 +420,8 @@ def get_direct_mysql_connection():
 
 def init_db():
     """Initialize database tables if they don't exist"""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             # Create users table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -668,19 +666,11 @@ def init_db():
                         logger.debug(f"Index already exists: {index_name}")
                     else:
                         logger.warning(f"Index ensure skipped for statement '{statement}': {idx_err}")
-
-            conn.commit()
             logger.info("All tables initialized successfully")
 
     except mysql.connector.Error as err:
         logger.error(f"Database error: {err}")
         raise
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 # ============================================================
@@ -1169,15 +1159,13 @@ def migrate_visited_history_csv_to_db():
         logger.info("No visited_history.csv found to migrate")
         return 0
 
-    conn = None
     try:
         df = pd.read_csv(csv_path)
         logger.info(f"📂 Migrating {len(df)} entries from visited_history.csv to database...")
 
-        conn = get_connection()
         migrated = 0
 
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             for _, row in df.iterrows():
                 url = normalize_url(row.get('profile_url'))
                 if not url:
@@ -1203,20 +1191,12 @@ def migrate_visited_history_csv_to_db():
                     logger.warning(f"Skipping {url}: {err}")
                     continue
 
-            conn.commit()
-
         logger.info(f"Migrated {migrated} profiles from CSV to database")
         return migrated
 
     except Exception as e:
         logger.error(f"Error migrating visited history: {e}")
         return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def get_visited_profiles_stats():
