@@ -102,6 +102,49 @@ def _normalize_requested_discipline(value):
     return value.strip()
 
 
+def _canonical_role_title(value):
+    title = (value or "").strip()
+    if not title:
+        return ""
+
+    without_level_suffix = re.sub(r"\s+(?:level\s*)?(?:i{1,5}|[1-9])$", "", title, flags=re.I).strip()
+    without_seniority = re.sub(r"^(?:senior|sr\.?)\s+", "", without_level_suffix, flags=re.I).strip()
+    canonical_title = without_seniority or without_level_suffix or title
+    low = re.sub(r"\s+", " ", canonical_title.lower())
+
+    if low in {"director", "director of", "director of engineering"}:
+        return "Director"
+    if low in {
+        "manager",
+        "manager - innovation",
+        "laboratory safety manager",
+        "senior manager - innovation",
+    }:
+        return "Manager"
+    if low == "data owner":
+        return "Data Analyst"
+    if low in {"software developer", "software dev"}:
+        return "Software Engineer"
+    return canonical_title
+
+
+def _canonical_company_name(value):
+    name = (value or "").strip()
+    if not name:
+        return ""
+    if "Dallas" in name:
+        return name
+    if (
+        "University of North Texas" in name
+        or name.startswith("UNT ")
+        or name == "UNT"
+        or " UNT " in name
+        or name.endswith(" UNT")
+    ):
+        return "University of North Texas"
+    return name
+
+
 def _fetchone_dict(cur, key):
     if hasattr(cur, "fetchone"):
         row = cur.fetchone()
@@ -196,6 +239,8 @@ def api_get_alumni():
     offset = max(0, offset)
 
     location_filters = _parse_multi_value_param("location", split_commas=False)
+    role_filters = _parse_multi_value_param("role", split_commas=False)
+    company_filters = _parse_multi_value_param("company", split_commas=False)
     major_filters_raw = _parse_multi_value_param("major", split_commas=False)
     seniority_filters = _parse_multi_value_param("seniority", split_commas=False)
 
@@ -304,7 +349,12 @@ def api_get_alumni():
             cur.execute(select_query, params + [limit, offset])
             rows = cur.fetchall() or []
 
-            python_side_filters = bool(unt_alumni_status_filter or seniority_filters)
+            python_side_filters = bool(
+                unt_alumni_status_filter
+                or seniority_filters
+                or role_filters
+                or company_filters
+            )
             if python_side_filters:
                 # Preserve legacy behavior: apply these filters after row materialization,
                 # then paginate in Python for deterministic behavior in tests.
@@ -327,13 +377,22 @@ def api_get_alumni():
                 """
                 cur.execute(full_query, params)
                 all_rows = cur.fetchall() or []
+
+                requested_role_set = {_canonical_role_title(v) for v in role_filters if (v or "").strip()}
+                requested_company_set = {_canonical_company_name(v) for v in company_filters if (v or "").strip()}
                 filtered = []
                 for row in all_rows:
                     row_status = compute_unt_alumni_status_from_row(row)
                     row_bucket = row.get("seniority_level") or classify_seniority_bucket(row.get("current_job_title"), None)
+                    row_role = _canonical_role_title(row.get("current_job_title") or row.get("headline") or "")
+                    row_company = _canonical_company_name(row.get("company") or "")
                     if unt_alumni_status_filter and row_status != unt_alumni_status_filter:
                         continue
                     if seniority_filters and row_bucket not in seniority_filters:
+                        continue
+                    if requested_role_set and row_role not in requested_role_set:
+                        continue
+                    if requested_company_set and row_company not in requested_company_set:
                         continue
                     row["unt_alumni_status"] = row_status
                     row["seniority_level"] = row_bucket

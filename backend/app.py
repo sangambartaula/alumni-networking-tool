@@ -24,7 +24,7 @@ from utils import parse_int_list_param as _parse_int_list_param_from_utils
 from utils import parse_multi_value_param as _parse_multi_value_param_from_utils
 
 # Backward-compat import exposed at module scope for existing tests/patches.
-from database import get_connection
+from database import get_connection, init_db
 
 
 app = Flask(
@@ -34,6 +34,12 @@ app = Flask(
 )
 
 Config.apply(app)
+
+if not app.config.get("DISABLE_DB", False):
+    try:
+        init_db()
+    except Exception as exc:
+        app.logger.warning("Database initialization at startup failed: %s", exc)
 
 if app.config.get("QUIET_HTTP_LOGS", True):
     configure_werkzeug_access_logging()
