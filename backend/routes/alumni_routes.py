@@ -287,7 +287,7 @@ def api_get_alumni():
                a.exp3_title, a.exp3_company, a.exp3_dates, a.exp3_employment_type,
                a.working_while_studying, a.working_while_studying_status,
                a.seniority_level, a.relevant_experience_months,
-               a.latitude, a.longitude, a.normalized_title, a.normalized_company,
+             a.latitude, a.longitude,
                a.created_at, a.updated_at
         FROM alumni a
         {where_sql}
@@ -319,7 +319,7 @@ def api_get_alumni():
                            a.exp3_title, a.exp3_company, a.exp3_dates, a.exp3_employment_type,
                            a.working_while_studying, a.working_while_studying_status,
                            a.seniority_level, a.relevant_experience_months,
-                           a.latitude, a.longitude, a.normalized_title, a.normalized_company,
+                           a.latitude, a.longitude,
                            a.created_at, a.updated_at
                     FROM alumni a
                     {where_sql}
@@ -415,7 +415,7 @@ def api_alumni_filter_alias():
                a.exp3_title, a.exp3_company, a.exp3_dates, a.exp3_employment_type,
                a.working_while_studying, a.working_while_studying_status,
                a.seniority_level, a.relevant_experience_months,
-               a.latitude, a.longitude, a.normalized_title, a.normalized_company,
+             a.latitude, a.longitude,
                a.created_at, a.updated_at
         FROM alumni a
         {where_sql}

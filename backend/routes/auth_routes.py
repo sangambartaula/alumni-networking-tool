@@ -357,25 +357,46 @@ def linkedin_callback():
             else:
                 new_auth_type = "linkedin_only"
 
-            cur.execute(
-                """
-                INSERT INTO users (linkedin_id, email, first_name, last_name, auth_type)
-                VALUES (%s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    email = VALUES(email),
-                    first_name = VALUES(first_name),
-                    last_name = VALUES(last_name),
-                    auth_type = VALUES(auth_type),
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    linkedin_profile.get("sub"),
-                    linkedin_profile.get("email"),
-                    linkedin_profile.get("given_name"),
-                    linkedin_profile.get("family_name"),
-                    new_auth_type,
-                ),
+            upsert_params = (
+                linkedin_profile.get("sub"),
+                linkedin_profile.get("email"),
+                linkedin_profile.get("given_name"),
+                linkedin_profile.get("family_name"),
+                new_auth_type,
             )
+
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO users (linkedin_id, email, first_name, last_name, auth_type)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        email = VALUES(email),
+                        first_name = VALUES(first_name),
+                        last_name = VALUES(last_name),
+                        auth_type = VALUES(auth_type),
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    upsert_params,
+                )
+            except Exception as upsert_err:
+                err_text = str(upsert_err).lower()
+                if "auth_type" not in err_text:
+                    raise
+
+                # Backward compatibility for older users table schema without auth_type.
+                cur.execute(
+                    """
+                    INSERT INTO users (linkedin_id, email, first_name, last_name)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        email = VALUES(email),
+                        first_name = VALUES(first_name),
+                        last_name = VALUES(last_name),
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    upsert_params[:4],
+                )
             conn.commit()
 
             session["user_role"] = "user"
