@@ -1,9 +1,10 @@
-"""Tests for alumni CSV schema creation and migration."""
+"""Schema-focused tests for scraper database handler CSV helpers."""
 
 import sys
 from pathlib import Path
 
 import pandas as pd
+
 
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root / "scraper"))

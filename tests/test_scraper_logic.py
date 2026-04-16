@@ -295,5 +295,42 @@ class TestScraperLogic:
         assert result["__status__"] == "NOT_UNT_ALUM"
         assert scroll_calls == ["scroll"]
 
+    def test_extract_top_card_keeps_metropolitan_area_location(self):
+        scraper = LinkedInScraper()
+        soup = BeautifulSoup(
+            """
+            <main>
+              <h1>Test User</h1>
+              <div class="text-body-medium">Engineer</div>
+              <span class="text-body-small inline t-black--light">New York City Metropolitan Area</span>
+            </main>
+            """,
+            "html.parser",
+        )
+
+        _name, _headline, location = scraper._extract_top_card(soup)
+
+        assert location == "New York City Metropolitan Area"
+
+    def test_extract_top_card_contact_fallback_keeps_metro_location(self):
+        scraper = LinkedInScraper()
+        soup = BeautifulSoup(
+            """
+            <main>
+              <h1>Test User</h1>
+              <div class="text-body-medium">Engineer</div>
+              <div>
+                <span>Charlotte Metro</span>
+                <a>Contact info</a>
+              </div>
+            </main>
+            """,
+            "html.parser",
+        )
+
+        _name, _headline, location = scraper._extract_top_card(soup)
+
+        assert location == "Charlotte Metro"
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

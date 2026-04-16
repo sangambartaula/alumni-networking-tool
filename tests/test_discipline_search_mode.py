@@ -14,6 +14,24 @@ os.chdir(project_root)
 import main as scraper_main
 
 
+@pytest.fixture(autouse=True)
+def _isolate_scrape_persistence(monkeypatch):
+    # Keep discipline tests fully local and side-effect free.
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True, run_id=None: {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": False,
+            "sqlite_written": True,
+        },
+    )
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main, "increment_scrape_run_profiles", lambda _run_id, _delta=1: True)
+    monkeypatch.setattr(scraper_main, "_current_scrape_run_id", None)
+    monkeypatch.setattr(scraper_main, "session_profiles_scraped", 0)
+
+
 class _DummyNav:
     def __init__(self, ok=True):
         self.ok = ok
@@ -124,6 +142,8 @@ def _patch_main_entry_dependencies(monkeypatch):
     monkeypatch.setattr(scraper_main, "SafeNavigator", lambda _driver: object())
     monkeypatch.setattr(scraper_main, "start_exit_listener", lambda: None)
     monkeypatch.setattr(scraper_main, "stop_exit_listener", lambda: None)
+    monkeypatch.setattr(scraper_main, "create_scrape_run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(scraper_main, "finalize_scrape_run", lambda *args, **kwargs: True)
     monkeypatch.setattr(scraper_main.config, "SCRAPER_MODE", "search")
 
 

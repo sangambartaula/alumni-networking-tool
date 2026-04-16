@@ -1321,6 +1321,10 @@ class LinkedInScraper:
                     // Handle non-comma locations such as "Remote".
                     if (/^(remote|hybrid|on-site|onsite)$/i.test(t)) return true;
 
+                    // Accept common LinkedIn regional shapes without commas.
+                    if (/(metropolitan area|metro area|metroplex|bay area|\bmetro\b|\bregion\b|\bcounty\b)/i.test(t)) return true;
+                    if (/^greater\s+[a-z]/i.test(t)) return true;
+
                     return false;
                 }
 
@@ -1408,6 +1412,19 @@ class LinkedInScraper:
         name, headline, location = "", "", ""
         raw_location = ""
         source_root = soup.find("main") or soup
+
+        def _has_region_location_keywords(value):
+            text = (value or "").lower()
+            return any(keyword in text for keyword in [
+                "metropolitan area",
+                "metro area",
+                "metroplex",
+                "bay area",
+                " metro",
+                "greater ",
+                " region",
+                " county",
+            ])
         
         # Name - prefer H1/H2 inside <main>, ignore global navigation headings.
         for tag_name in ("h1", "h2"):
@@ -1479,7 +1496,7 @@ class LinkedInScraper:
             # 2. Contains specific location keywords like "metroplex", "area"
             # 3. Contains country names
             has_comma = "," in text
-            has_location_keyword = any(x in text_lower for x in ["metroplex", "area", "metro"])
+            has_location_keyword = _has_region_location_keywords(text)
             has_country = any(x in text_lower for x in [
                 "united states", "india", "canada", "uk", "united kingdom",
                 "germany", "australia", "france", "japan", "china", "brazil", "mexico",
@@ -1531,7 +1548,10 @@ class LinkedInScraper:
                     if classifier.is_location(candidate):
                         location = candidate
                         break
-                    if "," in candidate and not any(token in candidate.lower() for token in ["university", "college", "school", "institute"]):
+                    if (
+                        ("," in candidate or _has_region_location_keywords(candidate))
+                        and not any(token in candidate.lower() for token in ["university", "college", "school", "institute"])
+                    ):
                         location = candidate
                         break
                 if location:

@@ -414,6 +414,7 @@ _current_scrape_run_id = None
 _current_scrape_run_uuid = None
 _cloud_verify_semaphore = threading.Semaphore(4)
 _ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE = 25
+_FLAGGED_REVIEW_ALIAS_PATH = PROJECT_ROOT / "scraper" / "output" / "flagged_for_reviews.txt"
 
 _CLOUD_VARCHAR_LIMITS = {
     "school": 255,
@@ -426,6 +427,49 @@ _CLOUD_VARCHAR_LIMITS = {
     "major2": 255,
     "major3": 255,
 }
+
+
+def _is_not_found_location(value):
+    text = str(value or "").strip().lower()
+    return text in {"not found", "not_found"}
+
+
+def _emit_not_found_location_warning(profile_url, location_text):
+    banner = "[bold white on red]" + ("!" * 78) + "[/bold white on red]"
+    logger.warning(banner)
+    logger.warning("[bold white on red]LOCATION NOT FOUND - FLAGGED FOR REVIEW[/bold white on red]")
+    logger.warning("[bold white on red]profile: %s | location: %s[/bold white on red]", profile_url, location_text or "Not Found")
+    logger.warning(banner)
+
+
+def _append_flagged_review_line(profile_url, reason):
+    url = _normalize_profile_url(profile_url)
+    if not url:
+        return False
+
+    reason_text = (reason or "flagged for review").strip()
+    pending_paths = [config.FLAGGED_PROFILES_FILE, _FLAGGED_REVIEW_ALIAS_PATH]
+    wrote_any = False
+
+    for flagged_path in pending_paths:
+        try:
+            flagged_path.parent.mkdir(parents=True, exist_ok=True)
+            existing = set()
+            if flagged_path.exists():
+                with open(flagged_path, "r", encoding="utf-8") as handle:
+                    for line in handle:
+                        existing_url = line.split("#")[0].strip().rstrip("/")
+                        if existing_url:
+                            existing.add(existing_url)
+
+            if url not in existing:
+                with open(flagged_path, "a", encoding="utf-8") as handle:
+                    handle.write(f"{url} # {reason_text}\n")
+                wrote_any = True
+        except Exception as err:
+            logger.warning("Could not update review file %s: %s", flagged_path, err)
+
+    return wrote_any
 
 
 def _normalize_location_for_geocoding(location_text):
@@ -1054,6 +1098,16 @@ def _save_and_track(data, input_url, history_mgr):
         canonical_url = input_url
     if canonical_url:
         data["profile_url"] = canonical_url
+
+    location_text = str(data.get("location", "")).strip()
+    if _is_not_found_location(location_text):
+        review_reason = "Location Not Found"
+        _emit_not_found_location_warning(canonical_url or input_url, location_text)
+        if _append_flagged_review_line(canonical_url or input_url, review_reason):
+            _flagged_urls_this_run.add(canonical_url or input_url)
+        if _current_scrape_run_id and canonical_url:
+            record_scrape_run_flag(_current_scrape_run_id, canonical_url, review_reason)
+            _flagged_urls_this_run.add(canonical_url)
 
     if data.get("location") and (data.get("latitude") is None or data.get("longitude") is None):
         location_text = str(data.get("location", "")).strip()
@@ -2049,6 +2103,8 @@ def main():
                 geocode_network_failure_count=_geocode_network_failures_this_run,
                 notes=f"run_uuid={_current_scrape_run_uuid}",
             )
+            _current_scrape_run_id = None
+            _current_scrape_run_uuid = None
 
         if _cloud_upsert_disabled_for_run:
             logger.warning(
