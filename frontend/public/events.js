@@ -224,6 +224,19 @@ function getActiveTemplate() {
   return eventsTemplates.find(template => template.id === activeTemplateId) || eventsTemplates[0] || DEFAULT_EVENT_TEMPLATES[0];
 }
 
+function getTemplateFromEditor() {
+  const baseTemplate = getActiveTemplate();
+  const nameInput = document.getElementById('templateNameInput');
+  const bodyInput = document.getElementById('templateBodyInput');
+  const editorName = nameInput?.value.trim() || baseTemplate?.name || 'Untitled Template';
+  const editorBody = bodyInput?.value || baseTemplate?.body || '';
+  return {
+    id: activeTemplateId,
+    name: editorName,
+    body: editorBody,
+  };
+}
+
 function populateTemplateEditor(template) {
   const currentTemplate = template || getActiveTemplate();
   const nameInput = document.getElementById('templateNameInput');
@@ -299,7 +312,7 @@ function getBuilderValues() {
 
 function chooseTemplateForClick() {
   const values = getBuilderValues();
-  if (!values.random_template_mode) return getActiveTemplate();
+  if (!values.random_template_mode) return getTemplateFromEditor();
   const index = Math.floor(Math.random() * eventsTemplates.length);
   return eventsTemplates[index] || getActiveTemplate();
 }
@@ -389,9 +402,26 @@ function updateMessagePreview(message) {
   if (preview) preview.textContent = message || 'No message generated yet.';
 }
 
+function refreshDraftPreview() {
+  const draftTemplate = getTemplateFromEditor();
+  const sampleUser = {
+    id: 'preview-user',
+    name: 'Sample Alumni',
+    first: 'Sample',
+    last: 'Alumni',
+    role: 'Software Engineer',
+    company: 'Example Co',
+    location: window.eventsState.selectedLocation?.name || 'Selected event location',
+    linkedin: 'https://www.linkedin.com/in/sample',
+  };
+  const { message } = generateMessageForUser(sampleUser, draftTemplate);
+  updateMessagePreview(message || 'Select a location, fill in event details, then click “View LinkedIn” on a card.');
+}
+
 function markVisitedLinkedIn(userId) {
   window.eventsState.visitedLinkedInIds.add(userId);
   updateVisitedCount();
+  refreshDraftPreview();
 }
 
 async function handleLinkedInOutreach(user) {
@@ -860,6 +890,7 @@ function selectLocation(type, name, lat, lng) {
 
   // Apply filter
   applyLocationFilter();
+  refreshDraftPreview();
 }
 
 function dropPin(lat, lng) {
@@ -917,6 +948,7 @@ function clearSelection() {
   if (pagination) pagination.innerHTML = '';
 
   eventsCurrentPage = 1;
+  refreshDraftPreview();
 }
 
 // ═══════════════════════════════════════════════
@@ -1324,8 +1356,14 @@ function setupEventListeners() {
   }
 
   builderInputs.forEach(input => {
-    input.addEventListener('input', persistBuilderState);
-    input.addEventListener('change', persistBuilderState);
+    input.addEventListener('input', () => {
+      persistBuilderState();
+      refreshDraftPreview();
+    });
+    input.addEventListener('change', () => {
+      persistBuilderState();
+      refreshDraftPreview();
+    });
   });
 
   if (templateSelect) {
@@ -1333,6 +1371,7 @@ function setupEventListeners() {
       activeTemplateId = templateSelect.value;
       populateTemplateEditor(getActiveTemplate());
       persistBuilderState();
+      refreshDraftPreview();
     });
   }
 
@@ -1359,6 +1398,7 @@ function setupEventListeners() {
       renderTemplateOptions();
       templateSelect.value = activeTemplateId;
       persistBuilderState();
+      refreshDraftPreview();
       showEventsToast(`Saved template “${name}”.`);
     });
   }
@@ -1371,6 +1411,7 @@ function setupEventListeners() {
       if (nameInput) nameInput.value = '';
       if (bodyInput) bodyInput.value = '';
       if (templateSelect) templateSelect.value = activeTemplateId;
+      refreshDraftPreview();
       showEventsToast('Started a new unsaved template.');
     });
   }
@@ -1381,6 +1422,7 @@ function setupEventListeners() {
       current.push({ name: '', value: '' });
       renderCustomVariables(current);
       persistBuilderState();
+      refreshDraftPreview();
     });
   }
 
@@ -1392,6 +1434,7 @@ function setupEventListeners() {
         target.value = target.value.replace(/[^a-z0-9_]/g, '').toLowerCase();
       }
       persistBuilderState();
+      refreshDraftPreview();
     });
 
     variablesList.addEventListener('click', (event) => {
@@ -1405,6 +1448,7 @@ function setupEventListeners() {
         rows.splice(index, 1);
         renderCustomVariables(rows);
         persistBuilderState();
+        refreshDraftPreview();
       }
     });
   }
