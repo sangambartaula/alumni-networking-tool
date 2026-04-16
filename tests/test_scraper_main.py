@@ -595,6 +595,56 @@ def test_save_and_track_records_geocode_exception_without_crashing(monkeypatch):
     assert "Eastern Region" not in scraper_main._geocode_failure_locations
 
 
+def test_save_and_track_not_found_location_emits_warning_and_flags(monkeypatch):
+    warnings = []
+    run_flags = []
+
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, _url, saved=False):
+            return None
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", lambda _data: True)
+    monkeypatch.setattr(
+        scraper_main,
+        "upsert_scraped_profile",
+        lambda _data, allow_cloud=True, run_id=None: {
+            "cloud_attempted": allow_cloud,
+            "cloud_written": True,
+            "sqlite_written": True,
+        },
+    )
+    monkeypatch.setattr(scraper_main, "increment_scraper_activity", lambda _email: None)
+    monkeypatch.setattr(scraper_main.config, "LINKEDIN_EMAIL", "scraper@unt.edu")
+    monkeypatch.setattr(scraper_main, "_current_scrape_run_id", 99)
+    monkeypatch.setattr(scraper_main, "_flagged_urls_this_run", set())
+    monkeypatch.setattr(scraper_main, "_emit_not_found_location_warning", lambda profile_url, location: warnings.append((profile_url, location)))
+    monkeypatch.setattr(scraper_main, "_append_flagged_review_line", lambda _url, _reason: True)
+    monkeypatch.setattr(
+        scraper_main,
+        "record_scrape_run_flag",
+        lambda run_id, linkedin_url, reason: run_flags.append((run_id, linkedin_url, reason)) or True,
+    )
+    monkeypatch.setattr(scraper_main, "geocode_location_with_status", lambda _location: ((32.0, -97.0), "ok"))
+
+    payload = {
+        "profile_url": "https://www.linkedin.com/in/test-user",
+        "location": "Not Found",
+    }
+    ok = scraper_main._save_and_track(
+        payload,
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is True
+    assert warnings == [("https://www.linkedin.com/in/test-user", "Not Found")]
+    assert run_flags == [(99, "https://www.linkedin.com/in/test-user", "Location Not Found")]
+    assert "https://www.linkedin.com/in/test-user" in scraper_main._flagged_urls_this_run
+
+
 def test_save_and_track_propagates_run_id_and_records_flags(monkeypatch):
     upsert_calls = []
     flag_calls = []
