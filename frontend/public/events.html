@@ -122,40 +122,127 @@
       </div>
     </section>
 
-    <!-- Results Section -->
-    <section class="events-results-section">
-      <div class="events-results-head">
-        <div class="events-results-title">
-          <h2>Filtered Alumni</h2>
-          <span class="events-results-count" id="eventsResultsCount">0</span>
+    <section class="events-workspace">
+      <aside class="event-builder-panel">
+        <div class="event-builder-header">
+          <p class="event-builder-eyebrow">Outreach Setup</p>
+          <h2>Event Builder</h2>
+          <p>Configure the event once, then click filtered alumni to copy a personalized invite and open LinkedIn.</p>
         </div>
-        <div class="events-results-sort">
-          <label for="eventsSortSelect">Sort by:</label>
-          <select id="eventsSortSelect">
-            <option value="name" selected>Name</option>
-            <option value="distance">Distance</option>
-            <option value="location">Location</option>
-          </select>
+
+        <div class="event-builder-section">
+          <h3>Event Details</h3>
+          <div class="event-form-grid">
+            <label class="event-form-field">
+              <span>Event Name</span>
+              <input id="eventNameInput" type="text" placeholder="North Texas Alumni Reception" />
+            </label>
+            <label class="event-form-field">
+              <span>Event Date</span>
+              <input id="eventDateInput" type="date" />
+            </label>
+            <label class="event-form-field">
+              <span>Event Time</span>
+              <input id="eventTimeInput" type="time" />
+            </label>
+            <label class="event-form-field">
+              <span>Sender Name</span>
+              <input id="senderNameInput" type="text" placeholder="Jane Doe" />
+            </label>
+            <label class="event-form-field">
+              <span>Sender Org</span>
+              <input id="senderOrgInput" type="text" placeholder="UNT Dean's Office" />
+            </label>
+            <label class="event-form-field">
+              <span>RSVP Link</span>
+              <input id="rsvpLinkInput" type="url" placeholder="https://example.com/rsvp" />
+            </label>
+            <label class="event-form-field event-form-field-full">
+              <span>Additional Info</span>
+              <textarea id="additionalInfoInput" rows="4" placeholder="Parking, arrival details, dress code, or agenda highlights"></textarea>
+            </label>
+          </div>
         </div>
-      </div>
 
-      <div id="eventsListContainer" class="events-list list" aria-live="polite">
-        <div class="events-empty-state" id="eventsEmptyState">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-            <circle cx="12" cy="10" r="3"></circle>
-          </svg>
-          <h3>Select a Location</h3>
-          <p>Search for a city, state, or country — or click on the map to drop a pin and find nearby alumni.</p>
+        <div class="event-builder-section">
+          <div class="event-builder-section-head">
+            <h3>Templates</h3>
+            <label class="events-toggle">
+              <input id="randomTemplateModeInput" type="checkbox" />
+              <span>Random Template Mode</span>
+            </label>
+          </div>
+          <label class="event-form-field">
+            <span>Selected Template</span>
+            <select id="templateSelect"></select>
+          </label>
+          <label class="event-form-field">
+            <span>Template Name</span>
+            <input id="templateNameInput" type="text" placeholder="Create a new template name" />
+          </label>
+          <label class="event-form-field">
+            <span>Template Body</span>
+            <textarea id="templateBodyInput" rows="10" placeholder="Use placeholders like {first_name}, {event_name}, or {parking_info}"></textarea>
+          </label>
+          <div class="events-inline-actions">
+            <button id="saveTemplateBtn" class="btn action-btn" type="button">Save Template</button>
+            <button id="newTemplateBtn" class="btn secondary" type="button">New Template</button>
+          </div>
         </div>
-      </div>
 
-      <div id="eventsLoading" class="events-loading" style="display: none;">
-        <div class="events-spinner"></div>
-        <span>Loading alumni…</span>
-      </div>
+        <div class="event-builder-section">
+          <div class="event-builder-section-head">
+            <h3>Custom Variables</h3>
+            <button id="addVariableBtn" class="btn secondary" type="button">Add Variable</button>
+          </div>
+          <p class="event-builder-help">Use snake_case names. Reference variables in templates like <code>{parking_info}</code>.</p>
+          <div id="customVariablesList" class="custom-variables-list"></div>
+        </div>
 
-      <div id="eventsPagination" class="events-pagination"></div>
+        <div class="event-builder-section">
+          <div class="event-builder-section-head">
+            <h3>Last Generated Message</h3>
+            <span id="eventsVisitedCount" class="events-results-count">0 opened</span>
+          </div>
+          <pre id="messagePreview" class="message-preview">Select a location, fill in event details, then click “View LinkedIn” on a card.</pre>
+          <div id="eventsToast" class="events-toast" aria-live="polite"></div>
+        </div>
+      </aside>
+
+      <section class="events-results-section">
+        <div class="events-results-head">
+          <div class="events-results-title">
+            <h2>Filtered Alumni</h2>
+            <span class="events-results-count" id="eventsResultsCount">0</span>
+          </div>
+          <div class="events-results-sort">
+            <label for="eventsSortSelect">Sort by:</label>
+            <select id="eventsSortSelect">
+              <option value="name" selected>Name</option>
+              <option value="distance">Distance</option>
+              <option value="location">Location</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="eventsListContainer" class="events-list list" aria-live="polite">
+          <div class="events-empty-state" id="eventsEmptyState">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+              <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+            <h3>Select a Location</h3>
+            <p>Search for a city, state, or country — or click on the map to drop a pin and find nearby alumni.</p>
+          </div>
+        </div>
+
+        <div id="eventsLoading" class="events-loading" style="display: none;">
+          <div class="events-spinner"></div>
+          <span>Loading alumni…</span>
+        </div>
+
+        <div id="eventsPagination" class="events-pagination"></div>
+      </section>
     </section>
   </main>
 
