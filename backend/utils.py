@@ -22,6 +22,17 @@ def _get_or_create_normalized_entity_id(cur, table, column, value):
     return row["id"] if isinstance(row, dict) else row[0]
 
 
+def parse_multi_value_param(request, param_name):
+    values = []
+    for raw in request.args.getlist(param_name):
+        if raw is None:
+            continue
+        cleaned = str(raw).strip()
+        if cleaned:
+            values.append(cleaned)
+    return values
+
+
 def parse_int_list_param(request, param_name, strict=False):
     values = []
     for raw in request.args.getlist(param_name):

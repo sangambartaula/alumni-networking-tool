@@ -1,4 +1,5 @@
 from flask import Flask
+from flask import request
 
 from config import Config
 from middleware import (
@@ -19,7 +20,8 @@ from routes.auth_routes import auth_bp
 from routes.interaction_routes import interaction_bp
 from routes.scraper_routes import scraper_bp, _resolve_scraper_display_name
 from geocoding import search_location_candidates
-from compat_request_helpers import parse_int_list_param, parse_multi_value_param
+from utils import parse_int_list_param as _parse_int_list_param_from_utils
+from utils import parse_multi_value_param as _parse_multi_value_param_from_utils
 
 # Backward-compat import exposed at module scope for existing tests/patches.
 from database import get_connection
@@ -45,8 +47,12 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(scraper_bp)
 
 
-_parse_multi_value_param = parse_multi_value_param
-_parse_int_list_param = parse_int_list_param
+def _parse_multi_value_param(param_name):
+    return _parse_multi_value_param_from_utils(request, param_name)
+
+
+def _parse_int_list_param(param_name, strict=False):
+    return _parse_int_list_param_from_utils(request, param_name, strict=strict)
 
 
 @app.errorhandler(404)
