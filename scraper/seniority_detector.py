@@ -1,4 +1,4 @@
-﻿"""
+"""
 Seniority level detection from job titles.
 
 Determines seniority from the MOST RECENT job title (original, not normalized),
@@ -16,7 +16,7 @@ from settings import logger
 
 FLAGGED_PROFILES_FILE = Path(__file__).parent / "output" / "flagged_for_review.txt"
 
-# Seniority keyword patterns â€” order matters (most specific first)
+# Seniority keyword patterns — order matters (most specific first)
 # Each tuple: (seniority_level, compiled_regex_pattern)
 SENIORITY_PATTERNS = [
     # Executive level
@@ -84,7 +84,7 @@ _EMP_TYPE_JUNIOR = re.compile(
 
 
 def _seniority_hint_from_employment_type(employment_type: str) -> Optional[str]:
-    """LinkedIn subtitle after 'Â·' (e.g. Full-time, Contract, Internship)."""
+    """LinkedIn subtitle after '·' (e.g. Full-time, Contract, Internship)."""
     et = (employment_type or "").strip()
     if not et:
         return None
@@ -124,7 +124,7 @@ def detect_seniority(job_title, employment_type=None):
 def adjust_and_flag_seniority(seniority, experience_months, linkedin_url):
     """
     Previously validated seniority against experience months.
-    Now disabled â€” seniority flagging removed per user request.
+    Now disabled — seniority flagging removed per user request.
     Returns the seniority level unchanged.
     """
     return seniority

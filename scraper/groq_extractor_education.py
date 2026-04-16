@@ -1,4 +1,4 @@
-﻿"""
+"""
 Groq API integration for extracting education entries from LinkedIn HTML.
 
 Uses shared Groq client infrastructure from groq_client.py.
@@ -37,7 +37,7 @@ def _looks_like_description_blob(text: str) -> bool:
 def _degree_level_key(degree_str: str) -> str:
     """
     Reduce a degree string to a canonical level key for dedup comparison.
-    E.g., "Master of Science" â†’ "masters", "MS" â†’ "masters", "PhD" â†’ "phd"
+    E.g., "Master of Science" → "masters", "MS" → "masters", "PhD" → "phd"
     Returns empty string if no level can be determined.
     """
     d = degree_str.lower().strip()
@@ -231,7 +231,7 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
     """
     client = _get_client()
     if not client:
-        logger.warning("âš ï¸ Groq not available, skipping education LLM extraction")
+        logger.warning("⚠️ Groq not available, skipping education LLM extraction")
         return []
 
     original_len = len(education_html)
@@ -267,7 +267,7 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
             retry_reason = f"Extreme reduction ({original_len} -> {len(structured_text)} chars)"
 
     if should_retry:
-        logger.warning(f"    âš ï¸ Standard cleaning failed: {retry_reason}. Retrying with RELAXED cleaning for {profile_name}...")
+        logger.warning(f"    ⚠️ Standard cleaning failed: {retry_reason}. Retrying with RELAXED cleaning for {profile_name}...")
         structured_text = _education_html_to_structured_text(education_html, profile_name, relaxed=True)
         
         # Log result of retry
@@ -275,13 +275,13 @@ def extract_education_with_groq(education_html: str, profile_name: str = "unknow
             if any(k in structured_text.lower() for k in unt_keywords):
                      logger.debug("Relaxed cleaning recovered UNT keywords.")
             else:
-                    logger.warning("      âŒ Relaxed cleaning still missed UNT keywords (check debug HTML).")
+                    logger.warning("      ❌ Relaxed cleaning still missed UNT keywords (check debug HTML).")
         else:
             logger.debug("Retried with relaxed cleaning.")
 
     text_len = len(structured_text)
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
-    logger.debug(f"Education HTML â†’ text: {original_len:,} â†’ {text_len:,} chars ({reduction}% reduction)")
+    logger.debug(f"Education HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
 
     strict_rules = ""
     if strict_mode:
@@ -305,22 +305,22 @@ For each education entry return:
 
 Rules:
 - SPLIT the degree type from the major. For example:
-  "Bachelor of Science in Computer Science" â†’ degree_raw: "Bachelor of Science", major_raw: "Computer Science"
-  "Master of Science - MS, Computational Science" â†’ degree_raw: "Master of Science", major_raw: "Computational Science"
-  "BS, Mechanical Engineering" â†’ degree_raw: "BS", major_raw: "Mechanical Engineering"
+  "Bachelor of Science in Computer Science" → degree_raw: "Bachelor of Science", major_raw: "Computer Science"
+  "Master of Science - MS, Computational Science" → degree_raw: "Master of Science", major_raw: "Computational Science"
+  "BS, Mechanical Engineering" → degree_raw: "BS", major_raw: "Mechanical Engineering"
 - Extract every school listed, even if there is only 1
 - If the degree field is missing or blank, set degree_raw to ""
 - If the major field is missing or blank, set major_raw to ""
 - If start_year or end_year are missing, set them to ""
-- DO NOT invent data â€” if something is not present in the text, leave it blank
+- DO NOT invent data — if something is not present in the text, leave it blank
 - For major_raw, exclude minors/concentrations/certificates (keep the primary major only)
 - IMPORTANT: LinkedIn education entries are NEVER nested. Unlike jobs which can be grouped under a company, each education entry is independent with its own school name. Each entry = one school + one degree.
 - DESCRIPTION / SUBTEXT (use only when the headline major is misleading):
   LinkedIn often shows a summary line like "BS, Computer and Information Sciences, General" with a separate
   description line naming the real program (e.g. "Bachelors of Data Science" or "Major: Cybersecurity").
-  If the headline field of study is overly generic or umbrella-only â€” e.g. contains "General", "Undeclared",
+  If the headline field of study is overly generic or umbrella-only — e.g. contains "General", "Undeclared",
   "Interdisciplinary", or is a broad label like "Computer and Information Sciences" without a specific
-  discipline â€” AND a non-activity description line clearly states a concrete major or named program,
+  discipline — AND a non-activity description line clearly states a concrete major or named program,
   set major_raw to that specific discipline (e.g. "Data Science"), not the generic headline.
   Still IGNORE: "Activities and societies", honors lists, clubs, GPA, grade level lines ("Grade: Senior"),
   dean's list fluff, and unrelated narrative. Do not invent a major if the description does not clearly name one.
@@ -380,12 +380,12 @@ Data:
                 if parsed.get("school"):
                     education = [parsed]
                 else:
-                    logger.warning("âš ï¸ Groq returned JSON object with no education data")
+                    logger.warning("⚠️ Groq returned JSON object with no education data")
                     return [], 0
         elif isinstance(parsed, list):
             education = parsed
         else:
-            logger.warning("âš ï¸ Groq returned unexpected JSON type for education")
+            logger.warning("⚠️ Groq returned unexpected JSON type for education")
             return []
 
         # Validate and clean each entry
@@ -422,7 +422,7 @@ Data:
             major_raw = _act_re.sub('', major_raw).strip()
             degree_raw = _act_re.sub('', degree_raw).strip()
             # Trim trailing dash markers from school labels (hyphen/en dash/em dash).
-            school = re.sub(r"\s*(?:-|\u2013|\u2014|â€“|â€”)\s*$", "", school).strip()
+            school = re.sub(r"\s*(?:-|\u2013|\u2014|–|—)\s*$", "", school).strip()
 
             # University + High School Diploma is an invalid combination.
             if re.search(r"\b(university|college|institute)\b", school, re.IGNORECASE) and re.search(r"\bhigh\s*school\b", degree_raw, re.IGNORECASE):
@@ -450,9 +450,9 @@ Data:
                         and existing["major_raw"].lower() == major_raw.lower()):
                     is_dup = True
                     break
-                # Degree-level match (e.g., "Master of Science" â‰ˆ "MS" at same school)
+                # Degree-level match (e.g., "Master of Science" ≈ "MS" at same school)
                 if _same_degree_level(existing["degree_raw"], degree_raw):
-                    # Same school + same degree level â†’ keep the one with more detail
+                    # Same school + same degree level → keep the one with more detail
                     is_dup = True
                     # If the new entry has a more specific major, update the existing one
                     if major_raw and not existing["major_raw"]:
@@ -475,7 +475,7 @@ Data:
             valid_entries.sort(key=lambda e: (0 if _is_unt_school(e.get("school", "")) else 1))
             logger.debug(f"Groq extracted {len(valid_entries)} education entry/entries")
             for i, e in enumerate(valid_entries):
-                logger.debug(f"  Edu {i+1}: {e['school']} â€” {e['degree_raw']} / {e['major_raw']} ({e['start_date']}â€“{e['end_date']})")
+                logger.debug(f"  Edu {i+1}: {e['school']} — {e['degree_raw']} / {e['major_raw']} ({e['start_date']}–{e['end_date']})")
 
         return valid_entries, edu_token_count
 

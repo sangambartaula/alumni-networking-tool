@@ -1,4 +1,4 @@
-﻿"""
+"""
 Shared Groq API client infrastructure.
 
 Provides:
@@ -19,7 +19,7 @@ from datetime import datetime
 from settings import logger
 
 # Configure Groq SDK HTTP retry backoff (429 / transient errors).
-# This logic used to live in scraper/groq_retry_patch.py â€” inlined here so
+# This logic used to live in scraper/groq_retry_patch.py — inlined here so
 # importing this module applies the configured retry delay automatically.
 _applied = False
 
@@ -60,7 +60,7 @@ try:
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False
-    logger.warning("âš ï¸ groq not installed. Run: pip install groq")
+    logger.warning("⚠️ groq not installed. Run: pip install groq")
 
 try:
     from bs4 import BeautifulSoup
@@ -133,7 +133,7 @@ def _get_client():
             _client = Groq(api_key=GROQ_API_KEY)
             logger.debug(f"Groq API initialized (model: {GROQ_MODEL})")
         except Exception as e:
-            logger.error(f"âŒ Failed to initialize Groq: {e}")
+            logger.error(f"❌ Failed to initialize Groq: {e}")
     return _client
 
 
@@ -163,7 +163,7 @@ def save_debug_html(content: str, profile_name: str, section: str = "experience"
         logger.debug(f"Saved debug {section} to: {debug_file.name}")
     except Exception as e:
         # Debug saving must never crash production
-        logger.warning(f"    âš ï¸ Failed to save debug {section}: {e}")
+        logger.warning(f"    ⚠️ Failed to save debug {section}: {e}")
 
 
 def parse_groq_json_response(result_text: str) -> dict | list | None:
@@ -198,7 +198,7 @@ def parse_groq_json_response(result_text: str) -> dict | list | None:
             except json.JSONDecodeError:
                 pass
         msg = result_text[:100] + "..." if len(result_text) > 100 else result_text
-        logger.warning(f"âš ï¸ Groq returned invalid JSON: {msg}")
+        logger.warning(f"⚠️ Groq returned invalid JSON: {msg}")
         return None
 
 
@@ -234,7 +234,7 @@ def parse_groq_date(date_str: str) -> dict:
 
     date_str = date_str.strip()
     normalized = re.sub(r"\s+", " ", date_str)
-    normalized = normalized.replace("â€“", "-").replace("â€”", "-")
+    normalized = normalized.replace("–", "-").replace("—", "-")
 
     # Check for "Present"
     if normalized.lower() == "present":
@@ -358,11 +358,11 @@ def verify_location(text: str) -> bool:
             is_loc = data.get("is_location", False)
             reason = data.get("reason", "")
             if is_loc:
-                logger.debug(f"âœ… Groq verified location: {text}")
+                logger.debug(f"✅ Groq verified location: {text}")
             else:
-                logger.debug(f"âŒ Groq rejected location: {text} ({reason})")
+                logger.debug(f"❌ Groq rejected location: {text} ({reason})")
             return is_loc
         return False
     except Exception as e:
-        logger.warning(f"âš ï¸ Groq location verification failed: {e}")
+        logger.warning(f"⚠️ Groq location verification failed: {e}")
         return False

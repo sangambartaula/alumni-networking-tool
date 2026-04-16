@@ -1,4 +1,4 @@
-﻿"""
+"""
 Entity Classifier - Tiered system to distinguish job titles from company names.
 
 Tier 1: Curated company database lookup (fastest, most reliable)
@@ -80,7 +80,7 @@ def _get_nlp():
             import spacy
             try:
                 _nlp = _load_spacy_model(spacy, _SPACY_MODEL_NAME)
-                logger.info("âœ“ spaCy model loaded")
+                logger.info("✓ spaCy model loaded")
             except OSError as model_err:
                 if _env_flag("SPACY_AUTO_DOWNLOAD_MODEL", default=False):
                     _download_spacy_model(_SPACY_MODEL_NAME)
@@ -95,7 +95,7 @@ def _get_nlp():
                     )
                     logger.debug(f"spaCy model load error: {model_err}")
                     _nlp = False
-                logger.info("âœ“ spaCy model downloaded and loaded")
+                logger.info("✓ spaCy model downloaded and loaded")
         except Exception as e:
             logger.warning(f"Could not load spaCy: {e}. Entity classification will use regex fallback.")
             _nlp = False  # Mark as unavailable
@@ -227,7 +227,7 @@ class EntityClassifier:
                 self.universities_db = set(u.lower().strip() for u in data.get("universities", []))
                 self.job_titles_db = set(t.lower().strip() for t in data.get("job_titles", []))
                 self.aliases = {k.lower().strip(): v for k, v in data.get("aliases", {}).items()}
-                logger.info(f"âœ“ Loaded {len(self.companies_db)} companies, {len(self.universities_db)} universities, {len(self.job_titles_db)} job titles from database")
+                logger.info(f"✓ Loaded {len(self.companies_db)} companies, {len(self.universities_db)} universities, {len(self.job_titles_db)} job titles from database")
         except Exception as e:
             logger.warning(f"Could not load company database: {e}")
     
@@ -313,7 +313,7 @@ class EntityClassifier:
             return ("company", 1.0)
         
         # Partial match - company name might be part of longer text
-        # e.g., "State Farm Â· Full-time" should match "State Farm"
+        # e.g., "State Farm · Full-time" should match "State Farm"
         for company in self.companies_db:
             if len(company) >= 4:  # Avoid matching very short strings
                 if text_lower.startswith(company) or company in text_lower:

@@ -1,14 +1,14 @@
-﻿"""
+"""
 Degree Normalization Module
 
 Deterministic normalization of degree strings to canonical forms.
 Follows the same pattern as job_title_normalization.py.
 
 Example:
-    "Bachelor of Science" â†’ "Bachelor of Science"
-    "BS" â†’ "Bachelor of Science"
-    "M.S." â†’ "Master of Science"
-    "BSME" â†’ "Bachelor of Science in Mechanical Engineering"
+    "Bachelor of Science" → "Bachelor of Science"
+    "BS" → "Bachelor of Science"
+    "M.S." → "Master of Science"
+    "BSME" → "Bachelor of Science in Mechanical Engineering"
 """
 
 import re
@@ -45,7 +45,7 @@ OFFICIAL_UNT_DEGREES = [
     "Ph.D. Mechanical and Energy Engineering"
 ]
 
-# â”€â”€ Canonical degree mapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Canonical degree mapping ──────────────────────────────────────────────
 # Keys are lowercase patterns; values are canonical display strings.
 DEGREE_MAP = {
     # Bachelor of Science variants
@@ -240,9 +240,9 @@ def normalize_degree_deterministic(raw_degree: str) -> str:
         return DEGREE_MAP[lower]
 
     # 2. Try prefix before "in", ",", or "-"
-    # Example: "BS in Computer Science" â†’ try "bs"
-    # Example: "Bachelor of Science, Computer Science" â†’ try "bachelor of science"
-    prefix_match = re.match(r'^(.+?)\s*(?:\bin\b|,|\s*[-â€“â€”]\s*)', lower)
+    # Example: "BS in Computer Science" → try "bs"
+    # Example: "Bachelor of Science, Computer Science" → try "bachelor of science"
+    prefix_match = re.match(r'^(.+?)\s*(?:\bin\b|,|\s*[-–—]\s*)', lower)
     if prefix_match:
         prefix = prefix_match.group(1).strip()
         if prefix in DEGREE_MAP:
@@ -255,7 +255,7 @@ def normalize_degree_deterministic(raw_degree: str) -> str:
         if re.search(r'(?<![a-z])' + re.escape(pattern) + r'(?![a-z])', lower):
             return DEGREE_MAP[pattern]
 
-    # 4. No match â€” return the original cleaned string (title case)
+    # 4. No match — return the original cleaned string (title case)
     return cleaned
 
 
@@ -317,7 +317,7 @@ def get_all_normalized_degrees(conn) -> dict:
     Fetch all normalized degrees from the database.
 
     Returns:
-        Dict mapping normalized_degree string â†’ id
+        Dict mapping normalized_degree string → id
     """
     try:
         cur = conn.cursor()
@@ -338,10 +338,10 @@ def get_all_normalized_degrees(conn) -> dict:
         return {}
 
 
-# â”€â”€ Simple grouping labels (for standardized_degree column) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Simple grouping labels (for standardized_degree column) ───────────────
 # Final allowed values:
 #   Associate, Bachelors, Masters, Doctorate, Other
-# Maps canonical display strings â†’ group labels
+# Maps canonical display strings → group labels
 _DEGREE_GROUP_MAP = {
     # Bachelors
     "Bachelor of Science": "Bachelors",
@@ -379,7 +379,7 @@ _DEGREE_GROUP_MAP = {
 
 # Keyword fallbacks for strings that don't match DEGREE_MAP exactly
 _GROUP_KEYWORDS = [
-    # Order matters â€” check most specific first
+    # Order matters — check most specific first
     (re.compile(r'\b(high\s*school|diploma|ged)\b', re.I), "Other"),
     (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Other"),
     (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
