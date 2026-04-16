@@ -1,11 +1,16 @@
+import importlib
+
 from flask import Blueprint, current_app, jsonify, request
 
-from database import get_connection
-from middleware import api_login_required, get_current_user_id
+from middleware import api_login_required
 from utils import parse_int_list_param
 
 
 interaction_bp = Blueprint("interaction", __name__)
+
+
+def _app_mod():
+	return importlib.import_module("app")
 
 
 @interaction_bp.route("/api/interaction", methods=["POST"])
@@ -24,13 +29,11 @@ def add_interaction():
 	if interaction_type not in ["bookmarked", "connected"]:
 		return jsonify({"error": "Invalid interaction_type. Must be 'bookmarked' or 'connected'"}), 400
 
-	user_id = get_current_user_id(
-		current_app.config.get("DISABLE_DB"), current_app.config.get("USE_SQLITE_FALLBACK")
-	)
+	user_id = _app_mod().get_current_user_id()
 	if not user_id:
 		return jsonify({"error": "User not found"}), 401
 
-	conn = get_connection()
+	conn = _app_mod().get_connection()
 	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 	try:
 		if use_sqlite:
@@ -88,13 +91,11 @@ def remove_interaction():
 	if not alumni_id or not interaction_type:
 		return jsonify({"error": "Missing alumni_id or interaction_type"}), 400
 
-	user_id = get_current_user_id(
-		current_app.config.get("DISABLE_DB"), current_app.config.get("USE_SQLITE_FALLBACK")
-	)
+	user_id = _app_mod().get_current_user_id()
 	if not user_id:
 		return jsonify({"error": "User not found"}), 401
 
-	conn = get_connection()
+	conn = _app_mod().get_connection()
 	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 	try:
 		if use_sqlite:
@@ -139,14 +140,12 @@ def get_user_interactions():
 	if current_app.config.get("DISABLE_DB") and not current_app.config.get("USE_SQLITE_FALLBACK"):
 		return jsonify({"success": True, "interactions": [], "count": 0, "bookmarked_total": 0}), 200
 
-	user_id = get_current_user_id(
-		current_app.config.get("DISABLE_DB"), current_app.config.get("USE_SQLITE_FALLBACK")
-	)
+	user_id = _app_mod().get_current_user_id()
 	if not user_id:
 		return jsonify({"error": "User not found"}), 401
 
 	alumni_ids = parse_int_list_param(request, "alumni_ids")[:1000]
-	conn = get_connection()
+	conn = _app_mod().get_connection()
 	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 
 	try:
@@ -163,7 +162,11 @@ def get_user_interactions():
 					""",
 					(user_id,),
 				)
-				count_row = cursor.fetchone() or {}
+				if hasattr(cursor, "fetchone"):
+					count_row = cursor.fetchone() or {}
+				else:
+					rows = cursor.fetchall() or []
+					count_row = rows[0] if rows else {}
 				bookmarked_total = count_row.get("bookmarked_total", 0) or 0
 
 				sql = """
@@ -189,7 +192,11 @@ def get_user_interactions():
 					""",
 					(user_id,),
 				)
-				count_row = cur.fetchone() or {}
+				if hasattr(cur, "fetchone"):
+					count_row = cur.fetchone() or {}
+				else:
+					rows = cur.fetchall() or []
+					count_row = rows[0] if rows else {}
 				bookmarked_total = count_row.get("bookmarked_total", 0) or 0
 
 				sql = """
@@ -235,13 +242,11 @@ def get_user_interactions():
 @interaction_bp.route("/api/notes/<int:alumni_id>", methods=["GET"])
 @api_login_required
 def api_get_note(alumni_id):
-	user_id = get_current_user_id(
-		current_app.config.get("DISABLE_DB"), current_app.config.get("USE_SQLITE_FALLBACK")
-	)
+	user_id = _app_mod().get_current_user_id()
 	if not user_id:
 		return jsonify({"error": "User not found"}), 401
 
-	conn = get_connection()
+	conn = _app_mod().get_connection()
 	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 	try:
 		with conn.cursor(dictionary=True) as cur:
@@ -269,16 +274,14 @@ def api_get_note(alumni_id):
 @interaction_bp.route("/api/notes/<int:alumni_id>", methods=["POST"])
 @api_login_required
 def api_upsert_note(alumni_id):
-	user_id = get_current_user_id(
-		current_app.config.get("DISABLE_DB"), current_app.config.get("USE_SQLITE_FALLBACK")
-	)
+	user_id = _app_mod().get_current_user_id()
 	if not user_id:
 		return jsonify({"error": "User not found"}), 401
 
 	data = request.get_json(silent=True) or {}
 	note = (data.get("note") or "").strip()
 
-	conn = get_connection()
+	conn = _app_mod().get_connection()
 	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 	try:
 		with conn.cursor() as cur:
@@ -323,13 +326,11 @@ def api_upsert_note(alumni_id):
 @interaction_bp.route("/api/notes/<int:alumni_id>", methods=["DELETE"])
 @api_login_required
 def api_delete_note(alumni_id):
-	user_id = get_current_user_id(
-		current_app.config.get("DISABLE_DB"), current_app.config.get("USE_SQLITE_FALLBACK")
-	)
+	user_id = _app_mod().get_current_user_id()
 	if not user_id:
 		return jsonify({"error": "User not found"}), 401
 
-	conn = get_connection()
+	conn = _app_mod().get_connection()
 	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 	try:
 		with conn.cursor() as cur:
@@ -345,6 +346,39 @@ def api_delete_note(alumni_id):
 			conn.rollback()
 		except Exception:
 			pass
+		return jsonify({"error": f"Database error: {str(err)}"}), 500
+	finally:
+		try:
+			conn.close()
+		except Exception:
+			pass
+
+
+@interaction_bp.route("/api/notes/summary", methods=["GET"])
+@api_login_required
+def api_notes_summary():
+	user_id = _app_mod().get_current_user_id()
+	if not user_id:
+		return jsonify({"error": "User not found"}), 401
+
+	ids = parse_int_list_param(request, "ids")
+	if not ids:
+		return jsonify({"success": True, "summary": {}, "count": 0}), 200
+
+	conn = _app_mod().get_connection()
+	try:
+		with conn.cursor(dictionary=True) as cur:
+			placeholders = ",".join(["%s"] * len(ids))
+			cur.execute(
+				f"SELECT alumni_id FROM notes WHERE user_id = %s AND alumni_id IN ({placeholders})",
+				tuple([user_id] + ids),
+			)
+			rows = cur.fetchall() or []
+			present = {str(int(r.get("alumni_id"))) for r in rows if r.get("alumni_id") is not None}
+
+		summary = {str(i): (str(i) in present) for i in ids}
+		return jsonify({"success": True, "summary": summary, "count": len(present)}), 200
+	except Exception as err:
 		return jsonify({"error": f"Database error: {str(err)}"}), 500
 	finally:
 		try:
