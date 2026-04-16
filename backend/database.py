@@ -5,6 +5,7 @@ import logging
 import re
 from dotenv import load_dotenv
 from pathlib import Path
+from db_helpers import managed_db_cursor, execute_sql
 
 _env_path = Path(__file__).resolve().parent.parent / '.env'
 for _enc in ('utf-8', 'latin-1'):
@@ -1155,19 +1156,16 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
     Save a visited profile to the visited_profiles table.
     This tracks ALL profiles we've ever visited (UNT and non-UNT).
     """
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute("""
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(cur, """
                 INSERT INTO visited_profiles (linkedin_url, is_unt_alum, visited_at, last_checked, notes)
                 VALUES (%s, %s, NOW(), NOW(), %s)
                 ON DUPLICATE KEY UPDATE
                     is_unt_alum = VALUES(is_unt_alum),
                     last_checked = NOW(),
                     notes = COALESCE(VALUES(notes), notes)
-            """, (normalize_url(linkedin_url), is_unt_alum, notes))
-            conn.commit()
+            """, (normalize_url(linkedin_url), is_unt_alum, notes), connection=conn)
 
         logger.debug(f"Saved to visited_profiles: {linkedin_url} (UNT: {is_unt_alum})")
         return True
@@ -1175,12 +1173,6 @@ def save_visited_profile(linkedin_url, is_unt_alum=False, notes=None):
     except mysql.connector.Error as err:
         logger.error(f"Error saving visited profile: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def get_all_visited_profiles():
@@ -1188,10 +1180,8 @@ def get_all_visited_profiles():
     Get all visited profiles from the visited_profiles table.
     Returns a list of dicts with linkedin_url, is_unt_alum, visited_at, last_checked, needs_update.
     """
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor(dictionary=True) as cur:
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
             cur.execute("""
                 SELECT linkedin_url, is_unt_alum, visited_at, last_checked, needs_update
                 FROM visited_profiles
@@ -1204,38 +1194,23 @@ def get_all_visited_profiles():
     except mysql.connector.Error as err:
         logger.error(f"Error fetching visited profiles: {err}")
         return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def mark_profile_needs_update(linkedin_url, needs_update=True):
     """Mark a profile as needing update in the visited_profiles table."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute("""
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(cur, """
                 UPDATE visited_profiles
                 SET needs_update = %s
                 WHERE linkedin_url = %s
-            """, (needs_update, linkedin_url.strip()))
-            conn.commit()
+            """, (needs_update, linkedin_url.strip()), connection=conn)
 
         return True
 
     except mysql.connector.Error as err:
         logger.error(f"Error updating profile needs_update flag: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def sync_alumni_to_visited_profiles():
@@ -1243,10 +1218,8 @@ def sync_alumni_to_visited_profiles():
     Sync all existing alumni records to the visited_profiles table.
     This ensures all UNT alumni are marked as visited.
     """
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             # Insert all alumni into visited_profiles (if not already there)
             cur.execute("""
                 INSERT INTO visited_profiles (linkedin_url, is_unt_alum, visited_at, last_checked)
@@ -1258,7 +1231,6 @@ def sync_alumni_to_visited_profiles():
                     last_checked = VALUES(last_checked)
             """)
             synced = cur.rowcount
-            conn.commit()
 
         logger.info(f"Synced {synced} alumni to visited_profiles table")
         return synced
@@ -1266,12 +1238,6 @@ def sync_alumni_to_visited_profiles():
     except mysql.connector.Error as err:
         logger.error(f"Error syncing alumni to visited_profiles: {err}")
         return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def migrate_visited_history_csv_to_db():
@@ -1340,10 +1306,8 @@ def migrate_visited_history_csv_to_db():
 
 def get_visited_profiles_stats():
     """Get statistics about visited profiles."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor(dictionary=True) as cur:
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
             cur.execute("""
                 SELECT 
                     COUNT(*) as total,
@@ -1359,12 +1323,6 @@ def get_visited_profiles_stats():
     except mysql.connector.Error as err:
         logger.error(f"Error getting visited profiles stats: {err}")
         return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 # ============================================================
@@ -1376,29 +1334,14 @@ def get_authorized_emails():
     Get all authorized emails from the database.
     Returns a list of dicts with email, added_at, added_by_user_id, and notes.
     """
-    conn = None
     try:
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-        
-        if use_sqlite:
-            # SQLite mode — use dictionary cursor for dict results
-            with conn.cursor(dictionary=True) as cursor:
-                cursor.execute("""
-                    SELECT email, added_at, added_by_user_id, notes
-                    FROM authorized_emails
-                    ORDER BY added_at DESC
-                """)
-                emails = cursor.fetchall()
-        else:
-            # MySQL mode
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
-                    SELECT email, added_at, added_by_user_id, notes
-                    FROM authorized_emails
-                    ORDER BY added_at DESC
-                """)
-                emails = cur.fetchall()
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
+            cur.execute("""
+                SELECT email, added_at, added_by_user_id, notes
+                FROM authorized_emails
+                ORDER BY added_at DESC
+            """)
+            emails = cur.fetchall()
         
         # Convert datetime objects to strings for JSON serialization
         for email_record in emails:
@@ -1410,12 +1353,6 @@ def get_authorized_emails():
     except Exception as err:
         logger.error(f"Error fetching authorized emails: {err}")
         return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def is_email_authorized(email):
@@ -1426,31 +1363,21 @@ def is_email_authorized(email):
     if not email:
         return False
 
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
-        if use_sqlite:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM authorized_emails WHERE LOWER(email) = LOWER(?) LIMIT 1", (email,))
-            row = cursor.fetchone()
-        else:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM authorized_emails WHERE LOWER(email) = LOWER(%s) LIMIT 1", (email,))
-                row = cur.fetchone()
+        with managed_db_cursor(get_connection) as (conn, cur):
+            execute_sql(
+                cur,
+                "SELECT 1 FROM authorized_emails WHERE LOWER(email) = LOWER(%s) LIMIT 1",
+                (email,),
+                connection=conn,
+            )
+            row = cur.fetchone()
 
         return bool(row)
     except Exception as err:
         logger.error(f"Error checking authorized email {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def add_authorized_email(email, added_by_user_id=None, notes=None):
@@ -1458,46 +1385,28 @@ def add_authorized_email(email, added_by_user_id=None, notes=None):
     Add an email to the authorized emails list.
     Returns True if successful, False otherwise.
     """
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-        
-        if use_sqlite:
-            # SQLite mode
-            cursor = conn.cursor()
-            cursor.execute("""
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(cur, """
+                INSERT INTO authorized_emails (email, added_by_user_id, notes)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    notes = VALUES(notes),
+                    added_by_user_id = VALUES(added_by_user_id)
+            """, (email, added_by_user_id, notes), connection=conn, sqlite_query="""
                 INSERT INTO authorized_emails (email, added_by_user_id, notes, added_at)
                 VALUES (?, ?, ?, datetime('now'))
                 ON CONFLICT(email) DO UPDATE SET
                     notes = excluded.notes,
                     added_by_user_id = excluded.added_by_user_id
-            """, (email, added_by_user_id, notes))
-            conn.commit()
-        else:
-            # MySQL mode
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO authorized_emails (email, added_by_user_id, notes)
-                    VALUES (%s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        notes = VALUES(notes),
-                        added_by_user_id = VALUES(added_by_user_id)
-                """, (email, added_by_user_id, notes))
-                conn.commit()
+            """)
         
         logger.info(f"Added authorized email: {email}")
         return True
     except Exception as err:
         logger.error(f"Error adding authorized email {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def remove_authorized_email(email):
@@ -1505,34 +1414,21 @@ def remove_authorized_email(email):
     Remove an email from the authorized emails list.
     Returns True if successful, False otherwise.
     """
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-        
-        if use_sqlite:
-            # SQLite mode
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM authorized_emails WHERE email = ?", (email,))
-            conn.commit()
-        else:
-            # MySQL mode
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM authorized_emails WHERE email = %s", (email,))
-                conn.commit()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "DELETE FROM authorized_emails WHERE email = %s",
+                (email,),
+                connection=conn,
+            )
         
         logger.info(f"Removed authorized email: {email}")
         return True
     except Exception as err:
         logger.error(f"Error removing authorized email {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def migrate_env_emails_to_db():
@@ -1572,33 +1468,19 @@ def get_user_by_email(email):
     """
     if not email:
         return None
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
-        if use_sqlite:
-            with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(
-                    "SELECT * FROM users WHERE LOWER(email) = LOWER(?)", (email,)
-                )
-                return cursor.fetchone()
-        else:
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute(
-                    "SELECT * FROM users WHERE LOWER(email) = LOWER(%s)", (email,)
-                )
-                return cur.fetchone()
+        with managed_db_cursor(get_connection, dictionary=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "SELECT * FROM users WHERE LOWER(email) = LOWER(%s)",
+                (email,),
+                connection=conn,
+            )
+            return cur.fetchone()
     except Exception as err:
         logger.error(f"Error fetching user by email {email}: {err}")
         return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def create_user_with_password(email, password_hash, role="user"):
@@ -1609,42 +1491,26 @@ def create_user_with_password(email, password_hash, role="user"):
     """
     if not email:
         return False
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
-        if use_sqlite:
-            cursor = conn.cursor()
-            cursor.execute(
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
                 """INSERT INTO users
                    (email, linkedin_id, password_hash, auth_type, role, must_change_password)
-                   VALUES (?, ?, ?, 'email_password', ?, 0)""",
+                   VALUES (%s, %s, %s, 'email_password', %s, FALSE)""",
                 (email, f"email_{email}", password_hash, role),
+                connection=conn,
+                sqlite_query="""INSERT INTO users
+                   (email, linkedin_id, password_hash, auth_type, role, must_change_password)
+                   VALUES (?, ?, ?, 'email_password', ?, 0)""",
             )
-            conn.commit()
-        else:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO users
-                       (email, linkedin_id, password_hash, auth_type, role, must_change_password)
-                       VALUES (%s, %s, %s, 'email_password', %s, FALSE)""",
-                    (email, f"email_{email}", password_hash, role),
-                )
-                conn.commit()
 
         logger.info(f"Created user {email} with role={role}")
         return True
     except Exception as err:
         logger.error(f"Error creating user {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def update_user_password(email, password_hash, auth_type=None):
@@ -1654,12 +1520,8 @@ def update_user_password(email, password_hash, auth_type=None):
     """
     if not email:
         return False
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
         if auth_type:
             sql_sqlite = "UPDATE users SET password_hash = ?, auth_type = ?, must_change_password = 0 WHERE LOWER(email) = LOWER(?)"
             sql_mysql = "UPDATE users SET password_hash = %s, auth_type = %s, must_change_password = FALSE WHERE LOWER(email) = LOWER(%s)"
@@ -1669,64 +1531,42 @@ def update_user_password(email, password_hash, auth_type=None):
             sql_mysql = "UPDATE users SET password_hash = %s, must_change_password = FALSE WHERE LOWER(email) = LOWER(%s)"
             params = (password_hash, email)
 
-        if use_sqlite:
-            cursor = conn.cursor()
-            cursor.execute(sql_sqlite, params)
-            conn.commit()
-        else:
-            with conn.cursor() as cur:
-                cur.execute(sql_mysql, params)
-                conn.commit()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                sql_mysql,
+                params,
+                connection=conn,
+                sqlite_query=sql_sqlite,
+            )
 
         logger.info(f"Updated password for {email}")
         return True
     except Exception as err:
         logger.error(f"Error updating password for {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def set_must_change_password(email, value=True):
     """Set the must_change_password flag for a user."""
     if not email:
         return False
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
         bool_val = 1 if value else 0
-        if use_sqlite:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET must_change_password = ? WHERE LOWER(email) = LOWER(?)",
-                (bool_val, email),
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "UPDATE users SET must_change_password = %s WHERE LOWER(email) = LOWER(%s)",
+                (value, email),
+                connection=conn,
+                sqlite_query="UPDATE users SET must_change_password = ? WHERE LOWER(email) = LOWER(?)",
             )
-            conn.commit()
-        else:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE users SET must_change_password = %s WHERE LOWER(email) = LOWER(%s)",
-                    (value, email),
-                )
-                conn.commit()
 
         return True
     except Exception as err:
         logger.error(f"Error setting must_change_password for {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def update_user_role(email, role):
@@ -1735,59 +1575,34 @@ def update_user_role(email, role):
         return False
     if not email:
         return False
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
-        if use_sqlite:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET role = ? WHERE LOWER(email) = LOWER(?)",
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "UPDATE users SET role = %s WHERE LOWER(email) = LOWER(%s)",
                 (role, email),
+                connection=conn,
+                sqlite_query="UPDATE users SET role = ? WHERE LOWER(email) = LOWER(?)",
             )
-            conn.commit()
-        else:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE users SET role = %s WHERE LOWER(email) = LOWER(%s)",
-                    (role, email),
-                )
-                conn.commit()
 
         logger.info(f"Updated role for {email} to {role}")
         return True
     except Exception as err:
         logger.error(f"Error updating role for {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def get_all_users():
     """Return all user rows (admin dashboard). Sensitive fields omitted."""
-    conn = None
     try:
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
         sql = """SELECT id, email, first_name, last_name, auth_type, role,
                         must_change_password, created_at
                  FROM users ORDER BY email"""
 
-        if use_sqlite:
-            with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(sql)
-                rows = cursor.fetchall()
-        else:
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute(sql)
-                rows = cur.fetchall()
+        with managed_db_cursor(get_connection, dictionary=True) as (conn, cur):
+            execute_sql(cur, sql, connection=conn)
+            rows = cur.fetchall()
 
         # Serialize datetimes
         for row in rows:
@@ -1802,44 +1617,27 @@ def get_all_users():
     except Exception as err:
         logger.error(f"Error fetching all users: {err}")
         return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def delete_user(email):
     """Remove a user by email."""
     if not email:
         return False
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
-        if use_sqlite:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM users WHERE LOWER(email) = LOWER(?)", (email,))
-            conn.commit()
-        else:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
-                conn.commit()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "DELETE FROM users WHERE LOWER(email) = LOWER(%s)",
+                (email,),
+                connection=conn,
+            )
 
         logger.info(f"Deleted user {email}")
         return True
     except Exception as err:
         logger.error(f"Error deleting user {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def admin_reset_password(email):
@@ -1848,38 +1646,22 @@ def admin_reset_password(email):
     """
     if not email:
         return False
-    conn = None
     try:
         email = email.lower().strip()
-        conn = get_connection()
-        use_sqlite = os.getenv("DISABLE_DB", "0") == "1" and USE_SQLITE_FALLBACK
-
-        if use_sqlite:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET password_hash = NULL, must_change_password = 1 WHERE LOWER(email) = LOWER(?)",
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "UPDATE users SET password_hash = NULL, must_change_password = TRUE WHERE LOWER(email) = LOWER(%s)",
                 (email,),
+                connection=conn,
+                sqlite_query="UPDATE users SET password_hash = NULL, must_change_password = 1 WHERE LOWER(email) = LOWER(?)",
             )
-            conn.commit()
-        else:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE users SET password_hash = NULL, must_change_password = TRUE WHERE LOWER(email) = LOWER(%s)",
-                    (email,),
-                )
-                conn.commit()
 
         logger.info(f"Admin reset password for {email}")
         return True
     except Exception as err:
         logger.error(f"Error in admin_reset_password for {email}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 
@@ -3034,10 +2816,8 @@ def seed_alumni_data():
 
 def has_alumni_records():
     """Return True when the alumni table already has at least one record."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection) as (_conn, cur):
             cur.execute("SELECT COUNT(*) FROM alumni")
             row = cur.fetchone()
             if isinstance(row, dict):
@@ -3050,20 +2830,12 @@ def has_alumni_records():
     except Exception as e:
         logger.warning(f"Could not determine alumni table size: {e}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def truncate_dot_fields():
     """Remove anything after '·' in location, company, and current_job_title"""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             cur.execute("""
                 UPDATE alumni
                 SET 
@@ -3075,26 +2847,18 @@ def truncate_dot_fields():
                     OR company LIKE '%·%'
                     OR current_job_title LIKE '%·%';
             """)
-            conn.commit()
             logger.info("✅ Truncated '·' fields in alumni table")
     except mysql.connector.Error as err:
         logger.error(f"❌ Error truncating dot fields: {err}")
         raise
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def cleanup_trailing_slashes():
     """Remove trailing slashes from existing URLs, handling duplicates."""
     logger.info("🧹 Cleaning up trailing slashes from URLs...")
-    conn = get_connection()
     try:
         tables = ['visited_profiles', 'alumni']
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection) as (conn, cur):
             for table in tables:
                 # Find URLs with trailing slash
                 cur.execute(f"SELECT id, linkedin_url FROM {table} WHERE linkedin_url LIKE '%/'")
@@ -3133,8 +2897,6 @@ def cleanup_trailing_slashes():
                 
     except Exception as e:
         logger.error(f"❌ Error during cleanup: {e}")
-    finally:
-        if conn: conn.close()
 
 
 def normalize_existing_grad_years():
@@ -3142,13 +2904,11 @@ def normalize_existing_grad_years():
     Retroactively normalize alumni.grad_year to integer values where possible.
     Leaves unparseable values unchanged.
     """
-    conn = None
     normalized = 0
     scanned = 0
 
     try:
-        conn = get_connection()
-        with conn.cursor(dictionary=True) as cur:
+        with managed_db_cursor(get_connection, dictionary=True, commit=True) as (_conn, cur):
             cur.execute("SELECT id, grad_year FROM alumni WHERE grad_year IS NOT NULL")
             rows = cur.fetchall() or []
             scanned = len(rows)
@@ -3170,16 +2930,9 @@ def normalize_existing_grad_years():
                 )
                 normalized += 1
 
-        conn.commit()
         logger.info(f"✅ Grad year normalization complete: updated {normalized} of {scanned} rows")
     except Exception as e:
         logger.error(f"❌ Error normalizing grad years: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def normalize_single_date_education_semantics():
@@ -3191,7 +2944,6 @@ def normalize_single_date_education_semantics():
     Recomputes working_while_studying_status for updated rows so filter behavior
     stays aligned with the corrected education dates.
     """
-    conn = None
     scanned = 0
     updated = 0
 
@@ -3205,8 +2957,7 @@ def normalize_single_date_education_semantics():
         return
 
     try:
-        conn = get_connection()
-        with conn.cursor(dictionary=True) as cur:
+        with managed_db_cursor(get_connection, dictionary=True, commit=True) as (_conn, cur):
             cur.execute(
                 """
                 SELECT id,
@@ -3264,7 +3015,6 @@ def normalize_single_date_education_semantics():
                 )
                 updated += 1
 
-        conn.commit()
         logger.info(
             "✅ Single-date education normalization complete: updated %s of %s candidate rows",
             updated,
@@ -3272,12 +3022,6 @@ def normalize_single_date_education_semantics():
         )
     except Exception as e:
         logger.error(f"❌ Error normalizing single-date education semantics: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":
