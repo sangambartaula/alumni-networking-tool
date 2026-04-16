@@ -68,6 +68,32 @@ def _parse_unt_alumni_status_filter(value):
     return text
 
 
+def _normalize_working_while_studying_value(value):
+    if value is True or value == 1:
+        return "yes"
+    if value is False or value == 0:
+        return "no"
+    text = (value or "").strip().lower()
+    if text in {"yes", "true", "1", "currently"}:
+        return "yes"
+    if text in {"no", "false", "0"}:
+        return "no"
+    return "unknown"
+
+
+def _normalize_degree_to_filter_label(value):
+    text = (value or "").strip().lower()
+    if not text:
+        return ""
+    if "phd" in text or "doctor" in text:
+        return "PhD"
+    if "master" in text or text in {"ms", "m.s", "graduate"}:
+        return "Masters"
+    if "bachelor" in text or text == "undergraduate":
+        return "Bachelors"
+    return ""
+
+
 def classify_seniority_bucket(title, _stored):
     t = (title or "").lower()
     if not t:
@@ -162,16 +188,24 @@ def _fetchone_dict(cur, key):
 
 def _map_alumni_item(row):
     seniority_level = row.get("seniority_level") or classify_seniority_bucket(row.get("current_job_title"), None)
+    first = row.get("first_name") or ""
+    last = row.get("last_name") or ""
+    full_name = f"{first} {last}".strip()
+    title = row.get("current_job_title") or row.get("headline") or ""
+    standardized_major = (row.get("standardized_major") or "").strip()
+    standardized_majors = [standardized_major] if standardized_major else []
     item = {
         "id": row.get("id"),
-        "first": row.get("first_name") or "",
-        "last": row.get("last_name") or "",
+        "first": first,
+        "last": last,
+        "name": full_name,
         "linkedin_url": row.get("linkedin_url") or "",
         "school": row.get("school"),
         "school_start": row.get("school_start_date"),
         "degree_raw": row.get("degree"),
         "major_raw": row.get("major"),
-        "major": (row.get("standardized_major") or row.get("major") or "").strip(),
+        "major": (standardized_major or row.get("major") or "").strip(),
+        "standardized_majors": standardized_majors,
         "discipline": (row.get("discipline") or "").strip(),
         "grad_year": row.get("grad_year"),
         "school2": row.get("school2"),
@@ -181,7 +215,9 @@ def _map_alumni_item(row):
         "major2": row.get("major2"),
         "major3": row.get("major3"),
         "location": row.get("location"),
-        "title": row.get("current_job_title") or row.get("headline") or "",
+        "title": title,
+        "current_job_title": row.get("current_job_title") or "",
+        "headline": row.get("headline") or "",
         "company": row.get("company"),
         "job_employment_type": row.get("job_employment_type"),
         "job_start": row.get("job_start_date"),
@@ -242,7 +278,27 @@ def api_get_alumni():
     role_filters = _parse_multi_value_param("role", split_commas=False)
     company_filters = _parse_multi_value_param("company", split_commas=False)
     major_filters_raw = _parse_multi_value_param("major", split_commas=False)
+    standardized_major_filters = _parse_multi_value_param("standardized_major", split_commas=False)
+    degree_filters = _parse_multi_value_param("degree", split_commas=False)
     seniority_filters = _parse_multi_value_param("seniority", split_commas=False)
+    major_logic = (request.args.get("major_logic", "and") or "and").strip().lower()
+    if major_logic not in {"and", "or"}:
+        return jsonify({"error": "Invalid major_logic. Use 'and' or 'or'."}), 400
+
+    query_text = (request.args.get("q", "") or "").strip().lower()
+    wws_filter = (request.args.get("working_while_studying", "") or "").strip().lower()
+    if wws_filter and wws_filter not in {"yes", "no"}:
+        return jsonify({"error": "Invalid working_while_studying. Use yes or no."}), 400
+
+    try:
+        exp_min = _parse_optional_non_negative_int("exp_min")
+        exp_max = _parse_optional_non_negative_int("exp_max")
+        _validate_min_max(exp_min, exp_max, "exp_min", "exp_max")
+    except ValueError as e:
+        field = "exp_min" if "exp_min" in str(e) else "exp_max"
+        return _validation_error(str(e), field)
+
+    include_unknown_experience = (request.args.get("include_unknown_experience", "0") or "0").strip().lower() in {"1", "true", "yes"}
 
     try:
         unt_alumni_status_filter = _parse_unt_alumni_status_filter(request.args.get("unt_alumni_status", ""))
@@ -312,9 +368,31 @@ def api_get_alumni():
         d = _normalize_requested_discipline(m)
         if d:
             normalized_disciplines.append(d)
-    if normalized_disciplines:
+
+    has_discipline_filters = bool(normalized_disciplines)
+    has_standardized_major_filters = bool(standardized_major_filters)
+    if has_discipline_filters and has_standardized_major_filters:
+        if major_logic == "or":
+            where_clauses.append(
+                "(("
+                + " OR ".join(["LOWER(a.discipline) = LOWER(%s)"] * len(normalized_disciplines))
+                + ") OR ("
+                + " OR ".join(["LOWER(a.standardized_major) = LOWER(%s)"] * len(standardized_major_filters))
+                + "))"
+            )
+            params.extend(normalized_disciplines)
+            params.extend(standardized_major_filters)
+        else:
+            where_clauses.append("(" + " OR ".join(["LOWER(a.discipline) = LOWER(%s)"] * len(normalized_disciplines)) + ")")
+            params.extend(normalized_disciplines)
+            where_clauses.append("(" + " OR ".join(["LOWER(a.standardized_major) = LOWER(%s)"] * len(standardized_major_filters)) + ")")
+            params.extend(standardized_major_filters)
+    elif has_discipline_filters:
         where_clauses.append("(" + " OR ".join(["LOWER(a.discipline) = LOWER(%s)"] * len(normalized_disciplines)) + ")")
         params.extend(normalized_disciplines)
+    elif has_standardized_major_filters:
+        where_clauses.append("(" + " OR ".join(["LOWER(a.standardized_major) = LOWER(%s)"] * len(standardized_major_filters)) + ")")
+        params.extend(standardized_major_filters)
 
     where_sql = ""
     if where_clauses:
@@ -354,6 +432,11 @@ def api_get_alumni():
                 or seniority_filters
                 or role_filters
                 or company_filters
+                or query_text
+                or degree_filters
+                or wws_filter
+                or exp_min is not None
+                or exp_max is not None
             )
             if python_side_filters:
                 # Preserve legacy behavior: apply these filters after row materialization,
@@ -380,12 +463,25 @@ def api_get_alumni():
 
                 requested_role_set = {_canonical_role_title(v) for v in role_filters if (v or "").strip()}
                 requested_company_set = {_canonical_company_name(v) for v in company_filters if (v or "").strip()}
+                requested_degree_set = {v for v in degree_filters if v in {"Bachelors", "Masters", "PhD"}}
                 filtered = []
                 for row in all_rows:
                     row_status = compute_unt_alumni_status_from_row(row)
                     row_bucket = row.get("seniority_level") or classify_seniority_bucket(row.get("current_job_title"), None)
                     row_role = _canonical_role_title(row.get("current_job_title") or row.get("headline") or "")
                     row_company = _canonical_company_name(row.get("company") or "")
+                    row_degree = _normalize_degree_to_filter_label(row.get("degree") or "")
+                    row_wws = _normalize_working_while_studying_value(
+                        row.get("working_while_studying_status")
+                        or row.get("working_while_studying")
+                    )
+                    row_exp_months = row.get("relevant_experience_months")
+                    if row_exp_months is not None:
+                        try:
+                            row_exp_months = int(row_exp_months)
+                        except (TypeError, ValueError):
+                            row_exp_months = None
+
                     if unt_alumni_status_filter and row_status != unt_alumni_status_filter:
                         continue
                     if seniority_filters and row_bucket not in seniority_filters:
@@ -394,6 +490,34 @@ def api_get_alumni():
                         continue
                     if requested_company_set and row_company not in requested_company_set:
                         continue
+                    if requested_degree_set and row_degree not in requested_degree_set:
+                        continue
+                    if wws_filter and row_wws != wws_filter:
+                        continue
+                    if exp_min is not None or exp_max is not None:
+                        if row_exp_months is None:
+                            if not include_unknown_experience:
+                                continue
+                        else:
+                            if exp_min is not None and row_exp_months < exp_min:
+                                continue
+                            if exp_max is not None and row_exp_months > exp_max:
+                                continue
+                    if query_text:
+                        haystack = " ".join(
+                            [
+                                str(row.get("first_name") or ""),
+                                str(row.get("last_name") or ""),
+                                str(row.get("current_job_title") or ""),
+                                str(row.get("headline") or ""),
+                                str(row.get("company") or ""),
+                                str(row.get("location") or ""),
+                                str(row.get("discipline") or ""),
+                                str(row.get("standardized_major") or ""),
+                            ]
+                        ).lower()
+                        if query_text not in haystack:
+                            continue
                     row["unt_alumni_status"] = row_status
                     row["seniority_level"] = row_bucket
                     filtered.append(row)

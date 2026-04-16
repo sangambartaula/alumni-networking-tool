@@ -14,6 +14,7 @@ from routes.alumni_routes import (
 )
 from middleware import api_login_required, login_required
 from unt_alumni_status import compute_unt_alumni_status_from_row
+from db_core_common import UNT_ALLOWED_MAJORS
 
 
 analytics_bp = Blueprint("analytics", __name__)
@@ -33,6 +34,19 @@ def classify_degree(degree, _headline):
     if "master" in t or "m.s" in t or "ms" in t:
         return "Graduate"
     return "Undergraduate"
+
+
+def _normalize_degree_to_filter_label(value):
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return ""
+    if normalized in {"undergraduate", "bachelors"}:
+        return "Bachelors"
+    if normalized in {"graduate", "masters"}:
+        return "Masters"
+    if normalized == "phd":
+        return "PhD"
+    return ""
 
 
 def get_continent(lat, lon):
@@ -97,13 +111,32 @@ def get_heatmap_data():
             return jsonify({"error": "Invalid seniority. Use Intern, Mid, Senior, Manager, or Executive."}), 400
     heatmap_seniority_filter_set = set(heatmap_seniority_filters)
 
+    heatmap_major_filters = _parse_multi_value_param("standardized_major")
+    approved_major_values = {m for m in UNT_ALLOWED_MAJORS if m and m != "Other"}
+    for value in heatmap_major_filters:
+        if value not in approved_major_values:
+            return jsonify({"error": "Invalid standardized_major value."}), 400
+    heatmap_major_filter_set = set(heatmap_major_filters)
+
+    heatmap_degree_filters = _parse_multi_value_param("degree")
+    for value in heatmap_degree_filters:
+        if value not in {"Bachelors", "Masters", "PhD"}:
+            return jsonify({"error": "Invalid degree. Use Bachelors, Masters, or PhD."}), 400
+    heatmap_degree_filter_set = set(heatmap_degree_filters)
+
     if (
         _app_mod().app.config.get("DISABLE_DB")
         and not _app_mod().app.config.get("USE_SQLITE_FALLBACK")
     ):
         return jsonify({"success": True, "locations": [], "total_alumni": 0, "max_count": 0}), 200
 
-    use_cache = grad_year_from is None and grad_year_to is None and not heatmap_seniority_filter_set
+    use_cache = (
+        grad_year_from is None
+        and grad_year_to is None
+        and not heatmap_seniority_filter_set
+        and not heatmap_major_filter_set
+        and not heatmap_degree_filter_set
+    )
     cache_key = f"{continent_filter or '__all__'}|{unt_alumni_status_filter or '__all__'}"
     if use_cache:
         cached = _heatmap_cache.get(cache_key)
@@ -120,10 +153,11 @@ def get_heatmap_data():
                            latitude, longitude, current_job_title, headline,
                            company, linkedin_url, created_at, grad_year,
                            school, school2, school3, degree, degree2, degree3,
-                           major, major2, major3, standardized_major, standardized_major_alt,
+                           major, major2, major3,
+                           standardized_major, standardized_major_alt,
+                           standardized_major2, standardized_major3,
                            seniority_level
                     FROM alumni
-                    WHERE latitude IS NOT NULL AND longitude IS NOT NULL
                     ORDER BY location ASC
                     """
                 )
@@ -131,7 +165,10 @@ def get_heatmap_data():
 
             location_clusters = {}
             location_details = {}
-            total_alumni = 0
+            total_mapped_alumni = 0
+            total_filtered_alumni = 0
+            missing_location_count = 0
+            ungeocoded_with_location_count = 0
 
             for row in rows:
                 if grad_year_from is not None and row.get("grad_year") is not None and row.get("grad_year") < grad_year_from:
@@ -147,16 +184,38 @@ def get_heatmap_data():
                 if heatmap_seniority_filter_set and seniority_bucket not in heatmap_seniority_filter_set:
                     continue
 
+                if heatmap_major_filter_set:
+                    row_majors = {
+                        (row.get("standardized_major") or "").strip(),
+                        (row.get("standardized_major_alt") or "").strip(),
+                        (row.get("standardized_major2") or "").strip(),
+                        (row.get("standardized_major3") or "").strip(),
+                    }
+                    row_majors.discard("")
+                    if not any(m in heatmap_major_filter_set for m in row_majors):
+                        continue
+
+                if heatmap_degree_filter_set:
+                    degree_label = _normalize_degree_to_filter_label(classify_degree(row.get("degree"), row.get("headline", "")))
+                    if degree_label not in heatmap_degree_filter_set:
+                        continue
+
+                total_filtered_alumni += 1
+
                 lat = row.get("latitude")
                 lon = row.get("longitude")
                 if lat is None or lon is None:
+                    if (row.get("location") or "").strip().lower() in {"", "not found", "unknown", "n/a"}:
+                        missing_location_count += 1
+                    else:
+                        ungeocoded_with_location_count += 1
                     continue
 
                 continent = get_continent(lat, lon)
                 if continent_filter and continent != continent_filter:
                     continue
 
-                total_alumni += 1
+                total_mapped_alumni += 1
                 cluster_key = (round(lat, 3), round(lon, 3))
                 if cluster_key not in location_clusters:
                     location_clusters[cluster_key] = 0
@@ -207,7 +266,10 @@ def get_heatmap_data():
             response_data = {
                 "success": True,
                 "locations": locations,
-                "total_alumni": total_alumni,
+                "total_alumni": total_mapped_alumni,
+                "total_filtered_alumni": total_filtered_alumni,
+                "missing_location_count": missing_location_count,
+                "ungeocoded_with_location_count": ungeocoded_with_location_count,
                 "max_count": max_count,
             }
 

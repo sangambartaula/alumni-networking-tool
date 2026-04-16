@@ -143,6 +143,21 @@ function getCanonicalRoleTitle(value) {
   return canonicalTitle;
 }
 
+function getAnalyticsJobTitle(alumni) {
+  return (
+    alumni?.normalized_title
+    || alumni?.current_job_title
+    || alumni?.title
+    || alumni?.headline
+    || ''
+  );
+}
+
+function isUnknownLocationValue(value) {
+  const normalized = (value || '').trim().toLowerCase();
+  return normalized === '' || normalized === 'not found' || normalized === 'unknown' || normalized === 'n/a';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadHiddenFiltersFromStorage();
   initializeAnalyticsFilterUI();
@@ -637,7 +652,7 @@ function showRecommendations() {
     // Get top 10 locations by alumni count
     const locationCounts = {};
     alumniData.forEach(alumni => {
-      if (alumni.location && !hiddenLocations.has(alumni.location)) {
+      if (alumni.location && !hiddenLocations.has(alumni.location) && !isUnknownLocationValue(alumni.location)) {
         locationCounts[alumni.location] = (locationCounts[alumni.location] || 0) + 1;
       }
     });
@@ -1667,9 +1682,9 @@ function addTallCanvasAsPaginatedPdf(pdf, canvas, { marginMm = 8 } = {}) {
 function updateStatistics(data = alumniData) {
   const totalAlumni = data.length;
   const uniqueCompanies = new Set(data.map(a => a.company).filter(c => c)).size;
-  const uniqueLocations = new Set(data.map(a => a.location).filter(l => l && l !== 'Not Found')).size;
+  const uniqueLocations = new Set(data.map(a => a.location).filter(l => !isUnknownLocationValue(l))).size;
   const uniqueJobs = new Set(
-    data.map(a => getCanonicalRoleTitle(a.normalized_title || a.current_job_title)).filter(j => j)
+    data.map(a => getCanonicalRoleTitle(getAnalyticsJobTitle(a))).filter(j => j)
   ).size;
   const workingWhileStudyingCount = data.filter(a => isWorkingWhileStudyingPositive(a.working_while_studying)).length;
 
@@ -1697,7 +1712,7 @@ function getTopItems(items, topN = 5) {
 
 // Render top 5 jobs list
 function renderTopJobs(data = alumniData) {
-  const jobs = data.map(a => getCanonicalRoleTitle(a.normalized_title || a.current_job_title)).filter(j => j);
+  const jobs = data.map(a => getCanonicalRoleTitle(getAnalyticsJobTitle(a))).filter(j => j);
   const topJobs = getTopItems(jobs, 5);
   const maxCount = topJobs[0]?.[1] || 1;
 
@@ -1743,7 +1758,7 @@ function generateColors(count) {
 
 // Render job title pie chart
 function renderJobPieChart(data = alumniData) {
-  const jobs = data.map(a => getCanonicalRoleTitle(a.normalized_title || a.current_job_title)).filter(j => j);
+  const jobs = data.map(a => getCanonicalRoleTitle(getAnalyticsJobTitle(a))).filter(j => j);
   const topJobs = getTopItems(jobs, 10);
 
   const labels = topJobs.map(([job]) => job);
@@ -1923,7 +1938,7 @@ function renderLocationPieChart(data = alumniData) {
 // Extract industry from headline or job title
 function extractIndustry(alumni) {
   const headline = (alumni.headline || '').toLowerCase();
-  const jobTitle = (alumni.current_job_title || '').toLowerCase();
+  const jobTitle = (getAnalyticsJobTitle(alumni) || '').toLowerCase();
   const text = `${headline} ${jobTitle}`;
 
   // Simple keyword matching for industries
@@ -2139,7 +2154,7 @@ function renderTopCompaniesTable(data = alumniData) {
 
 // Render top locations table
 function renderTopLocationsTable(data = alumniData) {
-  const locations = data.map(a => a.location).filter(l => l);
+  const locations = data.map(a => a.location).filter(l => !isUnknownLocationValue(l));
   const topLocations = getTopItems(locations, 10);
 
   const tbody = document.getElementById('topLocationsBody');
@@ -2169,7 +2184,7 @@ function filterAlumni(filterType, filterValue) {
   switch (filterType) {
     case 'job':
       filtered = baseData.filter(
-        a => getCanonicalRoleTitle(a.normalized_title || a.current_job_title) === filterValue
+        a => getCanonicalRoleTitle(getAnalyticsJobTitle(a)) === filterValue
       );
       filterTitle = `Alumni with Job Title: ${filterValue}`;
       filterDesc = `Showing ${filtered.length} alumni working as ${filterValue}`;

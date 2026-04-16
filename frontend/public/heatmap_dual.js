@@ -27,6 +27,24 @@ let selectedHeatmapSeniorities = new Set();
 
 const HEATMAP_DEGREE_OPTIONS = ['Bachelors', 'Masters', 'PhD'];
 const HEATMAP_SENIORITY_OPTIONS = ['Intern', 'Mid', 'Senior', 'Manager', 'Executive'];
+const HEATMAP_ALLOWED_MAJORS = [
+  'Artificial Intelligence',
+  'Biomedical Engineering',
+  'Computer Engineering',
+  'Computer Science',
+  'Construction Engineering Technology',
+  'Construction Management',
+  'Cybersecurity',
+  'Data Engineering',
+  'Electrical Engineering',
+  'Engineering Management',
+  'Geographic Information Systems + Computer Science',
+  'Information Technology',
+  'Materials Science and Engineering',
+  'Mechanical and Energy Engineering',
+  'Mechanical Engineering Technology',
+  'Semiconductor Manufacturing Engineering',
+];
 
 function normalizeDegreeToFilterLabel(value) {
   const normalized = (value || '').trim().toLowerCase();
@@ -994,7 +1012,11 @@ async function loadHeatmapData(url = '/api/heatmap') {
     render2DHeatmap(locationClusters, data.max_count);
 
     // Update statistics
-    updateStatistics(data.total_alumni, locationClusters.length);
+    updateStatistics(data.total_alumni, locationClusters.length, {
+      totalFilteredAlumni: data.total_filtered_alumni,
+      missingLocationCount: data.missing_location_count,
+      ungeocodedWithLocationCount: data.ungeocoded_with_location_count,
+    });
 
     // Build autocomplete data from all locations and sample alumni
     const allAlumniForAutocomplete = [];
@@ -1243,11 +1265,17 @@ function filterByContinent(continentName) {
 }
 
 // Update statistics
-function updateStatistics(totalAlumni, uniqueLocations) {
+function updateStatistics(totalAlumni, uniqueLocations, details = {}) {
   const statsDiv = document.getElementById('heatmapStats');
+  const totalFiltered = Number(details.totalFilteredAlumni || totalAlumni || 0);
+  const missingLocationCount = Number(details.missingLocationCount || 0);
+  const ungeocodedWithLocationCount = Number(details.ungeocodedWithLocationCount || 0);
+  const notPlotted = Math.max(totalFiltered - totalAlumni, 0);
+  const qualityTooltip = `Not plotted: ${notPlotted} | Location not found: ${missingLocationCount} | Has location but not geocoded: ${ungeocodedWithLocationCount}`;
+
   statsDiv.innerHTML = `
     <div class="stat-item">
-      <span class="stat-label">Alumni with Locations:</span>
+      <span class="stat-label" title="${qualityTooltip}">Alumni Plotted (Geocoded):</span>
       <span class="stat-value">${totalAlumni}</span>
     </div>
     <div class="stat-item">
@@ -1583,17 +1611,10 @@ function populateHeatmapMajorCheckboxes() {
   const container = document.getElementById('heatmapMajorChecks');
   if (!container) return;
 
-  const uniqueMajors = new Set();
-  (locationClusters || []).forEach(loc => {
-    (loc.sample_alumni || []).forEach(a => {
-      const sm = (a.standardized_major || '').trim();
-      const sma = (a.standardized_major_alt || '').trim();
-      if (sm && sm !== 'Other') uniqueMajors.add(sm);
-      if (sma && sma !== 'Other') uniqueMajors.add(sma);
-    });
-  });
+  const sortedMajors = HEATMAP_ALLOWED_MAJORS.slice().sort();
+  const allowedSet = new Set(sortedMajors);
+  selectedHeatmapMajors = new Set(Array.from(selectedHeatmapMajors).filter(m => allowedSet.has(m)));
 
-  const sortedMajors = Array.from(uniqueMajors).sort();
   container.innerHTML = '';
   sortedMajors.forEach(m => {
     const label = document.createElement('label');
@@ -2307,7 +2328,11 @@ function reloadMapData() {
 
     // Update statistics with filtered data
     const totalFiltered = filteredLocations.reduce((sum, loc) => sum + (loc.count || 0), 0);
-    updateStatistics(totalFiltered, filteredLocations.length);
+    updateStatistics(totalFiltered, filteredLocations.length, {
+      totalFilteredAlumni: totalFiltered,
+      missingLocationCount: 0,
+      ungeocodedWithLocationCount: 0,
+    });
 
     console.log('Map reload complete!');
   } catch (error) {
