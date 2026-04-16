@@ -694,10 +694,8 @@ def ensure_normalized_job_title_column():
     the ID column, then we run a migration script to populate it based on 
     raw text titles.
     """
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             try:
                 cur.execute("""
                     ALTER TABLE alumni
@@ -715,22 +713,13 @@ def ensure_normalized_job_title_column():
                     logger.info("normalized_job_title_id column already exists (SQLite)")
                 else:
                     raise
-            conn.commit()
     except Exception as e:
         logger.error(f"Error ensuring normalized_job_title_id column: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 def ensure_normalized_degree_column():
     """Ensure normalized_degree_id and raw_degree columns exist in alumni table."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             for col_name, col_def in [
                 ("normalized_degree_id", "INT DEFAULT NULL"),
                 ("raw_degree", "VARCHAR(255) DEFAULT NULL"),
@@ -751,22 +740,13 @@ def ensure_normalized_degree_column():
                         logger.info(f"{col_name} column already exists (SQLite)")
                     else:
                         raise
-            conn.commit()
     except Exception as e:
         logger.error(f"Error ensuring degree columns: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 def ensure_normalized_company_column():
     """Ensure normalized_company_id column exists in alumni table."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             try:
                 cur.execute("""
                     ALTER TABLE alumni
@@ -783,22 +763,13 @@ def ensure_normalized_company_column():
                     logger.info("normalized_company_id column already exists (SQLite)")
                 else:
                     raise
-            conn.commit()
     except Exception as e:
         logger.error(f"Error ensuring normalized_company_id column: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 def ensure_alumni_timestamp_columns():
     """Ensure scraped_at and last_updated columns exist in alumni table"""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             # Add scraped_at column if it doesn't exist
             try:
                 cur.execute("""
@@ -824,25 +795,15 @@ def ensure_alumni_timestamp_columns():
                     logger.info("last_updated column already exists")
                 else:
                     raise
-
-            conn.commit()
     except mysql.connector.Error as err:
         logger.error(f"Error ensuring timestamp columns: {err}")
         raise
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def ensure_alumni_work_school_date_columns():
     """Ensure columns for school and job dates exist in the alumni table."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             def add_col(sql, name):
                 try:
                     cur.execute(sql)
@@ -866,17 +827,9 @@ def ensure_alumni_work_school_date_columns():
             add_col("ALTER TABLE alumni ADD COLUMN exp3_title VARCHAR(255) DEFAULT NULL", "exp3_title")
             add_col("ALTER TABLE alumni ADD COLUMN exp3_company VARCHAR(255) DEFAULT NULL", "exp3_company")
             add_col("ALTER TABLE alumni ADD COLUMN exp3_dates VARCHAR(50) DEFAULT NULL", "exp3_dates")
-
-            conn.commit()
     except mysql.connector.Error as err:
         logger.error(f"Error ensuring work/school date columns: {err}")
         raise
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def ensure_alumni_major_column():
@@ -884,10 +837,8 @@ def ensure_alumni_major_column():
     Ensure major column exists in alumni table for major text.
     Engineering discipline is stored in the separate `discipline` column.
     """
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             try:
                 cur.execute("""
                     ALTER TABLE alumni 
@@ -899,16 +850,9 @@ def ensure_alumni_major_column():
                     logger.info("Major column already exists")
                 else:
                     raise
-            conn.commit()
     except mysql.connector.Error as err:
         logger.error(f"Error ensuring major column: {err}")
         raise
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def ensure_education_columns():
@@ -933,10 +877,8 @@ def ensure_education_columns():
         ("standardized_major_alt","VARCHAR(255) DEFAULT NULL"),
         ("discipline",            "VARCHAR(255) DEFAULT NULL"),
     ]
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             for col_name, col_def in NEW_COLS:
                 try:
                     cur.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_def}")
@@ -964,17 +906,9 @@ def ensure_education_columns():
                     logger.info(f"Migrated {migrated} rows: education → school")
             except Exception as e:
                 logger.warning(f"education → school migration skipped: {e}")
-
-            conn.commit()
             logger.info("✅ Education columns ensured")
     except Exception as e:
         logger.error(f"Error ensuring education columns: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def ensure_experience_analysis_columns():
@@ -992,10 +926,8 @@ def ensure_experience_analysis_columns():
         ("exp2_employment_type",  "VARCHAR(120) DEFAULT NULL"),
         ("exp3_employment_type",  "VARCHAR(120) DEFAULT NULL"),
     ]
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             for col_name, col_def in NEW_COLS:
                 try:
                     cur.execute(f"ALTER TABLE alumni ADD COLUMN {col_name} {col_def}")
@@ -1010,24 +942,15 @@ def ensure_experience_analysis_columns():
                         pass  # SQLite: already exists
                     else:
                         raise
-            conn.commit()
             logger.info("✅ Experience analysis columns ensured")
     except Exception as e:
         logger.error(f"Error ensuring experience analysis columns: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def ensure_scrape_run_tracking_schema():
     """Ensure scrape run tracking tables and run_id linkage columns exist."""
-    conn = None
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
+        with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             # Ensure tables for run metadata and run-level flagged entries.
             try:
                 cur.execute(
@@ -1113,17 +1036,9 @@ def ensure_scrape_run_tracking_schema():
                         pass
                     else:
                         raise
-
-            conn.commit()
             logger.info("✅ Scrape run tracking schema ensured")
     except Exception as e:
         logger.error(f"Error ensuring scrape run tracking schema: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def ensure_all_alumni_schema_migrations():
