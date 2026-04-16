@@ -312,7 +312,7 @@ else:
 # Groq AI Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 USE_GROQ = os.getenv("USE_GROQ", "true").lower() == "true"
-# HTTP retry backoff between Groq attempts (429/5xx) — groq_retry_patch.py / GROQ_RETRY_DELAY_SECONDS (default 5).
+# HTTP retry backoff between Groq attempts (429/5xx) — groq_client.apply_groq_retry_delay() / GROQ_RETRY_DELAY_SECONDS (default 5).
 if USE_GROQ and not GROQ_API_KEY:
     logger.warning(
         "⚠️  Groq LLM extraction is DISABLED — no GROQ_API_KEY found.\n"

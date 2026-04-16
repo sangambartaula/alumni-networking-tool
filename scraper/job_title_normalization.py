@@ -25,7 +25,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import groq_retry_patch  # noqa: F401 — same Groq HTTP retry backoff as groq_client (GROQ_RETRY_DELAY_SECONDS)
+from groq_client import apply_groq_retry_delay
+
+apply_groq_retry_delay()
 
 logger = logging.getLogger(__name__)
 

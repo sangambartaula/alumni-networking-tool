@@ -52,8 +52,9 @@ import re
 from datetime import datetime
 from config import logger
 
-from groq_client import _get_client, is_groq_available, GROQ_MODEL, parse_groq_date
-import groq_retry_patch  # noqa: F401 — apply 5s retry backoff for Groq API calls
+from groq_client import _get_client, is_groq_available, GROQ_MODEL, parse_groq_date, apply_groq_retry_delay
+
+apply_groq_retry_delay()
 
 # ── Relevance Thresholds ──────────────────────────────────────
 # >= 0.45 = relevant (boolean True), < 0.45 = not relevant (boolean False)
