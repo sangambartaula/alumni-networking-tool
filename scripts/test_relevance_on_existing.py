@@ -20,7 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT / 'scraper'))
 sys.path.insert(0, str(PROJECT_ROOT / 'backend'))
 
 import pandas as pd
-from config import logger
+from settings import logger
 
 # Import relevance scorer
 from relevance_scorer import (

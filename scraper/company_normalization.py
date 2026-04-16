@@ -1,8 +1,8 @@
-"""
+﻿"""
 Company Name Normalization Module
 
 Maps semantically equivalent company names to a single standardized form.
-Preserves the original raw company value — only the normalized mapping is stored.
+Preserves the original raw company value â€” only the normalized mapping is stored.
 
 Priority flow:
   1. Deterministic: cleanup + suffix stripping + dictionary lookup (fast, offline)
@@ -58,7 +58,7 @@ _SUFFIX_PATTERN = re.compile(
 # ---------------------------------------------------------------------------
 
 COMPANY_MAP = {
-    # ── Big Tech ──
+    # â”€â”€ Big Tech â”€â”€
     "google": "Google",
     "google inc": "Google",
     "google llc": "Google",
@@ -83,7 +83,7 @@ COMPANY_MAP = {
     "apple inc": "Apple",
     "apple inc.": "Apple",
 
-    # ── Enterprise / Consulting ──
+    # â”€â”€ Enterprise / Consulting â”€â”€
     "tata consultancy services": "Tata Consultancy Services",
     "tcs": "Tata Consultancy Services",
     "tata consultancy services limited": "Tata Consultancy Services",
@@ -114,7 +114,7 @@ COMPANY_MAP = {
     "capgemini": "Capgemini",
     "capgemini engineering": "Capgemini",
 
-    # ── Semiconductors / Hardware ──
+    # â”€â”€ Semiconductors / Hardware â”€â”€
     "intel": "Intel",
     "intel corporation": "Intel",
     "intel corp": "Intel",
@@ -128,7 +128,7 @@ COMPANY_MAP = {
     "amd": "AMD",
     "advanced micro devices": "AMD",
 
-    # ── Software / SaaS ──
+    # â”€â”€ Software / SaaS â”€â”€
     "salesforce": "Salesforce",
     "salesforce.com": "Salesforce",
     "salesforce inc": "Salesforce",
@@ -149,7 +149,7 @@ COMPANY_MAP = {
     "dell technologies": "Dell Technologies",
     "dell inc": "Dell Technologies",
 
-    # ── Finance ──
+    # â”€â”€ Finance â”€â”€
     "jpmorgan chase": "JPMorgan Chase",
     "jpmorgan chase & co": "JPMorgan Chase",
     "jpmorgan chase & co.": "JPMorgan Chase",
@@ -172,7 +172,7 @@ COMPANY_MAP = {
     "walmart": "Walmart",
     "walmart global tech": "Walmart",
 
-    # ── Telecom ──
+    # â”€â”€ Telecom â”€â”€
     "at&t": "AT&T",
     "att": "AT&T",
     "verizon": "Verizon",
@@ -180,7 +180,7 @@ COMPANY_MAP = {
     "t-mobile": "T-Mobile",
     "t mobile": "T-Mobile",
 
-    # ── Defense / Aerospace ──
+    # â”€â”€ Defense / Aerospace â”€â”€
     "lockheed martin": "Lockheed Martin",
     "lockheed martin corporation": "Lockheed Martin",
     "raytheon": "Raytheon",
@@ -193,7 +193,7 @@ COMPANY_MAP = {
     "l3harris": "L3Harris Technologies",
     "l3harris technologies": "L3Harris Technologies",
 
-    # ── Energy / Oil ──
+    # â”€â”€ Energy / Oil â”€â”€
     "exxonmobil": "ExxonMobil",
     "exxon mobil": "ExxonMobil",
     "exxon": "ExxonMobil",
@@ -204,7 +204,7 @@ COMPANY_MAP = {
     "conocophillips": "ConocoPhillips",
     "halliburton": "Halliburton",
 
-    # ── University of North Texas ──
+    # â”€â”€ University of North Texas â”€â”€
     "university of north texas": "University of North Texas",
     "unt": "University of North Texas",
     "north texas": "University of North Texas",
@@ -303,7 +303,7 @@ def _strip_trailing_location_fragment(text: str) -> str:
     if not t:
         return ""
 
-    for sep in [",", " - ", " – ", " — "]:
+    for sep in [",", " - ", " â€“ ", " â€” "]:
         if sep in t:
             head, tail = t.rsplit(sep, 1)
             if _looks_like_location_fragment(tail):
@@ -335,7 +335,7 @@ def normalize_company_deterministic(raw_company: str) -> str:
     if stripped != key and stripped in COMPANY_MAP:
         return COMPANY_MAP[stripped]
 
-    # No match — return cleaned name (preserves original casing from cleanup)
+    # No match â€” return cleaned name (preserves original casing from cleanup)
     return cleaned
 
 
@@ -361,7 +361,7 @@ def _get_groq_client():
         _groq_client = Groq(api_key=GROQ_API_KEY)
         return _groq_client
     except ImportError:
-        logger.warning("groq package not installed — Groq company normalization disabled")
+        logger.warning("groq package not installed â€” Groq company normalization disabled")
         return None
     except Exception as e:
         logger.error(f"Failed to init Groq client: {e}")
@@ -404,7 +404,7 @@ def normalize_company_with_groq(raw_company: str, existing_companies: list) -> s
     """
     client = _get_groq_client()
     if not client:
-        logger.info("Groq unavailable — falling back to deterministic company normalization")
+        logger.info("Groq unavailable â€” falling back to deterministic company normalization")
         return normalize_company_deterministic(raw_company)
 
     # Build prompt
@@ -515,7 +515,7 @@ def get_or_create_normalized_company(conn, raw_company: str, use_groq: bool = Tr
     if norm.lower() in existing_lower:
         norm = existing_lower[norm.lower()]
     elif use_groq and norm == cleaned:
-        # Step 3: deterministic was a passthrough (no map hit) — try Groq
+        # Step 3: deterministic was a passthrough (no map hit) â€” try Groq
         norm = normalize_company_with_groq(raw_company, existing_names)
         # Check again if Groq returned something in our list
         if norm.lower() in existing_lower:

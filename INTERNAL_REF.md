@@ -124,6 +124,7 @@ Note: all blueprints are currently mounted with no `url_prefix`, preserving lega
 
 ### Static/core route migration
 - `/`, `/about`, `/alumni_style.css`, `/app.js`, `/assets/<path>` -> `routes/core_routes.py`
+- `/profile_modal.js`, `/profile_modal.css`, `/profile_modal_test.js` -> `routes/core_routes.py`
 - `/api/fallback-status` -> `routes/core_routes.py:get_fallback_status_api`
 
 ## Compatibility Surfaces Kept in `backend/app.py`
@@ -171,22 +172,22 @@ Operational note:
 
 ## Known Legacy Endpoints: Current Status
 Legacy routes present in pre-refactor `backend/app.py` but not currently found in active route blueprints:
-- `/profile_modal.js`
-- `/profile_modal.css`
-- `/profile_modal_test.js`
+
+No remaining legacy route gaps were identified in the parity set tracked from pre-refactor `backend/app.py`.
 
 Restored during parity pass:
 - `/api/geocode` (now in `routes/analytics_routes.py`)
 - `/api/fallback-status` (now in `routes/core_routes.py`)
 - `/api/notes` list-all variant (now in `routes/interaction_routes.py`)
+- `/profile_modal.js`, `/profile_modal.css`, `/profile_modal_test.js` (now in `routes/core_routes.py`)
 
 Impact surface:
 - Frontend still references `/api/geocode` (example: `frontend/public/heatmap_dual.js`) and is now served by analytics routes.
 - Tests that monkeypatch geocode-search behavior can still patch through the backend app module compatibility export.
 
 Recommended follow-up:
-1. Re-introduce these endpoints in a dedicated blueprint (for example `routes/system_routes.py` or `routes/geocode_routes.py`) if still required by UI/tests.
-2. If intentionally retired, remove call sites and update tests/docs to avoid silent drift.
+1. Keep parity coverage tests for restored legacy assets/endpoints to prevent accidental removals in future route moves.
+2. If any restored endpoint is intentionally retired later, remove call sites and update tests/docs in the same change.
 
 ## Database Layer Boundary
 - `database.py` remains a lower-level data/service module.
@@ -197,19 +198,18 @@ Recommended follow-up:
 - Blueprint registration and imports in `backend/app.py` are internally consistent.
 - Scraper-side importability remains intact after Groq retry consolidation (`scraper/groq_retry_patch.py` removed and callers updated).
 - `backend/database.py` remains route-agnostic (no blueprint imports).
+- Scraper module namespace collisions were resolved by renaming `scraper/config.py` -> `scraper/settings.py` and `scraper/utils.py` -> `scraper/scraper_utils.py`, then updating scraper imports.
 
 ## Risk Register
 - Medium: route-helper sharing (`analytics_routes` importing parsing helpers from `alumni_routes`) creates cross-domain coupling.
 - Medium: dynamic `_app_mod()` import pattern is resilient but not ideal for static analysis or packaging.
-- Medium: missing legacy endpoints may cause runtime regressions in specific UI paths/tests not in the recent targeted regression slice.
 - Low: in-memory heatmap cache is intentionally non-distributed.
 
 ## Suggested Next Refactor Steps
 1. Introduce a small `backend/services/` layer for shared logic currently duplicated or cross-imported between route modules.
 2. Move request-agnostic parsing/classification helpers out of route modules into `utils` or service modules.
 3. Replace `_app_mod()` indirection by importing stable provider functions from a dedicated module (`backend/providers.py` or similar).
-4. Decide endpoint strategy for legacy routes (`/api/geocode`, `/api/fallback-status`, profile modal assets, `/api/notes` aggregate) and either restore or formally deprecate.
-4. Decide endpoint strategy for remaining legacy profile modal assets and either restore or formally deprecate.
+4. As a follow-on cleanup, decide which compatibility exports on `app.py` should be retained versus moved behind a stable provider/service module.
 
 ## Verification Notes
 This reference was compiled by comparing current source declarations and the pre-refactor symbol inventory from commit `8c8666f`.

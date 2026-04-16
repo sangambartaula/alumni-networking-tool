@@ -1,4 +1,4 @@
-"""
+﻿"""
 Major Normalization Module
 
 Strictly maps raw major text to an approved UNT major list or "Other".
@@ -19,7 +19,7 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
-# ── Degree-agnostic normalized majors list (product requirements v2) ─────────
+# â”€â”€ Degree-agnostic normalized majors list (product requirements v2) â”€â”€â”€â”€â”€â”€â”€â”€â”€
 UNT_ALLOWED_MAJORS = [
     "Artificial Intelligence",
     "Biomedical Engineering",

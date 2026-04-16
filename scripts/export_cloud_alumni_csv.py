@@ -32,7 +32,7 @@ DEFAULT_OUTPUT_PATH = ROOT_DIR / "scraper" / "output" / "UNT_Alumni_Data.csv"
 import sys
 
 sys.path.insert(0, str(ROOT_DIR / "scraper"))
-from config import CSV_COLUMNS  # noqa: E402
+from settings import CSV_COLUMNS  # noqa: E402
 
 
 def _clean_text(value: Any) -> str:

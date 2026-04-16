@@ -1,8 +1,8 @@
-"""
+﻿"""
 Job Title Normalization Module
 
 Maps semantically equivalent job titles to a single standardized category.
-Preserves all original raw job title values — only the normalized mapping is stored.
+Preserves all original raw job title values â€” only the normalized mapping is stored.
 
 Two strategies:
   1. Deterministic: cleanup + dictionary lookup (fast, offline, no API cost).
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TITLE_MAP = {
-    # ── Software Engineering (all variants → "Software Engineer") ──
+    # â”€â”€ Software Engineering (all variants â†’ "Software Engineer") â”€â”€
     "software developer": "Software Engineer",
     "software dev": "Software Engineer",
     "sde": "Software Engineer",
@@ -93,7 +93,7 @@ TITLE_MAP = {
     "programmer analyst trainee": "Software Engineer",
     "scientific programmer": "Software Engineer",
 
-    # ── Full Stack ──
+    # â”€â”€ Full Stack â”€â”€
     "full stack developer": "Software Engineer",
     "full-stack developer": "Software Engineer",
     "fullstack developer": "Software Engineer",
@@ -107,7 +107,7 @@ TITLE_MAP = {
     "sr. full stack java developer": "Software Engineer",
     "sr .net developer": "Software Engineer",
 
-    # ── Frontend / Backend / Web ──
+    # â”€â”€ Frontend / Backend / Web â”€â”€
     "frontend developer": "Software Engineer",
     "front-end developer": "Software Engineer",
     "front end developer": "Software Engineer",
@@ -124,12 +124,12 @@ TITLE_MAP = {
     "web dev": "Software Engineer",
     "web application developer": "Software Engineer",
 
-    # ── Java / Python / ServiceNow specific ──
+    # â”€â”€ Java / Python / ServiceNow specific â”€â”€
     "java developer": "Software Engineer",
     "python developer": "Software Engineer",
     "servicenow developer": "Software Engineer",
 
-    # ── Data & AI ──
+    # â”€â”€ Data & AI â”€â”€
     "ai engineer": "AI / ML Engineer",
     "ai software engineer": "AI / ML Engineer",
     "ai/ml engineer": "AI / ML Engineer",
@@ -166,7 +166,7 @@ TITLE_MAP = {
     "itsm systems analyst": "Data Analyst",
     "technology analyst": "Data Analyst",
 
-    # ── DevOps & Cloud ──
+    # â”€â”€ DevOps & Cloud â”€â”€
     "devops engineer": "DevOps Engineer",
     "dev ops engineer": "DevOps Engineer",
     "aws devops engineer": "DevOps Engineer",
@@ -189,13 +189,13 @@ TITLE_MAP = {
     "network engineer": "Network Engineer",
     "network administrator": "Network Engineer",
 
-    # ── Systems Engineering ──
+    # â”€â”€ Systems Engineering â”€â”€
     "system engineer": "Software Engineer",
     "systems engineer hil": "Software Engineer",
     "technical systems engineer": "Software Engineer",
     "assistant system design engineer": "Software Engineer",
 
-    # ── Security ──
+    # â”€â”€ Security â”€â”€
     "cybersecurity analyst": "Software Engineer",
     "cyber security analyst": "Software Engineer",
     "information security analyst": "Software Engineer",
@@ -205,7 +205,7 @@ TITLE_MAP = {
     "sr. cyber security engineer": "Software Engineer",
     "security analyst": "Software Engineer",
 
-    # ── QA & Testing ──
+    # â”€â”€ QA & Testing â”€â”€
     "qa engineer": "Software Engineer",
     "quality assurance engineer": "Software Engineer",
     "test engineer": "Software Engineer",
@@ -219,7 +219,7 @@ TITLE_MAP = {
     "quality engineer": "Software Engineer",
     "senior design quality engineer": "Software Engineer",
 
-    # ── Engineering (general, mechanical, civil, etc.) ──
+    # â”€â”€ Engineering (general, mechanical, civil, etc.) â”€â”€
     "engineer": "Mechanical Engineer",
     "engineer i": "Mechanical Engineer",
     "engineer ii": "Mechanical Engineer",
@@ -251,7 +251,7 @@ TITLE_MAP = {
     "assistant engineer": "Mechanical Engineer",
     "engineering co-op": "Mechanical Engineer",
 
-    # ── Management & Leadership ──
+    # â”€â”€ Management & Leadership â”€â”€
     "engineering manager": "Manager",
     "software engineering manager": "Manager",
     "technical lead": "Manager",
@@ -317,7 +317,7 @@ TITLE_MAP = {
     "vp of sales": "Sales",
     "vp sales executive": "Sales",
 
-    # ── Consulting & IT ──
+    # â”€â”€ Consulting & IT â”€â”€
     "consultant": "Consultant",
     "it consultant": "Consultant",
     "technology consultant": "Consultant",
@@ -343,7 +343,7 @@ TITLE_MAP = {
     "salesforce senior solution specialist": "Software Engineer",
     "solutions representative - market analytics": "Data Analyst",
 
-    # ── Research & Academic ──
+    # â”€â”€ Research & Academic â”€â”€
     "research assistant": "Researcher",
     "undergraduate research assistant": "Researcher",
     "undergraduate researcher": "Researcher",
@@ -363,7 +363,7 @@ TITLE_MAP = {
     "graduate researcher": "Researcher",
     "lab assistant": "Researcher",
 
-    # ── Teaching & Graduate Assistants ──
+    # â”€â”€ Teaching & Graduate Assistants â”€â”€
     "teaching assistant": "Graduate Assistant",
     "teaching assistant l2": "Graduate Assistant",
     "graduate teaching assistant": "Graduate Assistant",
@@ -385,7 +385,7 @@ TITLE_MAP = {
     "associate professor": "Professor",
     "tutor": "Student",
 
-    # ── Student Roles ──
+    # â”€â”€ Student Roles â”€â”€
     "student": "Student",
     "student laboratory technician": "Student",
     "athletic and fitness center student worker": "Student",
@@ -402,7 +402,7 @@ TITLE_MAP = {
     "women in cybersecurity": "Student",
     "wicys": "Student",
 
-    # ── Internships (generic) ──
+    # â”€â”€ Internships (generic) â”€â”€
     "intern": "Intern",
     "summer internship": "Intern",
     "summer intern": "Intern",
@@ -411,7 +411,7 @@ TITLE_MAP = {
     "jp morgan all star code": "Student",
     "jp morgan all star code": "Student",
 
-    # ── Design & Creative ──
+    # â”€â”€ Design & Creative â”€â”€
     "ux designer": "Marketing",
     "ui designer": "Marketing",
     "ui/ux designer": "Marketing",
@@ -427,13 +427,13 @@ TITLE_MAP = {
     "digital personal shopper": "Marketing",
     "development executive": "Marketing",
 
-    # ── Sales ──
+    # â”€â”€ Sales â”€â”€
     "sales associate": "Sales",
     "seasonal sales associate": "Sales",
     "retail business development representative": "Sales",
     "account executive": "Sales",
 
-    # ── Human Resources ──
+    # â”€â”€ Human Resources â”€â”€
     "recruiter": "Human Resources",
     "latam techincal billingual recruiter": "Human Resources",
     "talent advisor": "Human Resources",
@@ -442,7 +442,7 @@ TITLE_MAP = {
     "head of human resources": "Human Resources",
     "hr manager": "Human Resources",
 
-    # ── Finance / Accounting ──
+    # â”€â”€ Finance / Accounting â”€â”€
     "accountant": "Accountant",
     "senior accountant": "Accountant",
     "sr accountant": "Accountant",
@@ -455,7 +455,7 @@ TITLE_MAP = {
     "due diligence associate": "Finance / Accounting",
     "assistant vice president - financial solutions advisor": "Finance / Accounting",
 
-    # ── Customer Service ──
+    # â”€â”€ Customer Service â”€â”€
     "client support associate": "Customer Service",
     "customer service representative": "Customer Service",
     "client service specialist - employee benefits": "Customer Service",
@@ -469,22 +469,22 @@ TITLE_MAP = {
     "server trainer": "Customer Service",
     "dishwasher": "Customer Service",
 
-    # ── Marketing ──
+    # â”€â”€ Marketing â”€â”€
     "social media and search engine evaluator": "Marketing",
     "marketing specialist": "Marketing",
     "marketing consultant": "Marketing",
     "marketing manager": "Marketing",
 
-    # ── Operations ──
+    # â”€â”€ Operations â”€â”€
     "operations analyst": "Operations",
     "operations officer": "Operations",
     "technology officer": "Operations",
 
-    # ── Construction & Field ──
+    # â”€â”€ Construction & Field â”€â”€
     "field project coordinator": "Project Manager",
     "residential and commercial buildings": "Mechanical Engineer",
 
-    # ── Operations & Other ──
+    # â”€â”€ Operations & Other â”€â”€
     "retail manager": "Manager",
     "real estate / retail manager": "Manager",
     "retail specialist": "Sales",
@@ -556,7 +556,7 @@ _PREFERRED_BUCKETS_SET = {b.casefold() for b in _PREFERRED_TITLE_BUCKETS}
 def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     """Regex-based fallback compaction for the DETERMINISTIC path only.
 
-    This should NOT be called from the Groq path — Groq already receives
+    This should NOT be called from the Groq path â€” Groq already receives
     the preferred bucket list in its prompt and is trusted to produce
     the correct bucket.
 
@@ -628,7 +628,7 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     # Regex-driven compaction for common families.
     low = (source or raw).lower()
 
-    # 1. Executive / C-Level — map to specific CxO buckets first
+    # 1. Executive / C-Level â€” map to specific CxO buckets first
     if re.search(r"\b(ceo|chief executive officer)\b", low):
         return "CEO"
     if re.search(r"\b(cto|chief technology officer)\b", low):
@@ -648,7 +648,7 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     if re.search(r"\b(cloud|devops|dev ops|sre|site reliability|infrastructure)\b", low):
         return "DevOps Engineer"
 
-    # 2b. IT Infrastructure — distinct titles
+    # 2b. IT Infrastructure â€” distinct titles
     if re.search(r"\b(database administrator|\bdba\b)\b", low):
         return "Database Administrator"
     if re.search(r"\b(systems? administrator|sysadmin|sys admin)\b", low):
@@ -689,7 +689,7 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     if re.search(r"\b(operations|operations analyst|operations officer|technology officer|lead operations|business process|process analyst|scrum master)\b", low):
         return "Operations"
 
-    # 6. Civil / Field Engineering — distinct from Mechanical
+    # 6. Civil / Field Engineering â€” distinct from Mechanical
     if re.search(r"\b(civil|structural)\b", low):
         return "Civil Engineer"
     if re.search(r"\bfield engineer\b", low):
@@ -739,7 +739,7 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
 
 # Regex patterns to strip before re-matching
 _LEVEL_SUFFIXES = re.compile(
-    r'\s*(?:[-–]\s*)?(?:level\s*)?\s*(?:i{1,5}|iv|v|[1-9])\s*$',
+    r'\s*(?:[-â€“]\s*)?(?:level\s*)?\s*(?:i{1,5}|iv|v|[1-9])\s*$',
     re.IGNORECASE,
 )
 _PAREN_QUALIFIER = re.compile(r'\s*\(.*?\)\s*$')
@@ -754,7 +754,7 @@ _SENIORITY_SUFFIX = re.compile(
 
 # Rule 1: Remove Locations and Regional Markers
 _LOCATION_MARKERS = re.compile(
-    r'\s*[-–]\s*(?:Austin|Dallas|Fort Worth|Houston|San Antonio|Denton|Plano|Frisco|Irving|Arlington|Garland|Mesquite|Grand Prairie|McKinney|Carrollton|Richardson|Lewisville|Allen|Flower Mound|Little Elm|The Colony|Southlake)\s*$', 
+    r'\s*[-â€“]\s*(?:Austin|Dallas|Fort Worth|Houston|San Antonio|Denton|Plano|Frisco|Irving|Arlington|Garland|Mesquite|Grand Prairie|McKinney|Carrollton|Richardson|Lewisville|Allen|Flower Mound|Little Elm|The Colony|Southlake)\s*$', 
     re.IGNORECASE
 )
 _REGIONAL_MARKERS = re.compile(
@@ -786,7 +786,7 @@ def _strip_trailing_location_fragment(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return ""
-    for sep in [",", " - ", " – ", " — "]:
+    for sep in [",", " - ", " â€“ ", " â€” "]:
         if sep in t:
             head, tail = t.rsplit(sep, 1)
             if _looks_like_location_fragment(tail):
@@ -819,7 +819,7 @@ def _cleanup_title(raw: str) -> str:
     t = re.sub(r'[.,\-]+$', '', t).strip()
     
     # More aggressive location removal (e.g., "Director Operations - Austin")
-    t = re.sub(r'\s+[-–]\s+(?:Austin|Dallas|Fort Worth|Houston|San Antonio|Denton|Plano|Frisco|Irving|Arlington|Garland|Mesquite|Grand Prairie|McKinney|Carrollton|Richardson|Lewisville|Allen|Flower Mound|Little Elm|The Colony|Southlake)$', '', t, flags=re.IGNORECASE)
+    t = re.sub(r'\s+[-â€“]\s+(?:Austin|Dallas|Fort Worth|Houston|San Antonio|Denton|Plano|Frisco|Irving|Arlington|Garland|Mesquite|Grand Prairie|McKinney|Carrollton|Richardson|Lewisville|Allen|Flower Mound|Little Elm|The Colony|Southlake)$', '', t, flags=re.IGNORECASE)
     
     return t.strip()
 
@@ -907,13 +907,13 @@ def normalize_title_deterministic(raw_title: str) -> str:
     if candidate is None and key.startswith('soft'):
         candidate = "Software Engineer"
 
-    # Pass 2: strip level suffixes (e.g. "Engineer II" → "Engineer")
+    # Pass 2: strip level suffixes (e.g. "Engineer II" â†’ "Engineer")
     if candidate is None:
         stripped = _LEVEL_SUFFIXES.sub('', key).strip()
         if stripped != key and stripped in TITLE_MAP:
             candidate = TITLE_MAP[stripped]
 
-    # Pass 3: strip parenthetical qualifiers (e.g. "Analyst (Contract)" → "Analyst")
+    # Pass 3: strip parenthetical qualifiers (e.g. "Analyst (Contract)" â†’ "Analyst")
     if candidate is None:
         stripped = _PAREN_QUALIFIER.sub('', key).strip()
         if stripped != key and stripped in TITLE_MAP:
@@ -933,7 +933,7 @@ def normalize_title_deterministic(raw_title: str) -> str:
             candidate = TITLE_MAP[stripped_all]
 
     if candidate is None:
-        # No deterministic match — keep cleaned title as category with seniority stripped.
+        # No deterministic match â€” keep cleaned title as category with seniority stripped.
         final_clean = _SENIORITY_PREFIX.sub('', cleaned)
         final_clean = _SENIORITY_SUFFIX.sub('', final_clean).strip()
         if final_clean:
@@ -965,7 +965,7 @@ def _get_groq_client():
         _groq_client = Groq(api_key=GROQ_API_KEY)
         return _groq_client
     except ImportError:
-        logger.warning("groq package not installed — Groq normalization disabled")
+        logger.warning("groq package not installed â€” Groq normalization disabled")
         return None
     except Exception as e:
         logger.error(f"Failed to init Groq client: {e}")
@@ -1008,7 +1008,7 @@ def normalize_title_with_groq(raw_title: str, existing_titles: list) -> str:
     """
     client = _get_groq_client()
     if not client:
-        logger.info("Groq unavailable — falling back to deterministic normalization")
+        logger.info("Groq unavailable â€” falling back to deterministic normalization")
         return normalize_title_deterministic(raw_title)
 
     # Build prompt
@@ -1032,12 +1032,12 @@ Rules:
 6. Keep common technical acronyms when core to the role (QA, SRE, DevOps, UI/UX).
 7. If raw title is empty/noise (N/A, unknown), return an empty string.
 8. For memberships/officer roles in student clubs/orgs (e.g., WiCyS), normalize to "Student".
-9. "Member of Technical Staff" is a software engineering role → "Software Engineer".
-10. Executive titles: "CEO" → "CEO", "CTO" → "CTO", "COO" → "COO", "CFO" → "CFO", "CMO" → "CMO". VP/Vice President → "VP".
+9. "Member of Technical Staff" is a software engineering role â†’ "Software Engineer".
+10. Executive titles: "CEO" â†’ "CEO", "CTO" â†’ "CTO", "COO" â†’ "COO", "CFO" â†’ "CFO", "CMO" â†’ "CMO". VP/Vice President â†’ "VP".
 11. "Database Administrator", "Systems Administrator", "Network Engineer" should remain their own specific titles.
 12. Civil Engineer, Field Engineer, Project Engineer remain distinct titles.
-13. Graduate students in experience sections with no assistant title → "Student".
-14. If the title is ambiguous, create a reasonable standardized title for a professional dashboard — do NOT default to "Other".
+13. Graduate students in experience sections with no assistant title â†’ "Student".
+14. If the title is ambiguous, create a reasonable standardized title for a professional dashboard â€” do NOT default to "Other".
 15. Never include company names in normalized titles (e.g., "Workday Engineer" -> "Software Engineer").
 16. Never output location text as a normalized title (e.g., "Denton, Texas").
 17. Intern handling:
@@ -1071,7 +1071,7 @@ Return JSON only:
         )
         payload = json.loads(response.choices[0].message.content)
         result = _coerce_existing_title_choice(payload.get("normalized_title", ""), existing_titles)
-        # Do NOT apply _compact_normalized_title here — Groq receives the
+        # Do NOT apply _compact_normalized_title here â€” Groq receives the
         # preferred bucket list in the prompt and is trusted to return the
         # correct bucket.  Compaction is a deterministic-only fallback.
         if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:

@@ -1,4 +1,4 @@
-import time
+﻿import time
 import json
 import random
 import re
@@ -17,14 +17,14 @@ from selenium.common.exceptions import NoSuchWindowException
 import html
 
 # Local imports
-import utils
-import config
-from config import logger, print_profile_summary
+import scraper_utils as utils
+import settings as config
+from settings import logger, print_profile_summary
 from entity_classifier import classify_entity, is_location, is_university, get_classifier
 from groq_client import is_groq_available, verify_location, parse_groq_date, _clean_doubled
 from groq_extractor_experience import extract_experiences_with_groq, strip_seniority_prefixes_from_title
 from groq_extractor_education import extract_education_with_groq
-from utils import determine_work_study_status
+from scraper_utils import determine_work_study_status
 
 try:
     from job_title_normalization import normalize_title_deterministic, normalize_title_with_groq
@@ -82,7 +82,7 @@ def _is_company_title_collision(title: str, company: str) -> bool:
     return title_key == company_key
 
 
-# LinkedIn company line: "Employer · Full-time" / "… · Internship"
+# LinkedIn company line: "Employer Â· Full-time" / "â€¦ Â· Internship"
 _EMP_LINE_TAIL = re.compile(
     r"^(Full-time|Part-time|Contract|Internship|Seasonal|Temporary|Freelance|Self-employed|Apprenticeship|Intern)$",
     re.IGNORECASE,
@@ -234,7 +234,7 @@ class LinkedInScraper:
 
         self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 10)
-        logger.info("✓ WebDriver initialized")
+        logger.info("âœ“ WebDriver initialized")
 
     def _load_cookies(self):
         try:
@@ -256,7 +256,7 @@ class LinkedInScraper:
                 except Exception:
                     pass
 
-            logger.info(f"✓ Loaded {len(cookies)} cookies")
+            logger.info(f"âœ“ Loaded {len(cookies)} cookies")
             self.driver.get("https://www.linkedin.com/feed")
             time.sleep(3)
             return "feed" in (self.driver.current_url or "")
@@ -268,7 +268,7 @@ class LinkedInScraper:
         try:
             cookies = self.driver.get_cookies()
             config.COOKIES_FILE.write_text(json.dumps(cookies, indent=2), encoding="utf-8")
-            logger.info(f"✓ Saved {len(cookies)} cookies")
+            logger.info(f"âœ“ Saved {len(cookies)} cookies")
         except Exception as e:
             logger.error(f"Error saving cookies: {e}")
 
@@ -295,7 +295,7 @@ class LinkedInScraper:
             self.wait.until(EC.url_contains("feed"))
             time.sleep(3)
 
-            logger.info("✓ Logged in successfully")
+            logger.info("âœ“ Logged in successfully")
             self._save_cookies()
             return True
         except Exception as e:
@@ -356,7 +356,7 @@ class LinkedInScraper:
     def quit(self):
         if self.driver:
             self.driver.quit()
-            logger.info("✓ WebDriver closed")
+            logger.info("âœ“ WebDriver closed")
 
     # ============================================================
     # Navigation & Waits
@@ -622,24 +622,24 @@ class LinkedInScraper:
             if block_reason:
                 if block_reason == "blurred_signin_overlay_detected":
                     logger.warning(
-                        "⚠️ LinkedIn likely detected automation or requires sign-in. "
+                        "âš ï¸ LinkedIn likely detected automation or requires sign-in. "
                         "Waiting for human input; restart the scraper if you want to continue."
                     )
                     return "MANUAL_INTERVENTION_REQUIRED"
-                logger.warning("⚠️ Page looks blocked or empty.")
+                logger.warning("âš ï¸ Page looks blocked or empty.")
                 return None
 
             # Check if page/profile no longer exists
             if self._page_not_found():
-                logger.warning(f"⚠️ PAGE NOT FOUND: {profile_url}")
+                logger.warning(f"âš ï¸ PAGE NOT FOUND: {profile_url}")
                 return "PAGE_NOT_FOUND"
 
-            # Capture canonical URL (LinkedIn may redirect vanity → generated or vice versa).
+            # Capture canonical URL (LinkedIn may redirect vanity â†’ generated or vice versa).
             # We track redirects to ensure that we don't treat identical profiles
             # with different URL formats as separate entities in our database.
             canonical_url = self.driver.current_url.split("?")[0].rstrip("/")
             if canonical_url != profile_url.rstrip("/"):
-                logger.info(f"URL redirect: {profile_url} → {canonical_url}")
+                logger.info(f"URL redirect: {profile_url} â†’ {canonical_url}")
                 data["profile_url"] = canonical_url
                 data["_original_url"] = profile_url  # Keep original for history tracking
 
@@ -679,7 +679,7 @@ class LinkedInScraper:
             _total_tokens = getattr(self, '_last_exp_tokens', 0)  # From Groq experience extraction
             self._apply_experience_entries(data, all_experiences)
 
-            # 5. Education — Try Groq first, CSS fallback.
+            # 5. Education â€” Try Groq first, CSS fallback.
             # We prioritize Groq for education because it can intelligently separate
             # degree from major and parse inconsistent date formats that CSS alone 
             # often misses or mangles.
@@ -944,7 +944,7 @@ class LinkedInScraper:
                     if extracted_deg:
                         raw_deg = extracted_deg
                         raw_maj = cleaned_maj
-                        logger.info(f"✓ Extracted hidden degree '{extracted_deg}' from major field.")
+                        logger.info(f"âœ“ Extracted hidden degree '{extracted_deg}' from major field.")
 
                 if raw_deg:
                     std_deg = standardize_degree(raw_deg)
@@ -1004,7 +1004,7 @@ class LinkedInScraper:
                         f"{data.get('job_title')} -> {data['discipline']}\n"
                     )
         except Exception as norm_err:
-            logger.debug(f"    ⚠️ Education normalization/discipline failed: {norm_err}")
+            logger.debug(f"    âš ï¸ Education normalization/discipline failed: {norm_err}")
 
     def _apply_experience_display_normalization(self, data):
         """Populate normalized experience fields used by summary output and downstream UI."""
@@ -1302,7 +1302,7 @@ class LinkedInScraper:
                     let t = (text || '').replace(/\s+/g, ' ').trim();
                     if (!t) return '';
                     // LinkedIn often renders location and contact on one row.
-                    t = t.replace(/\s*[·|]\s*contact info\s*$/i, '').trim();
+                    t = t.replace(/\s*[Â·|]\s*contact info\s*$/i, '').trim();
                     return t;
                 }
 
@@ -1463,7 +1463,7 @@ class LinkedInScraper:
             is_location_styled = "inline" in span_class and "t-black--light" in span_class
             
             text = span.get_text(" ", strip=True)
-            text = re.sub(r"\s*[·|]\s*Contact info\s*$", "", text, flags=re.IGNORECASE).strip()
+            text = re.sub(r"\s*[Â·|]\s*Contact info\s*$", "", text, flags=re.IGNORECASE).strip()
             text_lower = text.lower()
             
             # Skip badge-like entries (schools, companies)
@@ -1521,7 +1521,7 @@ class LinkedInScraper:
             for node in contact_nodes:
                 for prev in node.find_all_previous(["span", "div"], limit=6):
                     candidate = prev.get_text(" ", strip=True)
-                    candidate = re.sub(r"\s*[·|]\s*Contact info\s*$", "", candidate, flags=re.IGNORECASE).strip()
+                    candidate = re.sub(r"\s*[Â·|]\s*Contact info\s*$", "", candidate, flags=re.IGNORECASE).strip()
                     if not candidate:
                         continue
                     if any(token in candidate.lower() for token in [
@@ -1550,7 +1550,7 @@ class LinkedInScraper:
         
         Uses LinkedIn's CSS structure directly:
         - Job title: in span with class containing 't-bold'
-        - Company: in span with class 't-14 t-normal' (format: "Company · Part-time")
+        - Company: in span with class 't-14 t-normal' (format: "Company Â· Part-time")
         - Dates: in span with class 'pvs-entity__caption-wrapper' or 't-black--light'
         """
         exp_root = self._find_section_root(soup, "Experience")
@@ -1645,11 +1645,11 @@ class LinkedInScraper:
                 else:
                     text = span.get_text(strip=True)
                 
-                # This could be "Company · Part-time" / "… · Internship" format
+                # This could be "Company Â· Part-time" / "â€¦ Â· Internship" format
                 if text and not utils.DATE_RANGE_RE.search(text):
                     emp_css = ""
-                    if "·" in text:
-                        segs = [s.strip() for s in text.split("·")]
+                    if "Â·" in text:
+                        segs = [s.strip() for s in text.split("Â·")]
                         if len(segs) >= 2 and _EMP_LINE_TAIL.match(segs[-1]):
                             emp_css = segs[-1]
                     candidate_company = _clean_doubled(self._clean_company(text))
@@ -1735,7 +1735,7 @@ class LinkedInScraper:
         junk_patterns = re.compile(
             r'^(Full-time|Part-time|Contract|Internship|Freelance|Self-employed|Seasonal|Temporary|Remote|Hybrid|On-site)$|'
             r'^\d+\s*(yr|yrs|year|years|mo|mos|month|months)\b|'
-            r'^·\s*\d+\s*(yr|yrs|mo|mos)|'
+            r'^Â·\s*\d+\s*(yr|yrs|mo|mos)|'
             r'^\d+\s*(yr|yrs)?\s*\d*\s*(mo|mos)?$',
             re.I
         )
@@ -1855,9 +1855,9 @@ class LinkedInScraper:
                     if u_key not in seen_entries:
                         # Log partial extractions
                         if title and not company:
-                            logger.info(f"    ⚠️ [Fallback] Found job title '{title}' but no company")
+                            logger.info(f"    âš ï¸ [Fallback] Found job title '{title}' but no company")
                         elif company and not title:
-                            logger.info(f"    ⚠️ [Fallback] Found company '{company}' but no job title")
+                            logger.info(f"    âš ï¸ [Fallback] Found company '{company}' but no job title")
                         
                         parsed.append({
                             "title": title or "",
@@ -1875,9 +1875,9 @@ class LinkedInScraper:
         t = t.strip()
         if not t: return None
         if re.match(r'^(Full-time|Part-time|Contract|Internship)', t, re.I): return None
-        if t in ['·', '•']: return None
-        # Remove suffix like " · Full-time"
-        return re.sub(r'\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$', '', t, flags=re.I).strip()
+        if t in ['·', '•', 'Â·', 'â€¢']: return None
+        # Remove suffix like "· Full-time" (including mojibake bullet variants)
+        return re.sub(r'\s*(?:·|•|Â·|â€¢)\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$', '', t, flags=re.I).strip()
 
     def _split_context_line(self, text):
         potential_parts = []
@@ -1885,13 +1885,13 @@ class LinkedInScraper:
         # Split by various delimiters: 
         # - " at " / " @ "
         # - " | " (pipe)
-        # - " - " / " – " (dash/en-dash with spaces)
-        # - " · " (dot)
+        # - " - " / " â€“ " (dash/en-dash with spaces)
+        # - "·" / "•" (dot/bullet)
         
         # Regex for delimiters
         # We require spaces around dashes to avoid splitting "Co-Founder" or "Tier-1"
         # We allow flexible spacing for pipes and dots
-        delimiters = r'\s+(?:at|@)\s+|\s*\|\s*|\s+(?:-|–)\s+|\s*·\s*'
+        delimiters = r'\s+(?:at|@)\s+|\s*\|\s*|\s*(?:-|\u2013|\u2014|â€“|â€”)\s*|\s*(?:·|•|Â·|â€¢)\s*'
         
         parts = re.split(delimiters, text, flags=re.I)
         potential_parts = [p.strip() for p in parts if len(p.strip()) > 1] # Allowed >1 to catch "QA" or "HR"
@@ -2323,11 +2323,11 @@ class LinkedInScraper:
                 }
             
             unique_edus = list(dict.fromkeys(all_edus))
-            logger.info(f"    ✓ Extracted {len(unique_edus)} education(s) from detailed view.")
+            logger.info(f"    âœ“ Extracted {len(unique_edus)} education(s) from detailed view.")
             if unt_details:
-                logger.info(f"      ✓ Found expanded UNT details: {unt_details.get('major', 'Unknown Major')}")
+                logger.info(f"      âœ“ Found expanded UNT details: {unt_details.get('major', 'Unknown Major')}")
             else:
-                logger.info("      ❌ Still no UNT education found in detailed view.")
+                logger.info("      âŒ Still no UNT education found in detailed view.")
 
             # Go back
             self.driver.get(profile_url)
@@ -2470,4 +2470,4 @@ class LinkedInScraper:
 
     def _clean_company(self, text):
         if not text: return ""
-        return re.sub(r"\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$", "", text, flags=re.I).strip()
+        return re.sub(r"\s*Â·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$", "", text, flags=re.I).strip()

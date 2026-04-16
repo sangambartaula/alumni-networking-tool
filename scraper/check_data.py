@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import json
 import os
 
@@ -8,7 +8,7 @@ JSON_PATH = os.path.join('scraper', 'data', 'companies.json')
 
 def load_json(path):
     if not os.path.exists(path):
-        print(f"❌ Error: JSON file not found at {path}")
+        print(f"âŒ Error: JSON file not found at {path}")
         return {"companies": [], "universities": [], "job_titles": [], "aliases": {}}
     
     with open(path, 'r', encoding='utf-8') as f:
@@ -17,7 +17,7 @@ def load_json(path):
 def save_json(data, path):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    print(f"💾 Saved updates to {path}")
+    print(f"ðŸ’¾ Saved updates to {path}")
 
 def clean(text):
     if not text: return ""
@@ -27,7 +27,7 @@ def ask_user(item, context, options):
     """
     Generic function to ask the user what to do with a missing item.
     """
-    print(f"\n⚠️  MISSING: '{item}' (Found in {context})")
+    print(f"\nâš ï¸  MISSING: '{item}' (Found in {context})")
     print(f"   It is not in your companies.json.")
     
     for i, opt in enumerate(options, 1):
@@ -35,7 +35,7 @@ def ask_user(item, context, options):
     print(f"   [s] Skip (Don't add)")
     
     while True:
-        choice = input("   👉 Choice: ").lower().strip()
+        choice = input("   ðŸ‘‰ Choice: ").lower().strip()
         if choice == 's': return None
         
         # Check if valid number
@@ -44,7 +44,7 @@ def ask_user(item, context, options):
             if 0 <= idx < len(options):
                 return options[idx] # Return the label of the list to add to (e.g. "companies")
         
-        print("   ❌ Invalid choice. Try again.")
+        print("   âŒ Invalid choice. Try again.")
 
 def main():
     data = load_json(JSON_PATH)
@@ -68,7 +68,7 @@ def main():
             reader = csv.DictReader(f)
             rows = list(reader) # Read all to memory so we can enumerate safely
 
-        print(f"🔍 Scanning {len(rows)} rows against companies.json...\n")
+        print(f"ðŸ” Scanning {len(rows)} rows against companies.json...\n")
 
         for i, row in enumerate(rows, start=2):
             name = row.get('name', 'Unknown')
@@ -95,7 +95,7 @@ def main():
                         missing.append(c_col)
                     
                     if missing:
-                        print(f"\n⚠️  Warning: {name} ({context}) has incomplete job info.")
+                        print(f"\nâš ï¸  Warning: {name} ({context}) has incomplete job info.")
                         print(f"   Present: Title='{t_val}', Company='{c_val}', Dates Present={d_has_val}")
                         print(f"   Missing: {', '.join(missing)}")
                         
@@ -116,7 +116,7 @@ def main():
                         job_titles_set.add(val)
                         data["job_titles"].append(val)
                         modified_json = True
-                        print(f"   ✅ Added '{val}' to job_titles.")
+                        print(f"   âœ… Added '{val}' to job_titles.")
 
             # --- 2. Validate Education ---
             edu_val = clean(row.get('education'))
@@ -127,12 +127,12 @@ def main():
                         universities_set.add(edu_val)
                         data["universities"].append(edu_val)
                         modified_json = True
-                        print(f"   ✅ Added '{edu_val}' to universities.")
+                        print(f"   âœ… Added '{edu_val}' to universities.")
                     elif action == "Add to 'companies'":
                         companies_set.add(edu_val)
                         data["companies"].append(edu_val)
                         modified_json = True
-                        print(f"   ✅ Added '{edu_val}' to companies.")
+                        print(f"   âœ… Added '{edu_val}' to companies.")
 
             # --- 3. Validate Companies ---
             for col, context in [('company', 'Current Company'), ('exp2_company', 'Exp 2 Company'), ('exp3_company', 'Exp 3 Company')]:
@@ -144,15 +144,15 @@ def main():
                             companies_set.add(val)
                             data["companies"].append(val)
                             modified_json = True
-                            print(f"   ✅ Added '{val}' to companies.")
+                            print(f"   âœ… Added '{val}' to companies.")
                         elif action == "Add to 'universities'":
                             universities_set.add(val)
                             data["universities"].append(val)
                             modified_json = True
-                            print(f"   ✅ Added '{val}' to universities.")
+                            print(f"   âœ… Added '{val}' to universities.")
 
     except KeyboardInterrupt:
-        print("\n\n🛑 Script cancelled by user.")
+        print("\n\nðŸ›‘ Script cancelled by user.")
         if modified_json or modified_csv:
             save = input("Save changes made so far? (y/n): ").lower()
             if save == 'y':
@@ -162,7 +162,7 @@ def main():
                         writer = csv.DictWriter(f, fieldnames=reader.fieldnames)
                         writer.writeheader()
                         writer.writerows(rows)
-                    print(f"💾 Saved updates to {CSV_PATH}")
+                    print(f"ðŸ’¾ Saved updates to {CSV_PATH}")
         return
 
     print("\n" + "="*50)
@@ -173,10 +173,10 @@ def main():
             writer = csv.DictWriter(f, fieldnames=reader.fieldnames)
             writer.writeheader()
             writer.writerows(rows)
-        print(f"💾 Saved updates to {CSV_PATH}")
-        print("🎉 Validation Complete. Files Updated.")
+        print(f"ðŸ’¾ Saved updates to {CSV_PATH}")
+        print("ðŸŽ‰ Validation Complete. Files Updated.")
     elif not modified_json:
-        print("🎉 Validation Complete. No changes needed.")
+        print("ðŸŽ‰ Validation Complete. No changes needed.")
 
 if __name__ == "__main__":
     main()

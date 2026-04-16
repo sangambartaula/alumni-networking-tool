@@ -1,4 +1,4 @@
-"""
+﻿"""
 Shared Groq API client infrastructure.
 
 Provides:
@@ -16,9 +16,42 @@ import re
 from pathlib import Path
 from datetime import datetime
 
-import groq_retry_patch  # noqa: F401 — GROQ_RETRY_DELAY_SECONDS before any Groq client
+from settings import logger
 
-from config import logger
+# Configure Groq SDK HTTP retry backoff (429 / transient errors).
+# This logic used to live in scraper/groq_retry_patch.py â€” inlined here so
+# importing this module applies the configured retry delay automatically.
+_applied = False
+
+
+def apply_groq_retry_delay() -> None:
+    """Apply environment-configured retry backoff to Groq's internal client.
+
+    Env var: `GROQ_RETRY_DELAY_SECONDS` (default 5). Set to 0 to keep SDK defaults.
+    """
+    global _applied
+    if _applied:
+        return
+    try:
+        import groq._base_client as _bc
+    except Exception:
+        return
+    try:
+        sec = float(os.getenv("GROQ_RETRY_DELAY_SECONDS", "5"))
+    except Exception:
+        sec = 5.0
+    if sec > 0:
+        try:
+            _bc.INITIAL_RETRY_DELAY = sec
+            _bc.MAX_RETRY_DELAY = sec
+        except Exception:
+            # Best-effort: don't crash if attributes not present
+            pass
+    _applied = True
+
+
+# Apply retry delay eagerly on import (preserves previous side-effect behavior).
+apply_groq_retry_delay()
 
 # Try to import groq and BeautifulSoup
 try:
@@ -27,7 +60,7 @@ try:
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False
-    logger.warning("⚠️ groq not installed. Run: pip install groq")
+    logger.warning("âš ï¸ groq not installed. Run: pip install groq")
 
 try:
     from bs4 import BeautifulSoup
@@ -100,7 +133,7 @@ def _get_client():
             _client = Groq(api_key=GROQ_API_KEY)
             logger.debug(f"Groq API initialized (model: {GROQ_MODEL})")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize Groq: {e}")
+            logger.error(f"âŒ Failed to initialize Groq: {e}")
     return _client
 
 
@@ -130,7 +163,7 @@ def save_debug_html(content: str, profile_name: str, section: str = "experience"
         logger.debug(f"Saved debug {section} to: {debug_file.name}")
     except Exception as e:
         # Debug saving must never crash production
-        logger.warning(f"    ⚠️ Failed to save debug {section}: {e}")
+        logger.warning(f"    âš ï¸ Failed to save debug {section}: {e}")
 
 
 def parse_groq_json_response(result_text: str) -> dict | list | None:
@@ -165,7 +198,7 @@ def parse_groq_json_response(result_text: str) -> dict | list | None:
             except json.JSONDecodeError:
                 pass
         msg = result_text[:100] + "..." if len(result_text) > 100 else result_text
-        logger.warning(f"⚠️ Groq returned invalid JSON: {msg}")
+        logger.warning(f"âš ï¸ Groq returned invalid JSON: {msg}")
         return None
 
 
@@ -201,7 +234,7 @@ def parse_groq_date(date_str: str) -> dict:
 
     date_str = date_str.strip()
     normalized = re.sub(r"\s+", " ", date_str)
-    normalized = normalized.replace("–", "-").replace("—", "-")
+    normalized = normalized.replace("â€“", "-").replace("â€”", "-")
 
     # Check for "Present"
     if normalized.lower() == "present":
@@ -325,11 +358,11 @@ def verify_location(text: str) -> bool:
             is_loc = data.get("is_location", False)
             reason = data.get("reason", "")
             if is_loc:
-                logger.debug(f"✅ Groq verified location: {text}")
+                logger.debug(f"âœ… Groq verified location: {text}")
             else:
-                logger.debug(f"❌ Groq rejected location: {text} ({reason})")
+                logger.debug(f"âŒ Groq rejected location: {text} ({reason})")
             return is_loc
         return False
     except Exception as e:
-        logger.warning(f"⚠️ Groq location verification failed: {e}")
+        logger.warning(f"âš ï¸ Groq location verification failed: {e}")
         return False

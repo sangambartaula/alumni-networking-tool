@@ -1,4 +1,4 @@
-import os
+﻿import os
 import shutil
 import pandas as pd
 import mysql.connector
@@ -12,11 +12,11 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'backend'))
 from database import save_visited_profile, get_all_visited_profiles, normalize_url as db_normalize_url
 
-from config import (
+from settings import (
     logger, UPDATE_FREQUENCY, VISITED_HISTORY_FILE, 
     VISITED_HISTORY_COLUMNS, OUTPUT_CSV, CSV_COLUMNS
 )
-from utils import parse_frequency, clean_job_title
+from scraper_utils import parse_frequency, clean_job_title
 
 def get_outdated_profiles_from_db():
     try:
@@ -82,7 +82,7 @@ class HistoryManager:
                         'update_needed': str(row.get('update_needed', 'yes')).strip().lower(),
                         'last_db_update': str(row.get('last_db_update', '')).strip()
                     }
-                logger.info(f"📜 Loaded {len(self.visited_history)} URLs from visited history")
+                logger.info(f"ðŸ“œ Loaded {len(self.visited_history)} URLs from visited history")
             except Exception as e:
                 logger.error(f"Error loading visited history: {e}")
                 self.visited_history = {}
@@ -90,10 +90,10 @@ class HistoryManager:
             self.visited_history = {}
 
     def sync_with_db(self):
-        logger.info("\n📊 Initializing visited history from database...")
+        logger.info("\nðŸ“Š Initializing visited history from database...")
         db_profiles = get_all_visited_profiles()
         if not db_profiles:
-            logger.warning("⚠️ No visited profiles found in database")
+            logger.warning("âš ï¸ No visited profiles found in database")
             self.load_from_csv()
             return
 
@@ -179,7 +179,7 @@ class HistoryManager:
         update_needed = entry.get('update_needed', 'no').lower()
         
         if saved == 'yes' and update_needed == 'yes':
-            logger.info("    🔄 Re-visiting UNT alum (update needed)")
+            logger.info("    ðŸ”„ Re-visiting UNT alum (update needed)")
             return False
         if saved == 'yes': return True
         return True
@@ -283,7 +283,7 @@ def infer_grad_year_from_school_start(value):
         return None
     if text.lower() in {"nan", "none", "null", "na", "n/a"}:
         return None
-    if re.search(r"[-–—]", text):
+    if re.search(r"[-â€“â€”]", text):
         return None
 
     years = re.findall(r"(19\d{2}|20\d{2}|2100)", text)
@@ -360,16 +360,16 @@ def ensure_alumni_output_csv(csv_path: Optional[Path] = None):
 
     if not target.exists():
         pd.DataFrame(columns=CSV_COLUMNS).to_csv(target, index=False, encoding="utf-8")
-        logger.info("📄 Created alumni CSV with canonical columns: %s", target)
+        logger.info("ðŸ“„ Created alumni CSV with canonical columns: %s", target)
         return
 
     try:
         existing = pd.read_csv(target, encoding="utf-8")
     except Exception as e:
-        logger.warning("⚠️ Could not read alumni CSV (%s). Backing up raw file and recreating.", e)
+        logger.warning("âš ï¸ Could not read alumni CSV (%s). Backing up raw file and recreating.", e)
         try:
             shutil.copy2(target, _alumni_csv_backup_path(target, "unreadable"))
-            logger.info("   ↪ Backup: pre-repair copy saved next to output CSV")
+            logger.info("   â†ª Backup: pre-repair copy saved next to output CSV")
         except Exception as copy_err:
             logger.error("   Failed to backup unreadable CSV: %s", copy_err)
         pd.DataFrame(columns=CSV_COLUMNS).to_csv(target, index=False, encoding="utf-8")
@@ -379,13 +379,13 @@ def ensure_alumni_output_csv(csv_path: Optional[Path] = None):
         return
 
     logger.warning(
-        "⚠️ Alumni CSV schema mismatch (%s columns on disk vs %s expected). Backing up and migrating.",
+        "âš ï¸ Alumni CSV schema mismatch (%s columns on disk vs %s expected). Backing up and migrating.",
         len(existing.columns),
         len(CSV_COLUMNS),
     )
     try:
         existing.to_csv(_alumni_csv_backup_path(target, "schema_backup"), index=False, encoding="utf-8")
-        logger.info("   ↪ Full pre-migration backup saved.")
+        logger.info("   â†ª Full pre-migration backup saved.")
     except Exception as backup_err:
         logger.error("   Failed to backup before migration: %s", backup_err)
 
@@ -403,7 +403,7 @@ def ensure_alumni_output_csv(csv_path: Optional[Path] = None):
         )
 
     migrated.to_csv(target, index=False, encoding="utf-8")
-    logger.info("✅ Alumni CSV migrated to current schema (%s rows). Output: %s", len(migrated), target)
+    logger.info("âœ… Alumni CSV migrated to current schema (%s rows). Output: %s", len(migrated), target)
 
 
 def flag_profile_for_review(profile_data):
@@ -415,7 +415,7 @@ def flag_profile_for_review(profile_data):
     for any experience slot (1, 2, 3). This catches genuine data mismatches,
     not profiles that simply have no work experience listed.
     """
-    from config import FLAGGED_PROFILES_FILE
+    from settings import FLAGGED_PROFILES_FILE
 
     url = profile_data.get('profile_url', '')
     if not url:
@@ -424,7 +424,7 @@ def flag_profile_for_review(profile_data):
 
     issues = []
 
-    from config import FLAG_MISSING_EXPERIENCE_DATA
+    from settings import FLAG_MISSING_EXPERIENCE_DATA
 
     if FLAG_MISSING_EXPERIENCE_DATA:
         # Experience 1
@@ -471,32 +471,32 @@ def flag_profile_for_review(profile_data):
         if url not in existing_lines:
             with open(FLAGGED_PROFILES_FILE, 'a', encoding='utf-8') as f:
                 f.write(flag_line)
-            logger.info(f"🚩 Flagged for review: {url} ({'; '.join(issues)})")
+            logger.info(f"ðŸš© Flagged for review: {url} ({'; '.join(issues)})")
     except Exception as e:
         logger.warning(f"Could not flag profile: {e}")
 
 def save_profile_to_csv(profile_data):
     try:
         if not profile_data.get('profile_url') or not profile_data.get('name'):
-            logger.warning("⚠️ Profile save skipped: missing profile_url or name")
+            logger.warning("âš ï¸ Profile save skipped: missing profile_url or name")
             return False
 
         # Block fake/placeholder profiles
-        from config import is_blocked_url
+        from settings import is_blocked_url
         if is_blocked_url(profile_data.get('profile_url', '')):
-            logger.info(f"🚫 Blocked profile skipped: {profile_data.get('profile_url')}")
+            logger.info(f"ðŸš« Blocked profile skipped: {profile_data.get('profile_url')}")
             return False
         
         has_data = any([profile_data.get(k) for k in ['headline', 'location', 'job_title', 'school', 'education']])
         if not has_data:
-            logger.warning("⚠️ Profile save skipped (no usable data fields): %s", profile_data.get('profile_url', '?'))
+            logger.warning("âš ï¸ Profile save skipped (no usable data fields): %s", profile_data.get('profile_url', '?'))
             return False
 
         ensure_alumni_output_csv()
         try:
             existing_df = pd.read_csv(OUTPUT_CSV, encoding="utf-8")
         except Exception as e:
-            logger.warning("⚠️ Read failed after ensure (%s). Using empty frame.", e)
+            logger.warning("âš ï¸ Read failed after ensure (%s). Using empty frame.", e)
             existing_df = pd.DataFrame(columns=CSV_COLUMNS)
         if list(existing_df.columns) != CSV_COLUMNS:
             ensure_alumni_output_csv()
@@ -543,7 +543,7 @@ def save_profile_to_csv(profile_data):
             'standardized_major2': profile_data.get('standardized_major2', ''),
             'standardized_degree3': profile_data.get('standardized_degree3', ''),
             'standardized_major3': profile_data.get('standardized_major3', ''),
-            # Discipline — set at scrape time by Groq, persisted here
+            # Discipline â€” set at scrape time by Groq, persisted here
             'discipline': profile_data.get('discipline', ''),
             # Other fields
             'location': profile_data.get('location'),
@@ -622,7 +622,7 @@ def save_profile_to_csv(profile_data):
         
         return True
     except Exception as e:
-        logger.error(f"❌ Error saving profile: {e}")
+        logger.error(f"âŒ Error saving profile: {e}")
         return False
 
 

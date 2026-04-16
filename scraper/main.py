@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from pathlib import Path
 
 # ============================================================
@@ -37,11 +37,11 @@ def _configure_utf8_stdio():
 _configure_utf8_stdio()
 
 # Local Modules
-import config
-import utils
+import settings as config
+import scraper_utils as utils
 import database_handler
 from scraper import LinkedInScraper
-from config import logger
+from settings import logger
 
 # Backend
 from backend.sqlite_fallback import get_connection_manager
@@ -83,7 +83,7 @@ def _prevent_system_sleep():
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            logger.info("🔋 macOS sleep/display prevention enabled")
+            logger.info("ðŸ”‹ macOS sleep/display prevention enabled")
             _sleep_prevention_active = True
             
         elif sys.platform == "win32":
@@ -99,14 +99,14 @@ def _prevent_system_sleep():
                 ctypes.windll.kernel32.SetThreadExecutionState(
                     ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED | ES_AWAYMODE_REQUIRED
                 )
-                logger.info("🔋 Windows sleep/display prevention enabled")
+                logger.info("ðŸ”‹ Windows sleep/display prevention enabled")
                 _sleep_prevention_active = True
             except Exception as win_err:
                 logger.warning(f"Windows sleep prevention failed: {win_err}")
                 
         elif sys.platform.startswith("linux"):
             # Linux: sleep is usually not triggered by idle on servers/VMs
-            logger.info("ℹ️  Linux detected; sleep prevention not required")
+            logger.info("â„¹ï¸  Linux detected; sleep prevention not required")
             _sleep_prevention_active = True
             
     except Exception as e:
@@ -199,6 +199,16 @@ def save_keyword_state(mode_key, search_url, page):
         conn.commit()
     finally:
         conn.close()
+
+
+def load_scrape_state():
+    """Compatibility wrapper for legacy tests and callers."""
+    return load_keyword_state("search")
+
+
+def save_scrape_state(mode_key, search_url, page):
+    """Compatibility wrapper for legacy tests and callers."""
+    return save_keyword_state(mode_key, search_url, page)
 
 def load_discipline_rotation(discipline):
     manager = get_connection_manager()
@@ -308,7 +318,7 @@ def _recover_browser_session(scraper, profile_url, nav=None):
     Restart browser and retry profile scrape once. Used when display sleep kills the session.
     Returns (success: bool, data: dict or str)
     """
-    logger.warning(f"⚠️  Browser session dropped. Restarting chrome and retrying {profile_url}...")
+    logger.warning(f"âš ï¸  Browser session dropped. Restarting chrome and retrying {profile_url}...")
     
     try:
         # Kill old browser gracefully
@@ -324,7 +334,7 @@ def _recover_browser_session(scraper, profile_url, nav=None):
         
         # Re-authenticate
         if not scraper.login():
-            logger.error("❌ Could not re-login after session recovery. Skipping profile.")
+            logger.error("âŒ Could not re-login after session recovery. Skipping profile.")
             return False, "LOGIN_FAILED"
         
         # Re-initialize navigator if provided
@@ -334,15 +344,15 @@ def _recover_browser_session(scraper, profile_url, nav=None):
         time.sleep(1)
         
         # Single retry attempt
-        logger.info(f"  🔄 Retrying: {profile_url}")
+        logger.info(f"  ðŸ”„ Retrying: {profile_url}")
         data = scraper.scrape_profile_page(profile_url)
 
         if data == "MANUAL_INTERVENTION_REQUIRED":
-            logger.warning(f"  ⏸️  Manual intervention required for {profile_url}")
+            logger.warning(f"  â¸ï¸  Manual intervention required for {profile_url}")
             return False, "MANUAL_INTERVENTION_REQUIRED"
         
         if data == "PAGE_NOT_FOUND":
-            logger.warning(f"  💀 Profile no longer available: {profile_url}")
+            logger.warning(f"  ðŸ’€ Profile no longer available: {profile_url}")
             return True, "PAGE_NOT_FOUND"
         
         if _is_non_target_scrape_result(data):
@@ -350,14 +360,14 @@ def _recover_browser_session(scraper, profile_url, nav=None):
             return True, data
 
         if data and data != "PAGE_NOT_FOUND":
-            logger.info(f"  ✅ Recovery succeeded for {profile_url}")
+            logger.info(f"  âœ… Recovery succeeded for {profile_url}")
             return True, data
         
-        logger.warning(f"  ⚠️  Recovery retry returned no data for {profile_url}")
+        logger.warning(f"  âš ï¸  Recovery retry returned no data for {profile_url}")
         return False, None
         
     except Exception as recovery_err:
-        logger.error(f"❌ Recovery attempt failed: {recovery_err}")
+        logger.error(f"âŒ Recovery attempt failed: {recovery_err}")
         return False, None
 
 
@@ -366,9 +376,9 @@ def _request_manual_intervention(reason, profile_url=None):
     manual_intervention_requested = True
     exit_requested = True
     if profile_url:
-        logger.warning("🔎 LinkedIn likely blocked this profile: %s", profile_url)
+        logger.warning("ðŸ”Ž LinkedIn likely blocked this profile: %s", profile_url)
     logger.warning(
-        "⚠️ Likely detected by LinkedIn (%s). Waiting for human input. Restart scraper if you would like to continue.",
+        "âš ï¸ Likely detected by LinkedIn (%s). Waiting for human input. Restart scraper if you would like to continue.",
         reason,
     )
 
@@ -479,18 +489,18 @@ Return strict JSON only:
 
 def _exit_listener():
     global exit_requested, force_exit, _exit_listener_active
-    logger.info("💡 Type 'exit' to finish current profile, or 'force exit' to stop immediately.")
+    logger.info("ðŸ’¡ Type 'exit' to finish current profile, or 'force exit' to stop immediately.")
 
     while _exit_listener_active:
         try:
             cmd = input().strip().lower()
             if cmd == "force exit":
                 force_exit = True
-                logger.warning("🔴 FORCE EXIT requested")
+                logger.warning("ðŸ”´ FORCE EXIT requested")
                 break
             elif cmd == "exit":
                 exit_requested = True
-                logger.warning("🟡 Graceful exit requested")
+                logger.warning("ðŸŸ¡ Graceful exit requested")
                 break
         except EOFError:
             time.sleep(1)
@@ -797,13 +807,13 @@ def wait_between_profiles():
     global_profiles_tracked_for_gui += 1
     
     if GUI_MAX_PROFILES > 0 and global_profiles_tracked_for_gui >= GUI_MAX_PROFILES:
-        logger.info(f"🛑 Reached GUI Max Profiles limit ({GUI_MAX_PROFILES}). Exiting gracefully.")
+        logger.info(f"ðŸ›‘ Reached GUI Max Profiles limit ({GUI_MAX_PROFILES}). Exiting gracefully.")
         sys.exit(0)
         
     if GUI_MAX_RUNTIME_MINUTES > 0:
         elapsed_mins = (datetime.now() - SCRIPT_START_TIME).total_seconds() / 60
         if elapsed_mins >= GUI_MAX_RUNTIME_MINUTES:
-            logger.info(f"🛑 Reached GUI Max Runtime limit ({GUI_MAX_RUNTIME_MINUTES} mins). Exiting gracefully.")
+            logger.info(f"ðŸ›‘ Reached GUI Max Runtime limit ({GUI_MAX_RUNTIME_MINUTES} mins). Exiting gracefully.")
             sys.exit(0)
 
     delay = random.uniform(config.MIN_DELAY, config.MAX_DELAY)
@@ -879,7 +889,7 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
             conn.commit()
             if removed_alumni:
                 logger.info(
-                    f"🔁 Canonicalized redirect URL: removed old URL rows "
+                    f"ðŸ” Canonicalized redirect URL: removed old URL rows "
                     f"(alumni={removed_alumni})"
                 )
         finally:
@@ -888,7 +898,7 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
             except Exception:
                 pass
     except Exception as e:
-        logger.warning(f"⚠️ Could not remove old redirected URL from DB ({old}): {e}")
+        logger.warning(f"âš ï¸ Could not remove old redirected URL from DB ({old}): {e}")
 
     # 2) Remove old URL from UNT alumni CSV.
     try:
@@ -910,9 +920,9 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
                 writer.writeheader()
                 writer.writerows(rows)
             if removed:
-                logger.info(f"🔁 Canonicalized redirect URL: removed {removed} old row(s) from UNT_Alumni_Data.csv")
+                logger.info(f"ðŸ” Canonicalized redirect URL: removed {removed} old row(s) from UNT_Alumni_Data.csv")
     except Exception as e:
-        logger.warning(f"⚠️ Could not clean old redirected URL from UNT_Alumni_Data.csv ({old}): {e}")
+        logger.warning(f"âš ï¸ Could not clean old redirected URL from UNT_Alumni_Data.csv ({old}): {e}")
 
     # 3) Remove old URL from flagged_for_review.txt.
     try:
@@ -924,16 +934,16 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
             if len(kept) != len(lines):
                 with open(flagged_file, "w", encoding="utf-8") as f:
                     f.writelines(kept)
-                logger.info(f"🔁 Canonicalized redirect URL: removed {len(lines) - len(kept)} old row(s) from flagged_for_review.txt")
+                logger.info(f"ðŸ” Canonicalized redirect URL: removed {len(lines) - len(kept)} old row(s) from flagged_for_review.txt")
     except Exception as e:
-        logger.warning(f"⚠️ Could not clean old redirected URL from flagged_for_review.txt ({old}): {e}")
+        logger.warning(f"âš ï¸ Could not clean old redirected URL from flagged_for_review.txt ({old}): {e}")
 
     # 4) Keep old URL alias marked as visited to prevent reopening redirect URLs.
     try:
         history_mgr.mark_as_visited(old, saved=True)
-        logger.info("🔁 Canonicalized redirect URL: preserved old alias in visited history")
+        logger.info("ðŸ” Canonicalized redirect URL: preserved old alias in visited history")
     except Exception as e:
-        logger.warning(f"⚠️ Could not persist redirected URL alias in visited history ({old}): {e}")
+        logger.warning(f"âš ï¸ Could not persist redirected URL alias in visited history ({old}): {e}")
 
 
 def _collect_profile_flag_reasons(profile_data):
@@ -943,7 +953,7 @@ def _collect_profile_flag_reasons(profile_data):
 
     reasons = []
     try:
-        from config import (
+        from settings import (
             FLAG_MISSING_EXPERIENCE_DATA,
         )
     except Exception:
@@ -1021,7 +1031,7 @@ def _save_and_track(data, input_url, history_mgr):
     Save profile to CSV, handling canonical URL dedup.
     
     LinkedIn often uses multiple URLs for the same profile (vanity vs ID-based).
-    If redirected input_url → canonical_url:
+    If redirected input_url â†’ canonical_url:
       - We mark both URLs in history so neither is re-visited.
       - The CSV utility uses drop_duplicates to replace older entries 
         sharing the same canonical URL with the latest data.
@@ -1093,7 +1103,7 @@ def _save_and_track(data, input_url, history_mgr):
     
     # Check if canonical URL was already saved in this session under a different input URL
     if original_url and history_mgr.should_skip(canonical_url):
-        logger.info(f"  ↩️  Profile Already Visited, Skipping: {canonical_url}")
+        logger.info(f"  â†©ï¸  Profile Already Visited, Skipping: {canonical_url}")
         # Canonical URL is authoritative; clean stale source URL records.
         _canonicalize_redirect_url(original_url, canonical_url, history_mgr)
         return False
@@ -1197,7 +1207,7 @@ def _save_and_track(data, input_url, history_mgr):
         _emit_progress_line()
 
         return True
-    logger.warning("⚠️ Profile not saved to CSV (data validation failed): %s", canonical_url)
+    logger.warning("âš ï¸ Profile not saved to CSV (data validation failed): %s", canonical_url)
     return False
 
 
@@ -1224,7 +1234,7 @@ def run_names_mode(scraper, nav, history_mgr):
 
         ok = nav.get(search_url)
         if not ok:
-            logger.warning("⚠️ Search page unhealthy. Skipping this name.")
+            logger.warning("âš ï¸ Search page unhealthy. Skipping this name.")
             continue
 
         time.sleep(5)
@@ -1242,7 +1252,7 @@ def run_names_mode(scraper, nav, history_mgr):
                 continue
 
             if history_mgr.should_skip(url):
-                logger.info(f"  ↩️  Profile Already Visited, Skipping: {url}")
+                logger.info(f"  â†©ï¸  Profile Already Visited, Skipping: {url}")
                 continue
 
             # NOTE: scrape_profile_page likely handles its own navigation.
@@ -1252,10 +1262,10 @@ def run_names_mode(scraper, nav, history_mgr):
                 if _should_recover_from_session_error(str(e)):
                     success, data = _recover_browser_session(scraper, url, nav)
                     if not success:
-                        logger.error(f"❌ Error processing {url}: recovery failed")
+                        logger.error(f"âŒ Error processing {url}: recovery failed")
                         continue
                 else:
-                    logger.error(f"❌ Error processing {url}: {e}")
+                    logger.error(f"âŒ Error processing {url}: {e}")
                     continue
 
             if data == "MANUAL_INTERVENTION_REQUIRED":
@@ -1263,7 +1273,7 @@ def run_names_mode(scraper, nav, history_mgr):
                 return
 
             if data == "PAGE_NOT_FOUND":
-                logger.warning(f"  💀 Dead URL skipped: {url}")
+                logger.warning(f"  ðŸ’€ Dead URL skipped: {url}")
                 continue
 
             if _is_non_target_scrape_result(data):
@@ -1291,11 +1301,21 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
             return False
         return (session_profiles_scraped - mode_start_count) >= max_profiles_for_mode
 
-    state = load_keyword_state(state_mode_key)
+    def _load_state():
+        if state_mode_key == "search":
+            return load_scrape_state()
+        return load_keyword_state(state_mode_key)
+
+    def _save_state(search_url, page_num):
+        if state_mode_key == "search":
+            return save_scrape_state(state_mode_key, search_url, page_num)
+        return save_keyword_state(state_mode_key, search_url, page_num)
+
+    state = _load_state()
     state_url = (state or {}).get("search_url") if state else ""
     if state and _is_legacy_boolean_keywords_url(state_url) and "discipline:" in state_mode_key:
         logger.info("Resetting legacy discipline resume state to comma-style keywords.")
-        save_keyword_state(state_mode_key, base_url, 1)
+        _save_state(base_url, 1)
         state = None
     if (
         state
@@ -1308,11 +1328,11 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
             saved_page = 1
         page = saved_page if saved_page >= 1 else 1
         logger.info(
-            f"↪ Resuming {mode_label} from page {page} "
+            f"â†ª Resuming {mode_label} from page {page} "
             f"(state age <= {config.SCRAPE_RESUME_MAX_AGE_DAYS} days)"
         )
     else:
-        logger.info(f"↪ Starting {mode_label} from page 1")
+        logger.info(f"â†ª Starting {mode_label} from page 1")
 
     while True:
         if should_stop():
@@ -1322,8 +1342,8 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
             return "threshold_reached", (session_profiles_scraped - mode_start_count)
 
         url = base_url if page == 1 else f"{base_url}&page={page}"
-        save_keyword_state(state_mode_key, base_url, page)
-        logger.info(f"📄 Search page {page}")
+        _save_state(base_url, page)
+        logger.info(f"ðŸ“„ Search page {page}")
 
         ok = nav.get(url)
         if not ok:
@@ -1336,7 +1356,7 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
         urls = scraper.extract_profile_urls_from_page()
         if not urls:
             # Check for no results vs exhaustion
-            save_keyword_state(state_mode_key, base_url, 1) # reset pagination since we reached end
+            _save_state(base_url, 1) # reset pagination since we reached end
             return "no_results" if page == 1 else "exhausted", (session_profiles_scraped - mode_start_count)
 
         for profile_url in urls:
@@ -1355,7 +1375,7 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 continue
 
             if history_mgr.should_skip(profile_url):
-                logger.info(f"  ↩️  Profile Already Visited, Skipping: {profile_url}")
+                logger.info(f"  â†©ï¸  Profile Already Visited, Skipping: {profile_url}")
                 continue
 
             try:
@@ -1364,10 +1384,10 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 if _should_recover_from_session_error(str(e)):
                     success, data = _recover_browser_session(scraper, profile_url, nav)
                     if not success:
-                        logger.error(f"❌ Error processing {profile_url}: recovery failed")
+                        logger.error(f"âŒ Error processing {profile_url}: recovery failed")
                         continue
                 else:
-                    logger.error(f"❌ Error processing {profile_url}: {e}")
+                    logger.error(f"âŒ Error processing {profile_url}: {e}")
                     continue
 
             if data == "MANUAL_INTERVENTION_REQUIRED":
@@ -1375,7 +1395,7 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 return "manual_intervention", (session_profiles_scraped - mode_start_count)
 
             if data == "PAGE_NOT_FOUND":
-                logger.warning(f"  💀 Dead URL skipped: {profile_url}")
+                logger.warning(f"  ðŸ’€ Dead URL skipped: {profile_url}")
                 continue
 
             if _is_non_target_scrape_result(data):
@@ -1394,7 +1414,7 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
             wait_between_profiles()
 
         page += 1
-        save_keyword_state(state_mode_key, base_url, page)
+        _save_state(base_url, page)
 
 
 def run_search_mode(scraper, nav, history_mgr):
@@ -1573,7 +1593,7 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
             if not fallback_success:
                 logger.warning(f"No new results found for {label} across ALL clusters, possible LinkedIn cap or blocking.")
 
-        logger.info(f"✅ Finished discipline search ({label})")
+        logger.info(f"âœ… Finished discipline search ({label})")
 
     return processed_any
 
@@ -1586,11 +1606,11 @@ def run_review_mode(scraper, nav, history_mgr):
     flagged_file = PROJECT_ROOT / "scraper" / "output" / "flagged_for_review.txt"
     
     if not flagged_file.exists():
-        logger.error(f"❌ Flagged file not found: {flagged_file}")
+        logger.error(f"âŒ Flagged file not found: {flagged_file}")
         return
     
     # Read URLs from file, filtering out blocked profiles
-    from config import is_blocked_url
+    from settings import is_blocked_url
     with open(flagged_file, 'r') as f:
         raw_urls = [line.strip() for line in f if line.strip() and line.strip().startswith('http')]
     
@@ -1603,10 +1623,10 @@ def run_review_mode(scraper, nav, history_mgr):
             urls.append(url)
     
     if not urls:
-        logger.info("📋 No URLs in flagged_for_review.txt")
+        logger.info("ðŸ“‹ No URLs in flagged_for_review.txt")
         return
     
-    logger.info(f"📋 Review mode: {len(urls)} profiles to re-scrape")
+    logger.info(f"ðŸ“‹ Review mode: {len(urls)} profiles to re-scrape")
     
     dead_urls = []  # Collect profiles that no longer exist
     
@@ -1654,24 +1674,24 @@ def run_review_mode(scraper, nav, history_mgr):
                     elif data and data != "PAGE_NOT_FOUND":
                         _save_and_track(data, profile_url, history_mgr)
                 else:
-                    logger.error(f"❌ Error processing {profile_url}: recovery failed")
+                    logger.error(f"âŒ Error processing {profile_url}: recovery failed")
             else:
-                logger.error(f"❌ Error processing {profile_url}: {e}")
+                logger.error(f"âŒ Error processing {profile_url}: {e}")
         
         if should_stop():
             break
         
         wait_between_profiles()
     
-    logger.info("✅ Review mode complete")
+    logger.info("âœ… Review mode complete")
     
-    # ── Report dead URLs ──────────────────────────────────────
+    # â”€â”€ Report dead URLs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if dead_urls:
         print("\n" + "=" * 60)
-        print(f"⚠️  {len(dead_urls)} DEAD / REMOVED PROFILES DETECTED:")
+        print(f"âš ï¸  {len(dead_urls)} DEAD / REMOVED PROFILES DETECTED:")
         print("=" * 60)
         for url in dead_urls:
-            print(f"  💀 {url}")
+            print(f"  ðŸ’€ {url}")
         print("=" * 60)
         
         try:
@@ -1682,7 +1702,7 @@ def run_review_mode(scraper, nav, history_mgr):
         if answer == "y":
             _remove_dead_urls(dead_urls, flagged_file, history_mgr)
         else:
-            logger.info("ℹ️  Dead URLs left untouched.")
+            logger.info("â„¹ï¸  Dead URLs left untouched.")
 
 
 def run_update_mode(scraper, nav, history_mgr):
@@ -1692,10 +1712,10 @@ def run_update_mode(scraper, nav, history_mgr):
     """
     profiles, cutoff_date = database_handler.get_outdated_profiles_from_db()
     if cutoff_date:
-        logger.info(f"📅 Update cutoff: last_updated older than {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"ðŸ“… Update cutoff: last_updated older than {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')}")
 
     if not profiles:
-        logger.info("📋 Update mode: no existing profiles currently require refresh.")
+        logger.info("ðŸ“‹ Update mode: no existing profiles currently require refresh.")
         return
 
     queue = []
@@ -1715,11 +1735,11 @@ def run_update_mode(scraper, nav, history_mgr):
         queue.append((profile_url, last_updated))
 
     if not queue:
-        logger.info("📋 Update mode: no valid URLs available after filtering blocked/invalid entries.")
+        logger.info("ðŸ“‹ Update mode: no valid URLs available after filtering blocked/invalid entries.")
         return
 
     logger.info(
-        "📋 Update mode: %s profiles queued (ordered oldest to newest by last_updated)",
+        "ðŸ“‹ Update mode: %s profiles queued (ordered oldest to newest by last_updated)",
         len(queue),
     )
 
@@ -1729,9 +1749,9 @@ def run_update_mode(scraper, nav, history_mgr):
             break
 
         if last_updated:
-            logger.info(f"🔄 Updating {profile_url} (last_updated={last_updated})")
+            logger.info(f"ðŸ”„ Updating {profile_url} (last_updated={last_updated})")
         else:
-            logger.info(f"🔄 Updating {profile_url}")
+            logger.info(f"ðŸ”„ Updating {profile_url}")
 
         try:
             data = scraper.scrape_profile_page(profile_url)
@@ -1757,16 +1777,16 @@ def run_update_mode(scraper, nav, history_mgr):
                     elif data and data != "PAGE_NOT_FOUND":
                         _save_and_track(data, profile_url, history_mgr)
                 else:
-                    logger.error(f"❌ Error processing {profile_url}: recovery failed")
+                    logger.error(f"âŒ Error processing {profile_url}: recovery failed")
             else:
-                logger.error(f"❌ Error processing {profile_url}: {e}")
+                logger.error(f"âŒ Error processing {profile_url}: {e}")
 
         if should_stop():
             break
 
         wait_between_profiles()
 
-    logger.info("✅ Update mode complete")
+    logger.info("âœ… Update mode complete")
     if dead_urls:
         logger.warning(
             "Update mode detected %s dead/removed profiles. Run Review mode in terminal if you want interactive cleanup.",
@@ -1797,13 +1817,13 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
                 (normalized, f"{normalized}/"),
             )
         conn.commit()
-        logger.info(f"🗑️  Removed {len(dead_urls)} dead profiles from database")
+        logger.info(f"ðŸ—‘ï¸  Removed {len(dead_urls)} dead profiles from database")
         try:
             conn.close()
         except Exception:
             pass
     except Exception as e:
-        logger.warning(f"⚠️  Could not clean database: {e}")
+        logger.warning(f"âš ï¸  Could not clean database: {e}")
     
     # 2. Remove from flagged_for_review.txt
     try:
@@ -1813,9 +1833,9 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
             kept = [l for l in lines if l.split('#')[0].strip().rstrip('/') not in normalized_dead]
             with open(flagged_file, 'w') as f:
                 f.writelines(kept)
-            logger.info(f"🗑️  Removed {len(lines) - len(kept)} entries from flagged_for_review.txt")
+            logger.info(f"ðŸ—‘ï¸  Removed {len(lines) - len(kept)} entries from flagged_for_review.txt")
     except Exception as e:
-        logger.warning(f"⚠️  Could not clean flagged file: {e}")
+        logger.warning(f"âš ï¸  Could not clean flagged file: {e}")
     
     # 3. Remove from visited_history.csv
     try:
@@ -1837,9 +1857,9 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
                 writer.writeheader()
                 writer.writerows(rows)
             if removed:
-                logger.info(f"🗑️  Removed {removed} entries from visited_history.csv")
+                logger.info(f"ðŸ—‘ï¸  Removed {removed} entries from visited_history.csv")
     except Exception as e:
-        logger.warning(f"⚠️  Could not clean visited history: {e}")
+        logger.warning(f"âš ï¸  Could not clean visited history: {e}")
     
     # 4. Remove from UNT_Alumni_Data.csv (rewrite with canonical schema)
     try:
@@ -1860,11 +1880,11 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
                 writer.writeheader()
                 writer.writerows(rows)
             if removed:
-                logger.info(f"🗑️  Removed {removed} entries from UNT_Alumni_Data.csv")
+                logger.info(f"ðŸ—‘ï¸  Removed {removed} entries from UNT_Alumni_Data.csv")
     except Exception as e:
-        logger.warning(f"⚠️  Could not clean alumni CSV: {e}")
+        logger.warning(f"âš ï¸  Could not clean alumni CSV: {e}")
     
-    print(f"\n✅ Dead profiles cleaned from all data sources.")
+    print(f"\nâœ… Dead profiles cleaned from all data sources.")
 
 
 
@@ -1945,7 +1965,7 @@ def main():
             run_status = "login_failed"
             return
 
-        # ✅ Defense layer initialized here (minimal + safe)
+        # âœ… Defense layer initialized here (minimal + safe)
         nav = SafeNavigator(scraper.driver)
 
         start_exit_listener()

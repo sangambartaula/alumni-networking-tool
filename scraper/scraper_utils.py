@@ -1,18 +1,18 @@
-import re
+﻿import re
 from datetime import timedelta, datetime, date
 from calendar import monthrange
 import pandas as pd
 from pathlib import Path
-from config import logger
+from settings import logger
 
 """Pure functions for text cleaning, date parsing, and logic."""
 # --- Constants for Parsing ---
 MONTHS_RE = r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
 DATE_RANGE_RE = re.compile(
-    rf"(?P<start>(?:{MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))\s*[-–—]\s*(?P<end>(?:Present)|(?:{MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))",
+    rf"(?P<start>(?:{MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))\s*[-â€“â€”]\s*(?P<end>(?:Present)|(?:{MONTHS_RE}\.?\s+\d{{4}})|(?:\d{{4}}))",
     re.IGNORECASE
 )
-YEAR_RANGE_RE = re.compile(r"(\d{4})\s*[-–—]\s*(\d{4}|Present)", re.IGNORECASE)
+YEAR_RANGE_RE = re.compile(r"(\d{4})\s*[-â€“â€”]\s*(\d{4}|Present)", re.IGNORECASE)
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 UNT_KEYWORDS = ("unt", "university of north texas", "north texas")
 
@@ -49,11 +49,11 @@ def clean_job_title(raw_title: str) -> str:
     if raw in banned_exact:
         return ""
     
-    # Remove employment type suffixes (e.g., "· Full-time", "· Internship")
+    # Remove employment type suffixes (e.g., "Â· Full-time", "Â· Internship")
     # But DON'T remove if it's part of a compound title like "Summer Internship"
     for bad in banned_exact:
-        # Only remove "· BadWord" patterns (LinkedIn suffix style)
-        raw = re.sub(rf'\s*·\s*{bad}\b', '', raw, flags=re.I)
+        # Only remove "Â· BadWord" patterns (LinkedIn suffix style)
+        raw = re.sub(rf'\s*Â·\s*{bad}\b', '', raw, flags=re.I)
     
     return " ".join(raw.split()).strip()
 
@@ -190,10 +190,10 @@ def determine_work_study_status(
       6. Otherwise -> "no".
 
     Returns:
-        "yes"       – worked while studying (job started before graduation)
-        "currently" – actively working while still studying (expected grad or no grad yet)
-        "no"        – worked after graduation
-        ""          – insufficient data to determine
+        "yes"       â€“ worked while studying (job started before graduation)
+        "currently" â€“ actively working while still studying (expected grad or no grad yet)
+        "no"        â€“ worked after graduation
+        ""          â€“ insufficient data to determine
     """
     today = date.today()
 

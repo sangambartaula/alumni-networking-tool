@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import logging
 import time
@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 """Handles all environment variables, constants, and logger setup."""
 
-# ── Windows UTF-8 fix ──────────────────────────────────────────
+# â”€â”€ Windows UTF-8 fix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Reconfigure stdout/stderr to UTF-8 so emoji/unicode log messages
 # don't crash with the default Windows charmap (CP1252) codec.
 if sys.platform == "win32":
@@ -19,7 +19,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# ── Logging Setup ──────────────────────────────────────────
+# â”€â”€ Logging Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Use rich for colored console output, plain for log files
 try:
     from rich.logging import RichHandler
@@ -114,7 +114,7 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
     name = data.get("name", "Unknown")
     url = data.get("profile_url", "")
     location = data.get("location", "Not Found")
-    separator = "━" * 50
+    separator = "â”" * 50
     global _LAST_SUMMARY_SIGNATURE, _LAST_SUMMARY_TS
     summary_signature = (
         f"{url}|{data.get('scraped_at', '')}|"
@@ -143,8 +143,8 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         else:
             start = data.get("job_start_date", "")
             end = data.get("job_end_date", "")
-            dates = f"{start}–{end}" if start or end else ""
-        exp_raw_lines.append(f"  • {company} — {title} ({dates})" if dates else f"  • {company} — {title}")
+            dates = f"{start}â€“{end}" if start or end else ""
+        exp_raw_lines.append(f"  â€¢ {company} â€” {title} ({dates})" if dates else f"  â€¢ {company} â€” {title}")
 
         # Standardized title
         std_title_key = f"normalized_exp{suffix}_title" if suffix else "normalized_job_title"
@@ -152,7 +152,7 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         # Standardized company
         std_comp_key = f"normalized_exp{suffix}_company" if suffix else "normalized_company"
         std_comp = data.get(std_comp_key, company)
-        exp_std_lines.append(f"  • {std_comp} — {std_title} ({dates})" if dates else f"  • {std_comp} — {std_title}")
+        exp_std_lines.append(f"  â€¢ {std_comp} â€” {std_title} ({dates})" if dates else f"  â€¢ {std_comp} â€” {std_title}")
 
     # Education lines
     edu_raw_lines = []
@@ -177,14 +177,14 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
             end = (data.get("school_end_date", "") or "").strip() or (str(data.get("graduation_year", "")) if data.get("graduation_year") else "")
             dates = f"{start} - {end}".strip(" -") if (start or end) else ""
 
-        raw_base = f"{school} — {degree} / {major}" if major else f"{school} — {degree}"
-        std_base = f"{school} — {std_deg} / {std_maj}" if std_maj else f"{school} — {std_deg}"
+        raw_base = f"{school} â€” {degree} / {major}" if major else f"{school} â€” {degree}"
+        std_base = f"{school} â€” {std_deg} / {std_maj}" if std_maj else f"{school} â€” {std_deg}"
         if dates:
-            edu_raw_lines.append(f"  • {raw_base} ({dates})")
-            edu_std_lines.append(f"  • {std_base} ({dates})")
+            edu_raw_lines.append(f"  â€¢ {raw_base} ({dates})")
+            edu_std_lines.append(f"  â€¢ {std_base} ({dates})")
         else:
-            edu_raw_lines.append(f"  • {raw_base}")
-            edu_std_lines.append(f"  • {std_base}")
+            edu_raw_lines.append(f"  â€¢ {raw_base}")
+            edu_std_lines.append(f"  â€¢ {std_base}")
 
     discipline = data.get("discipline", "Other")
     wws = data.get("working_while_studying", "N/A")
@@ -201,7 +201,7 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         out.append(f"Location: {location}\n\n", style="white")
 
         if exp_raw_lines:
-            out.append(f"Experience (Raw • {len(exp_raw_lines)})\n", style="cyan bold")
+            out.append(f"Experience (Raw â€¢ {len(exp_raw_lines)})\n", style="cyan bold")
             for line in exp_raw_lines:
                 out.append(f"{line}\n", style="white")
             out.append(f"\nExperience (Standardized)\n", style="cyan bold")
@@ -213,7 +213,7 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         out.append("\n")
 
         if edu_raw_lines:
-            out.append(f"Education (Raw • {len(edu_raw_lines)})\n", style="cyan bold")
+            out.append(f"Education (Raw â€¢ {len(edu_raw_lines)})\n", style="cyan bold")
             for line in edu_raw_lines:
                 out.append(f"{line}\n", style="white")
             out.append(f"\nEducation (Standardized)\n", style="cyan bold")
@@ -228,7 +228,7 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         if token_count:
             out.append(f"Groq Tokens: {token_count:,}\n\n", style="white")
 
-        out.append(f"✓ Completed — {status}\n", style="green bold")
+        out.append(f"âœ“ Completed â€” {status}\n", style="green bold")
         _console.print(out)
     else:
         # Plain fallback
@@ -241,14 +241,14 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
             f"Location: {location}",
         ]
         if exp_raw_lines:
-            lines.append(f"\nExperience (Raw • {len(exp_raw_lines)})")
+            lines.append(f"\nExperience (Raw â€¢ {len(exp_raw_lines)})")
             lines.extend(exp_raw_lines)
             lines.append(f"\nExperience (Standardized)")
             lines.extend(exp_std_lines)
         else:
             lines.append("\nExperience: None found")
         if edu_raw_lines:
-            lines.append(f"\nEducation (Raw • {len(edu_raw_lines)})")
+            lines.append(f"\nEducation (Raw â€¢ {len(edu_raw_lines)})")
             lines.extend(edu_raw_lines)
             lines.append(f"\nEducation (Standardized)")
             lines.extend(edu_std_lines)
@@ -258,7 +258,7 @@ def print_profile_summary(data: dict, token_count: int = 0, status: str = "Saved
         lines.append(f"Working While Studying: {wws.title()}")
         if token_count:
             lines.append(f"\nGroq Tokens: {token_count:,}")
-        lines.append(f"\n✓ Completed — {status}")
+        lines.append(f"\nâœ“ Completed â€” {status}")
         lines.append(separator)
         print("\n".join(lines))
 
@@ -284,7 +284,7 @@ LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD")
 
 # Validate credentials are set
 if not LINKEDIN_EMAIL or not LINKEDIN_PASSWORD:
-    logger.warning("⚠️ LINKEDIN_EMAIL or LINKEDIN_PASSWORD not set in environment!")
+    logger.warning("âš ï¸ LINKEDIN_EMAIL or LINKEDIN_PASSWORD not set in environment!")
 
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 USE_COOKIES = os.getenv("USE_COOKIES", "false").lower() == "true"
@@ -312,10 +312,10 @@ else:
 # Groq AI Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 USE_GROQ = os.getenv("USE_GROQ", "true").lower() == "true"
-# HTTP retry backoff between Groq attempts (429/5xx) — groq_client.apply_groq_retry_delay() / GROQ_RETRY_DELAY_SECONDS (default 5).
+# HTTP retry backoff between Groq attempts (429/5xx) â€” groq_client.apply_groq_retry_delay() / GROQ_RETRY_DELAY_SECONDS (default 5).
 if USE_GROQ and not GROQ_API_KEY:
     logger.warning(
-        "⚠️  Groq LLM extraction is DISABLED — no GROQ_API_KEY found.\n"
+        "âš ï¸  Groq LLM extraction is DISABLED â€” no GROQ_API_KEY found.\n"
         "    To enable AI-powered job extraction:\n"
         "    1. Go to https://console.groq.com/keys and create a free API key\n"
         "    2. Add GROQ_API_KEY=gsk_... to your .env file\n"
@@ -373,12 +373,12 @@ CSV_COLUMNS = [
     'relevant_experience_months', 'seniority_level',
 ]
 
-# ── Blocked Profiles ─────────────────────────────────────────
+# â”€â”€ Blocked Profiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # These LinkedIn slugs are fake / generic placeholder accounts.
 # Any matching URL will be:
-#   • skipped during scraping
-#   • rejected by save_profile_to_csv
-#   • auto-removed from the database on startup
+#   â€¢ skipped during scraping
+#   â€¢ rejected by save_profile_to_csv
+#   â€¢ auto-removed from the database on startup
 BLOCKED_PROFILE_SLUGS = {
     "davidmartinez",
     "emilybrown",

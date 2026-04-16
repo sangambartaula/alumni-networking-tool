@@ -1,4 +1,4 @@
-"""
+﻿"""
 Groq API integration for extracting job experiences from LinkedIn HTML.
 
 Uses shared Groq client infrastructure from groq_client.py.
@@ -6,7 +6,7 @@ Uses shared Groq client infrastructure from groq_client.py.
 
 import re
 from pathlib import Path
-from config import logger
+from settings import logger
 from groq_client import (
     _get_client, is_groq_available, GROQ_MODEL, BS4_AVAILABLE,
     SCRAPER_DEBUG_HTML, save_debug_html, parse_groq_json_response,
@@ -32,7 +32,7 @@ _BARE_EMPLOYMENT_TYPES = {
 }
 
 _YEAR_RANGE_PREFIX_RE = re.compile(
-    r"^\s*(?:[A-Za-z]{3,9}\s+)?(?:19|20)\d{2}\s*[-–—]\s*(?:[A-Za-z]{3,9}\s+)?(?:(?:19|20)\d{2}|present)\b",
+    r"^\s*(?:[A-Za-z]{3,9}\s+)?(?:19|20)\d{2}\s*[-â€“â€”]\s*(?:[A-Za-z]{3,9}\s+)?(?:(?:19|20)\d{2}|present)\b",
     re.IGNORECASE,
 )
 _CLASS_OF_RE = re.compile(r"\bclass\s+of\s+(?:19|20)\d{2}\b", re.IGNORECASE)
@@ -65,7 +65,7 @@ def _strip_trailing_location_fragment(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return ""
-    for sep in [",", " - ", " – ", " — "]:
+    for sep in [",", " - ", " â€“ ", " â€” "]:
         if sep in t:
             head, tail = t.rsplit(sep, 1)
             if _looks_like_location_fragment(tail):
@@ -144,7 +144,7 @@ def _flag_profile_for_review(profile_name: str, reason: str):
 
 
 # Strip common LinkedIn level prefixes from titles for cleaner storage (Sr./Jr./Associate, etc.).
-# Deliberately excludes Staff/Principal/Lead — those are part of role identity for many tracks.
+# Deliberately excludes Staff/Principal/Lead â€” those are part of role identity for many tracks.
 _TITLE_LEVEL_PREFIX = re.compile(
     r"^(?:senior|sr\.?|junior|jr\.?|associate|entry[\s-]?level|assistant|asst\.?)\s+",
     re.IGNORECASE,
@@ -298,7 +298,7 @@ def clean_html_for_llm(html: str, profile_name: str = "unknown") -> str:
     cleaned = re.sub(r'>\s*<', '> <', cleaned)
     
     if len(cleaned) < 50 and len(html) > 100:
-        logger.warning(f"    ⚠️ HTML Cleaning removed too much! Fallback to basic regex.")
+        logger.warning(f"    âš ï¸ HTML Cleaning removed too much! Fallback to basic regex.")
         return re.sub(r'<[^>]+>', ' ', html).strip()[:5000]
     
     save_debug_html(cleaned, profile_name, "experience_html")
@@ -315,18 +315,18 @@ def extract_experiences_with_groq(experience_html: str, max_jobs: int = 3, profi
     """
     client = _get_client()
     if not client:
-        logger.warning("⚠️ Groq not available, skipping LLM extraction")
+        logger.warning("âš ï¸ Groq not available, skipping LLM extraction")
         return [], 0
 
     original_len = len(experience_html or "")
     structured_text = _html_to_structured_text(experience_html or "", profile_name)
     if not structured_text:
-        logger.warning("⚠️ Experience section text is empty after cleaning; skipping Groq extraction")
+        logger.warning("âš ï¸ Experience section text is empty after cleaning; skipping Groq extraction")
         return [], 0
 
     text_len = len(structured_text)
     reduction = round((1 - text_len / original_len) * 100) if original_len > 0 else 0
-    logger.debug(f"Experience HTML → text: {original_len:,} → {text_len:,} chars ({reduction}% reduction)")
+    logger.debug(f"Experience HTML â†’ text: {original_len:,} â†’ {text_len:,} chars ({reduction}% reduction)")
 
     return extract_experiences_with_groq_from_text(
         structured_text, max_jobs=max_jobs, profile_name=profile_name
@@ -345,12 +345,12 @@ def extract_experiences_with_groq_from_text(
     """
     client = _get_client()
     if not client:
-        logger.warning("⚠️ Groq not available, skipping LLM extraction")
+        logger.warning("âš ï¸ Groq not available, skipping LLM extraction")
         return [], 0
 
     structured_text = (structured_text or "").strip()
     if not structured_text:
-        logger.warning("⚠️ Experience structured text is empty; skipping Groq extraction")
+        logger.warning("âš ï¸ Experience structured text is empty; skipping Groq extraction")
         return [], 0
 
     try:
@@ -363,8 +363,8 @@ def extract_experiences_with_groq_from_text(
     prompt = f"""Extract the {groq_max} most recent jobs from this LinkedIn experience data.
 
 For each job return:
-- company: The employer name ONLY (no employment type). If the line is "Deloitte · Full-time", company is "Deloitte".
-- employment_type: The token after " · " on that same line when present
+- company: The employer name ONLY (no employment type). If the line is "Deloitte Â· Full-time", company is "Deloitte".
+- employment_type: The token after " Â· " on that same line when present
   (e.g. Full-time, Part-time, Contract, Internship, Seasonal, Apprenticeship, Self-employed, Freelance).
   Use "" if the type is not visible.
 - job_title: The position/role only. Do not repeat the company name. Do not use bare employment-type words as the title.
@@ -379,8 +379,8 @@ Strict length limits (must never exceed):
 - end_date <= {CLOUD_JOB_MAX_LEN} characters
 
 Rules:
-- Keep subtitle lines in the source (employment type, location, date) — they disambiguate roles.
-- Extract ALL jobs found. Match each title to its company and dates — never mix across jobs.
+- Keep subtitle lines in the source (employment type, location, date) â€” they disambiguate roles.
+- Extract ALL jobs found. Match each title to its company and dates â€” never mix across jobs.
 - GROUPED ROLES under one company: each sub-role is its own job entry with the same company (and usually same employment_type line).
 - If a line only says "Internship" / "Full-time" under a parent role, fold into the real title (e.g. "... Intern").
 - Remove trailing location fragments from company/job_title after comma or dash when clearly a city/region.
@@ -445,7 +445,7 @@ Data:
                     jobs = val
                     break
             if jobs is None:
-                # Groq returned a single job object instead of an array — wrap it
+                # Groq returned a single job object instead of an array â€” wrap it
                 if parsed.get("job_title") or parsed.get("company"):
                     logger.debug("Groq returned single job object, wrapping in array")
                     jobs = [parsed]
@@ -511,8 +511,8 @@ Data:
             company = _normalize_job_text(company)
 
             # Strip trailing employment type suffixes that Groq sometimes
-            # appends without the · separator
-            # (e.g. "UNT College of Engineering Part-time" → "UNT College of Engineering")
+            # appends without the Â· separator
+            # (e.g. "UNT College of Engineering Part-time" â†’ "UNT College of Engineering")
             title = strip_seniority_prefixes_from_title(title)
 
             if _looks_like_non_role_title(title):
@@ -529,8 +529,8 @@ Data:
             # Filter out duration strings in Company field
             duration_pattern = re.compile(r'\b(\d+\s+yrs?|\d+\s+mos?|Full-time|Part-time|Contract|Internship)\b', re.IGNORECASE)
             if duration_pattern.search(company) and len(company) < 30:
-                 if "·" in company or re.search(r'\d+\s+yrs?', company):
-                     logger.warning(f"    ⚠️ Suspicious company name (looks like duration): {company}")
+                 if "Â·" in company or re.search(r'\d+\s+yrs?', company):
+                     logger.warning(f"    âš ï¸ Suspicious company name (looks like duration): {company}")
                      company = "" 
 
             if not title or not company:
@@ -608,7 +608,7 @@ Data:
 
 
 def _job_sort_key(job):
-    """Sort key for jobs — most recent first."""
+    """Sort key for jobs â€” most recent first."""
     end_date = job.get('end_date', '')
     end_info = parse_groq_date(end_date)
     if not end_info:

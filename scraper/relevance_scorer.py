@@ -1,4 +1,4 @@
-"""
+﻿"""
 Groq-based job relevance scoring and experience months computation.
 
 === CONTEXT ===
@@ -7,13 +7,13 @@ count **professional post-college career experience** while filtering
 obvious non-career / high-school-level jobs (cashier, retail associate,
 warehouse picker, fast food, etc.).
 
-Any legitimate professional career job should be counted as relevant —
+Any legitimate professional career job should be counted as relevant â€”
 not just STEM/engineering roles. Directors, managers, analysts, designers,
 architects, consultants, etc. are ALL relevant. Engineering and STEM titles
 get a slight boost but are NOT required for relevance.
 
 === SCORING LOGIC ===
-Order: **junk check → LLM (non-junk only) → additive boosts → floors → clamp [0,1]**
+Order: **junk check â†’ LLM (non-junk only) â†’ additive boosts â†’ floors â†’ clamp [0,1]**
 
 1) **Junk titles** (cashier, retail associate, etc.): score **0.10**, no LLM.
    Professional-sounding titles are never treated as junk.
@@ -22,13 +22,13 @@ Order: **junk check → LLM (non-junk only) → additive boosts → floors → c
    unavailable or fails, there is no base score unless a **floor** applies.
 
 3) **Heuristic boosts** (only when LLM returned a score):
-   - Engineering/STEM-style title → **+0.05**
-   - Non-empty major matches STEM/engineering patterns → **+0.05**
+   - Engineering/STEM-style title â†’ **+0.05**
+   - Non-empty major matches STEM/engineering patterns â†’ **+0.05**
 
 4) **Floors** (minimum on the boosted score):
-   - TA / RA / grad assistant / peer tutor patterns → minimum **0.65**
-   - Engineering-style title with **no major** stored → minimum **0.60**
-   - Professional title (director, manager, VP, etc.) → minimum **0.60**
+   - TA / RA / grad assistant / peer tutor patterns â†’ minimum **0.65**
+   - Engineering-style title with **no major** stored â†’ minimum **0.60**
+   - Professional title (director, manager, VP, etc.) â†’ minimum **0.60**
 
 5) **Clamp** the final value to **[0, 1]**.
 
@@ -50,13 +50,13 @@ Uses the Groq LLM with strict validation and retry logic.
 
 import re
 from datetime import datetime
-from config import logger
+from settings import logger
 
 from groq_client import _get_client, is_groq_available, GROQ_MODEL, parse_groq_date, apply_groq_retry_delay
 
 apply_groq_retry_delay()
 
-# ── Relevance Thresholds ──────────────────────────────────────
+# â”€â”€ Relevance Thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # >= 0.45 = relevant (boolean True), < 0.45 = not relevant (boolean False)
 RELEVANCE_THRESHOLD_RELEVANT = 0.45
 RELEVANCE_THRESHOLD_UNSURE = 0.25  # narrative band
@@ -64,7 +64,7 @@ MAX_RETRIES = 3
 
 # LLM context when major is absent from the profile
 DEFAULT_MAJOR_CONTEXT_FOR_LLM = (
-    "Not listed — assume a university graduate; any professional-level "
+    "Not listed â€” assume a university graduate; any professional-level "
     "career counts as relevant. Only exclude obvious non-career service jobs."
 )
 
@@ -170,7 +170,7 @@ def apply_relevance_adjustments(title, company, major, llm_score):
     """
     Apply boosts and floors to the LLM base score (non-junk titles only).
 
-    Order: additive boosts on LLM base → floors → single clamp to [0, 1].
+    Order: additive boosts on LLM base â†’ floors â†’ single clamp to [0, 1].
     Boosts apply only when ``llm_score`` is not None.
 
     Args:
@@ -280,7 +280,7 @@ Return ONLY the number. No text, no explanation, no JSON."""
                 return score
 
             logger.warning(
-                "⚠️ Groq returned invalid score (attempt %s/%s): '%s'",
+                "âš ï¸ Groq returned invalid score (attempt %s/%s): '%s'",
                 attempt + 1,
                 MAX_RETRIES,
                 result_text,
@@ -288,13 +288,13 @@ Return ONLY the number. No text, no explanation, no JSON."""
 
         except Exception as e:
             logger.warning(
-                "⚠️ Groq relevance scoring failed (attempt %s/%s): %s",
+                "âš ï¸ Groq relevance scoring failed (attempt %s/%s): %s",
                 attempt + 1,
                 MAX_RETRIES,
                 e,
             )
 
-    logger.warning("❌ Failed to score relevance for '%s' after %s attempts", title, MAX_RETRIES)
+    logger.warning("âŒ Failed to score relevance for '%s' after %s attempts", title, MAX_RETRIES)
     return None
 
 
@@ -305,16 +305,16 @@ def score_job_relevance(title, company, major):
     Args:
         title: Job title (original, not normalized)
         company: Company name
-        major: Person's field of study / major (may be empty — LLM uses default context)
+        major: Person's field of study / major (may be empty â€” LLM uses default context)
 
     Returns:
         float between 0.0 and 1.0, or None if no title or no usable signal
 
     Edge cases:
-        - Empty/None title → None
-        - Empty major → still scored (default alumni context + heuristic floors)
-        - Obvious service/retail titles → low fixed score (no Groq call)
-        - LLM failure → TA / engineering-without-major floors may still yield a score
+        - Empty/None title â†’ None
+        - Empty major â†’ still scored (default alumni context + heuristic floors)
+        - Obvious service/retail titles â†’ low fixed score (no Groq call)
+        - LLM failure â†’ TA / engineering-without-major floors may still yield a score
     """
     if not title or not str(title).strip():
         return None
@@ -484,13 +484,13 @@ def analyze_profile_relevance(profile_data):
     """
     Analyze all jobs in a profile for relevance and compute experience months.
 
-    Handles up to 3 jobs per person. Major may be missing — engineering titles
+    Handles up to 3 jobs per person. Major may be missing â€” engineering titles
     still receive heuristic scores and LLM context defaults to CoE/STEM.
 
     Edge cases:
-      - No jobs → empty dict
-      - No major → still scores jobs when titles exist
-      - 1–3 jobs, none relevant → all is_relevant=False, relevant_experience_months=0
+      - No jobs â†’ empty dict
+      - No major â†’ still scores jobs when titles exist
+      - 1â€“3 jobs, none relevant â†’ all is_relevant=False, relevant_experience_months=0
     """
     major = (
         profile_data.get('standardized_major')
@@ -645,16 +645,15 @@ def _split_date_range(date_range_str):
     """
     Split a date range string like "Mar 2020 - Dec 2022" into (start, end).
 
-    Handles various separators: " - ", " – ", " — ", " to "
+    Handles various separators: hyphen, en dash, em dash, and "to".
     """
     if not date_range_str:
         return ('', '')
 
     text = str(date_range_str).strip()
 
-    for sep in [' - ', ' – ', ' — ', ' to ']:
-        if sep in text:
-            parts = text.split(sep, 1)
-            return (parts[0].strip(), parts[1].strip())
+    parts = re.split(r"\s*(?:-|\u2013|\u2014|â€“|â€”|to)\s*", text, maxsplit=1, flags=re.I)
+    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+        return (parts[0].strip(), parts[1].strip())
 
     return (text, text)

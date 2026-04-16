@@ -87,7 +87,7 @@ def _experience_blob(row: dict) -> str:
 def _jobs_to_row_updates(jobs: list):
     from groq_client import parse_groq_date
     from groq_extractor_experience import strip_seniority_prefixes_from_title
-    import utils as scraper_utils
+    import scraper_utils
 
     out = {
         "current_job_title": None,

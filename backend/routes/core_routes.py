@@ -33,6 +33,21 @@ def assets(filename):
     return send_from_directory("../frontend/public/assets", filename)
 
 
+@core_bp.route("/profile_modal.js")
+def serve_profile_modal_js():
+    return send_from_directory("../frontend/public", "profile_modal.js")
+
+
+@core_bp.route("/profile_modal.css")
+def serve_profile_modal_css():
+    return send_from_directory("../frontend/public", "profile_modal.css")
+
+
+@core_bp.route("/profile_modal_test.js")
+def serve_profile_modal_test_js():
+    return send_from_directory("../frontend/public", "profile_modal_test.js")
+
+
 @core_bp.route("/api/fallback-status", methods=["GET"])
 def get_fallback_status_api():
     if not current_app.config.get("USE_SQLITE_FALLBACK"):
