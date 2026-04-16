@@ -8,6 +8,7 @@ window.eventsState = {
   selectedLocationType: null,  // 'city' | 'state' | 'country' | 'pin'
   radiusValue: 50,             // miles (only relevant for city/pin)
   filteredUsers: [],
+  visitedLinkedInIds: new Set(),
 };
 
 // ═══════════════════════════════════════════════
@@ -20,6 +21,40 @@ let eventsPinMarker = null;
 let eventsLocationClusters = [];
 let eventsCurrentPage = 1;
 const EVENTS_PAGE_SIZE = 25;
+const EVENTS_TEMPLATE_STORAGE_KEY = 'events_message_templates_v1';
+const EVENTS_BUILDER_STORAGE_KEY = 'events_builder_state_v1';
+const DEFAULT_EVENT_TEMPLATES = [
+  {
+    id: 'formal-dean-invite',
+    name: 'Formal Dean Invite',
+    body: `Dear {first_name},
+On behalf of {sender_org}, {sender_name} would like to formally invite you to {event_name}.
+This event will take place at {location} on {date} at {time}.
+Additional Info: {additional_info}
+We would be honored by your presence. Please RSVP here: {rsvp_link}`,
+  },
+  {
+    id: 'alumni-community-invite',
+    name: 'Alumni Community Invite',
+    body: `Hi {first_name},
+{sender_name} from {sender_org} is excited to invite you to {event_name}.
+This event will take place at {location} on {date} at {time}.
+Additional Info: {additional_info}
+Hope you can join us, RSVP here: {rsvp_link}`,
+  },
+];
+let eventsTemplates = [];
+let activeTemplateId = DEFAULT_EVENT_TEMPLATES[0].id;
+let eventsToastTimer = null;
+
+/*
+Internal integration summary:
+- Shared source of truth: window.eventsState.selectedLocation, selectedLocationType, radiusValue, filteredUsers.
+- Filtered users are produced in applyLocationFilter() from /api/heatmap sample_alumni payloads, then rendered by createEventsListItem().
+- Card data shape includes id, name, first, last, role, company, location, class, linkedin, linkedin_url, degree, _distance, _lat, _lng.
+- LinkedIn URLs are accessed through p.linkedin / p.linkedin_url.
+- Prior card actions on Events were profile modal open plus direct LinkedIn anchor. Events-only behavior below replaces that with a single View LinkedIn action.
+*/
 
 // Aggregated lookup tables (built from heatmap data)
 let cityIndex = {};      // { "dallas, texas, united states": { count, lat, lng, state, country } }
@@ -98,6 +133,326 @@ function resolveStateAbbr(input) {
   return US_STATE_ABBR[lower] || lower;
 }
 
+function slugifyTemplateId(value) {
+  const base = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return base || `template-${Date.now()}`;
+}
+
+function getDefaultBuilderState() {
+  return {
+    event_name: '',
+    event_date: '',
+    event_time: '',
+    sender_name: '',
+    sender_org: '',
+    rsvp_link: '',
+    additional_info: '',
+    random_template_mode: false,
+    custom_variables: [],
+    selected_template_id: DEFAULT_EVENT_TEMPLATES[0].id,
+  };
+}
+
+function loadTemplates() {
+  try {
+    const raw = localStorage.getItem(EVENTS_TEMPLATE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const customTemplates = Array.isArray(parsed)
+      ? parsed.filter(t => t && typeof t.name === 'string' && typeof t.body === 'string')
+      : [];
+    eventsTemplates = [...DEFAULT_EVENT_TEMPLATES, ...customTemplates];
+  } catch (_error) {
+    eventsTemplates = [...DEFAULT_EVENT_TEMPLATES];
+  }
+}
+
+function saveCustomTemplates() {
+  const customTemplates = eventsTemplates.filter(
+    template => !DEFAULT_EVENT_TEMPLATES.some(defaultTemplate => defaultTemplate.id === template.id)
+  );
+  localStorage.setItem(EVENTS_TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplates));
+}
+
+function loadBuilderState() {
+  const defaults = getDefaultBuilderState();
+  try {
+    const raw = localStorage.getItem(EVENTS_BUILDER_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      ...defaults,
+      ...parsed,
+      custom_variables: Array.isArray(parsed.custom_variables) ? parsed.custom_variables : defaults.custom_variables,
+    };
+  } catch (_error) {
+    return defaults;
+  }
+}
+
+function persistBuilderState() {
+  const payload = {
+    event_name: document.getElementById('eventNameInput')?.value.trim() || '',
+    event_date: document.getElementById('eventDateInput')?.value || '',
+    event_time: document.getElementById('eventTimeInput')?.value || '',
+    sender_name: document.getElementById('senderNameInput')?.value.trim() || '',
+    sender_org: document.getElementById('senderOrgInput')?.value.trim() || '',
+    rsvp_link: document.getElementById('rsvpLinkInput')?.value.trim() || '',
+    additional_info: document.getElementById('additionalInfoInput')?.value.trim() || '',
+    random_template_mode: Boolean(document.getElementById('randomTemplateModeInput')?.checked),
+    selected_template_id: activeTemplateId,
+    custom_variables: getCustomVariables(),
+  };
+  localStorage.setItem(EVENTS_BUILDER_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function renderTemplateOptions() {
+  const select = document.getElementById('templateSelect');
+  if (!select) return;
+  select.innerHTML = eventsTemplates
+    .map(template => `<option value="${escapeAttribute(template.id)}">${escapeHtml(template.name)}</option>`)
+    .join('');
+  if (!eventsTemplates.some(template => template.id === activeTemplateId)) {
+    activeTemplateId = eventsTemplates[0]?.id || DEFAULT_EVENT_TEMPLATES[0].id;
+  }
+  select.value = activeTemplateId;
+}
+
+function getActiveTemplate() {
+  return eventsTemplates.find(template => template.id === activeTemplateId) || eventsTemplates[0] || DEFAULT_EVENT_TEMPLATES[0];
+}
+
+function populateTemplateEditor(template) {
+  const currentTemplate = template || getActiveTemplate();
+  const nameInput = document.getElementById('templateNameInput');
+  const bodyInput = document.getElementById('templateBodyInput');
+  if (nameInput) nameInput.value = currentTemplate?.name || '';
+  if (bodyInput) bodyInput.value = currentTemplate?.body || '';
+}
+
+function renderCustomVariables(variables) {
+  const container = document.getElementById('customVariablesList');
+  if (!container) return;
+  const rows = Array.isArray(variables) && variables.length ? variables : [{ name: '', value: '' }];
+  container.innerHTML = rows.map((variable, index) => `
+    <div class="custom-variable-row" data-index="${index}">
+      <input type="text" class="custom-variable-name" placeholder="parking_info" value="${escapeAttribute(variable.name || '')}" />
+      <input type="text" class="custom-variable-value" placeholder="Value" value="${escapeAttribute(variable.value || '')}" />
+      <button type="button" class="custom-variable-remove">Remove</button>
+    </div>
+  `).join('');
+}
+
+function getCustomVariables() {
+  const rows = Array.from(document.querySelectorAll('.custom-variable-row'));
+  return rows.map(row => ({
+    name: row.querySelector('.custom-variable-name')?.value.trim() || '',
+    value: row.querySelector('.custom-variable-value')?.value.trim() || '',
+  }));
+}
+
+function buildCustomVariableMap() {
+  const variables = {};
+  getCustomVariables().forEach(variable => {
+    if (!/^[a-z0-9_]+$/.test(variable.name)) return;
+    variables[variable.name] = variable.value;
+  });
+  return variables;
+}
+
+function formatDisplayDate(dateValue) {
+  if (!dateValue) return '';
+  const parsed = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateValue;
+  return parsed.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function formatDisplayTime(timeValue) {
+  if (!timeValue) return '';
+  const [hourText, minuteText] = String(timeValue).split(':');
+  const hour = Number(hourText);
+  const minute = Number(minuteText || 0);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return timeValue;
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function getBuilderValues() {
+  const locationName = window.eventsState.selectedLocation?.name || '';
+  return {
+    event_name: document.getElementById('eventNameInput')?.value.trim() || '',
+    event_date: document.getElementById('eventDateInput')?.value || '',
+    event_time: document.getElementById('eventTimeInput')?.value || '',
+    sender_name: document.getElementById('senderNameInput')?.value.trim() || '',
+    sender_org: document.getElementById('senderOrgInput')?.value.trim() || '',
+    rsvp_link: document.getElementById('rsvpLinkInput')?.value.trim() || '',
+    additional_info: document.getElementById('additionalInfoInput')?.value.trim() || '',
+    location: locationName,
+    date: formatDisplayDate(document.getElementById('eventDateInput')?.value || ''),
+    time: formatDisplayTime(document.getElementById('eventTimeInput')?.value || ''),
+    random_template_mode: Boolean(document.getElementById('randomTemplateModeInput')?.checked),
+  };
+}
+
+function chooseTemplateForClick() {
+  const values = getBuilderValues();
+  if (!values.random_template_mode) return getActiveTemplate();
+  const index = Math.floor(Math.random() * eventsTemplates.length);
+  return eventsTemplates[index] || getActiveTemplate();
+}
+
+function cleanupGeneratedMessage(message) {
+  return message
+    .replace(/\{[a-z0-9_]+\}/gi, '')
+    .split('\n')
+    .map(line => line.replace(/[ \t]+$/g, ''))
+    .filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      if (/^[A-Za-z ]+:\s*$/.test(trimmed)) return false;
+      return true;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function generateMessageForUser(user, templateOverride) {
+  const template = templateOverride || chooseTemplateForClick();
+  const builderValues = getBuilderValues();
+  const customVariables = buildCustomVariableMap();
+  const nameParts = String(user.name || '').trim().split(/\s+/).filter(Boolean);
+  const placeholders = {
+    first_name: user.first || nameParts[0] || '',
+    last_name: user.last || nameParts.slice(1).join(' ') || '',
+    full_name: user.name || '',
+    company: user.company || '',
+    role: user.role || '',
+    location: builderValues.location,
+    event_name: builderValues.event_name,
+    event_date: builderValues.event_date,
+    event_time: builderValues.event_time,
+    sender_name: builderValues.sender_name,
+    sender_org: builderValues.sender_org,
+    rsvp_link: builderValues.rsvp_link,
+    additional_info: builderValues.additional_info,
+    date: builderValues.date,
+    time: builderValues.time,
+    ...customVariables,
+  };
+
+  const rendered = (template?.body || '').replace(/\{([a-z0-9_]+)\}/gi, (_match, key) => placeholders[key] || '');
+  return {
+    message: cleanupGeneratedMessage(rendered),
+    template,
+  };
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
+
+function updateVisitedCount() {
+  const countEl = document.getElementById('eventsVisitedCount');
+  if (!countEl) return;
+  countEl.textContent = `${window.eventsState.visitedLinkedInIds.size} opened`;
+}
+
+function showEventsToast(message, isError = false) {
+  const toast = document.getElementById('eventsToast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.style.color = isError ? '#b42318' : '#166534';
+  window.clearTimeout(eventsToastTimer);
+  eventsToastTimer = window.setTimeout(() => {
+    toast.textContent = '';
+  }, 3200);
+}
+
+function updateMessagePreview(message) {
+  const preview = document.getElementById('messagePreview');
+  if (preview) preview.textContent = message || 'No message generated yet.';
+}
+
+function markVisitedLinkedIn(userId) {
+  window.eventsState.visitedLinkedInIds.add(userId);
+  updateVisitedCount();
+}
+
+async function handleLinkedInOutreach(user) {
+  const linkedInUrl = user.linkedin || user.linkedin_url;
+  if (!linkedInUrl) {
+    showEventsToast('This alumni record does not have a LinkedIn URL.', true);
+    return;
+  }
+
+  const { message, template } = generateMessageForUser(user);
+  updateMessagePreview(message);
+  persistBuilderState();
+
+  try {
+    await copyTextToClipboard(message);
+    markVisitedLinkedIn(user.id);
+    window.open(linkedInUrl, '_blank', 'noopener');
+    showEventsToast(`Copied outreach message using “${template.name}” and opened LinkedIn.`);
+    renderCurrentPage();
+  } catch (error) {
+    console.error('Failed to copy outreach message:', error);
+    showEventsToast('Unable to copy the message to clipboard. Please try again.', true);
+  }
+}
+
+function initializeEventBuilder() {
+  loadTemplates();
+  const savedState = loadBuilderState();
+  activeTemplateId = savedState.selected_template_id || DEFAULT_EVENT_TEMPLATES[0].id;
+  renderTemplateOptions();
+
+  const fieldMap = {
+    eventNameInput: savedState.event_name,
+    eventDateInput: savedState.event_date,
+    eventTimeInput: savedState.event_time,
+    senderNameInput: savedState.sender_name,
+    senderOrgInput: savedState.sender_org,
+    rsvpLinkInput: savedState.rsvp_link,
+    additionalInfoInput: savedState.additional_info,
+  };
+
+  Object.entries(fieldMap).forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (element) element.value = value || '';
+  });
+
+  const randomToggle = document.getElementById('randomTemplateModeInput');
+  if (randomToggle) randomToggle.checked = Boolean(savedState.random_template_mode);
+
+  renderCustomVariables(savedState.custom_variables);
+  populateTemplateEditor(getActiveTemplate());
+  updateVisitedCount();
+
+  console.info('Events integration summary', {
+    stateKeys: Object.keys(window.eventsState),
+    userShape: ['id', 'name', 'first', 'last', 'role', 'company', 'location', 'class', 'linkedin', 'linkedin_url', '_distance'],
+    linkedInFields: ['linkedin', 'linkedin_url'],
+    cardAction: 'View LinkedIn copies template message, opens LinkedIn, and marks visited in frontend session state.',
+  });
+}
+
 // ═══════════════════════════════════════════════
 // EDUCATION / DISPLAY HELPERS (copied from app.js)
 // ═══════════════════════════════════════════════
@@ -165,6 +520,9 @@ function createEventsListItem(p) {
 
   const item = document.createElement('div');
   item.className = 'list-item';
+  if (window.eventsState.visitedLinkedInIds.has(p.id)) {
+    item.classList.add('is-visited');
+  }
   item.setAttribute('data-id', p.id);
 
   const distanceTag = p._distance != null
@@ -180,26 +538,17 @@ function createEventsListItem(p) {
         ${classLocationLine ? `<div class="class">${escapeHtml(classLocationLine)}</div>` : ''}
       </div>
       <div class="list-actions">
-        <button class="btn profile-view" type="button" title="View full profile" data-alumni-id="${p.id}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-            <circle cx="12" cy="12" r="3"></circle>
-          </svg>
+        <button class="events-linkedin-btn" type="button" ${p.linkedin ? '' : 'disabled'} title="Copy message and open LinkedIn">
+          View LinkedIn
         </button>
-        ${p.linkedin ? `<a class="btn link" href="${escapeAttribute(p.linkedin)}" target="_blank" rel="noopener" title="View LinkedIn Profile">
-          <img src="/assets/linkedin.svg" alt="LinkedIn" class="linkedin-icon" />
-        </a>` : ''}
       </div>
     </div>
   `;
 
-  // Profile view — open profile detail modal if available
-  const profileViewBtn = item.querySelector('.btn.profile-view');
-  if (profileViewBtn) {
-    profileViewBtn.addEventListener('click', () => {
-      if (typeof profileDetailModal !== 'undefined') {
-        profileDetailModal.open(p, profileViewBtn);
-      }
+  const linkedInBtn = item.querySelector('.events-linkedin-btn');
+  if (linkedInBtn) {
+    linkedInBtn.addEventListener('click', () => {
+      handleLinkedInOutreach(p);
     });
   }
 
@@ -852,6 +1201,21 @@ function setupEventListeners() {
   const radiusInput = document.getElementById('eventsRadiusInput');
   const clearBtn = document.getElementById('eventsClearBtn');
   const sortSelect = document.getElementById('eventsSortSelect');
+  const templateSelect = document.getElementById('templateSelect');
+  const saveTemplateBtn = document.getElementById('saveTemplateBtn');
+  const newTemplateBtn = document.getElementById('newTemplateBtn');
+  const addVariableBtn = document.getElementById('addVariableBtn');
+  const variablesList = document.getElementById('customVariablesList');
+  const builderInputs = [
+    'eventNameInput',
+    'eventDateInput',
+    'eventTimeInput',
+    'senderNameInput',
+    'senderOrgInput',
+    'rsvpLinkInput',
+    'additionalInfoInput',
+    'randomTemplateModeInput',
+  ].map(id => document.getElementById(id)).filter(Boolean);
 
   // Search input → autocomplete
   if (searchInput) {
@@ -958,6 +1322,92 @@ function setupEventListeners() {
       }
     });
   }
+
+  builderInputs.forEach(input => {
+    input.addEventListener('input', persistBuilderState);
+    input.addEventListener('change', persistBuilderState);
+  });
+
+  if (templateSelect) {
+    templateSelect.addEventListener('change', () => {
+      activeTemplateId = templateSelect.value;
+      populateTemplateEditor(getActiveTemplate());
+      persistBuilderState();
+    });
+  }
+
+  if (saveTemplateBtn) {
+    saveTemplateBtn.addEventListener('click', () => {
+      const name = document.getElementById('templateNameInput')?.value.trim() || '';
+      const body = document.getElementById('templateBodyInput')?.value || '';
+      if (!name) {
+        showEventsToast('Template name is required.', true);
+        return;
+      }
+
+      let template = eventsTemplates.find(existing => existing.id === activeTemplateId);
+      if (!template || DEFAULT_EVENT_TEMPLATES.some(defaultTemplate => defaultTemplate.id === template.id)) {
+        template = { id: slugifyTemplateId(name), name, body };
+        eventsTemplates.push(template);
+      } else {
+        template.name = name;
+        template.body = body;
+      }
+
+      activeTemplateId = template.id;
+      saveCustomTemplates();
+      renderTemplateOptions();
+      templateSelect.value = activeTemplateId;
+      persistBuilderState();
+      showEventsToast(`Saved template “${name}”.`);
+    });
+  }
+
+  if (newTemplateBtn) {
+    newTemplateBtn.addEventListener('click', () => {
+      activeTemplateId = eventsTemplates[0]?.id || DEFAULT_EVENT_TEMPLATES[0].id;
+      const nameInput = document.getElementById('templateNameInput');
+      const bodyInput = document.getElementById('templateBodyInput');
+      if (nameInput) nameInput.value = '';
+      if (bodyInput) bodyInput.value = '';
+      if (templateSelect) templateSelect.value = activeTemplateId;
+      showEventsToast('Started a new unsaved template.');
+    });
+  }
+
+  if (addVariableBtn) {
+    addVariableBtn.addEventListener('click', () => {
+      const current = getCustomVariables();
+      current.push({ name: '', value: '' });
+      renderCustomVariables(current);
+      persistBuilderState();
+    });
+  }
+
+  if (variablesList) {
+    variablesList.addEventListener('input', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (target.classList.contains('custom-variable-name')) {
+        target.value = target.value.replace(/[^a-z0-9_]/g, '').toLowerCase();
+      }
+      persistBuilderState();
+    });
+
+    variablesList.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!target.classList.contains('custom-variable-remove')) return;
+      const rows = getCustomVariables();
+      const row = target.closest('.custom-variable-row');
+      const index = Number(row?.getAttribute('data-index'));
+      if (Number.isInteger(index)) {
+        rows.splice(index, 1);
+        renderCustomVariables(rows);
+        persistBuilderState();
+      }
+    });
+  }
 }
 
 // Helper: center map on first city of a state
@@ -994,6 +1444,7 @@ function centerMapOnCountry(countryName) {
 // INITIALIZATION
 // ═══════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
+  initializeEventBuilder();
   initEventsMap();
   setupEventListeners();
   await loadEventsData();
