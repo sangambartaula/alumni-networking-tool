@@ -221,6 +221,61 @@ def test_remove_dead_urls_cleans_slash_variants_from_files(monkeypatch, tmp_path
     assert "keep-me" in alumni_after
 
 
+def test_canonicalize_redirect_url_deletes_old_url_and_marks_alias(monkeypatch, tmp_path):
+    executed = []
+
+    class _FakeCursor:
+        def __init__(self):
+            self.rowcount = 1
+
+        def execute(self, query, params):
+            executed.append((query, params))
+
+        def close(self):
+            return None
+
+    class _FakeConn:
+        def __init__(self):
+            self._cursor = _FakeCursor()
+
+        def cursor(self):
+            return self._cursor
+
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    class _History:
+        def __init__(self):
+            self.calls = []
+
+        def mark_as_visited(self, url, saved=False):
+            self.calls.append((url, saved))
+
+    out_dir = tmp_path / "scraper" / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(scraper_main, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("backend.database.get_connection", lambda: _FakeConn())
+
+    history = _History()
+    scraper_main._canonicalize_redirect_url(
+        "https://www.linkedin.com/in/old-user",
+        "https://www.linkedin.com/in/new-user",
+        history,
+    )
+
+    assert executed
+    query, params = executed[0]
+    assert query == "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s"
+    assert params == (
+        "https://www.linkedin.com/in/old-user",
+        "https://www.linkedin.com/in/old-user/",
+    )
+    assert history.calls == [("https://www.linkedin.com/in/old-user", True)]
+
+
 def test_parse_search_disciplines_handles_case_whitespace_and_duplicates():
     selected = scraper_main._parse_search_disciplines(" software , MECHANICAL,software ")
     assert selected == ["software", "mechanical"]

@@ -10,6 +10,7 @@ import re
 from typing import Optional, Tuple, List, Dict, Any
 import mysql.connector
 from database import get_connection
+from db_helpers import managed_db_cursor, execute_sql
 
 from pathlib import Path
 from dotenv import load_dotenv
@@ -174,21 +175,19 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
     """
     Find alumni records with missing latitude/longitude and geocode them.
     """
-    conn = None
     try:
-        conn = get_connection()
         geocoded_count = 0
-        
-        with conn.cursor(dictionary=True) as cur:
+
+        with managed_db_cursor(get_connection, dictionary=True) as (conn, cur):
             # Find alumni with location but no coordinates
             if limit:
-                cur.execute("""
+                execute_sql(cur, """
                     SELECT id, location FROM alumni
                     WHERE location IS NOT NULL 
                     AND location != ''
                     AND (latitude IS NULL OR longitude IS NULL)
                     LIMIT %s
-                """, (limit,))
+                """, (limit,), connection=conn)
             else:
                 cur.execute("""
                     SELECT id, location FROM alumni
@@ -212,11 +211,11 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
                 
                 if coords:
                     lat, lon = coords
-                    cur.execute("""
+                    execute_sql(cur, """
                         UPDATE alumni
                         SET latitude = %s, longitude = %s
                         WHERE id = %s
-                    """, (lat, lon, alumni_id))
+                    """, (lat, lon, alumni_id), connection=conn)
                     conn.commit()
                     geocoded_count += 1
                 
@@ -227,18 +226,7 @@ def populate_missing_coordinates(limit: Optional[int] = None) -> int:
         
     except Exception as e:
         logger.error(f"Database error during geocoding: {e}")
-        if conn:
-            try:
-                conn.rollback()
-            except:
-                pass
         return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
 
 
 def verify_and_update_all_coordinates() -> int:
@@ -250,30 +238,27 @@ def verify_and_update_all_coordinates() -> int:
     This fixes issues where a user's location string changed (e.g. moved cities)
     but their coordinates remained set to the old location.
     """
-    conn = None
     try:
-        conn = get_connection()
         updated_total = 0
-        
-        with conn.cursor(dictionary=True) as cur:
+
+        with managed_db_cursor(get_connection, dictionary=True) as (conn, cur):
             logger.info("Fetching all unique locations from database...")
             cur.execute("SELECT DISTINCT location FROM alumni WHERE location IS NOT NULL AND location != ''")
             unique_locations = [row['location'] for row in cur.fetchall()]
-            
-        total_locs = len(unique_locations)
-        logger.info(f"Found {total_locs} unique locations to verify.")
-        
-        for idx, loc_str in enumerate(unique_locations, 1):
-            # Geocode (will use cache if we've seen this string before)
-            coords = geocode_location(loc_str)
-            
-            if coords:
-                lat, lon = coords
-                
-                # Update ALL records with this location string if coords are missing OR different
-                # We use a small epsilon (0.001) for float comparison to avoid unnecessary updates
-                with conn.cursor() as cur:
-                    cur.execute("""
+
+            total_locs = len(unique_locations)
+            logger.info(f"Found {total_locs} unique locations to verify.")
+
+            for idx, loc_str in enumerate(unique_locations, 1):
+                # Geocode (will use cache if we've seen this string before)
+                coords = geocode_location(loc_str)
+
+                if coords:
+                    lat, lon = coords
+
+                    # Update ALL records with this location string if coords are missing OR different
+                    # We use a small epsilon (0.001) for float comparison to avoid unnecessary updates
+                    execute_sql(cur, """
                         UPDATE alumni 
                         SET latitude = %s, longitude = %s 
                         WHERE location = %s 
@@ -283,16 +268,16 @@ def verify_and_update_all_coordinates() -> int:
                             OR ABS(latitude - %s) > 0.001 
                             OR ABS(longitude - %s) > 0.001
                         )
-                    """, (lat, lon, loc_str, lat, lon))
-                    
+                    """, (lat, lon, loc_str, lat, lon), connection=conn)
+
                     if cur.rowcount > 0:
                         updated_total += cur.rowcount
                         conn.commit()
                         logger.info(f"[{idx}/{total_locs}] Fixed {cur.rowcount} records for '{loc_str}'")
-            
-            # Progress log every 10 items if using cache (fast)
-            if idx % 10 == 0:
-                logger.info(f"Processed {idx}/{total_locs} locations...")
+
+                # Progress log every 10 items if using cache (fast)
+                if idx % 10 == 0:
+                    logger.info(f"Processed {idx}/{total_locs} locations...")
 
         logger.info(f"✓ Verification complete. Updated {updated_total} records total.")
         return updated_total
@@ -300,8 +285,6 @@ def verify_and_update_all_coordinates() -> int:
     except Exception as e:
         logger.error(f"Error during verification: {e}")
         return 0
-    finally:
-        if conn: conn.close()
 
 
 if __name__ == "__main__":

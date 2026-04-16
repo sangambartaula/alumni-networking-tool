@@ -1,3 +1,9 @@
+"""SQLite fallback public API exports grouped in one module.
+
+This consolidates re-exports from sqlite_fallback_core into one medium-sized
+module instead of multiple tiny shim files.
+"""
+
 try:
     from .sqlite_fallback_core import (
         logger,
@@ -14,6 +20,11 @@ try:
         TABLE_CONFIG,
         utc_now,
         parse_timestamp,
+        ConnectionManager,
+        get_connection_manager,
+        get_fallback_status,
+        SQLiteConnectionWrapper,
+        SQLiteCursorWrapper,
     )
 except ImportError:
     from sqlite_fallback_core import (
@@ -31,6 +42,11 @@ except ImportError:
         TABLE_CONFIG,
         utc_now,
         parse_timestamp,
+        ConnectionManager,
+        get_connection_manager,
+        get_fallback_status,
+        SQLiteConnectionWrapper,
+        SQLiteCursorWrapper,
     )
 
 
@@ -49,4 +65,9 @@ __all__ = [
     "TABLE_CONFIG",
     "utc_now",
     "parse_timestamp",
+    "ConnectionManager",
+    "get_connection_manager",
+    "get_fallback_status",
+    "SQLiteConnectionWrapper",
+    "SQLiteCursorWrapper",
 ]

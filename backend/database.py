@@ -6,18 +6,10 @@ while implementation code lives in smaller modules.
 
 try:
     from . import database_core as _core
-    from .database_connection import *
-    from .database_schema import *
-    from .database_profiles import *
-    from .database_scrape import *
-    from .database_maintenance import *
+    from .database_api import *
 except ImportError:
     import database_core as _core
-    from database_connection import *
-    from database_schema import *
-    from database_profiles import *
-    from database_scrape import *
-    from database_maintenance import *
+    from database_api import *
 
 
 def __getattr__(name):

@@ -55,6 +55,7 @@ from backend.database import (
     record_scrape_run_flag,
     get_direct_mysql_connection,
 )
+from backend.db_helpers import managed_db_cursor, execute_sql
 from backend.geocoding import geocode_location_with_status
 from defense.navigator import SafeNavigator
 from groq_client import is_groq_available, _get_client, GROQ_MODEL, parse_groq_json_response
@@ -922,25 +923,19 @@ def _canonicalize_redirect_url(original_url, canonical_url, history_mgr):
     try:
         from backend.database import get_connection
 
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s",
-                    (old, f"{old}/"),
-                )
-                removed_alumni = cur.rowcount
-            conn.commit()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s",
+                (old, f"{old}/"),
+                connection=conn,
+            )
+            removed_alumni = cur.rowcount
             if removed_alumni:
                 logger.info(
                     f"ðŸ” Canonicalized redirect URL: removed old URL rows "
                     f"(alumni={removed_alumni})"
                 )
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
     except Exception as e:
         logger.warning(f"âš ï¸ Could not remove old redirected URL from DB ({old}): {e}")
 
@@ -1859,23 +1854,20 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
         import sys
         sys.path.insert(0, str(PROJECT_ROOT / "backend"))
         from database import get_connection
-        conn = get_connection()
-        cur = conn.cursor()
-        for url in dead_urls:
-            normalized = (url or "").strip().rstrip("/")
-            if not normalized:
-                continue
-            # Delete only exact profile URL rows (with or without trailing slash).
-            cur.execute(
-                "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s",
-                (normalized, f"{normalized}/"),
-            )
-        conn.commit()
+
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            for url in dead_urls:
+                normalized = (url or "").strip().rstrip("/")
+                if not normalized:
+                    continue
+                # Delete only exact profile URL rows (with or without trailing slash).
+                execute_sql(
+                    cur,
+                    "DELETE FROM alumni WHERE linkedin_url = %s OR linkedin_url = %s",
+                    (normalized, f"{normalized}/"),
+                    connection=conn,
+                )
         logger.info(f"ðŸ—‘ï¸  Removed {len(dead_urls)} dead profiles from database")
-        try:
-            conn.close()
-        except Exception:
-            pass
     except Exception as e:
         logger.warning(f"âš ï¸  Could not clean database: {e}")
     

@@ -5,14 +5,10 @@ This module keeps historical imports stable while implementation is split.
 
 try:
     from . import sqlite_fallback_core as _core
-    from .sqlite_fallback_utils import *
-    from .sqlite_fallback_manager import *
-    from .sqlite_fallback_wrappers import *
+    from .sqlite_fallback_api import *
 except ImportError:
     import sqlite_fallback_core as _core
-    from sqlite_fallback_utils import *
-    from sqlite_fallback_manager import *
-    from sqlite_fallback_wrappers import *
+    from sqlite_fallback_api import *
 
 
 def __getattr__(name):
