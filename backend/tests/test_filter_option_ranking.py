@@ -1,4 +1,4 @@
-from app import _rank_filter_option_counts
+from utils import rank_filter_option_counts
 
 
 def test_rank_filter_option_counts_popular_first_without_query():
@@ -9,7 +9,7 @@ def test_rank_filter_option_counts_popular_first_without_query():
         "Boston": 5
     }
 
-    ranked = _rank_filter_option_counts(counts, query="", limit=10)
+    ranked = rank_filter_option_counts(counts, query="", limit=10)
     values = [item["value"] for item in ranked]
 
     # Popularity first; ties are alphabetical.
@@ -26,7 +26,7 @@ def test_rank_filter_option_counts_relevance_then_popularity_with_query():
         "Not Related": 100
     }
 
-    ranked = _rank_filter_option_counts(counts, query="data", limit=10)
+    ranked = rank_filter_option_counts(counts, query="data", limit=10)
     values = [item["value"] for item in ranked]
 
     assert values == [

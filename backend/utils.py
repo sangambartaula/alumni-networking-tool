@@ -39,3 +39,33 @@ def parse_int_list_param(request, param_name, strict=False):
                     raise ValueError(f"Invalid integer value for {param_name}: {cleaned}")
                 continue
     return values
+
+
+def rank_filter_option_counts(counts, query="", limit=15):
+    """
+    Rank filter options similar to analytics autocomplete behavior.
+    - Empty query: popular entries first (count desc), then alphabetical.
+    - With query: exact match, then starts-with, then contains; ties by popularity.
+    """
+    q = (query or "").strip().lower()
+    entries = [(value, count) for value, count in (counts or {}).items() if value]
+
+    if q:
+        entries = [item for item in entries if q in item[0].lower()]
+
+        def sort_key(item):
+            value, count = item
+            value_lower = value.lower()
+            if value_lower == q:
+                rank = 0
+            elif value_lower.startswith(q):
+                rank = 1
+            else:
+                rank = 2
+            return (rank, -count, value_lower)
+
+        entries.sort(key=sort_key)
+    else:
+        entries.sort(key=lambda item: (-item[1], item[0].lower()))
+
+    return [{"value": value, "count": count} for value, count in entries[:limit]]
