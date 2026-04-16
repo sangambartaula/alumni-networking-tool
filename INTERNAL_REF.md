@@ -101,6 +101,8 @@ Note: all blueprints are currently mounted with no `url_prefix`, preserving lega
 - `classify_degree` -> `routes/analytics_routes.py:classify_degree`
 - `get_continent` -> `routes/analytics_routes.py:get_continent`
 - Route `/api/heatmap` -> `routes/analytics_routes.py:get_heatmap_data`
+- Route `/api/geocode` -> `routes/analytics_routes.py:api_geocode`
+- `search_location_candidates` compatibility hook -> app module export + `routes/analytics_routes.py` fallback import
 - Page routes `/heatmap`, `/analytics`, `/heatmap.js`, `/heatmap_style.css` -> `routes/analytics_routes.py`
 
 ### Auth and admin route migration
@@ -112,6 +114,7 @@ Note: all blueprints are currently mounted with no `url_prefix`, preserving lega
 ### Interaction and notes route migration
 - `/api/interaction` POST/DELETE -> `routes/interaction_routes.py`
 - `/api/user-interactions` GET -> `routes/interaction_routes.py`
+- `/api/notes` GET (list-all) -> `routes/interaction_routes.py:get_all_notes`
 - `/api/notes/<alumni_id>` GET/POST/DELETE -> `routes/interaction_routes.py`
 - `/api/notes/summary` GET -> `routes/interaction_routes.py`
 
@@ -121,11 +124,13 @@ Note: all blueprints are currently mounted with no `url_prefix`, preserving lega
 
 ### Static/core route migration
 - `/`, `/about`, `/alumni_style.css`, `/app.js`, `/assets/<path>` -> `routes/core_routes.py`
+- `/api/fallback-status` -> `routes/core_routes.py:get_fallback_status_api`
 
 ## Compatibility Surfaces Kept in `backend/app.py`
 The following imports are intentionally exposed at module scope to preserve older tests and monkeypatch patterns:
 - `get_connection` (from `database`)
 - `get_current_user_id` (from `middleware`)
+- `search_location_candidates` (from `geocoding`)
 - `_heatmap_cache` (re-exported from `routes.analytics_routes`)
 - `_resolve_scraper_display_name` (re-exported from `routes.scraper_routes`)
 
@@ -166,16 +171,18 @@ Operational note:
 
 ## Known Legacy Endpoints: Current Status
 Legacy routes present in pre-refactor `backend/app.py` but not currently found in active route blueprints:
-- `/api/geocode`
-- `/api/fallback-status`
 - `/profile_modal.js`
 - `/profile_modal.css`
 - `/profile_modal_test.js`
-- `/api/notes` (list-all variant; route without `<alumni_id>`)
+
+Restored during parity pass:
+- `/api/geocode` (now in `routes/analytics_routes.py`)
+- `/api/fallback-status` (now in `routes/core_routes.py`)
+- `/api/notes` list-all variant (now in `routes/interaction_routes.py`)
 
 Impact surface:
-- Frontend code still references `/api/geocode` (example: `frontend/public/heatmap_dual.js`).
-- Tests may still monkeypatch geocode-search behavior through backend app module.
+- Frontend still references `/api/geocode` (example: `frontend/public/heatmap_dual.js`) and is now served by analytics routes.
+- Tests that monkeypatch geocode-search behavior can still patch through the backend app module compatibility export.
 
 Recommended follow-up:
 1. Re-introduce these endpoints in a dedicated blueprint (for example `routes/system_routes.py` or `routes/geocode_routes.py`) if still required by UI/tests.
@@ -202,6 +209,7 @@ Recommended follow-up:
 2. Move request-agnostic parsing/classification helpers out of route modules into `utils` or service modules.
 3. Replace `_app_mod()` indirection by importing stable provider functions from a dedicated module (`backend/providers.py` or similar).
 4. Decide endpoint strategy for legacy routes (`/api/geocode`, `/api/fallback-status`, profile modal assets, `/api/notes` aggregate) and either restore or formally deprecate.
+4. Decide endpoint strategy for remaining legacy profile modal assets and either restore or formally deprecate.
 
 ## Verification Notes
 This reference was compiled by comparing current source declarations and the pre-refactor symbol inventory from commit `8c8666f`.

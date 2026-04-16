@@ -1,4 +1,4 @@
-from flask import Blueprint, redirect, send_from_directory
+from flask import Blueprint, current_app, jsonify, redirect, send_from_directory
 
 from middleware import _is_logged_in
 
@@ -31,3 +31,17 @@ def serve_js():
 @core_bp.route("/assets/<path:filename>")
 def assets(filename):
     return send_from_directory("../frontend/public/assets", filename)
+
+
+@core_bp.route("/api/fallback-status", methods=["GET"])
+def get_fallback_status_api():
+    if not current_app.config.get("USE_SQLITE_FALLBACK"):
+        return jsonify({"success": True, "enabled": False, "message": "SQLite fallback is disabled"}), 200
+
+    try:
+        from sqlite_fallback import get_fallback_status
+
+        status = get_fallback_status()
+        return jsonify({"success": True, "enabled": True, **status}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500

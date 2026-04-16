@@ -3,6 +3,7 @@ import time as _time
 
 import mysql.connector
 from flask import Blueprint, jsonify, request, send_from_directory
+from geocoding import search_location_candidates
 
 from routes.alumni_routes import (
     _parse_multi_value_param,
@@ -11,7 +12,7 @@ from routes.alumni_routes import (
     _validate_min_max,
     classify_seniority_bucket,
 )
-from middleware import login_required
+from middleware import api_login_required, login_required
 from unt_alumni_status import compute_unt_alumni_status_from_row
 
 
@@ -223,3 +224,17 @@ def get_heatmap_data():
         return jsonify({"error": f"Database error: {str(err)}"}), 500
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@analytics_bp.route("/api/geocode")
+@api_login_required
+def api_geocode():
+    query = (request.args.get("q") or "").strip()
+
+    if not query:
+        return jsonify({"success": False, "results": []}), 400
+
+    # Keep compatibility with tests that monkeypatch app.search_location_candidates.
+    resolver = getattr(_app_mod(), "search_location_candidates", search_location_candidates)
+    results = resolver(query)
+    return jsonify({"success": True, "count": len(results), "results": results}), 200

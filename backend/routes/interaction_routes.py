@@ -354,6 +354,76 @@ def api_delete_note(alumni_id):
 			pass
 
 
+@interaction_bp.route("/api/notes", methods=["GET"])
+@api_login_required
+def get_all_notes():
+	user_id = _app_mod().get_current_user_id()
+	if not user_id:
+		return jsonify({"error": "User not found"}), 401
+
+	if current_app.config.get("DISABLE_DB") and not current_app.config.get("USE_SQLITE_FALLBACK"):
+		return jsonify({"success": True, "notes": {}, "count": 0}), 200
+
+	conn = _app_mod().get_connection()
+	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
+	try:
+		rows = []
+		if use_sqlite:
+			with conn.cursor(dictionary=True) as cursor:
+				cursor.execute(
+					"""
+					SELECT id, alumni_id, note_content, created_at, updated_at
+					FROM notes
+					WHERE user_id = ?
+					ORDER BY updated_at DESC
+					""",
+					(user_id,),
+				)
+				rows = cursor.fetchall() or []
+		else:
+			with conn.cursor(dictionary=True) as cur:
+				cur.execute(
+					"""
+					SELECT id, alumni_id, note_content, created_at, updated_at
+					FROM notes
+					WHERE user_id = %s
+					ORDER BY updated_at DESC
+					""",
+					(user_id,),
+				)
+				rows = cur.fetchall() or []
+
+		notes_by_alumni = {}
+		for note in rows:
+			alumni_id = note.get("alumni_id")
+			if alumni_id is None:
+				continue
+			created_at = note.get("created_at")
+			updated_at = note.get("updated_at")
+			if hasattr(created_at, "isoformat"):
+				created_at = created_at.isoformat()
+			if hasattr(updated_at, "isoformat"):
+				updated_at = updated_at.isoformat()
+
+			notes_by_alumni[alumni_id] = {
+				"id": note.get("id"),
+				"alumni_id": alumni_id,
+				"note_content": note.get("note_content") or "",
+				"created_at": created_at,
+				"updated_at": updated_at,
+			}
+
+		return jsonify({"success": True, "notes": notes_by_alumni, "count": len(notes_by_alumni)}), 200
+	except Exception as err:
+		current_app.logger.error("Database error getting all notes: %s", err)
+		return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
+	finally:
+		try:
+			conn.close()
+		except Exception:
+			pass
+
+
 @interaction_bp.route("/api/notes/summary", methods=["GET"])
 @api_login_required
 def api_notes_summary():

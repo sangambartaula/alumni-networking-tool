@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 from geocoding import geocode_location
 from middleware import login_required
 from unt_alumni_status import compute_unt_alumni_status_from_row
+from utils import rank_filter_option_counts
 
 
 alumni_bp = Blueprint("alumni", __name__)
@@ -530,20 +531,59 @@ def api_get_majors():
 
 @alumni_bp.route("/api/alumni/filter-options", methods=["GET"])
 def api_filter_options():
+    if _app_mod().app.config.get("DISABLE_DB") and not _app_mod().app.config.get("USE_SQLITE_FALLBACK"):
+        return jsonify({"success": True, "field": "location", "query": "", "options": [], "count": 0}), 200
+
+    field = (request.args.get("field", "location") or "location").strip().lower()
+    q = (request.args.get("q", "") or "").strip()
+    try:
+        limit = int(request.args.get("limit", 15))
+    except Exception:
+        limit = 15
+    limit = max(1, min(100, limit))
+
+    field_map = {"location": "location", "company": "company"}
+    column = field_map.get(field)
+    if not column:
+        return jsonify({"success": False, "error": "Invalid field. Use 'location' or 'company'."}), 400
+
+    excludes = set()
+    for raw in request.args.getlist("exclude"):
+        for part in (raw or "").split(","):
+            cleaned = part.strip()
+            if cleaned:
+                excludes.add(cleaned.lower())
+
     conn = _app_mod().get_connection()
     try:
         with conn.cursor(dictionary=True) as cur:
-            cur.execute("SELECT DISTINCT location FROM alumni WHERE location IS NOT NULL AND location <> '' ORDER BY location ASC")
-            locations = [r.get("location") for r in (cur.fetchall() or []) if r.get("location")]
-            cur.execute("SELECT DISTINCT company FROM alumni WHERE company IS NOT NULL AND company <> '' ORDER BY company ASC")
-            companies = [r.get("company") for r in (cur.fetchall() or []) if r.get("company")]
-            cur.execute("SELECT DISTINCT current_job_title FROM alumni WHERE current_job_title IS NOT NULL AND current_job_title <> '' ORDER BY current_job_title ASC")
-            roles = [r.get("current_job_title") for r in (cur.fetchall() or []) if r.get("current_job_title")]
-            cur.execute("SELECT DISTINCT standardized_major FROM alumni WHERE standardized_major IS NOT NULL AND standardized_major <> '' ORDER BY standardized_major ASC")
-            majors = [r.get("standardized_major") for r in (cur.fetchall() or []) if r.get("standardized_major")]
-        return jsonify({"success": True, "locations": locations, "companies": companies, "roles": roles, "majors": majors}), 200
+            sql = f"""
+                SELECT a.{column} AS option_value
+                FROM alumni a
+                WHERE a.{column} IS NOT NULL
+                  AND TRIM(a.{column}) <> ''
+            """
+            params = []
+            if q:
+                sql += f" AND LOWER(a.{column}) LIKE %s"
+                params.append(f"%{q.lower()}%")
+
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall() or []
+
+        counts = {}
+        for row in rows:
+            value = (row.get("option_value") or "").strip()
+            if not value:
+                continue
+            if value.lower() in excludes:
+                continue
+            counts[value] = counts.get(value, 0) + 1
+
+        options = rank_filter_option_counts(counts, query=q, limit=limit)
+        return jsonify({"success": True, "field": field, "query": q, "options": options, "count": len(options)}), 200
     except Exception as err:
-        return jsonify({"error": f"Database error: {str(err)}"}), 500
+        return jsonify({"success": False, "error": f"Database error: {str(err)}"}), 500
     finally:
         try:
             conn.close()
