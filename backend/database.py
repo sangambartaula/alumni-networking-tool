@@ -1590,41 +1590,33 @@ def increment_scraper_activity(email):
     if not email:
         return
     email = email.strip().lower()
-    conn = None
     wrote_to_sqlite_via_primary = False
     try:
-        conn = get_connection()
-        is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
-        with conn.cursor() as cur:
-            try:
-                # MySQL syntax
-                cur.execute("""
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
+            execute_sql(
+                cur,
+                """
                     INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
                     VALUES (%s, 1, NOW())
                     ON DUPLICATE KEY UPDATE
                         profiles_scraped = profiles_scraped + 1,
                         last_scraped_at = NOW()
-                """, (email,))
-            except Exception:
-                # SQLite fallback syntax
-                cur.execute("""
+                """,
+                (email,),
+                connection=conn,
+                sqlite_query="""
                     INSERT INTO scraper_activity (email, profiles_scraped, last_scraped_at)
                     VALUES (?, 1, datetime('now'))
                     ON CONFLICT(email) DO UPDATE SET
                         profiles_scraped = profiles_scraped + 1,
                         last_scraped_at = datetime('now')
-                """, (email,))
-            conn.commit()
+                """,
+            )
             if is_sqlite_routed:
                 wrote_to_sqlite_via_primary = True
     except Exception as err:
         logger.error(f"Error incrementing scraper activity for {email}: {err}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
     # Mirror to local SQLite so GUI scrape count works offline.
     # Skip if the primary write already went to SQLite (avoid double-count).
@@ -1657,28 +1649,14 @@ def get_scraper_activity():
     Returns a list of dicts with email, profiles_scraped, last_scraped_at, created_at.
     Works with both MySQL and SQLite fallback.
     """
-    conn = None
     try:
-        conn = get_connection()
-        try:
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute("""
-                    SELECT email, profiles_scraped, last_scraped_at, created_at
-                    FROM scraper_activity
-                    ORDER BY profiles_scraped DESC
-                """)
-                rows = cur.fetchall()
-        except Exception:
-            # SQLite fallback — cursor doesn't support dictionary= kwarg,
-            # but SQLiteConnectionWrapper's cursor returns Row objects
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT email, profiles_scraped, last_scraped_at, created_at
-                    FROM scraper_activity
-                    ORDER BY profiles_scraped DESC
-                """)
-                raw = cur.fetchall()
-                rows = [dict(r) for r in raw]
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
+            cur.execute("""
+                SELECT email, profiles_scraped, last_scraped_at, created_at
+                FROM scraper_activity
+                ORDER BY profiles_scraped DESC
+            """)
+            rows = cur.fetchall()
 
         # Convert datetime objects to strings for JSON serialization
         for row in rows:
@@ -1691,12 +1669,6 @@ def get_scraper_activity():
     except Exception as err:
         logger.error(f"Error fetching scraper activity: {err}")
         return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def create_scrape_run(run_uuid, scraper_email=None, scraper_mode=None, selected_disciplines=None):
@@ -1710,82 +1682,69 @@ def create_scrape_run(run_uuid, scraper_email=None, scraper_mode=None, selected_
     elif selected_disciplines:
         selected_text = str(selected_disciplines).strip() or None
 
-    conn = None
     clean_email = _clean_optional_text(scraper_email)
     try:
         ensure_scrape_run_tracking_schema()
-        conn = get_connection()
-        with conn.cursor() as cur:
-            try:
-                if clean_email:
-                    cur.execute(
-                        """
-                        UPDATE scrape_runs
-                        SET status = 'interrupted',
-                            completed_at = NOW(),
-                            notes = %s
-                        WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(%s)
-                          AND LOWER(COALESCE(status, '')) = 'running'
-                          AND run_uuid <> %s
-                        """,
-                        ("Auto-closed due to newer run start", clean_email, run_uuid),
-                    )
-                cur.execute(
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            if clean_email:
+                execute_sql(
+                    cur,
                     """
-                    INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
-                    VALUES (%s, %s, %s, %s, 'running')
-                    ON DUPLICATE KEY UPDATE
-                        scraper_email = VALUES(scraper_email),
-                        scraper_mode = VALUES(scraper_mode),
-                        selected_disciplines = VALUES(selected_disciplines),
-                        status = 'running'
+                    UPDATE scrape_runs
+                    SET status = 'interrupted',
+                        completed_at = NOW(),
+                        notes = %s
+                    WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(%s)
+                      AND LOWER(COALESCE(status, '')) = 'running'
+                      AND run_uuid <> %s
                     """,
-                    (run_uuid, clean_email, _clean_optional_text(scraper_mode), selected_text),
-                )
-                cur.execute("SELECT id FROM scrape_runs WHERE run_uuid = %s", (run_uuid,))
-                row = cur.fetchone()
-                run_id = row[0] if row and not isinstance(row, dict) else (row or {}).get("id")
-            except Exception:
-                if clean_email:
-                    cur.execute(
-                        """
-                        UPDATE scrape_runs
-                        SET status = 'interrupted',
-                            completed_at = datetime('now'),
-                            notes = ?
-                        WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(?)
-                          AND LOWER(COALESCE(status, '')) = 'running'
-                          AND run_uuid <> ?
-                        """,
-                        ("Auto-closed due to newer run start", clean_email, run_uuid),
-                    )
-                cur.execute(
-                    """
-                    INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
-                    VALUES (?, ?, ?, ?, 'running')
-                    ON CONFLICT(run_uuid) DO UPDATE SET
-                        scraper_email = excluded.scraper_email,
-                        scraper_mode = excluded.scraper_mode,
-                        selected_disciplines = excluded.selected_disciplines,
-                        status = 'running'
+                    ("Auto-closed due to newer run start", clean_email, run_uuid),
+                    connection=conn,
+                    sqlite_query="""
+                    UPDATE scrape_runs
+                    SET status = 'interrupted',
+                        completed_at = datetime('now'),
+                        notes = ?
+                    WHERE LOWER(COALESCE(scraper_email, '')) = LOWER(?)
+                      AND LOWER(COALESCE(status, '')) = 'running'
+                      AND run_uuid <> ?
                     """,
-                    (run_uuid, clean_email, _clean_optional_text(scraper_mode), selected_text),
                 )
-                cur.execute("SELECT id FROM scrape_runs WHERE run_uuid = ?", (run_uuid,))
-                row = cur.fetchone()
-                run_id = row[0] if row and not isinstance(row, dict) else (row or {}).get("id")
-
-            conn.commit()
+            execute_sql(
+                cur,
+                """
+                INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
+                VALUES (%s, %s, %s, %s, 'running')
+                ON DUPLICATE KEY UPDATE
+                    scraper_email = VALUES(scraper_email),
+                    scraper_mode = VALUES(scraper_mode),
+                    selected_disciplines = VALUES(selected_disciplines),
+                    status = 'running'
+                """,
+                (run_uuid, clean_email, _clean_optional_text(scraper_mode), selected_text),
+                connection=conn,
+                sqlite_query="""
+                INSERT INTO scrape_runs (run_uuid, scraper_email, scraper_mode, selected_disciplines, status)
+                VALUES (?, ?, ?, ?, 'running')
+                ON CONFLICT(run_uuid) DO UPDATE SET
+                    scraper_email = excluded.scraper_email,
+                    scraper_mode = excluded.scraper_mode,
+                    selected_disciplines = excluded.selected_disciplines,
+                    status = 'running'
+                """,
+            )
+            execute_sql(
+                cur,
+                "SELECT id FROM scrape_runs WHERE run_uuid = %s",
+                (run_uuid,),
+                connection=conn,
+            )
+            row = cur.fetchone()
+            run_id = row[0] if row and not isinstance(row, dict) else (row or {}).get("id")
             return run_id
     except Exception as err:
         logger.warning(f"Could not create scrape run metadata for run_uuid={run_uuid}: {err}")
         return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def finalize_scrape_run(
@@ -1801,68 +1760,48 @@ def finalize_scrape_run(
     if not run_id:
         return False
 
-    conn = None
     try:
         ensure_scrape_run_tracking_schema()
-        conn = get_connection()
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    UPDATE scrape_runs
-                    SET status = %s,
-                        profiles_scraped = %s,
-                        cloud_disabled = %s,
-                        geocode_unknown_count = %s,
-                        geocode_network_failure_count = %s,
-                        completed_at = NOW(),
-                        notes = %s
-                    WHERE id = %s
-                    """,
-                    (
-                        _clean_optional_text(status) or "completed",
-                        int(profiles_scraped or 0),
-                        bool(cloud_disabled),
-                        int(geocode_unknown_count or 0),
-                        int(geocode_network_failure_count or 0),
-                        _clean_optional_text(notes),
-                        int(run_id),
-                    ),
-                )
-            except Exception:
-                cur.execute(
-                    """
-                    UPDATE scrape_runs
-                    SET status = ?,
-                        profiles_scraped = ?,
-                        cloud_disabled = ?,
-                        geocode_unknown_count = ?,
-                        geocode_network_failure_count = ?,
-                        completed_at = datetime('now'),
-                        notes = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        _clean_optional_text(status) or "completed",
-                        int(profiles_scraped or 0),
-                        1 if bool(cloud_disabled) else 0,
-                        int(geocode_unknown_count or 0),
-                        int(geocode_network_failure_count or 0),
-                        _clean_optional_text(notes),
-                        int(run_id),
-                    ),
-                )
-            conn.commit()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                """
+                UPDATE scrape_runs
+                SET status = %s,
+                    profiles_scraped = %s,
+                    cloud_disabled = %s,
+                    geocode_unknown_count = %s,
+                    geocode_network_failure_count = %s,
+                    completed_at = NOW(),
+                    notes = %s
+                WHERE id = %s
+                """,
+                (
+                    _clean_optional_text(status) or "completed",
+                    int(profiles_scraped or 0),
+                    bool(cloud_disabled),
+                    int(geocode_unknown_count or 0),
+                    int(geocode_network_failure_count or 0),
+                    _clean_optional_text(notes),
+                    int(run_id),
+                ),
+                connection=conn,
+                sqlite_query="""
+                UPDATE scrape_runs
+                SET status = ?,
+                    profiles_scraped = ?,
+                    cloud_disabled = ?,
+                    geocode_unknown_count = ?,
+                    geocode_network_failure_count = ?,
+                    completed_at = datetime('now'),
+                    notes = ?
+                WHERE id = ?
+                """,
+            )
             return True
     except Exception as err:
         logger.warning(f"Could not finalize scrape run id={run_id}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def increment_scrape_run_profiles(run_id, delta=1):
@@ -1872,32 +1811,26 @@ def increment_scrape_run_profiles(run_id, delta=1):
     if not run_id:
         return False
 
-    conn = None
     wrote_to_sqlite_via_primary = False
     try:
         ensure_scrape_run_tracking_schema()
-        conn = get_connection()
-        is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    UPDATE scrape_runs
-                    SET profiles_scraped = COALESCE(profiles_scraped, 0) + %s
-                    WHERE id = %s
-                    """,
-                    (int(delta or 1), int(run_id)),
-                )
-            except Exception:
-                cur.execute(
-                    """
-                    UPDATE scrape_runs
-                    SET profiles_scraped = COALESCE(profiles_scraped, 0) + ?
-                    WHERE id = ?
-                    """,
-                    (int(delta or 1), int(run_id)),
-                )
-            conn.commit()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            is_sqlite_routed = conn.__class__.__name__ == "SQLiteConnectionWrapper"
+            execute_sql(
+                cur,
+                """
+                UPDATE scrape_runs
+                SET profiles_scraped = COALESCE(profiles_scraped, 0) + %s
+                WHERE id = %s
+                """,
+                (int(delta or 1), int(run_id)),
+                connection=conn,
+                sqlite_query="""
+                UPDATE scrape_runs
+                SET profiles_scraped = COALESCE(profiles_scraped, 0) + ?
+                WHERE id = ?
+                """,
+            )
             if is_sqlite_routed:
                 wrote_to_sqlite_via_primary = True
             return True
@@ -1905,12 +1838,6 @@ def increment_scrape_run_profiles(run_id, delta=1):
         logger.debug(f"Could not increment scrape run profiles for run_id={run_id}: {err}")
         return False
     finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
         # Mirror to local SQLite (skip if primary was already SQLite)
         if not wrote_to_sqlite_via_primary:
             try:
@@ -1942,40 +1869,28 @@ def record_scrape_run_flag(run_id, linkedin_url, reason):
     if not run_id or not normalized_url or not reason:
         return False
 
-    conn = None
     try:
         ensure_scrape_run_tracking_schema()
-        conn = get_connection()
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
-                    VALUES (%s, %s, %s)
-                    ON DUPLICATE KEY UPDATE reason = VALUES(reason)
-                    """,
-                    (int(run_id), normalized_url, str(reason).strip()),
-                )
-            except Exception:
-                cur.execute(
-                    """
-                    INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(scrape_run_id, linkedin_url, reason) DO NOTHING
-                    """,
-                    (int(run_id), normalized_url, str(reason).strip()),
-                )
-            conn.commit()
+        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+            execute_sql(
+                cur,
+                """
+                INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE reason = VALUES(reason)
+                """,
+                (int(run_id), normalized_url, str(reason).strip()),
+                connection=conn,
+                sqlite_query="""
+                INSERT INTO scrape_run_flags (scrape_run_id, linkedin_url, reason)
+                VALUES (?, ?, ?)
+                ON CONFLICT(scrape_run_id, linkedin_url, reason) DO NOTHING
+                """,
+            )
             return True
     except Exception as err:
         logger.debug(f"Could not record scrape run flag for run_id={run_id}: {err}")
         return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def _build_alumni_upsert_payload(profile_data):
