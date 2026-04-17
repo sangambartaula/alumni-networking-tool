@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
@@ -218,30 +219,60 @@ def groq_audit_entities(client, model: str, entity_type: str, entities: list[Ent
     ]
 
     prompt = f"""
-You are auditing normalized {entity_type} values for data quality.
+You are auditing normalized {entity_type} values extracted from LinkedIn profiles.
 
-Goal:
-- Identify entries that are inaccurate, violate normalization rules, or look suspicious.
-- Return only the bad entries.
+Primary objective:
+- Minimize false positives.
+- Return only clearly invalid entries or clearly broken normalization.
+- If uncertain, do NOT flag.
 
-Normalization rules:
-- For job_titles: should be role/function labels (not companies, not locations, not URLs, not generic noise).
-- For companies: should be employer names only (not role text, not mixed role+company strings, not locations).
-- Reject values that are clearly wrong, too vague, or malformed.
+Validity policy:
+- VALID means a real-world title/company variant, even if formatting is imperfect.
+- INVALID means clearly not a real title/company.
+- Only output INVALID issues.
+
+Only mark INVALID when clearly non-entity, for example:
+- Dates/durations: "Jan 2022 - May 2025", "2020 - Present"
+- Pure locations: "Denton", "Boston", "Dallas-Fort Worth Metroplex"
+- Full sentence descriptions instead of an entity name
+- Placeholder values: "Company Name", "N/A", "Unknown"
+- Obvious garbage/noise strings or malformed text
+
+Job title rules:
+- Treat real titles as VALID by default.
+- Titles like "Software Engineer II", "Software Engineer IV", "Senior Software Engineer", "Backend Engineer", "AI / ML Engineer", "Biomedical Engineer", "CEO", "Barista", "Tutor", "PhD Candidate", and "Research Fellow" are VALID.
+- Do NOT treat roman numerals as invalid formatting.
+- Do NOT treat seniority words (Senior, Junior, Intern, Lead) as invalid.
+- Seniority is handled elsewhere; do not enforce seniority normalization here.
+- If a correction is suggested, base-role simplification is optional only (example: "Software Engineer II" -> "Software Engineer").
+
+Company rules:
+- Treat real organizations as VALID by default.
+- Well-known companies (Deloitte, Amazon, McKinsey, Meta, etc.) are VALID.
+- Full institution names are VALID companies, including universities, research labs, and medical centers.
+- Do NOT shorten organization names.
+- Do NOT reduce entities to generic root words like "University".
+- If value is partial/generic like only "University", flag as INVALID.
+- Suggest reconstruction only when confidently derivable from sample_raw_values; otherwise keep suggested_value empty.
+
+Hard constraints:
+- Do NOT use subjective criteria like "too specific", "not typical", or "generic noise".
+- Do NOT invent categories or fields beyond the required JSON schema.
+- Be conservative and prefer false negatives over false positives.
 
 Input JSON array (each item has entity_id, normalized_value, profile_count, sample_raw_values):
 {json.dumps(payload, ensure_ascii=True)}
 
 Return STRICT JSON only in this schema:
 {{
-  "issues": [
-    {{
-      "entity_id": 123,
-      "severity": "high|medium|low",
-      "reason": "short explanation",
-      "suggested_value": "optional corrected normalized value or empty string"
-    }}
-  ]
+    "issues": [
+        {{
+            "entity_id": 123,
+            "severity": "high|medium|low",
+            "reason": "short explanation",
+            "suggested_value": "optional corrected normalized value or empty string"
+        }}
+    ]
 }}
 """.strip()
 
@@ -266,18 +297,81 @@ Return STRICT JSON only in this schema:
     parsed = json.loads(content)
     issues = parsed.get("issues", []) if isinstance(parsed, dict) else []
 
+    value_by_id = {e.entity_id: (e.normalized_value or "").strip() for e in entities}
+
+    def _looks_clearly_invalid(value: str) -> bool:
+        t = (value or "").strip()
+        if not t:
+            return True
+        low = t.lower()
+        if low in {"n/a", "na", "none", "null", "unknown", "company name", "placeholder"}:
+            return True
+        if re.search(r"https?://|www\.", low):
+            return True
+        if re.search(r"\b\d{4}\b\s*-\s*(\d{4}|present)\b", low):
+            return True
+        if re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b", low) and re.search(r"\d{4}", low):
+            return True
+        if len(t.split()) > 12:
+            return True
+        return False
+
+    def _is_generic_institution_root(value: str) -> bool:
+        low = (value or "").strip().lower()
+        return low in {
+            "university", "college", "institute", "institution", "school", "hospital", "medical center", "research lab", "lab"
+        }
+
+    def _looks_valid_institution(value: str) -> bool:
+        low = (value or "").strip().lower()
+        return bool(re.search(r"\b(university|college|institute|hospital|medical center|lab|laboratory|research center|school of)\b", low)) and not _is_generic_institution_root(value)
+
+    def _looks_valid_title_variant(value: str) -> bool:
+        low = (value or "").strip().lower()
+        if not low:
+            return False
+        if re.search(r"\b(senior|sr\.?|junior|jr\.?|intern|lead|principal|staff)\b", low):
+            return True
+        if re.search(r"\b(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b", low):
+            return True
+        if re.search(r"\b(engineer|developer|scientist|analyst|architect|manager|consultant|ceo|cto|coo|cfo|barista|tutor|candidate|fellow)\b", low):
+            return True
+        if "/" in low:
+            return True
+        return False
+
     clean_issues = []
+    seen_issue_keys = set()
     for issue in issues:
         if not isinstance(issue, dict):
             continue
         entity_id = issue.get("entity_id")
         if entity_id is None:
             continue
+        entity_id = int(entity_id)
+        value = value_by_id.get(entity_id, "")
+
+        # Guardrail: suppress common false positives for known-valid title/company patterns.
+        if not _looks_clearly_invalid(value):
+            if entity_type == "companies" and _looks_valid_institution(value):
+                continue
+            if entity_type == "job_titles" and _looks_valid_title_variant(value):
+                continue
+            if entity_type == "companies" and _is_generic_institution_root(value):
+                pass
+
+        reason = str(issue.get("reason") or "").strip()
+        normalized_reason = re.sub(r"\s+", " ", reason).strip().casefold()
+        dedupe_key = (entity_id, normalized_reason)
+        if dedupe_key in seen_issue_keys:
+            continue
+        seen_issue_keys.add(dedupe_key)
+
         clean_issues.append(
             {
-                "entity_id": int(entity_id),
+                "entity_id": entity_id,
                 "severity": str(issue.get("severity") or "medium").strip().lower(),
-                "reason": str(issue.get("reason") or "").strip(),
+                "reason": reason,
                 "suggested_value": str(issue.get("suggested_value") or "").strip(),
             }
         )
