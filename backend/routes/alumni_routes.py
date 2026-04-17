@@ -15,6 +15,11 @@ alumni_bp = Blueprint("alumni", __name__)
 
 _SENIORITY_ALLOWED = ["Intern", "Mid", "Senior", "Manager", "Executive"]
 
+_ROLE_HINT_RE = re.compile(
+    r"\b(engineer|developer|analyst|manager|director|architect|administrator|scientist|consultant|technician|specialist|officer|president|founder|partner|professor|researcher|student|intern|assistant|coordinator)\b",
+    re.I,
+)
+
 
 def _app_mod():
     return sys.modules.get("app") or sys.modules.get("__main__") or importlib.import_module("app")
@@ -135,7 +140,7 @@ def _canonical_role_title(value):
         return ""
 
     without_level_suffix = re.sub(r"\s+(?:level\s*)?(?:i{1,5}|[1-9])$", "", title, flags=re.I).strip()
-    without_seniority = re.sub(r"^(?:senior|sr\.?)\s+", "", without_level_suffix, flags=re.I).strip()
+    without_seniority = re.sub(r"^(?:senior|sr\.?|junior|jr\.?|lead)\s+", "", without_level_suffix, flags=re.I).strip()
     canonical_title = without_seniority or without_level_suffix or title
     low = re.sub(r"\s+", " ", canonical_title.lower())
     flat = re.sub(r"[^a-z0-9]+", " ", low).strip()
@@ -162,10 +167,31 @@ def _canonical_role_title(value):
         "senior manager - innovation",
     }:
         return "Manager"
+    if low in {
+        "software engineer",
+        "software developer",
+        "software dev",
+        "software development engineer",
+        "full stack developer",
+        "full-stack developer",
+        "full stack engineer",
+        "full-stack engineer",
+    }:
+        return "Software Engineer"
+    if low == "project manager":
+        return "Project Manager"
+    if low in {"devops engineer", "jr. devops engineer"}:
+        return "DevOps Engineer"
+    if low in {"network engineer", "senior network engineer"}:
+        return "Network Engineer"
+    if low in {"quality engineer", "senior quality engineer"}:
+        return "Quality Engineer"
+    if low in {"data analyst", "junior data analyst", "senior data analyst", "bi data analyst"}:
+        return "Data Analyst"
     if low == "data owner":
         return "Data Analyst"
-    if low in {"software developer", "software dev"}:
-        return "Software Engineer"
+    if not _ROLE_HINT_RE.search(flat) and flat not in {"principal", "member", "student"}:
+        return ""
     return canonical_title
 
 
@@ -207,6 +233,7 @@ def _map_alumni_item(row):
     last = row.get("last_name") or ""
     full_name = f"{first} {last}".strip()
     title = row.get("current_job_title") or row.get("headline") or ""
+    normalized_title = _canonical_role_title(title)
     standardized_major = (row.get("standardized_major") or "").strip()
     standardized_majors = [standardized_major] if standardized_major else []
     item = {
@@ -231,6 +258,8 @@ def _map_alumni_item(row):
         "major3": row.get("major3"),
         "location": row.get("location"),
         "title": title,
+        "role": normalized_title,
+        "normalized_title": normalized_title,
         "current_job_title": row.get("current_job_title") or "",
         "headline": row.get("headline") or "",
         "company": row.get("company"),

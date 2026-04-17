@@ -18,8 +18,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "scraper"))
 
 from database import get_connection, normalize_url  # noqa: E402
 from settings import FLAGGED_PROFILES_FILE  # noqa: E402
-
-ALIAS_FLAGGED_FILE = PROJECT_ROOT / "scraper" / "output" / "flagged_for_reviews.txt"
 REASON = "Location Not Found (backfill from DB)"
 
 
@@ -92,11 +90,9 @@ def main() -> int:
         return 0
 
     wrote_primary = _append_unique(FLAGGED_PROFILES_FILE, urls, REASON, args.dry_run)
-    wrote_alias = _append_unique(ALIAS_FLAGGED_FILE, urls, REASON, args.dry_run)
 
     mode = "Would append" if args.dry_run else "Appended"
     print(f"{mode} {wrote_primary} URL(s) to {FLAGGED_PROFILES_FILE}")
-    print(f"{mode} {wrote_alias} URL(s) to {ALIAS_FLAGGED_FILE}")
     print(f"Total DB Not Found profiles scanned: {len(urls)}")
     return 0
 

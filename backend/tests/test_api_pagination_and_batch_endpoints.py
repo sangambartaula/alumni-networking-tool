@@ -431,6 +431,49 @@ def test_api_alumni_role_filter_collapses_ai_ml_variants(client, monkeypatch):
     assert ids == {1, 2, 3}
 
 
+def test_api_alumni_role_filter_collapses_project_manager_variants(client, monkeypatch):
+    rows = [
+        _alumni_row(1, "Proj", "One", job_title="Project Manager II"),
+        _alumni_row(2, "Proj", "Two", job_title="Senior Project Manager"),
+        _alumni_row(3, "Other", "Role", job_title="Operations Manager"),
+    ]
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, [])),
+    )
+
+    resp = client.get("/api/alumni?role=Project%20Manager&limit=10&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+    ids = {item["id"] for item in payload["items"]}
+    assert ids == {1, 2}
+
+
+def test_api_alumni_normalized_title_excludes_noise_titles(client, monkeypatch):
+    rows = [
+        _alumni_row(1, "Valid", "Role", job_title="Software Engineer"),
+        _alumni_row(2, "Noise", "Case", job_title="Residential and Commercial Buildings"),
+    ]
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, [])),
+    )
+
+    resp = client.get("/api/alumni?limit=10&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    items_by_id = {item["id"]: item for item in payload["items"]}
+    assert items_by_id[1]["normalized_title"] == "Software Engineer"
+    assert items_by_id[1]["role"] == "Software Engineer"
+    assert items_by_id[2]["normalized_title"] == ""
+    assert items_by_id[2]["role"] == ""
+
+
 def test_api_alumni_name_sort_uses_first_name_then_last_name(client, monkeypatch):
     rows = [_alumni_row(1, "Alice", "Zulu"), _alumni_row(2, "Bob", "Alpha")]
     query_log = []

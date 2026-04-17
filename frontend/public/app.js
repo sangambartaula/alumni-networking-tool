@@ -1229,7 +1229,7 @@ function getCanonicalRoleTitle(value) {
   const title = (value || '').trim();
   if (!title) return '';
   const withoutLevelSuffix = title.replace(/\s+(?:level\s*)?(?:i{1,5}|[1-9])$/i, '').trim();
-  const withoutSeniority = withoutLevelSuffix.replace(/^(?:senior|sr\.?)\s+/i, '').trim();
+  const withoutSeniority = withoutLevelSuffix.replace(/^(?:senior|sr\.?|junior|jr\.?|lead)\s+/i, '').trim();
   const canonicalTitle = withoutSeniority || withoutLevelSuffix || title;
   const low = canonicalTitle.toLowerCase().replace(/\s+/g, ' ');
   const flat = low.replace(/[^a-z0-9]+/g, ' ').trim();
@@ -1253,11 +1253,39 @@ function getCanonicalRoleTitle(value) {
   ) {
     return 'Manager';
   }
+  if (
+    low === 'software engineer'
+    || low === 'software developer'
+    || low === 'software dev'
+    || low === 'software development engineer'
+    || low === 'full stack developer'
+    || low === 'full-stack developer'
+    || low === 'full stack engineer'
+    || low === 'full-stack engineer'
+  ) {
+    return 'Software Engineer';
+  }
+  if (low === 'project manager') {
+    return 'Project Manager';
+  }
+  if (low === 'devops engineer' || low === 'jr. devops engineer') {
+    return 'DevOps Engineer';
+  }
+  if (low === 'network engineer' || low === 'senior network engineer') {
+    return 'Network Engineer';
+  }
+  if (low === 'quality engineer' || low === 'senior quality engineer') {
+    return 'Quality Engineer';
+  }
+  if (low === 'data analyst' || low === 'junior data analyst' || low === 'senior data analyst' || low === 'bi data analyst') {
+    return 'Data Analyst';
+  }
   if (low === 'data owner') {
     return 'Data Analyst';
   }
-  if (low === 'software developer' || low === 'software dev') {
-    return 'Software Engineer';
+  const hasRoleHint = /\b(engineer|developer|analyst|manager|director|architect|administrator|scientist|consultant|technician|specialist|officer|president|founder|partner|professor|researcher|student|intern|assistant|coordinator)\b/.test(flat);
+  if (!hasRoleHint && flat !== 'principal' && flat !== 'member' && flat !== 'student') {
+    return '';
   }
   return canonicalTitle;
 }

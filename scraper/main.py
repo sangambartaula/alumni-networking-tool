@@ -415,7 +415,6 @@ _current_scrape_run_id = None
 _current_scrape_run_uuid = None
 _cloud_verify_semaphore = threading.Semaphore(4)
 _ESTIMATED_NON_DELAY_SECONDS_PER_PROFILE = 25
-_FLAGGED_REVIEW_ALIAS_PATH = PROJECT_ROOT / "scraper" / "output" / "flagged_for_reviews.txt"
 
 _CLOUD_VARCHAR_LIMITS = {
     "school": 255,
@@ -449,7 +448,7 @@ def _append_flagged_review_line(profile_url, reason):
         return False
 
     reason_text = (reason or "flagged for review").strip()
-    pending_paths = [config.FLAGGED_PROFILES_FILE, _FLAGGED_REVIEW_ALIAS_PATH]
+    pending_paths = [config.FLAGGED_PROFILES_FILE]
     wrote_any = False
 
     for flagged_path in pending_paths:
