@@ -593,6 +593,57 @@ _PREFERRED_TITLE_BUCKETS = [
 # Quick set for O(1) membership checks
 _PREFERRED_BUCKETS_SET = {b.casefold() for b in _PREFERRED_TITLE_BUCKETS}
 
+# Stale titles that may exist in the DB from before the consolidation.
+# If Groq matches against one of these, remap to the correct bucket.
+_STALE_TITLE_REMAP = {
+    "accountant": "Finance / Accounting",
+    "associate": "Operations",
+    "software developer": "Software Engineer",
+    "backend engineer": "Software Engineer",
+    "frontend engineer": "Software Engineer",
+    "systems engineer": "Software Engineer",
+    "security engineer": "Software Engineer",
+    "cybersecurity analyst": "Software Engineer",
+    "qa engineer": "Software Engineer",
+    "quality engineer": "Software Engineer",
+    "cloud engineer": "DevOps Engineer",
+    "infrastructure / cloud engineer": "DevOps Engineer",
+    "business analyst": "Data Analyst",
+    "product analyst": "Data Analyst",
+    "financial analyst": "Finance / Accounting",
+    "financial advisor": "Finance / Accounting",
+    "managing director": "Director",
+    "operations manager": "Manager",
+    "retail manager": "Manager",
+    "sales associate": "Sales",
+    "seasonal sales associate": "Sales",
+    "account executive": "Sales",
+    "recruiter": "Human Resources",
+    "graphic designer": "Marketing",
+    "marketing specialist": "Marketing",
+    "marketing consultant": "Marketing",
+    "cashier": "Customer Service",
+    "crew member": "Customer Service",
+    "customer support": "Customer Service",
+    "front desk staff": "Customer Service",
+    "it support": "Customer Service",
+    "graduate student": "Student",
+    "student worker": "Student",
+    "student leader": "Student",
+    "member": "Student",
+    "team member": "Student",
+    "community assistant": "Student",
+    "graduate researcher": "Graduate Assistant",
+    "design engineer": "Mechanical Engineer",
+    "manufacturing engineer": "Mechanical Engineer",
+    "industrial engineer": "Mechanical Engineer",
+    "electrical engineer": "Mechanical Engineer",
+    "automation engineer": "Mechanical Engineer",
+    "engineering technician": "Mechanical Engineer",
+    "project coordinator": "Project Manager",
+    "operations analyst": "Operations",
+}
+
 
 def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     """Regex-based fallback compaction for the DETERMINISTIC path only.
@@ -1087,9 +1138,16 @@ Rules:
 17. Intern handling:
     - Keep "Intern" only when role context is truly absent (e.g., "Summer Intern").
     - If role context exists (e.g., "Software Engineer Intern"), return the base role ("Software Engineer").
+    - "Engineering Co-op" → "Intern".
 18. Associate handling:
-    - Drop "Associate" when a concrete role exists (e.g., "Associate Engineer" -> "Engineer" family bucket).
-    - Return "Associate" only when no role context exists.
+    - Drop "Associate" when a concrete role exists (e.g., "Associate Engineer" → "Mechanical Engineer").
+    - Do NOT return "Associate" as a standalone title. If no role context exists, use "Operations".
+19. "Accountant", "Senior Accountant" → "Finance / Accounting" (not a separate bucket).
+20. IT support, help desk, technical support, desktop support → "Customer Service" (not "Software Engineer").
+21. Company/product-prefixed titles: strip the company name (e.g., "Workday Engineer" → "Software Engineer", "Salesforce Developer" → "Software Engineer", "AWS DevOps Engineer" → "DevOps Engineer").
+22. "Managing Director" → "Director" (not "Manager").
+23. Generic "Engineer" without software context → "Mechanical Engineer".
+24. "Flight Attendant", "Cashier", "Crew Member", "Server Trainer", "Pharmacy Technician" → "Customer Service".
 
 Existing normalized titles:
 {titles_list}
@@ -1115,9 +1173,10 @@ Return JSON only:
         )
         payload = json.loads(response.choices[0].message.content)
         result = _coerce_existing_title_choice(payload.get("normalized_title", ""), existing_titles)
-        # Do NOT apply _compact_normalized_title here — Groq receives the
-        # preferred bucket list in the prompt and is trusted to return the
-        # correct bucket.  Compaction is a deterministic-only fallback.
+        # Post-Groq sanitization: remap stale DB titles that Groq may have matched
+        # against existing entries. These entries were consolidated in the
+        # normalization overhaul and shouldn't appear as standalone buckets.
+        result = _STALE_TITLE_REMAP.get(result.casefold(), result) if result else result
         if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:
             logger.warning(f"Groq returned non-title value for {raw_title!r}: {result!r}")
             return normalize_title_deterministic(raw_title)
