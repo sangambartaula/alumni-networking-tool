@@ -340,7 +340,7 @@ def get_all_normalized_degrees(conn) -> dict:
 
 # ── Simple grouping labels (for standardized_degree column) ───────────────
 # Final allowed values:
-#   Associate, Bachelors, Masters, Doctorate, Other
+#   P.h.D, Masters, Bachelors, Other
 # Maps canonical display strings → group labels
 _DEGREE_GROUP_MAP = {
     # Bachelors
@@ -365,16 +365,16 @@ _DEGREE_GROUP_MAP = {
     "Master of Fine Arts": "Masters",
     "Master of Public Administration": "Masters",
     "Master's Degree": "Masters",
-    # Doctorate
-    "Doctor of Philosophy": "Doctorate",
-    "Doctor of Education": "Doctorate",
-    "Doctor of Medicine": "Doctorate",
-    "Juris Doctor": "Doctorate",
-    # Associate
-    "Associate of Science": "Associate",
-    "Associate of Arts": "Associate",
-    "Associate's Degree": "Associate",
-    "Associate of Applied Science": "Associate",
+    # Doctorate -> P.h.D
+    "Doctor of Philosophy": "P.h.D",
+    "Doctor of Education": "P.h.D",
+    "Doctor of Medicine": "P.h.D",
+    "Juris Doctor": "P.h.D",
+    # Associate -> Other
+    "Associate of Science": "Other",
+    "Associate of Arts": "Other",
+    "Associate's Degree": "Other",
+    "Associate of Applied Science": "Other",
 }
 
 # Keyword fallbacks for strings that don't match DEGREE_MAP exactly
@@ -382,18 +382,19 @@ _GROUP_KEYWORDS = [
     # Order matters — check most specific first
     (re.compile(r'\b(high\s*school|diploma|ged)\b', re.I), "Other"),
     (re.compile(r'\b(certificate|certification|cert)\b', re.I), "Other"),
-    (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d)\b', re.I), "Doctorate"),
+    (re.compile(r'\b(ph\.?d|doctor|doctorate|ed\.?d|d\.?sc|sc\.?d|m\.?d|j\.?d)\b', re.I), "P.h.D"),
     (re.compile(r'\b(masters?|m\.?s\.?c?|m\.?eng|mba|m\.?b\.?a|m\.?p\.?a|m\.?f\.?a)\b', re.I), "Masters"),
     (re.compile(r'(?<![a-z])m\.?a\.?(?![a-z])', re.I), "Masters"),
-    (re.compile(r'\b(bachelors?|b\.?s\.?c?|b\.?a\.?|b\.?eng|b\.?e\.?|b\.?tech|b\.?f\.?a|b\.?s\.?e\.?t)\b', re.I), "Bachelors"),
-    (re.compile(r'\b(associates?|a\.?s\.?|a\.?a\.?|a\.?a\.?s)\b', re.I), "Associate"),
+    (re.compile(r'\b(bachelors?|b\.?s\.?c?|b\.?a\.?s?c?|b\.?eng|b\.?e\.?|b\.?tech|b\.?f\.?a|b\.?s\.?e\.?t|b\.?b\.?a|b\.?a\.?a\.?s|undergraduate|undergrad)\b', re.I), "Bachelors"),
+    (re.compile(r'(?<![a-z])(b\.?s\.?|b\.?a\.?)(?![a-z])', re.I), "Bachelors"),
+    (re.compile(r'\b(associates?|a\.?s\.?|a\.?a\.?|a\.?a\.?s)\b', re.I), "Other"),
 ]
 
 
 def standardize_degree(raw_degree: str) -> str:
     """
     Map a raw degree string to a strict label set:
-    Associate, Bachelors, Masters, Doctorate, Other.
+    P.h.D, Masters, Bachelors, Other.
     """
     if not raw_degree or not raw_degree.strip():
         return "Other"
