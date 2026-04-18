@@ -57,6 +57,7 @@ TITLE_MAP = {
     "software associate": "Software Engineer",
     "associate software engineer": "Software Engineer",
     "associate software": "Software Engineer",
+    "associate software intern": "Software Engineer",
     "software systems engineer": "Software Engineer",
     "member of technical staff": "Software Engineer",
     "mts": "Software Engineer",
@@ -82,6 +83,7 @@ TITLE_MAP = {
     "principal systems engineer": "Software Engineer",
     "lead systems engineer": "Software Engineer",
     "sr. director of software engineering": "Director",
+    "director of software engineering": "Director",
     "vp of software engineering": "VP",
     "developer": "Software Engineer",
     "application developer": "Software Engineer",
@@ -90,8 +92,10 @@ TITLE_MAP = {
     "application engineer ii": "Application Engineer",
     "associate programmer, it aviator": "Software Engineer",
     "mainframe programmer": "Software Engineer",
+    "mainframe developer": "Software Engineer",
     "programmer analyst trainee": "Software Engineer",
     "scientific programmer": "Software Engineer",
+    "syteline developer": "Software Engineer",
 
     # ── Full Stack ──
     "full stack developer": "Software Engineer",
@@ -165,6 +169,9 @@ TITLE_MAP = {
     "lead operations analyst": "Operations",
     "itsm systems analyst": "Data Analyst",
     "technology analyst": "Data Analyst",
+    "financial analyst": "Finance / Accounting",
+    "it analyst": "Data Analyst",
+    "analyst": "Data Analyst",
 
     # ── DevOps & Cloud ──
     "devops engineer": "DevOps Engineer",
@@ -180,7 +187,10 @@ TITLE_MAP = {
     "aws cloud practitioner- internship": "DevOps Engineer",
     "amazon web services (aws)": "DevOps Engineer",
     "cloud architect": "DevOps Engineer",
+    "infrastructure / cloud engineer": "DevOps Engineer",
+    "infrastructure engineer": "DevOps Engineer",
     "solutions architect": "Software Engineer",
+    "solution advisor": "Consultant",
     "jr. system architect": "Software Engineer",
     "systems administrator": "Systems Administrator",
     "system administrator": "Systems Administrator",
@@ -191,9 +201,11 @@ TITLE_MAP = {
 
     # ── Systems Engineering ──
     "system engineer": "Software Engineer",
+    "systems engineer": "Software Engineer",
     "systems engineer hil": "Software Engineer",
     "technical systems engineer": "Software Engineer",
     "assistant system design engineer": "Software Engineer",
+    "assistant system engineer": "Software Engineer",
 
     # ── Security ──
     "cybersecurity analyst": "Software Engineer",
@@ -218,6 +230,7 @@ TITLE_MAP = {
     "quality control analyst": "Software Engineer",
     "quality engineer": "Software Engineer",
     "senior design quality engineer": "Software Engineer",
+    "quality supervisor": "Manager",
 
     # ── Engineering (general, mechanical, civil, etc.) ──
     "engineer": "Mechanical Engineer",
@@ -246,10 +259,16 @@ TITLE_MAP = {
     "automation engineering lead": "Mechanical Engineer",
     "design engineer": "Mechanical Engineer",
     "advanced manufacturing engineer senior": "Mechanical Engineer",
-    "general manager / manufacturing engineer": "Mechanical Engineer",
+    "general manager / manufacturing engineer": "Manager",
     "intermediate professional, electrical engineering": "Mechanical Engineer",
     "assistant engineer": "Mechanical Engineer",
-    "engineering co-op": "Mechanical Engineer",
+    "engineering co-op": "Intern",
+    "staff engineer": "Mechanical Engineer",
+    "principal engineer": "Mechanical Engineer",
+    "electrical engineer": "Mechanical Engineer",
+    "automation engineer": "Mechanical Engineer",
+    "design engineer": "Mechanical Engineer",
+    "residential and commercial buildings": "Mechanical Engineer",
 
     # ── Management & Leadership ──
     "engineering manager": "Manager",
@@ -305,7 +324,7 @@ TITLE_MAP = {
     "founder and director": "Director",
     "co-owner & operations head": "Manager",
     "owner": "Manager",
-    "managing director": "Manager",
+    "managing director": "Director",
     "general manager": "Manager",
     "laboratory safety manager": "Manager",
     "manager - innovation": "Manager",
@@ -314,8 +333,15 @@ TITLE_MAP = {
     "team leader of software development": "Manager",
     "town manager": "Manager",
     "computing supervisor": "Manager",
+    "retail manager": "Manager",
+    "real estate / retail manager": "Manager",
+    "patient access manager": "Manager",
     "vp of sales": "Sales",
     "vp sales executive": "Sales",
+    "president": "VP",
+    "executive": "VP",
+    "principal": "Manager",
+    "property manager": "Manager",
 
     # ── Consulting & IT ──
     "consultant": "Consultant",
@@ -328,17 +354,21 @@ TITLE_MAP = {
     "workday integrations consultant": "Consultant",
     "senior integration consultant": "Consultant",
     "social media marketing consultant": "Marketing",
+    "marketing consultant": "Marketing",
+    "solution advisor": "Consultant",
     "technical architect": "Software Engineer",
     "technology summer analyst": "Operations",
     "senior analyst": "Data Analyst",
     "it systems analyst": "Data Analyst",
-    "it support agent": "Software Engineer",
-    "information technology support engineer": "Software Engineer",
+    "it support agent": "Customer Service",
+    "information technology support engineer": "Customer Service",
     "information technology intern": "Student",
     "it specialist": "Software Engineer",
-    "it support specialist": "Software Engineer",
-    "technical support engineer": "Software Engineer",
-    "help desk technician": "Software Engineer",
+    "it support specialist": "Customer Service",
+    "it support": "Customer Service",
+    "it": "Software Engineer",
+    "technical support engineer": "Customer Service",
+    "help desk technician": "Customer Service",
     "technical specialist": "Software Engineer",
     "salesforce senior solution specialist": "Software Engineer",
     "solutions representative - market analytics": "Data Analyst",
@@ -360,7 +390,7 @@ TITLE_MAP = {
     "postdoctoral researcher": "Postdoctoral Researcher",
     "postdoc": "Postdoctoral Researcher",
     "research assistant/ teaching fellow": "Graduate Assistant",
-    "graduate researcher": "Researcher",
+    "graduate researcher": "Graduate Assistant",
     "lab assistant": "Researcher",
 
     # ── Teaching & Graduate Assistants ──
@@ -398,6 +428,7 @@ TITLE_MAP = {
     "community assistant": "Student",
     "graduate student": "Student",
     "member": "Student",
+    "team member": "Student",
     "women in cybersecurity (wicys)": "Student",
     "women in cybersecurity": "Student",
     "wicys": "Student",
@@ -408,7 +439,6 @@ TITLE_MAP = {
     "summer intern": "Intern",
     "development intern": "Intern",
     "trainee": "Intern",
-    "jp morgan all star code": "Student",
     "jp morgan all star code": "Student",
 
     # ── Design & Creative ──
@@ -426,12 +456,17 @@ TITLE_MAP = {
     "graphic design intern": "Marketing",
     "digital personal shopper": "Marketing",
     "development executive": "Marketing",
+    "special effects design": "Marketing",
+    "design": "Marketing",
+    "architectural designer": "Marketing",
 
     # ── Sales ──
     "sales associate": "Sales",
     "seasonal sales associate": "Sales",
     "retail business development representative": "Sales",
     "account executive": "Sales",
+    "sales executive": "Sales",
+    "retail specialist": "Sales",
 
     # ── Human Resources ──
     "recruiter": "Human Resources",
@@ -443,17 +478,19 @@ TITLE_MAP = {
     "hr manager": "Human Resources",
 
     # ── Finance / Accounting ──
-    "accountant": "Accountant",
-    "senior accountant": "Accountant",
-    "sr accountant": "Accountant",
-    "sr. accountant": "Accountant",
+    "accountant": "Finance / Accounting",
+    "senior accountant": "Finance / Accounting",
+    "sr accountant": "Finance / Accounting",
+    "sr. accountant": "Finance / Accounting",
     "financial solutions advisor": "Finance / Accounting",
     "financial advisor": "Finance / Accounting",
     "financial reporting accountant": "Finance / Accounting",
+    "financial analyst": "Finance / Accounting",
     "personal banker": "Finance / Accounting",
     "title clerk": "Finance / Accounting",
     "due diligence associate": "Finance / Accounting",
     "assistant vice president - financial solutions advisor": "Finance / Accounting",
+    "assistant vice president": "Finance / Accounting",
 
     # ── Customer Service ──
     "client support associate": "Customer Service",
@@ -462,12 +499,12 @@ TITLE_MAP = {
     "customer support": "Customer Service",
     "front desk staff": "Customer Service",
     "front office supervisor": "Customer Service",
-    "patient access manager": "Customer Service",
     "pharmacy technician": "Customer Service",
     "cashier": "Customer Service",
     "crew member": "Customer Service",
     "server trainer": "Customer Service",
     "dishwasher": "Customer Service",
+    "flight attendant": "Customer Service",
 
     # ── Marketing ──
     "social media and search engine evaluator": "Marketing",
@@ -479,6 +516,12 @@ TITLE_MAP = {
     "operations analyst": "Operations",
     "operations officer": "Operations",
     "technology officer": "Operations",
+    "drug safety associate": "Operations",
+    "product specialist": "Operations",
+    "administrative": "Operations",
+    "administrative assistant": "Operations",
+    "professional": "Operations",
+    "intermediate professional": "Mechanical Engineer",
 
     # ── Construction & Field ──
     "field project coordinator": "Project Manager",
@@ -490,10 +533,10 @@ TITLE_MAP = {
     "retail specialist": "Sales",
     "credentialing coordinator": "Manager",
     "office staff": "Manager",
-    "team member": "Manager",
     "warehouse team member": "Manager",
     "job coach": "Manager",
     "gymnastics coach": "Manager",
+    "coach": "Manager",
     "remote": "Other",
     "concentra": "Other",
     "crossvue": "Other",
@@ -523,7 +566,6 @@ _PREFERRED_TITLE_BUCKETS = [
     "Database Administrator",
     "Systems Administrator",
     "Network Engineer",
-    "Accountant",
     "Manager",
     "Customer Service",
     "Sales",
@@ -546,7 +588,6 @@ _PREFERRED_TITLE_BUCKETS = [
     "Peer Mentor",
     "Technician",
     "Intern",
-    "Associate",
 ]
 
 # Quick set for O(1) membership checks
@@ -588,8 +629,6 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     # - Drop Intern/Associate modifiers when the base role is present.
     if low in {"intern", "internship", "summer intern", "summer internship"}:
         return "Intern"
-    if low == "associate":
-        return "Associate"
 
     intern_base = re.sub(r"\s+intern(ship)?$", "", low).strip()
     if intern_base and intern_base != low:
@@ -748,7 +787,12 @@ _SENIORITY_PREFIX = re.compile(
     re.IGNORECASE,
 )
 _SENIORITY_SUFFIX = re.compile(
-    r'\s+(?:intern|trainee)$',
+    r'\s+(?:intern|trainee|co-op)$',
+    re.IGNORECASE,
+)
+# Well-known company/product names that should be stripped from titles
+_COMPANY_PREFIX = re.compile(
+    r'^(?:workday|salesforce|oracle|sap|aws|azure|google|apple|microsoft|ibm|cisco|vmware|dell|hp|hpe|adobe|servicenow|databricks|snowflake|terraform|kubernetes|docker|jenkins|jira|confluence|slack|zoom|stripe|twilio|shopify|hubspot|zendesk|pega|veeva|netsuite|epicor|syteline|infor|dynamics|marketo|eloqua|pardot|concur|ariba|coupa|anaplan|tableau|powerbi|looker|qlik|alteryx|informatica|talend|mulesoft|boomi|apigee|kong|nginx|redis|mongodb|elasticsearch|kafka|spark|hadoop|airflow|dbt|fivetran|segment|amplitude|mixpanel|heap|datadog|splunk|new relic|dynatrace|pagerduty|opsgenie|grafana|prometheus|nagios|zabbix)\s+',
     re.IGNORECASE,
 )
 

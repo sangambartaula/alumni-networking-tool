@@ -24,7 +24,7 @@ def test_data_owner_normalizes_to_data_analyst():
         ("Software Developer", "Software Engineer"),
         ("Software Dev", "Software Engineer"),
         ("Application Engineer II", "Application Engineer"),
-        ("Senior Accountant", "Accountant"),
+        ("Senior Accountant", "Finance / Accounting"),
     ],
 )
 def test_title_standardization_removes_seniority_and_soft_dev_variants(raw_title, expected):
