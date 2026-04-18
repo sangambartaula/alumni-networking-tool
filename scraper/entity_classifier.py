@@ -214,6 +214,16 @@ class EntityClassifier:
             re.I
         )
         
+        # Metro area patterns — locations that DON'T have commas but are still valid
+        # Examples: "San Francisco Bay Area", "Greater Houston", "Dallas-Fort Worth Metroplex"
+        self.metro_area_pattern = re.compile(
+            r'(?:'
+            r'(?:Greater|Central|Northern|Southern|Eastern|Western|North|South|East|West)\s+[A-Z][a-zA-Z\s\-\.]+(?:\s+(?:Area|Metro|Metro\s*Area|Metropolitan\s*Area|Region))?'
+            r'|[A-Z][a-zA-Z\s\-\.]+(?:Metroplex|Metro(?:politan)?\s*Area|Bay\s*Area|Tri-State\s*Area|Metro|Region|County)'
+            r')$',
+            re.I
+        )
+
         # Location character blacklist (requested by user)
         self.location_char_blacklist = re.compile(r"['\(\)]")
     
@@ -272,6 +282,11 @@ class EntityClassifier:
             # Extra guard: reject if it matches company suffixes
             if not self.company_suffix_pattern.search(text):
                 return True
+
+        # Metro area patterns without commas (e.g. "San Francisco Bay Area",
+        # "Greater Houston", "Dallas-Fort Worth Metroplex")
+        if self.metro_area_pattern.match(text):
+            return True
 
         # Support "City, State/Region, Country" style (e.g. "Dammam, Eastern, Saudi Arabia",
         # "Denton, Texas, United States", "Dubai, Dubai, United Arab Emirates").
@@ -494,7 +509,12 @@ class EntityClassifier:
         if self.city_state_pattern.match(text_clean):
             return True
         
-        # 6. Check location keywords with high specificity
+        # 6. Metro area patterns without commas
+        # Catches "San Francisco Bay Area", "Greater Houston", "Dallas-Fort Worth Metroplex", etc.
+        if self.metro_area_pattern.match(text_clean):
+            return True
+
+        # 7. Check location keywords with high specificity
         # Only return True if the ENTIRE text is a location
         pure_locations = [
             "remote", "hybrid", "on-site", "onsite",
@@ -504,18 +524,66 @@ class EntityClassifier:
             "bahrain", "oman", "jordan", "egypt", "turkey", "pakistan",
             "malaysia", "singapore", "indonesia", "philippines", "vietnam",
             "thailand", "south korea", "korea", "taiwan",
-            "nigeria", "kenya", "ghana", "south africa",
+            "nigeria", "kenya", "ghana", "south africa", "ethiopia",
             "italy", "spain", "netherlands", "belgium", "switzerland",
             "sweden", "norway", "denmark", "finland", "poland",
-            "ireland", "new zealand",
-            "dallas-fort worth metroplex", "greater houston", "bay area"
+            "ireland", "new zealand", "portugal", "greece",
+            # Metro areas and common LinkedIn location formats
+            "dallas-fort worth metroplex", "dfw metroplex",
+            "greater houston", "greater houston area",
+            "greater dallas area", "greater dallas-fort worth area",
+            "greater austin area", "greater san antonio area",
+            "bay area", "san francisco bay area", "sf bay area",
+            "greater seattle area", "greater seattle metropolitan area",
+            "greater los angeles area", "greater la area",
+            "greater new york city area", "greater nyc area", "new york metropolitan area",
+            "new york city metropolitan area",
+            "greater boston area", "greater boston",
+            "greater chicago area", "chicagoland",
+            "greater denver area", "greater denver metropolitan area",
+            "greater atlanta area", "greater atlanta",
+            "greater phoenix area", "greater phoenix metropolitan area",
+            "greater miami area", "south florida",
+            "greater philadelphia area", "greater philadelphia",
+            "greater detroit area", "greater detroit metropolitan area",
+            "greater minneapolis area", "twin cities", "twin cities area",
+            "greater washington area", "washington dc metro area",
+            "washington d.c. metro area", "dc metro area",
+            "greater charlotte area", "greater nashville area",
+            "greater portland area", "greater tampa area",
+            "greater orlando area", "greater raleigh area",
+            "greater indianapolis area", "greater columbus area",
+            "greater pittsburgh area", "greater st. louis area",
+            "greater kansas city area", "greater san diego area",
+            "research triangle", "research triangle area",
+            "silicon valley",
+            "inland empire", "inland empire area",
+            "puget sound", "puget sound area",
+            "hampton roads", "hampton roads area",
         ]
         if text_lower in pure_locations:
             return True
             
-        # 7. Check if it matches US States or common cities exactly
+        # 8. Check if it matches US States or common cities exactly
         if self.location_patterns.fullmatch(text_clean):
             return True
+
+        # 9. Broader check: if the text contains location keywords AND looks
+        # like a short location string (<=6 words, no company indicators),
+        # accept it. This catches patterns like "North Texas" or "Central Florida".
+        words = text_clean.split()
+        if len(words) <= 6 and self.location_patterns.search(text_clean):
+            # Make sure it doesn't look like a company or title
+            if not self.company_hints.search(text_clean) and not self.title_hints.search(text_clean):
+                # Check for regional qualifiers that strongly indicate location
+                regional_qualifiers = re.compile(
+                    r'\b(metro|area|region|county|metroplex|metropolitan|bay|greater|'  
+                    r'north|south|east|west|northern|southern|eastern|western|central|'  
+                    r'tri-state|valley|coast|inland|peninsula)\b',
+                    re.I
+                )
+                if regional_qualifiers.search(text_clean):
+                    return True
 
         return False
 

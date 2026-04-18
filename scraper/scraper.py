@@ -1325,6 +1325,11 @@ class LinkedInScraper:
                     if (/(metropolitan area|metro area|metroplex|bay area|\bmetro\b|\bregion\b|\bcounty\b)/i.test(t)) return true;
                     if (/^greater\s+[a-z]/i.test(t)) return true;
 
+                    // Accept well-known metro/regional names without commas.
+                    if (/\b(silicon valley|tri-state|inland empire|puget sound|research triangle|twin cities|chicagoland|hampton roads|south florida)\b/i.test(t)) return true;
+                    // Accept "North Texas", "Central Florida", etc.
+                    if (/^(north|south|east|west|central|northern|southern|eastern|western)\s+[a-z]/i.test(t) && t.split(/\s+/).length <= 5) return true;
+
                     return false;
                 }
 
@@ -1424,6 +1429,15 @@ class LinkedInScraper:
                 "greater ",
                 " region",
                 " county",
+                "silicon valley",
+                "tri-state",
+                "inland empire",
+                "puget sound",
+                "research triangle",
+                "twin cities",
+                "chicagoland",
+                "hampton roads",
+                "south florida",
             ])
         
         # Name - prefer H1/H2 inside <main>, ignore global navigation headings.
@@ -1557,8 +1571,32 @@ class LinkedInScraper:
                 if location:
                     break
 
+        # Final-pass: accept raw_location if it looks like a location based on
+        # geo keywords, even if the classifier rejected it (classifier may be
+        # missing a pattern but the raw_location was captured for a reason).
         if not location and raw_location:
-            location = raw_location
+            # Accept raw_location if it has commas, region keywords, or recognized country names
+            rl_lower = raw_location.lower()
+            geo_accept = (
+                "," in raw_location
+                or _has_region_location_keywords(raw_location)
+                or any(c in rl_lower for c in [
+                    "united states", "india", "canada", "remote",
+                    "united kingdom", "germany", "australia", "france",
+                    "saudi arabia", "uae", "japan", "china", "brazil", "mexico",
+                ])
+            )
+            if geo_accept:
+                location = raw_location
+                logger.debug(f"Accepted raw_location as final fallback: {location}")
+            else:
+                # Last resort: try Groq verification on the raw_location
+                if is_groq_available():
+                    if verify_location(raw_location):
+                        location = raw_location
+                        logger.debug(f"Groq verified raw_location: {location}")
+                else:
+                    location = raw_location
         name = _normalize_person_name(name)
         if not self._looks_like_person_name(name):
             name = ""
@@ -1698,6 +1736,22 @@ class LinkedInScraper:
                     if start_d and end_d:
                         break
             
+            # Entity classification cross-check: detect title/company swaps
+            # If the extracted "title" looks like a company and "company" looks
+            # like a job title, swap them before saving.
+            if title and company:
+                from entity_classifier import classify_entity as _classify
+                t_type, t_conf = _classify(title)
+                c_type, c_conf = _classify(company)
+                if t_type == "company" and c_type == "job_title" and t_conf >= 0.5 and c_conf >= 0.5:
+                    logger.debug(f"CSS extraction swap detected: '{title}' (classified company) ↔ '{company}' (classified title)")
+                    title, company = company, title
+                elif t_type == "company" and c_type not in ("job_title",) and t_conf >= 0.8:
+                    # Title is strongly classified as company but company isn't classified as title;
+                    # Still swap if confidence is high enough
+                    logger.debug(f"CSS extraction likely swap: '{title}' is strongly classified as company")
+                    title, company = company, title
+
             # Validate and add
             if (title or company) and start_d and end_d:
                 u_key = f"{(title or '').lower()}|{(company or '').lower()}|{start_d}|{end_d}"
@@ -2094,7 +2148,10 @@ class LinkedInScraper:
             if len(lines) < 1:
                 continue
 
-            school = lines[0].strip()
+            # --- Smart school name detection ---
+            # Instead of blindly using lines[0], look for /school/ links first
+            # as the most reliable indicator of school name.
+            school = ""
             school_links = [
                 (a.get("href") or "").strip()
                 for a in div.find_all("a", href=True)
@@ -2103,7 +2160,8 @@ class LinkedInScraper:
             unt_link_present = any(self._is_unt_school_href(href) for href in school_links)
             if unt_link_present:
                 school = "University of North Texas"
-            elif school_links and (not school or len(school) < 3):
+            elif school_links:
+                # Extract school name from the anchor text
                 for anchor in div.find_all("a", href=True):
                     href = (anchor.get("href") or "").strip()
                     if "/school/" not in href.lower():
@@ -2112,6 +2170,19 @@ class LinkedInScraper:
                     if school_text and len(school_text) > 2:
                         school = school_text
                         break
+            
+            # Also try t-bold span (LinkedIn's pattern for primary text)
+            if not school:
+                bold_elem = div.select_one('.t-bold span[aria-hidden="true"]') or div.select_one('.t-bold')
+                if bold_elem:
+                    bold_text = bold_elem.get_text(strip=True).strip()
+                    # Only use if it looks like a school name (not a date, not too short)
+                    if bold_text and len(bold_text) > 2 and not utils.DATE_RANGE_RE.search(bold_text):
+                        school = bold_text
+            
+            # Fallback: use first line
+            if not school:
+                school = lines[0].strip()
             
             # Validate school name
             if not school or len(school) < 3:
@@ -2474,13 +2545,21 @@ class LinkedInScraper:
         return None
 
     def _p_texts_clean(self, container):
+        """Extract clean text lines from a container element.
+        
+        Works on a COPY of the container to avoid destructively modifying
+        the soup, which could corrupt subsequent parsing if the same soup
+        object is reused (e.g., for education + experience sections).
+        """
         if not container: return []
+        import copy
+        work = copy.copy(container)
         # Remove "visually hidden" or skill descriptions
-        for bad in container.select("[data-testid='expandable-text-box'], .visually-hidden"):
+        for bad in work.select("[data-testid='expandable-text-box'], .visually-hidden"):
             bad.decompose()
         
         lines = []
-        for p in container.find_all(["p", "span"]):
+        for p in work.find_all(["p", "span"]):
             # Specific exclusion for skill badges
             if p.select_one("svg"): continue
             t = p.get_text(" ", strip=True)
@@ -2489,5 +2568,23 @@ class LinkedInScraper:
         return lines
 
     def _clean_company(self, text):
+        """Remove employment type and location suffixes from company text.
+        
+        Handles multi-segment lines like:
+          "Company · Location · Full-time"  → "Company"
+          "Company · Part-time"             → "Company"
+          "Company · Remote"                → "Company"
+        """
         if not text: return ""
-        return re.sub(r"\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid).*$", "", text, flags=re.I).strip()
+        # First strip employment type and everything after it
+        cleaned = re.sub(r"\s*·\s*(Full-time|Part-time|Contract|Internship|Remote|Hybrid|On-site|Self-employed|Freelance|Seasonal|Temporary|Apprenticeship).*$", "", text, flags=re.I).strip()
+        # Then check if remaining text still has a · separator with a location fragment
+        # e.g., "Company · Dallas" → strip the location part
+        if "·" in cleaned:
+            parts = [p.strip() for p in cleaned.split("·")]
+            if len(parts) == 2:
+                from entity_classifier import is_location
+                # If the second segment looks like a location, keep only the first
+                if is_location(parts[1]):
+                    cleaned = parts[0]
+        return cleaned
