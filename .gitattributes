@@ -1,0 +1,4 @@
+# Ensure shell scripts always use LF (Unix) line endings
+*.sh text eol=lf
+*.command text eol=lf
+*.bat text eol=crlf

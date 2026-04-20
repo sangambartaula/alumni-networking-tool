@@ -2,7 +2,7 @@
 
 The UNT Alumni Networking Tool helps the College of Engineering staff find, review, and organize alumni outreach data in one place.
 
-This README is a leadership-facing overview. Daily operations are in [USER_GUIDE.md](USER_GUIDE.md), technical implementation is in [SETUP.md](SETUP.md), and data logic is documented in [DATA_RULES.md](DATA_RULES.md).
+This README is a leadership-facing overview. Deployment details and daily operations instructions are in [DEPLOYMENT.md](DEPLOYMENT.md), and automated data transformation logic is documented in [DATA_PIPELINE.md](DATA_PIPELINE.md).
 
 ## What The Tool Does
 
@@ -37,21 +37,18 @@ Only approved users can access the platform; administrative actions are role-gat
 ## Audience Routing
 
 - Dean and leadership: high-level outcomes and value
-- Staff operators: [USER_GUIDE.md](USER_GUIDE.md)
-- Engineers and maintainers: [SETUP.md](SETUP.md)
-- Data and analytics stakeholders: [DATA_RULES.md](DATA_RULES.md)
+- Staff operators and maintainers: [DEPLOYMENT.md](DEPLOYMENT.md)
+- Data and analytics stakeholders: [DATA_PIPELINE.md](DATA_PIPELINE.md)
 
 ## Documentation Map
 
 - [README.md](README.md): Executive overview
-- [USER_GUIDE.md](USER_GUIDE.md): Day-to-day staff workflow
-- [SETUP.md](SETUP.md): One-time engineering setup, authentication/security, testing workflow
-- [DATA_RULES.md](DATA_RULES.md): Normalization, seniority, relevance, and design rationale
+- [DEPLOYMENT.md](DEPLOYMENT.md): Step-by-step guidelines for system deployment, administration credentials, and daily operations workflow.
+- [DATA_PIPELINE.md](DATA_PIPELINE.md): Data creation, AI relevance, normalization, seniority, and design rationale.
 
-## Important Notes
+## Important Operational Notes
 
-- LinkedIn data is collected via authorized scraping of UNT search results and Connections exports (only LinkedIn OAuth touches the official API), so expect anti-automation checks and rate limits.
-- Without LinkedIn Sales Navigator, routine scraping should stay conservative: about 50 profiles/day is the default safety target in this tool, and roughly 60/day should be treated as an upper bound.
-- If LinkedIn shows a warning, checkpoint, unusual activity notice, or rate limit, stop scraping for a few days. Light normal LinkedIn use is okay during cooldown, but avoid visiting lots of profiles.
-- Scraper activity should be run by authorized operators only.
-- For multi-staff production use, operate a single centrally hosted UNT instance with shared MySQL.
+- **Data Sourcing Constraints**: Profile data is gathered via automated scraping of LinkedIn search results and Connections exports. As a result, the system is subject to LinkedIn's anti-automation checks and rate limiting.
+- **Scraping Limits**: If operating without a LinkedIn Sales Navigator account, keep scraping activity conservative. The tool defaults to a safety target of ~50 profiles per day. Exceeding 60 profiles daily drastically increases the risk of account restrictions.
+- **Handling Warnings**: If LinkedIn issues a warning, triggers a verification checkpoint, or restricts your account, **stop automated scraping immediately for several days**. When you resume, reduce your daily scraping capacity. Light, manual browsing is acceptable during this cooldown, but avoid bulk profile visits.
+- **Production Architecture**: For team-wide operation, you must deploy a single, centrally-hosted application connected to a shared MySQL database. Isolated local databases will result in conflicting team data.

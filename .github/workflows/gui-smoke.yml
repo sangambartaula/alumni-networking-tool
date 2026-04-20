@@ -70,10 +70,6 @@ jobs:
         shell: bash
         run: python -m pytest tests/test_relevance_scorer.py -v
 
-      - name: Run Groq module import and utility tests
-        shell: bash
-        run: python -m pytest tests/test_groq_imports.py -v
-
       - name: Run Groq prompt hardening tests
         shell: bash
         run: python -m pytest tests/test_groq_prompt_hardening.py -v
@@ -92,11 +88,11 @@ jobs:
 
       - name: Run URL normalization and cleanup tests
         shell: bash
-        run: python -m pytest tests/test_cleanup.py -v
+        run: python -m pytest tests/test_url_normalization.py -v
 
       - name: Run CSV schema and migration tests
         shell: bash
-        run: python -m pytest tests/test_ensure_alumni_csv.py -v
+        run: python -m pytest tests/test_database_handler.py -v
 
       - name: Run database handler FutureWarning tests
         shell: bash
@@ -117,6 +113,22 @@ jobs:
       - name: Run auth tests
         shell: bash
         run: python -m pytest tests/test_auth.py -v
+
+      - name: Run discipline search mode tests
+        shell: bash
+        run: python -m pytest tests/test_discipline_search_mode.py -v
+
+      - name: Run scraper utility tests
+        shell: bash
+        run: python -m pytest tests/test_scraper_utils.py -v
+
+      - name: Run scraper main logic tests
+        shell: bash
+        run: python -m pytest tests/test_scraper_main.py -v
+
+      - name: Run CSV export frontend contract tests
+        shell: bash
+        run: python -m pytest tests/test_csv_export_frontend.py -v
 
   # ── GUI smoke tests (Qt widgets, offscreen) ─────────────────────────
   gui-smoke:

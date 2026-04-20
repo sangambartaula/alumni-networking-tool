@@ -121,14 +121,7 @@ def clear_rate_limit(email):
 
 
 # ---------------------------------------------------------------------------
-# Default Admins & Whitelist Seed Data
-# ---------------------------------------------------------------------------
 DEFAULT_ADMIN_EMAILS = [
     "paul.krueger@unt.edu",
     "seifollah.nasrazadani@unt.edu",
-    "aashishs421@gmail.com",
-    "ashrish63@gmail.com",
-    "lamichhaneabishek451@gmail.com",
-    "sachinbanjade@my.unt.edu",
-    "sangambartaula4@gmail.com",
 ]
