@@ -1,8 +1,28 @@
 try:
     from .db_core_common import *
+    from .db_core_common import (
+        _clean_optional_text,
+        _parse_bool,
+        _parse_float,
+        _parse_int,
+        _normalize_person_name,
+        _normalize_primary_education_dates,
+        _sanitize_major_and_discipline,
+        _get_or_create_normalized_entity,
+    )
     from .db_core_schema import ensure_scrape_run_tracking_schema
 except ImportError:
     from db_core_common import *
+    from db_core_common import (
+        _clean_optional_text,
+        _parse_bool,
+        _parse_float,
+        _parse_int,
+        _normalize_person_name,
+        _normalize_primary_education_dates,
+        _sanitize_major_and_discipline,
+        _get_or_create_normalized_entity,
+    )
     from db_core_schema import ensure_scrape_run_tracking_schema
 
 def increment_scraper_activity(email):
