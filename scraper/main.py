@@ -54,6 +54,7 @@ from backend.database import (
     finalize_scrape_run,
     record_scrape_run_flag,
     get_direct_mysql_connection,
+    get_connection,
 )
 from backend.db_helpers import managed_db_cursor, execute_sql
 from backend.geocoding import geocode_location_with_status
@@ -1963,10 +1964,6 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
     
     # 1. Remove from SQLite / cloud DB
     try:
-        import sys
-        sys.path.insert(0, str(PROJECT_ROOT / "backend"))
-        from database import get_connection
-
         with managed_db_cursor(get_connection, commit=True) as (conn, cur):
             for url in dead_urls:
                 normalized = (url or "").strip().rstrip("/")
