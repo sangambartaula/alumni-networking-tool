@@ -456,6 +456,11 @@ class ConnectionManager:
         Get the appropriate database connection.
         Returns MySQL if online, SQLite if offline.
         """
+        try:
+            from .sf_core_wrappers import SQLiteConnectionWrapper
+        except ImportError:
+            from sf_core_wrappers import SQLiteConnectionWrapper
+
         if self._is_offline:
             return SQLiteConnectionWrapper(self.get_sqlite_connection(), self)
         

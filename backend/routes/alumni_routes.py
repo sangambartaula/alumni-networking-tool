@@ -236,6 +236,9 @@ def _map_alumni_item(row):
     normalized_title = _canonical_role_title(title)
     standardized_major = (row.get("standardized_major") or "").strip()
     standardized_majors = [standardized_major] if standardized_major else []
+    updated_at = row.get("updated_at") or row.get("created_at")
+    if hasattr(updated_at, "isoformat"):
+        updated_at = updated_at.isoformat()
     item = {
         "id": row.get("id"),
         "first": first,
@@ -277,6 +280,8 @@ def _map_alumni_item(row):
         "working_while_studying": row.get("working_while_studying"),
         "working_while_studying_status": row.get("working_while_studying_status"),
         "seniority_level": seniority_level,
+        "updated_at": updated_at or "",
+        "last_updated": updated_at or "",
         "unt_alumni_status": row.get("unt_alumni_status") or compute_unt_alumni_status_from_row(row),
     }
     return item
@@ -372,6 +377,8 @@ def api_get_alumni():
     direction_sql = "DESC" if direction == "desc" else "ASC"
     if sort_key == "year":
         order_clause = f"CASE WHEN a.grad_year IS NULL THEN 1 ELSE 0 END ASC, a.grad_year {direction_sql}, LOWER(a.first_name) {direction_sql}, LOWER(a.last_name) {direction_sql}"
+    elif sort_key == "updated":
+        order_clause = f"CASE WHEN a.updated_at IS NULL THEN 1 ELSE 0 END ASC, a.updated_at {direction_sql}, LOWER(a.first_name) {direction_sql}, LOWER(a.last_name) {direction_sql}"
     else:
         order_clause = f"LOWER(a.first_name) {direction_sql}, LOWER(a.last_name) {direction_sql}"
 

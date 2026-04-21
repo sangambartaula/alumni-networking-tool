@@ -214,13 +214,20 @@ class ProfileDetailModal {
     }
 
     // ---- LAST UPDATED ----
-    const updatedAt = this._safe(data.updated_at);
+    const updatedAt = this._safe(data.updated_at || data.last_updated || data.created_at);
     if (updatedAt) {
       let displayDate = updatedAt;
       try {
         const d = new Date(updatedAt);
         if (!isNaN(d.getTime())) {
-          displayDate = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+          displayDate = d.toLocaleString('en-US', {
+            month: '2-digit',
+            day: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+          });
         }
       } catch (_) { /* use raw string */ }
 

@@ -1434,7 +1434,7 @@ function mapAlumniRecord(a) {
     school3: a.school3 || '',
     degree3: a.degree3 || '',
     major3: a.major3 || '',
-    updated_at: a.updated_at || '',
+    updated_at: a.updated_at || a.last_updated || a.created_at || '',
     working_while_studying: a.working_while_studying !== undefined ? a.working_while_studying : null,
     job_employment_type: a.job_employment_type || '',
     job_start: a.job_start || a.job_start_date || '',
