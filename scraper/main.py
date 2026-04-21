@@ -1657,18 +1657,7 @@ def run_review_mode(scraper, nav, history_mgr):
         logger.error(f"❌ Flagged file not found: {flagged_file}")
         return
     
-    # Read URLs from file, filtering out blocked profiles
-    from settings import is_blocked_url
-    with open(flagged_file, 'r', encoding='utf-8') as f:
-        raw_urls = [line.strip() for line in f if line.strip() and line.strip().startswith('http')]
-    
-    # Strip comment suffixes (e.g. "url # flagged for review (bulk)")
-    urls = []
-    for raw in raw_urls:
-        url = raw.split('#')[0].strip() if '#' in raw else raw
-        url = _normalize_profile_url(url)
-        if url and not is_blocked_url(url):
-            urls.append(url)
+    urls = _load_review_mode_urls(flagged_file)
     
     if not urls:
         logger.info("📋 No URLs in flagged_for_review.txt")
@@ -1751,6 +1740,57 @@ def run_review_mode(scraper, nav, history_mgr):
             _remove_dead_urls(dead_urls, flagged_file, history_mgr)
         else:
             logger.info("ℹ️  Dead URLs left untouched.")
+
+
+def _load_review_mode_urls(flagged_file):
+    """Load normalized review URLs and prune blocked placeholder slugs from the queue file."""
+    from settings import is_blocked_url
+
+    with open(flagged_file, "r", encoding="utf-8") as handle:
+        lines = handle.readlines()
+
+    urls = []
+    seen = set()
+    blocked_urls = []
+    kept_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or not stripped.startswith("http"):
+            kept_lines.append(line)
+            continue
+
+        raw_url = stripped.split("#", 1)[0].strip()
+        url = _normalize_profile_url(raw_url)
+        if not url:
+            kept_lines.append(line)
+            continue
+
+        if is_blocked_url(url):
+            blocked_urls.append(url)
+            continue
+
+        if url not in seen:
+            urls.append(url)
+            seen.add(url)
+        kept_lines.append(line)
+
+    if blocked_urls:
+        unique_blocked = sorted(set(blocked_urls))
+        try:
+            with open(flagged_file, "w", encoding="utf-8") as handle:
+                handle.writelines(kept_lines)
+            logger.warning(
+                "Review mode removed %s blocked placeholder profile(s) from flagged_for_review.txt",
+                len(blocked_urls),
+            )
+        except Exception as err:
+            logger.warning("Could not prune blocked review URLs from %s: %s", flagged_file, err)
+
+        for blocked_url in unique_blocked[:10]:
+            logger.warning("Skipped blocked review URL: %s", blocked_url)
+
+    return urls
 
 
 def run_update_mode(scraper, nav, history_mgr):
