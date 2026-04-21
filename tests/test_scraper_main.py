@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import types
 from datetime import datetime, timezone
@@ -97,6 +98,12 @@ def test_run_names_mode_default_input_csv(monkeypatch):
 
     assert "csv_path" in captured
     assert captured["csv_path"].name == "engineering_graduates.csv"
+
+
+def test_is_blocked_url_rejects_test_placeholders():
+    assert scraper_main.config.is_blocked_url("https://www.linkedin.com/in/test")
+    assert scraper_main.config.is_blocked_url("https://www.linkedin.com/in/test-user")
+    assert scraper_main.config.is_blocked_url("https://www.linkedin.com/in/test-person/")
 
 
 def test_remove_dead_urls_uses_exact_delete_query(monkeypatch, tmp_path):
@@ -803,3 +810,55 @@ def test_build_discipline_search_base_url_keeps_comma_keyword_format():
     keywords_value = url.split("keywords=", 1)[1]
     assert "%22" not in keywords_value
     assert "+OR+" not in keywords_value
+
+
+def test_run_review_mode_prunes_blocked_placeholder_urls(monkeypatch):
+    tmp_root = project_root / ".tmp-review-mode-test"
+    try:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        tmp_root.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(scraper_main, "PROJECT_ROOT", tmp_root)
+        monkeypatch.setattr(scraper_main, "should_stop", lambda: False)
+        monkeypatch.setattr(scraper_main, "check_force_exit", lambda: False)
+        monkeypatch.setattr(scraper_main, "wait_between_profiles", lambda: None)
+
+        out_dir = tmp_root / "scraper" / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        flagged = out_dir / "flagged_for_review.txt"
+        flagged.write_text(
+            "\n".join(
+                [
+                    "https://linkedin.com/in/test # stale placeholder",
+                    "https://www.linkedin.com/in/valid-profile # Missing Company but Job Title Present",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        scraped_urls = []
+        saved_urls = []
+
+        class _ReviewScraper:
+            def scrape_profile_page(self, url):
+                scraped_urls.append(url)
+                return {"profile_url": url, "name": "Valid Profile"}
+
+        monkeypatch.setattr(
+            scraper_main,
+            "_save_and_track",
+            lambda data, input_url, _history: saved_urls.append((data.get("profile_url"), input_url)) or True,
+        )
+
+        scraper_main.run_review_mode(_ReviewScraper(), _DummyNav(ok=True), _DummyHistory())
+
+        assert scraped_urls == ["https://www.linkedin.com/in/valid-profile"]
+        assert saved_urls == [
+            ("https://www.linkedin.com/in/valid-profile", "https://www.linkedin.com/in/valid-profile")
+        ]
+
+        flagged_after = flagged.read_text(encoding="utf-8")
+        assert "linkedin.com/in/test" not in flagged_after
+        assert "valid-profile" in flagged_after
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
