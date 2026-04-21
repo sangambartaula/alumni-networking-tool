@@ -205,6 +205,14 @@ def standardize_major_list(raw_major: str, job_title: str = "") -> List[str]:
     if not text:
         return ["Other"]
 
+    # Groq-first when available. Deterministic mapping is fallback only.
+    use_llm_fallback = os.getenv("MAJOR_USE_GROQ_FALLBACK", "1") == "1"
+    use_groq = os.getenv("USE_GROQ", "true").lower() == "true"
+    if use_llm_fallback and use_groq and os.getenv("GROQ_API_KEY"):
+        llm_result = _standardize_major_with_llm(text, job_title)
+        if llm_result in UNT_ALLOWED_MAJORS and llm_result != "Other":
+            return [llm_result]
+
     def _resolve(value):
         if value == _CSE_MULTI:
             return list(_CSE_EXPANSION)
@@ -222,14 +230,6 @@ def standardize_major_list(raw_major: str, job_title: str = "") -> List[str]:
     for pattern, canonical in _MAJOR_PATTERNS:
         if pattern.search(text):
             return _resolve(canonical)
-
-    # --- Groq LLM fallback for unrecognized raw strings ---
-    # Default ON: keep AI assistance enabled, but raw fields are protected at DB upsert.
-    use_llm_fallback = os.getenv("MAJOR_USE_GROQ_FALLBACK", "1") == "1"
-    if use_llm_fallback and os.getenv("GROQ_API_KEY"):
-        llm_result = _standardize_major_with_llm(text, job_title)
-        if llm_result in UNT_ALLOWED_MAJORS and llm_result != "Other":
-            return [llm_result]
 
     return ["Other"]
 

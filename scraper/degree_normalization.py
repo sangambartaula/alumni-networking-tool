@@ -12,6 +12,8 @@ Example:
 """
 
 import re
+import os
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -403,6 +405,13 @@ def standardize_degree(raw_degree: str) -> str:
     if lower in {"unknown", "n/a", "na", "none", "null"}:
         return "Other"
 
+    # Groq-first when available. Deterministic mapping is fallback only.
+    use_groq = os.getenv("USE_GROQ", "true").lower() == "true"
+    if use_groq and os.getenv("GROQ_API_KEY"):
+        llm_group = _standardize_degree_with_llm(raw_degree)
+        if llm_group in {"P.h.D", "Masters", "Bachelors"}:
+            return llm_group
+
     # 1. Canonical resolution via existing DEGREE_MAP
     canonical = normalize_degree_deterministic(raw_degree)
     if canonical in _DEGREE_GROUP_MAP:
@@ -429,6 +438,59 @@ def standardize_degree(raw_degree: str) -> str:
         return "Bachelors"
 
     return "Other"
+
+
+def _standardize_degree_with_llm(raw_degree: str) -> str:
+    """Use Groq to map raw degree text to one of: P.h.D, Masters, Bachelors, Other."""
+    try:
+        from groq_client import _get_client, GROQ_MODEL
+
+        client = _get_client()
+        if not client:
+            return "Other"
+
+        degree_text = (raw_degree or "").strip()[:220]
+        prompt = f"""
+Map this raw degree text to exactly one allowed label.
+
+Raw Degree: "{degree_text}"
+
+Allowed labels:
+1. P.h.D
+2. Masters
+3. Bachelors
+4. Other
+
+Rules:
+1. Output JSON only.
+2. If unsure, choose Other.
+3. High school diplomas, certificates, and associate degrees are Other.
+4. Doctoral/professional doctorates map to P.h.D.
+
+Return JSON only:
+{{"degree_group":"P.h.D|Masters|Bachelors|Other"}}
+        """
+
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a strict degree normalization engine. Output valid JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+            model=GROQ_MODEL,
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_tokens=20,
+        )
+
+        payload = json.loads(completion.choices[0].message.content)
+        value = str(payload.get("degree_group") or "").strip()
+        if value in {"P.h.D", "Masters", "Bachelors", "Other"}:
+            return value
+        return "Other"
+
+    except Exception as e:
+        logger.warning(f"LLM degree standardization failed for '{raw_degree}': {e}")
+        return "Other"
 
 def extract_hidden_degree(raw_major: str) -> tuple[str, str]:
     """

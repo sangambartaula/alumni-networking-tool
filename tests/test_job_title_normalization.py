@@ -21,6 +21,10 @@ def test_data_owner_normalizes_to_data_analyst():
     [
         ("Senior Project Manager", "Project Manager"),
         ("Senior Software Engineer", "Software Engineer"),
+        ("Senior Software Developer", "Software Engineer"),
+        ("Software Engineer II", "Software Engineer"),
+        ("Lead Software Developer", "Software Engineer"),
+        ("Director of Software Engineering", "Director"),
         ("Software Developer", "Software Engineer"),
         ("Software Dev", "Software Engineer"),
         ("Application Engineer II", "Application Engineer"),
@@ -78,6 +82,7 @@ def test_it_infrastructure_titles_remain_distinct(raw_title, expected):
     [
         ("Civil Engineer", "Civil Engineer"),
         ("Structural Engineer", "Civil Engineer"),
+        ("Site Engineer", "Site Engineer"),
         ("Field Engineer", "Field Engineer"),
         ("Project Engineer", "Project Engineer"),
         ("FEO Project Engineer", "Project Engineer"),

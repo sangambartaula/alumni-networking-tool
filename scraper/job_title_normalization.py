@@ -245,6 +245,7 @@ TITLE_MAP = {
     "civil engineer": "Civil Engineer",
     "civil enginnering co-op/intern": "Civil Engineer",
     "structural engineer": "Civil Engineer",
+    "site engineer": "Site Engineer",
     "piping engineer": "Mechanical Engineer",
     "process engineer": "Mechanical Engineer",
     "manufacturing engineer": "Mechanical Engineer",
@@ -1148,6 +1149,21 @@ Rules:
 22. "Managing Director" → "Director" (not "Manager").
 23. Generic "Engineer" without software context → "Mechanical Engineer".
 24. "Flight Attendant", "Cashier", "Crew Member", "Server Trainer", "Pharmacy Technician" → "Customer Service".
+25. Software-role collapsing:
+    - "Software Developer", "Software Engineer", "Software Dev", "Senior Software Developer", "Lead Software Developer", "Software Engineer I/II/III" are the same role family.
+    - Normalize all of those to "Software Engineer".
+    - Remove level and seniority qualifiers while preserving the role family.
+26. Do NOT collapse different role families into "Software Engineer".
+    - Examples that should stay distinct: "Data Analyst", "Product Manager", "Designer", "QA Engineer", "DevOps Engineer", "Network Engineer".
+27. Director handling:
+    - Director-level software titles should map to "Director".
+    - Example: "Director of Software Engineering" -> "Director".
+
+Examples:
+- "Senior Software Developer" -> "Software Engineer"
+- "Software Engineer II" -> "Software Engineer"
+- "Lead Software Developer" -> "Software Engineer"
+- "Director of Software Engineering" -> "Director"
 
 Existing normalized titles:
 {titles_list}
@@ -1208,8 +1224,8 @@ def get_or_create_normalized_title(conn, raw_title: str, use_groq: bool = False)
     """
     Main entry point. Returns the normalized_job_title_id for a given raw title.
 
-    1. Deterministic normalization to get a candidate string.
-    2. If use_groq=True and deterministic produced a passthrough, try Groq.
+    1. If use_groq=True, consult Groq first against existing normalized titles.
+    2. Otherwise use deterministic normalization.
     3. INSERT OR IGNORE into normalized_job_titles.
     4. Return the id.
 
@@ -1228,14 +1244,12 @@ def get_or_create_normalized_title(conn, raw_title: str, use_groq: bool = False)
     if not cleaned:
         return None
 
-    # Step 1: deterministic
-    norm = normalize_title_deterministic(raw_title)
-
-    # Step 2: optionally consult Groq if deterministic was a passthrough
-    if use_groq and norm == cleaned:
+    if use_groq:
         existing = get_all_normalized_titles(conn)
         existing_titles = [r['normalized_title'] for r in existing]
         norm = normalize_title_with_groq(raw_title, existing_titles)
+    else:
+        norm = normalize_title_deterministic(raw_title)
 
     if not norm or not str(norm).strip():
         return None

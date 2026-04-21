@@ -311,7 +311,7 @@ def _strip_trailing_location_fragment(text: str) -> str:
     return t
 
 
-def normalize_company_deterministic(raw_company: str) -> str:
+def _normalize_company_deterministic_core(raw_company: str) -> str:
     """
     Deterministic normalization:
       1. Cleanup whitespace & suffixes
@@ -337,6 +337,19 @@ def normalize_company_deterministic(raw_company: str) -> str:
 
     # No match — return cleaned name (preserves original casing from cleanup)
     return cleaned
+
+
+def normalize_company_deterministic(raw_company: str) -> str:
+    """
+    Company normalization entry point.
+
+    Uses Groq first when available; falls back to deterministic logic.
+    """
+    use_groq = os.getenv("USE_GROQ", "true").lower() == "true"
+    if use_groq and GROQ_API_KEY:
+        existing_companies = list(dict.fromkeys(COMPANY_MAP.values()))
+        return normalize_company_with_groq(raw_company, existing_companies)
+    return _normalize_company_deterministic_core(raw_company)
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +418,7 @@ def normalize_company_with_groq(raw_company: str, existing_companies: list) -> s
     client = _get_groq_client()
     if not client:
         logger.info("Groq unavailable — falling back to deterministic company normalization")
-        return normalize_company_deterministic(raw_company)
+        return _normalize_company_deterministic_core(raw_company)
 
     # Build prompt
     companies_list = "\n".join(f"- {c}" for c in existing_companies[:220])
@@ -453,14 +466,14 @@ Return JSON only:
         result = _strip_trailing_location_fragment(result)
         if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:
             logger.warning(f"Groq returned non-company value for {raw_company!r}: {result!r}")
-            return normalize_company_deterministic(raw_company)
+            return _normalize_company_deterministic_core(raw_company)
         if result and len(result) < 150:
             return result
         logger.warning(f"Groq returned suspicious company result: {result!r}")
-        return normalize_company_deterministic(raw_company)
+        return _normalize_company_deterministic_core(raw_company)
     except Exception as e:
         logger.error(f"Groq company normalization failed: {e}")
-        return normalize_company_deterministic(raw_company)
+        return _normalize_company_deterministic_core(raw_company)
 
 
 # ---------------------------------------------------------------------------
