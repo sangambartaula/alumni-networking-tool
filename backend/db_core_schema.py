@@ -481,7 +481,7 @@ def ensure_education_columns():
                     logger.info(f"Migrated {migrated} rows: education ΓåÆ school")
             except Exception as e:
                 logger.warning(f"education ΓåÆ school migration skipped: {e}")
-            logger.info("Γ£à Education columns ensured")
+            logger.info("Education columns ensured")
     except Exception as e:
         logger.error(f"Error ensuring education columns: {e}")
 
@@ -517,7 +517,7 @@ def ensure_experience_analysis_columns():
                         pass  # SQLite: already exists
                     else:
                         raise
-            logger.info("Γ£à Experience analysis columns ensured")
+            logger.info("Experience analysis columns ensured")
     except Exception as e:
         logger.error(f"Error ensuring experience analysis columns: {e}")
 
@@ -611,7 +611,7 @@ def ensure_scrape_run_tracking_schema():
                         pass
                     else:
                         raise
-            logger.info("Γ£à Scrape run tracking schema ensured")
+            logger.info("Scrape run tracking schema ensured")
     except Exception as e:
         logger.error(f"Error ensuring scrape run tracking schema: {e}")
 

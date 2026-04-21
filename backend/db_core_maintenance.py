@@ -17,7 +17,7 @@ def seed_alumni_data():
 
     try:
         df = pd.read_csv(csv_path)
-        logger.info(f"Γ£à Importing alumni data from {csv_path}")
+        logger.info(f"Importing alumni data from {csv_path}")
         logger.info(f"≡ƒôè Found {len(df)} records to import")
 
         conn = get_connection()
@@ -373,8 +373,8 @@ def seed_alumni_data():
                             logger.error(f"Γ¥î Auto-commit failed: {commit_err}")
 
                 conn.commit()
-                logger.info(f"Γ£à Added {added} new alumni records")
-                logger.info(f"Γ£à Updated {updated} existing alumni records")
+                logger.info(f"Added {added} new alumni records")
+                logger.info(f"Updated {updated} existing alumni records")
                 logger.info(f"Successfully processed {processed} total alumni records")
                 _append_flagged_review_urls(flagged_major_issue_urls)
         finally:
@@ -407,7 +407,7 @@ def has_alumni_records():
 
 
 def truncate_dot_fields():
-    """Remove anything after '┬╖' in location, company, and current_job_title"""
+    """Remove anything after the corrupted marker in location, company, and current_job_title."""
     try:
         with managed_db_cursor(get_connection, commit=True) as (_conn, cur):
             cur.execute("""
@@ -421,7 +421,7 @@ def truncate_dot_fields():
                     OR company LIKE '%┬╖%'
                     OR current_job_title LIKE '%┬╖%';
             """)
-            logger.info("Γ£à Truncated '┬╖' fields in alumni table")
+            logger.info("Truncated fields containing the corrupted marker in alumni table")
     except mysql.connector.Error as err:
         logger.error(f"Γ¥î Error truncating dot fields: {err}")
         raise
@@ -504,7 +504,7 @@ def normalize_existing_grad_years():
                 )
                 normalized += 1
 
-        logger.info(f"Γ£à Grad year normalization complete: updated {normalized} of {scanned} rows")
+        logger.info(f"Grad year normalization complete: updated {normalized} of {scanned} rows")
     except Exception as e:
         logger.error(f"Γ¥î Error normalizing grad years: {e}")
 
@@ -590,7 +590,7 @@ def normalize_single_date_education_semantics():
                 updated += 1
 
         logger.info(
-            "Γ£à Single-date education normalization complete: updated %s of %s candidate rows",
+            "Single-date education normalization complete: updated %s of %s candidate rows",
             updated,
             scanned,
         )
@@ -606,7 +606,7 @@ if __name__ == "__main__":
         if missing:
             raise ValueError(f"Missing environment variables: {', '.join(missing)}")
 
-        logger.info("Γ£à All required environment variables validated")
+        logger.info("All required environment variables validated")
         logger.info("≡ƒÜÇ Starting database initialization...")
         logger.info(f"≡ƒôª Database '{MYSQL_DATABASE}' ensured")
 

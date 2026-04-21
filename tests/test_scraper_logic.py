@@ -1,6 +1,7 @@
 
 import sys
 import os
+import json
 import pytest
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -12,6 +13,7 @@ sys.modules.pop('scraper', None)
 os.chdir(project_root)
 
 import scraper as scraper_module
+import groq_client
 from scraper import (
     LinkedInScraper,
     _is_company_title_collision,
@@ -81,7 +83,8 @@ class TestScraperLogic:
         entries = scraper._extract_education_from_top_card(_FakeSoup())
         assert entries == []
 
-    def test_resolve_standardized_title_prefers_exact_lookup(self):
+    def test_resolve_standardized_title_prefers_exact_lookup(self, monkeypatch):
+        monkeypatch.setattr(scraper_module.config, "USE_GROQ", False)
         lookup = {
             "peer mentor": "Peer Mentor",
             "software engineer": "Software Engineer",
@@ -90,7 +93,8 @@ class TestScraperLogic:
         assert resolved == "Peer Mentor"
         assert score == 3
 
-    def test_resolve_standardized_title_does_not_preserve_jr_variant_from_lookup(self):
+    def test_resolve_standardized_title_does_not_preserve_jr_variant_from_lookup(self, monkeypatch):
+        monkeypatch.setattr(scraper_module.config, "USE_GROQ", False)
         lookup = {
             "jr. devops engineer": "Jr. DevOps Engineer",
             "devops engineer": "DevOps Engineer",
@@ -101,8 +105,24 @@ class TestScraperLogic:
         assert resolved == "DevOps Engineer"
         assert score == 2
 
+    def test_resolve_standardized_title_prefers_groq_before_deterministic_fallback(self, monkeypatch):
+        lookup = {
+            "software engineer": "Software Engineer",
+            "site engineer": "Site Engineer",
+        }
+
+        monkeypatch.setattr(scraper_module.config, "USE_GROQ", True)
+        monkeypatch.setattr(scraper_module, "normalize_title_with_groq", lambda raw, existing: "Site Engineer")
+        monkeypatch.setattr(scraper_module, "normalize_title_deterministic", lambda raw: "Software Engineer")
+
+        resolved, score = _resolve_standardized_title("Site Engineer", lookup)
+
+        assert resolved == "Site Engineer"
+        assert score >= 2
+
     def test_apply_experience_display_normalization_reuses_best_same_entry_title(self, monkeypatch):
         scraper = LinkedInScraper()
+        monkeypatch.setattr(scraper_module.config, "USE_GROQ", False)
         monkeypatch.setattr(
             scraper_module,
             "_load_standardized_title_lookup",
@@ -317,6 +337,14 @@ class TestScraperLogic:
             "extract_experiences_with_groq",
             lambda *_args, **_kwargs: ([], 77),
         )
+        warnings = []
+        monkeypatch.setattr(
+            scraper,
+            "_log_groq_accuracy_risk",
+            lambda section, reason, profile_name="unknown", raw_debug_payloads=None: warnings.append(
+                (section, reason, profile_name, bool(raw_debug_payloads))
+            ),
+        )
 
         experiences = scraper._extract_all_experiences(soup, max_entries=3, profile_name="Test User")
 
@@ -326,6 +354,121 @@ class TestScraperLogic:
         assert experiences[0]["company"] == "Acme Robotics · Internship"
         assert experiences[0]["employment_type"] == "Internship"
         assert experiences[0]["end"]["is_present"] is True
+        assert warnings == [
+            (
+                "experience",
+                "Groq saw the Experience section but returned no usable jobs. Falling back to CSS/text extraction.",
+                "Test User",
+                True,
+            )
+        ]
+
+    def test_extract_all_experiences_warns_when_groq_is_unavailable(self, monkeypatch):
+        scraper = LinkedInScraper()
+        soup = BeautifulSoup(
+            """
+            <section componentkey="profileExperienceTopLevelSection">
+              <h2>Experience</h2>
+              <div data-view-name="profile-component-entity">
+                <div class="t-bold"><span aria-hidden="true">Embedded Systems Intern</span></div>
+                <span class="t-14 t-normal"><span aria-hidden="true">Acme Robotics · Internship</span></span>
+                <span class="pvs-entity__caption-wrapper" aria-hidden="true">Jan 2024 - Present</span>
+              </div>
+            </section>
+            """,
+            "html.parser",
+        )
+
+        warnings = []
+        monkeypatch.setattr(scraper_module, "is_groq_available", lambda: False)
+        monkeypatch.setattr(
+            scraper,
+            "_log_groq_accuracy_risk",
+            lambda section, reason, profile_name="unknown", raw_debug_payloads=None: warnings.append(
+                (section, reason, profile_name, bool(raw_debug_payloads))
+            ),
+        )
+
+        experiences = scraper._extract_all_experiences(soup, max_entries=3, profile_name="Test User")
+
+        assert len(experiences) == 1
+        assert warnings == [
+            (
+                "experience",
+                "Groq was unavailable for Experience extraction. Using CSS/text fallback only.",
+                "Test User",
+                True,
+            )
+        ]
+
+    def test_detect_experience_count_mismatch_identifies_missing_companies(self):
+        scraper = LinkedInScraper()
+
+        mismatch = scraper._detect_experience_count_mismatch(
+            {
+                "name": "Test User",
+                "profile_url": "https://www.linkedin.com/in/test-user",
+                "job_title": "Civil Engineer",
+                "company": "",
+                "exp2_title": "Site Engineer",
+                "exp2_company": "",
+                "exp3_title": "Research Assistant",
+                "exp3_company": "University of North Texas",
+            }
+        )
+
+        assert mismatch is not None
+        assert mismatch["title_count"] == 3
+        assert mismatch["company_count"] == 1
+        assert mismatch["missing_company_slots"] == ["Experience 1", "Experience 2"]
+        assert mismatch["missing_title_slots"] == []
+        assert "Experience count mismatch: 3 title value(s) vs 1 company value(s)" in mismatch["reason"]
+
+    def test_log_groq_accuracy_risk_persists_audit_and_forced_debug_dump(self, monkeypatch):
+        temp_root = project_root / "scraper" / "output" / f"_groq_accuracy_test_{os.getpid()}"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        try:
+            audit_file = temp_root / "groq_accuracy_audit.jsonl"
+            debug_dir = temp_root / "debug_html"
+
+            monkeypatch.setattr(groq_client, "GROQ_ACCURACY_AUDIT_FILE", audit_file)
+            monkeypatch.setattr(groq_client, "DEBUG_HTML_DIR", debug_dir)
+            monkeypatch.setattr(groq_client, "SCRAPER_DEBUG_HTML", False)
+            monkeypatch.setenv("SCRAPE_RUN_UUID", "run-123")
+            monkeypatch.setenv("LINKEDIN_EMAIL", "Ashri@example.com")
+
+            groq_client.reset_groq_accuracy_risk_events()
+            groq_client.log_groq_accuracy_risk(
+                section="experience",
+                reason="Groq was unavailable for Experience extraction.",
+                profile_name="Test User",
+                profile_url="https://www.linkedin.com/in/test-user",
+                debug_payloads={"raw_html_non_groq": "<section>Experience</section>"},
+            )
+
+            audit_lines = audit_file.read_text(encoding="utf-8").splitlines()
+            assert len(audit_lines) == 1
+            event = json.loads(audit_lines[0])
+            assert event["run_uuid"] == "run-123"
+            assert event["scraper_email"] == "ashri@example.com"
+            assert event["section"] == "experience"
+            assert event["profile_name"] == "Test User"
+            assert event["profile_url"] == "https://www.linkedin.com/in/test-user"
+
+            in_memory_events = groq_client.get_groq_accuracy_risk_events()
+            assert len(in_memory_events) == 1
+            assert in_memory_events[0]["reason"] == "Groq was unavailable for Experience extraction."
+
+            debug_files = list(debug_dir.glob("Test_User_experience_raw_html_non_groq_*.html"))
+            assert len(debug_files) == 1
+            assert debug_files[0].read_text(encoding="utf-8") == "<section>Experience</section>"
+        finally:
+            for path in sorted(temp_root.rglob("*"), reverse=True):
+                if path.is_file():
+                    path.unlink(missing_ok=True)
+                elif path.is_dir():
+                    path.rmdir()
+            temp_root.rmdir()
 
     def test_extract_top_card_keeps_metropolitan_area_location(self):
         scraper = LinkedInScraper()

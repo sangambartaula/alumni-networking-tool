@@ -58,7 +58,15 @@ from backend.database import (
 from backend.db_helpers import managed_db_cursor, execute_sql
 from backend.geocoding import geocode_location_with_status
 from defense.navigator import SafeNavigator
-from groq_client import is_groq_available, _get_client, GROQ_MODEL, parse_groq_json_response
+from groq_client import (
+    is_groq_available,
+    _get_client,
+    GROQ_MODEL,
+    parse_groq_json_response,
+    log_groq_accuracy_risk,
+    reset_groq_accuracy_risk_events,
+    get_groq_accuracy_risk_events,
+)
 
 
 # ============================================================
@@ -454,17 +462,46 @@ def _append_flagged_review_line(profile_url, reason):
     for flagged_path in pending_paths:
         try:
             flagged_path.parent.mkdir(parents=True, exist_ok=True)
-            existing = set()
+            existing_lines = []
             if flagged_path.exists():
                 with open(flagged_path, "r", encoding="utf-8") as handle:
-                    for line in handle:
-                        existing_url = line.split("#")[0].strip().rstrip("/")
-                        if existing_url:
-                            existing.add(existing_url)
+                    existing_lines = handle.readlines()
 
-            if url not in existing:
-                with open(flagged_path, "a", encoding="utf-8") as handle:
-                    handle.write(f"{url} # {reason_text}\n")
+            rewritten_lines = []
+            matched_existing = False
+            file_changed = False
+
+            for line in existing_lines:
+                raw_line = line.rstrip("\n")
+                existing_url = raw_line.split("#")[0].strip().rstrip("/")
+                if existing_url != url:
+                    rewritten_lines.append(line if line.endswith("\n") else line + "\n")
+                    continue
+
+                if matched_existing:
+                    file_changed = True
+                    continue
+
+                matched_existing = True
+                existing_reason = raw_line.split("#", 1)[1].strip() if "#" in raw_line else ""
+                merged_reasons = [part.strip() for part in existing_reason.split(";") if part.strip()]
+                if reason_text and reason_text not in merged_reasons:
+                    merged_reasons.append(reason_text)
+                    file_changed = True
+
+                merged_reason_text = "; ".join(merged_reasons)
+                if merged_reason_text:
+                    rewritten_lines.append(f"{url} # {merged_reason_text}\n")
+                else:
+                    rewritten_lines.append(f"{url}\n")
+
+            if not matched_existing:
+                rewritten_lines.append(f"{url} # {reason_text}\n")
+                file_changed = True
+
+            if file_changed:
+                with open(flagged_path, "w", encoding="utf-8") as handle:
+                    handle.writelines(rewritten_lines)
                 wrote_any = True
         except Exception as err:
             logger.warning("Could not update review file %s: %s", flagged_path, err)
@@ -1092,13 +1129,36 @@ def _save_and_track(data, input_url, history_mgr):
         canonical_url = input_url
     if canonical_url:
         data["profile_url"] = canonical_url
+    original_url = _normalize_profile_url(data.pop("_original_url", None))  # Remove internal key before save
+    target_url = canonical_url or input_url
+
+    save_block_code = str(data.get("__skip_save__", "") or "").strip()
+    save_block_reason = str(data.get("__skip_save_reason", "") or "").strip()
+    if save_block_code == "experience_count_mismatch" and save_block_reason:
+        if target_url:
+            _append_flagged_review_line(target_url, save_block_reason)
+            _flagged_urls_this_run.add(target_url)
+        if _current_scrape_run_id and target_url:
+            record_scrape_run_flag(_current_scrape_run_id, target_url, save_block_reason)
+            _flagged_urls_this_run.add(target_url)
+        if target_url:
+            history_mgr.mark_as_visited(target_url, saved=False)
+        if original_url and target_url and original_url != target_url:
+            history_mgr.mark_as_visited(original_url, saved=False)
+        logger.warning(
+            "PROFILE SAVE BLOCKED | %s | %s | %s",
+            (data.get("name") or "Unknown").strip(),
+            target_url or "unknown",
+            save_block_reason,
+        )
+        return False
 
     location_text = str(data.get("location", "")).strip()
     if _is_not_found_location(location_text):
         review_reason = "Location Not Found"
-        _emit_not_found_location_warning(canonical_url or input_url, location_text)
-        if _append_flagged_review_line(canonical_url or input_url, review_reason):
-            _flagged_urls_this_run.add(canonical_url or input_url)
+        _emit_not_found_location_warning(target_url, location_text)
+        if _append_flagged_review_line(target_url, review_reason):
+            _flagged_urls_this_run.add(target_url)
         if _current_scrape_run_id and canonical_url:
             record_scrape_run_flag(_current_scrape_run_id, canonical_url, review_reason)
             _flagged_urls_this_run.add(canonical_url)
@@ -1147,8 +1207,6 @@ def _save_and_track(data, input_url, history_mgr):
             _geocode_network_failures_this_run += 1
             logger.debug(f"Auto-geocoding skipped for {canonical_url}: {geocode_err}")
 
-    original_url = _normalize_profile_url(data.pop("_original_url", None))  # Remove internal key before save
-    
     # Check if canonical URL was already saved in this session under a different input URL
     if original_url and history_mgr.should_skip(canonical_url):
         logger.info(f"  ↩️  Profile Already Visited, Skipping: {canonical_url}")
@@ -1262,6 +1320,16 @@ def _save_and_track(data, input_url, history_mgr):
 # ============================================================
 # MODES
 # ============================================================
+def _log_post_save_result(data, saved, verb="Processed"):
+    """Keep caller logs honest when a scrape was flagged but intentionally not persisted."""
+    profile_name = (data or {}).get("name", "Unknown")
+    block_code = str((data or {}).get("__skip_save__", "") or "").strip()
+    if saved:
+        logger.debug(f"{verb}: {profile_name}")
+    elif block_code:
+        logger.debug(f"Not saved ({block_code}): {profile_name}")
+
+
 def run_names_mode(scraper, nav, history_mgr):
     input_csv = os.getenv("INPUT_CSV", "engineering_graduates.csv")
     csv_path = PROJECT_ROOT / input_csv
@@ -1332,7 +1400,8 @@ def run_names_mode(scraper, nav, history_mgr):
                 continue
 
             if data and data != "PAGE_NOT_FOUND":
-                _save_and_track(data, url, history_mgr)
+                saved = _save_and_track(data, url, history_mgr)
+                _log_post_save_result(data, saved, verb="Saved")
 
             if should_stop():
                 return
@@ -1454,7 +1523,8 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
                 continue
 
             if data and data != "PAGE_NOT_FOUND":
-                _save_and_track(data, profile_url, history_mgr)
+                saved = _save_and_track(data, profile_url, history_mgr)
+                _log_post_save_result(data, saved, verb="Saved")
 
             if should_stop():
                 return "stopped", (session_profiles_scraped - mode_start_count)
@@ -1697,8 +1767,8 @@ def run_review_mode(scraper, nav, history_mgr):
                 continue
 
             if data and data != "PAGE_NOT_FOUND":
-                _save_and_track(data, profile_url, history_mgr)
-                logger.debug(f"Updated: {data.get('name', 'Unknown')}")
+                saved = _save_and_track(data, profile_url, history_mgr)
+                _log_post_save_result(data, saved, verb="Updated")
         except Exception as e:
             msg = str(e).lower()
             if _should_recover_from_session_error(msg):
@@ -1709,7 +1779,8 @@ def run_review_mode(scraper, nav, history_mgr):
                     elif _is_non_target_scrape_result(data):
                         _track_non_target_profile_visit(data, profile_url, history_mgr)
                     elif data and data != "PAGE_NOT_FOUND":
-                        _save_and_track(data, profile_url, history_mgr)
+                        saved = _save_and_track(data, profile_url, history_mgr)
+                        _log_post_save_result(data, saved, verb="Updated")
                 else:
                     logger.error(f"❌ Error processing {profile_url}: recovery failed")
             else:
@@ -1853,7 +1924,8 @@ def run_update_mode(scraper, nav, history_mgr):
                 _track_non_target_profile_visit(data, profile_url, history_mgr)
                 continue
             if data and data != "PAGE_NOT_FOUND":
-                _save_and_track(data, profile_url, history_mgr)
+                saved = _save_and_track(data, profile_url, history_mgr)
+                _log_post_save_result(data, saved, verb="Updated")
         except Exception as e:
             if _should_recover_from_session_error(str(e)):
                 success, data = _recover_browser_session(scraper, profile_url, nav)
@@ -1863,7 +1935,8 @@ def run_update_mode(scraper, nav, history_mgr):
                     elif _is_non_target_scrape_result(data):
                         _track_non_target_profile_visit(data, profile_url, history_mgr)
                     elif data and data != "PAGE_NOT_FOUND":
-                        _save_and_track(data, profile_url, history_mgr)
+                        saved = _save_and_track(data, profile_url, history_mgr)
+                        _log_post_save_result(data, saved, verb="Updated")
                 else:
                     logger.error(f"❌ Error processing {profile_url}: recovery failed")
             else:
@@ -1998,6 +2071,8 @@ def main():
     session_profiles_scraped = 0
     _current_scrape_run_id = None
     _current_scrape_run_uuid = str(uuid.uuid4())
+    os.environ["SCRAPE_RUN_UUID"] = _current_scrape_run_uuid
+    reset_groq_accuracy_risk_events()
 
     selected_disciplines = _get_selected_search_disciplines() if config.SCRAPER_MODE == "search" else []
     try:
@@ -2021,6 +2096,17 @@ def main():
     )
     if disable_db:
         logger.warning("[red bold]CLOUD WRITE DISABLED:[/red bold] DISABLE_DB=1, so writes are local only.")
+
+    if not is_groq_available():
+        log_groq_accuracy_risk(
+            section="run_start",
+            reason=(
+                "Groq extraction is unavailable for this run. Experience and education extraction may be inaccurate "
+                "because the scraper will rely on fallback parsing."
+            ),
+            profile_name="RUN START",
+            profile_url="",
+        )
 
     try:
         fallback_manager = get_connection_manager()
@@ -2105,6 +2191,25 @@ def main():
             _geocode_network_failures_this_run,
             _geocode_failures_this_run,
         )
+        groq_accuracy_events = get_groq_accuracy_risk_events()
+        logger.info("  groq accuracy risk count: %s", len(groq_accuracy_events))
+        if groq_accuracy_events:
+            samples = []
+            seen = set()
+            for event in groq_accuracy_events:
+                key = (
+                    event.get("profile_url") or event.get("profile_name") or "unknown",
+                    event.get("section") or "unknown",
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                samples.append(
+                    f"{event.get('section', 'unknown')}::{event.get('profile_url') or event.get('profile_name') or 'unknown'}"
+                )
+                if len(samples) >= 10:
+                    break
+            logger.info("  groq accuracy risk sample: %s", "; ".join(samples))
         if _geocode_failure_locations:
             logger.info("  unknown locations: %s", "; ".join(sorted(_geocode_failure_locations)[:10]))
         logger.info("=" * 60)
@@ -2121,6 +2226,7 @@ def main():
         logger.info("SUMMARY|geocode_success=%s", _geocode_success_this_run)
         logger.info("SUMMARY|geocode_fail=%s", _geocode_network_failures_this_run)
         logger.info("SUMMARY|geocode_unknown=%s", _geocode_failures_this_run)
+        logger.info("SUMMARY|groq_accuracy_risk_count=%s", len(groq_accuracy_events))
         if _geocode_failure_locations:
             logger.info("SUMMARY|unknown_locations=%s", "; ".join(sorted(_geocode_failure_locations)[:10]))
 

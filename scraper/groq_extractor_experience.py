@@ -36,6 +36,8 @@ _YEAR_RANGE_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 _CLASS_OF_RE = re.compile(r"\bclass\s+of\s+(?:19|20)\d{2}\b", re.IGNORECASE)
+_ENTITY_COLLECTION_ITEM_RE = re.compile(r"^entity-collection-item-")
+_SKILL_LINE_RE = re.compile(r"(?:^|, ).*and \+\d+ skills?$", re.IGNORECASE)
 
 
 def _looks_like_location_fragment(fragment: str) -> bool:
@@ -143,6 +145,84 @@ def _flag_profile_for_review(profile_name: str, reason: str):
         logger.warning(f"Could not append flagged review row: {exc}")
 
 
+def _clean_structured_line(text: str) -> str:
+    """Normalize extracted text fragments before they are stitched into Groq input."""
+    line = _clean_doubled((text or "").strip())
+    line = re.sub(r"\s+", " ", line).strip(" |")
+    return line
+
+
+def _is_skill_noise_line(text: str) -> bool:
+    """Filter footer skill chips that are not part of the experience record."""
+    line = (text or "").strip()
+    if not line:
+        return True
+    low = line.lower()
+    return bool(
+        _SKILL_LINE_RE.search(line)
+        or ("skills" in low and "+" in line)
+        or ("skill" in low and "+" in line)
+    )
+
+
+def _iter_top_level_experience_blocks(soup):
+    """Yield top-level LinkedIn experience cards without duplicating nested grouped-role items."""
+    blocks = []
+    for node in soup.find_all(attrs={"componentkey": _ENTITY_COLLECTION_ITEM_RE}):
+        parent = node.find_parent(attrs={"componentkey": _ENTITY_COLLECTION_ITEM_RE})
+        if parent is not None:
+            continue
+        blocks.append(node)
+    return blocks
+
+
+def _extract_block_lines(block, include_nested: bool = False) -> list[str]:
+    """Extract clean text lines from `<p>` tags, optionally ignoring nested role items."""
+    lines = []
+    for tag in block.find_all("p"):
+        if not include_nested and tag.find_parent("li") is not None:
+            continue
+        text = _clean_structured_line(tag.get_text(" ", strip=True))
+        if not text or _is_skill_noise_line(text):
+            continue
+        lines.append(text)
+    return lines
+
+
+def _component_block_to_entries(block) -> list[str]:
+    """
+    Convert a LinkedIn experience card into one or more structured entries.
+
+    Standalone roles return a single line.
+    Grouped-role cards return one line per sub-role with the parent company prepended.
+    """
+    sub_roles = block.find_all("li")
+    if sub_roles:
+        header_lines = _extract_block_lines(block, include_nested=False)
+        company = header_lines[0] if header_lines else ""
+        entries = []
+        seen = set()
+        for role in sub_roles:
+            role_lines = _extract_block_lines(role, include_nested=True)
+            if not role_lines:
+                continue
+            entry_parts = [company] if company else []
+            entry_parts.extend(role_lines)
+            entry = " | ".join(part for part in entry_parts if part)
+            if entry and entry not in seen:
+                entries.append(entry)
+                seen.add(entry)
+        if entries:
+            return entries
+
+    standalone_lines = _extract_block_lines(block, include_nested=False)
+    if standalone_lines:
+        return [" | ".join(standalone_lines)]
+
+    text = _clean_structured_line(block.get_text(separator=" | ", strip=True))
+    return [text] if text else []
+
+
 # Strip common LinkedIn level prefixes from titles for cleaner storage (Sr./Jr./Associate, etc.).
 # Deliberately excludes Staff/Principal/Lead — those are part of role identity for many tracks.
 _TITLE_LEVEL_PREFIX = re.compile(
@@ -207,20 +287,26 @@ def _html_to_structured_text(html: str, profile_name: str = "unknown") -> str:
             else:
                 tag.decompose()
     
-    # Now extract structured entries from the experience list items
+    # Prefer top-level LinkedIn experience cards so grouped roles retain their
+    # parent-company context before we consider raw nested list items.
     entries = []
-    
-    # Find top-level experience list items
-    experience_items = soup.select('li.pvs-list__paged-list-item') or soup.select('li[class*="pvs-list"]') or soup.find_all('li')
-    
-    for item in experience_items:
-        text = item.get_text(separator=' | ', strip=True)
-        # Clean up excessive pipes and whitespace
-        text = re.sub(r'\|\s*\|', '|', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        if text and len(text) > 10:
-            entries.append(text)
+
+    component_blocks = _iter_top_level_experience_blocks(soup)
+    for block in component_blocks:
+        entries.extend(_component_block_to_entries(block))
+
+    if not entries:
+        # Fallback for older/simple layouts that expose direct list items only.
+        experience_items = soup.select('li.pvs-list__paged-list-item') or soup.select('li[class*="pvs-list"]') or soup.find_all('li')
+
+        for item in experience_items:
+            text = item.get_text(separator=' | ', strip=True)
+            # Clean up excessive pipes and whitespace
+            text = re.sub(r'\|\s*\|', '|', text)
+            text = re.sub(r'\s+', ' ', text).strip()
+
+            if text and len(text) > 10:
+                entries.append(text)
     
     if not entries:
         # Fallback: just get all text with line breaks

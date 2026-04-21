@@ -21,7 +21,14 @@ import scraper_utils as utils
 import settings as config
 from settings import logger, print_profile_summary
 from entity_classifier import classify_entity, is_location, is_university, get_classifier
-from groq_client import is_groq_available, verify_location, parse_groq_date, _clean_doubled
+from groq_client import (
+    is_groq_available,
+    verify_location,
+    parse_groq_date,
+    _clean_doubled,
+    log_groq_accuracy_risk,
+    save_debug_html,
+)
 from groq_extractor_experience import extract_experiences_with_groq, strip_seniority_prefixes_from_title
 from groq_extractor_education import extract_education_with_groq
 from scraper_utils import determine_work_study_status
@@ -165,11 +172,11 @@ def _load_standardized_title_lookup() -> dict[str, str]:
 
 def _resolve_standardized_title(raw_title: str, title_lookup: dict[str, str] | None = None) -> tuple[str, int]:
     """
-    Resolve title with local rules:
-    1) Deterministic normalization.
-    2) Preserve exact lookup casing only when raw title is already canonical.
-    3) Deterministic normalization mapped back into lookup.
-    4) Deterministic normalization fallback.
+    Resolve title with Groq-first normalization when available:
+    1) Groq normalization against existing titles when enabled.
+    2) Deterministic normalization fallback.
+    3) Preserve exact lookup casing only when raw title is already canonical.
+    4) Map normalized titles back into lookup casing when possible.
     Returns: (standardized_title, quality_score)
     """
     raw = (raw_title or "").strip()
@@ -181,7 +188,11 @@ def _resolve_standardized_title(raw_title: str, title_lookup: dict[str, str] | N
 
     if _NORM_AVAILABLE:
         try:
-            normalized = normalize_title_deterministic(raw) or raw
+            if config.USE_GROQ:
+                existing_titles = list(dict.fromkeys(lookup.values()))
+                normalized = normalize_title_with_groq(raw, existing_titles) or raw
+            else:
+                normalized = normalize_title_deterministic(raw) or raw
         except Exception:
             normalized = raw
     else:
@@ -215,6 +226,7 @@ class LinkedInScraper:
     def __init__(self):
         self.driver = None
         self.wait = None
+        self._current_profile_url = ""
 
     # ============================================================
     # Selenium Setup & Auth
@@ -642,6 +654,7 @@ class LinkedInScraper:
                 logger.info(f"URL redirect: {profile_url} → {canonical_url}")
                 data["profile_url"] = canonical_url
                 data["_original_url"] = profile_url  # Keep original for history tracking
+            self._current_profile_url = data.get("profile_url") or canonical_url or profile_url
 
             # 1. Trigger full-page lazy loading using the same scroll routine on every OS.
             self.scroll_full_page()
@@ -686,13 +699,17 @@ class LinkedInScraper:
             edu_entries = []
 
             # Prefer expanded education page (latest entries) when available.
-            detailed_entries, detail_tokens = self._extract_education_entries_from_detailed_view(profile_url, soup)
+            detailed_entries, detail_tokens = self._extract_education_entries_from_detailed_view(
+                profile_url,
+                soup,
+                profile_name=data.get("name", "unknown"),
+            )
             _total_tokens += detail_tokens
             if detailed_entries:
                 edu_entries = self._merge_education_entries(edu_entries, detailed_entries)
 
+            edu_root = self._find_section_root(soup, "Education")
             if is_groq_available():
-                edu_root = self._find_section_root(soup, "Education")
                 if edu_root:
                     edu_html = str(edu_root)
                     groq_results, edu_tokens = extract_education_with_groq(
@@ -719,8 +736,25 @@ class LinkedInScraper:
                             self._build_education_entries_from_groq(groq_results),
                             edu_entries,
                         )
+                    else:
+                        self._log_groq_accuracy_risk(
+                            "education",
+                            "Groq saw the Education section but returned no usable entries. Falling back to CSS extraction.",
+                            profile_name=data.get("name", "unknown"),
+                            raw_debug_payloads={"raw_html_non_groq": edu_html},
+                        )
+                        css_entries = self._extract_education_entries(soup)
+                        if css_entries:
+                            edu_entries = self._merge_education_entries(edu_entries, css_entries)
 
             elif not is_groq_available():
+                if edu_root:
+                    self._log_groq_accuracy_risk(
+                        "education",
+                        "Groq was unavailable for Education extraction. Using CSS extraction only.",
+                        profile_name=data.get("name", "unknown"),
+                        raw_debug_payloads={"raw_html_non_groq": str(edu_root)},
+                    )
                 css_entries = self._extract_education_entries(soup)
                 if css_entries:
                     edu_entries = self._merge_education_entries(edu_entries, css_entries)
@@ -868,9 +902,18 @@ class LinkedInScraper:
 
             self._apply_education_and_discipline_normalization(data)
             self._apply_experience_display_normalization(data)
+            experience_root = self._find_section_root(soup, "Experience")
+            experience_count_mismatch = self._mark_profile_for_experience_count_mismatch(
+                data,
+                exp_root_html=str(experience_root) if experience_root else "",
+            )
 
             # --- Clean summary block ---
-            print_profile_summary(data, token_count=_total_tokens, status="Saved")
+            print_profile_summary(
+                data,
+                token_count=_total_tokens,
+                status="Flagged - Not Saved" if experience_count_mismatch else "Saved",
+            )
             self._log_missing_data_warnings(data, all_experiences, edu_entries)
 
             # Normalize all fields before returning
@@ -914,6 +957,107 @@ class LinkedInScraper:
                 data[f"exp{i}_company"] = ""
                 data[f"exp{i}_employment_type"] = ""
                 data[f"exp{i}_dates"] = ""
+
+    @staticmethod
+    def _detect_experience_count_mismatch(data):
+        """Detect mismatched counts between populated title and company fields."""
+        slots = [
+            (
+                "Experience 1",
+                str(data.get("job_title", "") or "").strip(),
+                str(data.get("company", "") or "").strip(),
+            ),
+            (
+                "Experience 2",
+                str(data.get("exp2_title", "") or "").strip(),
+                str(data.get("exp2_company", "") or "").strip(),
+            ),
+            (
+                "Experience 3",
+                str(data.get("exp3_title", "") or "").strip(),
+                str(data.get("exp3_company", "") or "").strip(),
+            ),
+        ]
+
+        title_count = sum(1 for _label, title, _company in slots if title)
+        company_count = sum(1 for _label, _title, company in slots if company)
+        if title_count == company_count:
+            return None
+
+        missing_company_slots = [label for label, title, company in slots if title and not company]
+        missing_title_slots = [label for label, title, company in slots if company and not title]
+
+        reason_parts = [
+            f"Experience count mismatch: {title_count} title value(s) vs {company_count} company value(s)"
+        ]
+        if missing_company_slots:
+            reason_parts.append("missing company in " + ", ".join(missing_company_slots))
+        if missing_title_slots:
+            reason_parts.append("missing title in " + ", ".join(missing_title_slots))
+
+        debug_lines = [
+            f"Profile: {str(data.get('name', '') or '').strip() or 'unknown'}",
+            f"URL: {str(data.get('profile_url', '') or '').strip()}",
+            f"Reason: {'; '.join(reason_parts)}",
+            "",
+        ]
+        for label, title, company in slots:
+            debug_lines.append(
+                f"{label} | title={title or '<missing>'} | company={company or '<missing>'}"
+            )
+
+        return {
+            "title_count": title_count,
+            "company_count": company_count,
+            "missing_company_slots": missing_company_slots,
+            "missing_title_slots": missing_title_slots,
+            "reason": "; ".join(reason_parts),
+            "debug_text": "\n".join(debug_lines),
+        }
+
+    def _emit_experience_count_mismatch_warning(self, profile_name, mismatch):
+        """Print a high-visibility warning when title/company counts do not line up."""
+        banner = "[bold white on red]" + ("!" * 92) + "[/bold white on red]"
+        logger.warning(banner)
+        logger.warning(
+            "[bold white on red]EXPERIENCE TITLE/COMPANY COUNT MISMATCH - PROFILE WILL NOT BE SAVED[/bold white on red]"
+        )
+        logger.warning(
+            "[bold white on red]profile:[/bold white on red] %s | [bold white on red]url:[/bold white on red] %s",
+            (profile_name or "unknown").strip() or "unknown",
+            getattr(self, "_current_profile_url", "") or "unknown",
+        )
+        logger.warning("[bold white on red]%s[/bold white on red]", mismatch["reason"])
+        logger.warning(banner)
+
+    def _mark_profile_for_experience_count_mismatch(self, data, exp_root_html=""):
+        """Attach save-block metadata when title/company counts are inconsistent."""
+        mismatch = self._detect_experience_count_mismatch(data)
+        if not mismatch:
+            return None
+
+        data["__skip_save__"] = "experience_count_mismatch"
+        data["__skip_save_reason"] = mismatch["reason"]
+        data["__experience_title_count"] = str(mismatch["title_count"])
+        data["__experience_company_count"] = str(mismatch["company_count"])
+
+        profile_name = str(data.get("name", "") or "").strip() or "unknown"
+        save_debug_html(
+            mismatch["debug_text"],
+            profile_name,
+            "experience_count_mismatch",
+            force=True,
+        )
+        if exp_root_html:
+            save_debug_html(
+                exp_root_html,
+                profile_name,
+                "experience_count_mismatch_raw_html",
+                force=True,
+            )
+
+        self._emit_experience_count_mismatch_warning(profile_name, mismatch)
+        return mismatch
 
     @staticmethod
     def _append_standardization_log(filename, raw, standardized):
@@ -1171,7 +1315,8 @@ class LinkedInScraper:
             return ""
 
         try:
-            return normalize_title_deterministic(raw_title) or ""
+            resolved, _score = _resolve_standardized_title(raw_title)
+            return resolved or ""
         except Exception:
             return ""
 
@@ -1625,10 +1770,8 @@ class LinkedInScraper:
         # APPROACH 0: Groq AI extraction (most accurate)
         # ============================================================
         if is_groq_available():
+            experience_html = str(exp_root)
             try:
-                # Get the raw HTML of the experience section
-                experience_html = str(exp_root)
-                
                 # Call Groq to extract jobs
                 groq_jobs, exp_tokens = extract_experiences_with_groq(experience_html, max_jobs=max_entries, profile_name=profile_name)
                 self._last_exp_tokens = exp_tokens
@@ -1666,9 +1809,28 @@ class LinkedInScraper:
                         logger.debug(f"Groq extracted {len(parsed)} experience(s)")
                         return parsed[:max_entries]
 
+                self._log_groq_accuracy_risk(
+                    "experience",
+                    "Groq saw the Experience section but returned no usable jobs. Falling back to CSS/text extraction.",
+                    profile_name=profile_name,
+                    raw_debug_payloads={"raw_html_non_groq": experience_html},
+                )
                 logger.debug("Groq experience extraction returned no usable jobs; falling back to CSS extraction.")
             except Exception as e:
+                self._log_groq_accuracy_risk(
+                    "experience",
+                    f"Groq experience extraction crashed ({e}). Falling back to CSS/text extraction.",
+                    profile_name=profile_name,
+                    raw_debug_payloads={"raw_html_non_groq": experience_html},
+                )
                 logger.warning(f"Groq extraction failed: {e}")
+        else:
+            self._log_groq_accuracy_risk(
+                "experience",
+                "Groq was unavailable for Experience extraction. Using CSS/text fallback only.",
+                profile_name=profile_name,
+                raw_debug_payloads={"raw_html_non_groq": str(exp_root)},
+            )
         
         # ============================================================
         # APPROACH 1: Direct CSS selector extraction (LinkedIn's structure)
@@ -1798,6 +1960,15 @@ class LinkedInScraper:
             logger.debug(f"Extracted {len(parsed)} experience(s) via CSS fallback")
         
         return parsed[:max_entries]
+
+    def _log_groq_accuracy_risk(self, section, reason, profile_name="unknown", raw_debug_payloads=None):
+        log_groq_accuracy_risk(
+            section=section,
+            reason=reason,
+            profile_name=profile_name,
+            profile_url=getattr(self, "_current_profile_url", ""),
+            debug_payloads=raw_debug_payloads,
+        )
     
     def _extract_experiences_text_based(self, exp_root, max_entries=3, seen_entries=None):
         """
@@ -2445,7 +2616,7 @@ class LinkedInScraper:
                 return href
         return None
 
-    def _extract_education_entries_from_detailed_view(self, profile_url, soup=None):
+    def _extract_education_entries_from_detailed_view(self, profile_url, soup=None, profile_name="unknown"):
         """Open detailed education page (if available) and return up to latest 3 education entries."""
         token_count = 0
         link = self._find_show_all_education_link(soup)
@@ -2467,14 +2638,14 @@ class LinkedInScraper:
             if is_groq_available():
                 groq_results, edu_tokens = extract_education_with_groq(
                     str(main),
-                    profile_name="unknown",
+                    profile_name=profile_name,
                 )
                 token_count += edu_tokens
 
                 if groq_results and self._education_entries_exceed_cloud_limits(groq_results):
                     strict_results, strict_tokens = extract_education_with_groq(
                         str(main),
-                        profile_name="unknown",
+                        profile_name=profile_name,
                         strict_mode=True,
                     )
                     token_count += strict_tokens
@@ -2482,8 +2653,23 @@ class LinkedInScraper:
                         groq_results = strict_results
 
                 entries = self._build_education_entries_from_groq(groq_results)
+                if not entries:
+                    self._log_groq_accuracy_risk(
+                        "education_detailed",
+                        "Groq saw the detailed Education page but returned no usable entries. Falling back to CSS extraction.",
+                        profile_name=profile_name,
+                        raw_debug_payloads={"raw_html_non_groq": str(main)},
+                    )
+                    css_entries = self._extract_education_entries(detail_soup)
+                    entries = self._merge_education_entries(entries, css_entries)
 
             else:
+                self._log_groq_accuracy_risk(
+                    "education_detailed",
+                    "Groq was unavailable for detailed Education extraction. Using CSS extraction only.",
+                    profile_name=profile_name,
+                    raw_debug_payloads={"raw_html_non_groq": str(main)},
+                )
                 css_entries = self._extract_education_entries(detail_soup)
                 entries = self._merge_education_entries(entries, css_entries)
             entries = self._sort_education_entries(entries)

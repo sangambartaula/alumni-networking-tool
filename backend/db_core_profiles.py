@@ -295,7 +295,7 @@ def migrate_env_emails_to_db():
         if add_authorized_email(email, added_by_user_id=None, notes="Migrated from .env"):
             migrated += 1
     
-    logger.info(f"Γ£à Migrated {migrated}/{len(emails)} authorized emails to database")
+    logger.info(f"Authorized email migration complete: {migrated}/{len(emails)} added to database")
     return migrated
 
 

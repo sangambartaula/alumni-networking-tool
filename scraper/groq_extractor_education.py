@@ -79,6 +79,24 @@ def _is_unt_school(school_name: str) -> bool:
     return ("university of north texas" in s) or re.search(r"\bunt\b", s) is not None
 
 
+def _should_drop_low_confidence_school_only_entry(
+    school: str,
+    degree_raw: str,
+    major_raw: str,
+    start_year: str,
+    end_year: str,
+) -> bool:
+    """
+    Drop school-only non-UNT entries with no degree, major, or dates.
+
+    LinkedIn occasionally renders secondary education cards as a bare school link.
+    Those rows are too incomplete to trust for non-UNT schools, but we keep UNT
+    school-only entries because that affiliation is still useful to the scraper.
+    """
+    has_details = any([degree_raw, major_raw, start_year, end_year])
+    return bool(school) and not has_details and not _is_unt_school(school)
+
+
 def _education_html_to_structured_text(html: str, profile_name: str = "unknown", relaxed: bool = False) -> str:
     """
     Convert education section HTML into clean structured text for the LLM.
@@ -428,6 +446,19 @@ Data:
             if re.search(r"\b(university|college|institute)\b", school, re.IGNORECASE) and re.search(r"\bhigh\s*school\b", degree_raw, re.IGNORECASE):
                 logger.debug(f"Clearing impossible degree for university school entry: {school} | {degree_raw}")
                 degree_raw = ""
+
+            if _should_drop_low_confidence_school_only_entry(
+                school,
+                degree_raw,
+                major_raw,
+                start_year,
+                end_year,
+            ):
+                logger.debug(
+                    "Skipping low-confidence school-only education entry: %s",
+                    school,
+                )
+                continue
 
             # Drop clearly malformed school values in strict mode.
             if strict_mode and _entry_exceeds_cloud_limit(

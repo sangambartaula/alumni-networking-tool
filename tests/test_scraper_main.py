@@ -707,6 +707,133 @@ def test_save_and_track_not_found_location_emits_warning_and_flags(monkeypatch):
     assert "https://www.linkedin.com/in/test-user" in scraper_main._flagged_urls_this_run
 
 
+def test_save_and_track_blocks_experience_count_mismatch_and_flags_review(monkeypatch):
+    flagged = []
+    run_flags = []
+    visited = []
+
+    class _History:
+        def should_skip(self, _url):
+            return False
+
+        def mark_as_visited(self, url, saved=False):
+            visited.append((url, saved))
+            return None
+
+    def _unexpected_save(_data):
+        raise AssertionError("save_profile_to_csv should not be called for count mismatches")
+
+    monkeypatch.setattr(scraper_main.database_handler, "save_profile_to_csv", _unexpected_save)
+    monkeypatch.setattr(
+        scraper_main,
+        "_append_flagged_review_line",
+        lambda url, reason: flagged.append((url, reason)) or True,
+    )
+    monkeypatch.setattr(
+        scraper_main,
+        "record_scrape_run_flag",
+        lambda run_id, linkedin_url, reason: run_flags.append((run_id, linkedin_url, reason)) or True,
+    )
+    monkeypatch.setattr(
+        scraper_main,
+        "geocode_location_with_status",
+        lambda _location: (_ for _ in ()).throw(AssertionError("geocoding should not run for blocked saves")),
+    )
+    monkeypatch.setattr(scraper_main, "_current_scrape_run_id", 77)
+    monkeypatch.setattr(scraper_main, "_flagged_urls_this_run", set())
+
+    reason = (
+        "Experience count mismatch: 3 title value(s) vs 1 company value(s); "
+        "missing company in Experience 1, Experience 2"
+    )
+    ok = scraper_main._save_and_track(
+        {
+            "profile_url": "https://www.linkedin.com/in/test-user",
+            "name": "Test User",
+            "job_title": "Civil Engineer",
+            "company": "",
+            "exp2_title": "Site Engineer",
+            "exp2_company": "",
+            "exp3_title": "Research Assistant",
+            "exp3_company": "University of North Texas",
+            "__skip_save__": "experience_count_mismatch",
+            "__skip_save_reason": reason,
+        },
+        "https://www.linkedin.com/in/test-user",
+        _History(),
+    )
+
+    assert ok is False
+    assert flagged == [("https://www.linkedin.com/in/test-user", reason)]
+    assert run_flags == [(77, "https://www.linkedin.com/in/test-user", reason)]
+    assert visited == [("https://www.linkedin.com/in/test-user", False)]
+    assert "https://www.linkedin.com/in/test-user" in scraper_main._flagged_urls_this_run
+
+
+def test_append_flagged_review_line_merges_new_reason_for_existing_url(monkeypatch):
+    flagged_file = project_root / "scraper" / "output" / "_flagged_review_comment_test.txt"
+    flagged_file.parent.mkdir(parents=True, exist_ok=True)
+    flagged_file.write_text(
+        "https://www.linkedin.com/in/test-user # Missing Company but Job Title Present\n",
+        encoding="utf-8",
+    )
+
+    try:
+        monkeypatch.setattr(scraper_main.config, "FLAGGED_PROFILES_FILE", flagged_file)
+
+        changed = scraper_main._append_flagged_review_line(
+            "https://www.linkedin.com/in/test-user",
+            "Experience count mismatch: 3 title value(s) vs 1 company value(s)",
+        )
+
+        assert changed is True
+        contents = flagged_file.read_text(encoding="utf-8")
+        assert "Missing Company but Job Title Present" in contents
+        assert "Experience count mismatch: 3 title value(s) vs 1 company value(s)" in contents
+        assert contents.count("https://www.linkedin.com/in/test-user") == 1
+    finally:
+        flagged_file.unlink(missing_ok=True)
+
+
+def test_run_review_mode_logs_not_saved_instead_of_updated_for_blocked_profile(monkeypatch):
+    tmp_root = project_root / ".tmp-review-mode-blocked-save-test"
+    try:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+        tmp_root.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(scraper_main, "PROJECT_ROOT", tmp_root)
+        monkeypatch.setattr(scraper_main, "should_stop", lambda: False)
+        monkeypatch.setattr(scraper_main, "check_force_exit", lambda: False)
+        monkeypatch.setattr(scraper_main, "wait_between_profiles", lambda: None)
+
+        out_dir = tmp_root / "scraper" / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        flagged = out_dir / "flagged_for_review.txt"
+        flagged.write_text(
+            "https://www.linkedin.com/in/blocked-save-user # Experience count mismatch\n",
+            encoding="utf-8",
+        )
+
+        debug_messages = []
+        monkeypatch.setattr(scraper_main.logger, "debug", lambda msg, *args: debug_messages.append(msg % args if args else msg))
+        monkeypatch.setattr(scraper_main, "_save_and_track", lambda _data, _input_url, _history: False)
+
+        class _ReviewScraper:
+            def scrape_profile_page(self, url):
+                return {
+                    "profile_url": url,
+                    "name": "Test User",
+                    "__skip_save__": "experience_count_mismatch",
+                    "__skip_save_reason": "Experience count mismatch",
+                }
+
+        scraper_main.run_review_mode(_ReviewScraper(), _DummyNav(ok=True), _DummyHistory())
+
+        assert any("Not saved (experience_count_mismatch): Test User" == msg for msg in debug_messages)
+        assert not any(msg.startswith("Updated:") for msg in debug_messages)
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
 def test_save_and_track_propagates_run_id_and_records_flags(monkeypatch):
     upsert_calls = []
     flag_calls = []

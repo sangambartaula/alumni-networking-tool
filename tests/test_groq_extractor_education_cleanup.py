@@ -208,3 +208,45 @@ def test_university_high_school_degree_is_cleared(monkeypatch):
     assert len(entries) == 1
     assert entries[0]["school"] == "University of North Texas"
     assert entries[0]["degree_raw"] == ""
+
+
+def test_school_only_non_unt_entry_is_dropped(monkeypatch):
+    """Bare non-UNT school names should not survive as standalone education rows."""
+    import json
+
+    class _Completions:
+        @staticmethod
+        def create(**_kwargs):
+            return _FakeResponse(json.dumps({"education": [
+                {
+                    "school": "University of North Texas",
+                    "degree_raw": "Master's degree",
+                    "major_raw": "Industrial Engineering",
+                    "start_year": "2022",
+                    "end_year": "2024"
+                },
+                {
+                    "school": "Malla Reddy (MR) Deemed to be University",
+                    "degree_raw": "",
+                    "major_raw": "",
+                    "start_year": "",
+                    "end_year": ""
+                }
+            ]}))
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    monkeypatch.setattr(groq_extractor_education, "_get_client", lambda: _Client())
+    monkeypatch.setattr(groq_extractor_education, "is_groq_available", lambda: True)
+
+    entries, _ = groq_extractor_education.extract_education_with_groq(
+        "<section><li>University of North Texas</li><li>Malla Reddy (MR) Deemed to be University</li></section>",
+        profile_name="Prathyusha Test",
+    )
+
+    assert len(entries) == 1
+    assert entries[0]["school"] == "University of North Texas"

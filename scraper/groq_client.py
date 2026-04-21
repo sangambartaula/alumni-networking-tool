@@ -79,9 +79,11 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 # missed specific data points (e.g., if LinkedIn changed a CSS class).
 SCRAPER_DEBUG_HTML = os.getenv("SCRAPER_DEBUG_HTML", "false").lower() == "true"
 DEBUG_HTML_DIR = Path(__file__).parent / "output" / "debug_html"
+GROQ_ACCURACY_AUDIT_FILE = Path(__file__).parent / "output" / "groq_accuracy_audit.jsonl"
 
 # Initialize the client once
 _client = None
+_RUN_GROQ_ACCURACY_EVENTS = []
 
 _MONTH_ALIASES = {
     "jan": 1,
@@ -142,7 +144,7 @@ def is_groq_available():
     return GROQ_AVAILABLE and GROQ_ENABLED and bool(GROQ_API_KEY)
 
 
-def save_debug_html(content: str, profile_name: str, section: str = "experience"):
+def save_debug_html(content: str, profile_name: str, section: str = "experience", force: bool = False):
     """
     Save debug content to file if SCRAPER_DEBUG_HTML is enabled.
 
@@ -151,7 +153,7 @@ def save_debug_html(content: str, profile_name: str, section: str = "experience"
         profile_name: Name of the profile (for filename).
         section: Section name, e.g. "experience" or "education".
     """
-    if not SCRAPER_DEBUG_HTML:
+    if not force and not SCRAPER_DEBUG_HTML:
         return
     try:
         DEBUG_HTML_DIR.mkdir(parents=True, exist_ok=True)
@@ -164,6 +166,84 @@ def save_debug_html(content: str, profile_name: str, section: str = "experience"
     except Exception as e:
         # Debug saving must never crash production
         logger.warning(f"    ⚠️ Failed to save debug {section}: {e}")
+
+
+def reset_groq_accuracy_risk_events() -> None:
+    """Reset per-run Groq accuracy risk tracking."""
+    global _RUN_GROQ_ACCURACY_EVENTS
+    _RUN_GROQ_ACCURACY_EVENTS = []
+
+
+def get_groq_accuracy_risk_events() -> list[dict]:
+    """Return a copy of the current run's Groq accuracy-risk events."""
+    return list(_RUN_GROQ_ACCURACY_EVENTS)
+
+
+def log_groq_accuracy_risk(
+    section: str,
+    reason: str,
+    profile_name: str = "",
+    profile_url: str = "",
+    debug_payloads: dict | None = None,
+) -> None:
+    """
+    Emit a high-visibility warning and append a persistent audit record when
+    extraction skipped Groq or Groq returned no usable result.
+    """
+    global _RUN_GROQ_ACCURACY_EVENTS
+
+    section_text = (section or "unknown").strip() or "unknown"
+    reason_text = (reason or "Groq extraction was skipped or ineffective.").strip()
+    clean_name = (profile_name or "unknown").strip() or "unknown"
+    clean_url = (profile_url or "").strip()
+
+    banner = "[bold white on red]" + ("!" * 92) + "[/bold white on red]"
+    logger.warning(banner)
+    logger.warning("[bold white on red]GROQ ACCURACY RISK[/bold white on red]")
+    logger.warning(
+        "[bold white on red]section:[/bold white on red] %s | [bold white on red]profile:[/bold white on red] %s",
+        section_text,
+        clean_name,
+    )
+    if clean_url:
+        logger.warning("[bold white on red]url:[/bold white on red] %s", clean_url)
+    logger.warning("[bold white on red]%s[/bold white on red]", reason_text)
+    logger.warning(
+        "[bold white on red]Results may be inaccurate because Groq extraction was skipped or ineffective.[/bold white on red]"
+    )
+    logger.warning(banner)
+
+    event = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "run_uuid": os.getenv("SCRAPE_RUN_UUID", "").strip(),
+        "scraper_email": os.getenv("LINKEDIN_EMAIL", "").strip().lower(),
+        "section": section_text,
+        "profile_name": clean_name,
+        "profile_url": clean_url,
+        "reason": reason_text,
+    }
+    _RUN_GROQ_ACCURACY_EVENTS.append(event)
+
+    try:
+        GROQ_ACCURACY_AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with GROQ_ACCURACY_AUDIT_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        logger.warning(f"    ⚠️ Failed to append Groq accuracy audit log: {exc}")
+
+    if debug_payloads:
+        for suffix, content in debug_payloads.items():
+            if not content:
+                continue
+            try:
+                save_debug_html(
+                    str(content),
+                    clean_name,
+                    f"{section_text}_{suffix}",
+                    force=True,
+                )
+            except Exception as exc:
+                logger.warning(f"    ⚠️ Failed to save forced debug payload {suffix}: {exc}")
 
 
 def parse_groq_json_response(result_text: str) -> dict | list | None:

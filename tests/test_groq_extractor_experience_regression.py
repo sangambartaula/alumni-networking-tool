@@ -132,6 +132,54 @@ def test_extract_experiences_with_groq_prompt_stays_lean(monkeypatch):
     assert 'Never guess missing titles, companies, or dates' in user_prompt
 
 
+def test_html_to_structured_text_keeps_parent_company_for_grouped_roles():
+    html = """
+    <section>
+      <div componentkey="entity-collection-item-1">
+        <p>Civil Engineer -EIT</p>
+        <p>Stantec · Full-time</p>
+        <p>Aug 2025 - Present · 9 mos</p>
+        <p>On-site</p>
+      </div>
+      <div componentkey="entity-collection-item-2">
+        <p>HVJ Associates®</p>
+        <p>1 yr 1 mo</p>
+        <ul>
+          <li>
+            <p>Field Inspector</p>
+            <p>Oct 2024 - Jul 2025 · 10 mos</p>
+          </li>
+          <li>
+            <p>Site Engineer</p>
+            <p>Full-time</p>
+            <p>Jul 2024 - Oct 2024 · 4 mos</p>
+            <p>Dallas, Texas, United States · On-site</p>
+          </li>
+        </ul>
+      </div>
+      <div componentkey="entity-collection-item-3">
+        <p>Research Assistant</p>
+        <p>University of North Texas · Part-time</p>
+        <p>Dec 2022 - Dec 2023 · 1 yr 1 mo</p>
+        <p>Denton, Texas, United States</p>
+      </div>
+    </section>
+    """
+
+    structured = groq_extractor_experience._html_to_structured_text(html, "Structured Text Test")
+
+    assert "Civil Engineer -EIT | Stantec · Full-time | Aug 2025 - Present · 9 mos | On-site" in structured
+    assert "HVJ Associates® | Field Inspector | Oct 2024 - Jul 2025 · 10 mos" in structured
+    assert (
+        "HVJ Associates® | Site Engineer | Full-time | Jul 2024 - Oct 2024 · 4 mos | Dallas, Texas, United States · On-site"
+        in structured
+    )
+    assert (
+        "Research Assistant | University of North Texas · Part-time | Dec 2022 - Dec 2023 · 1 yr 1 mo | Denton, Texas, United States"
+        in structured
+    )
+
+
 def test_extract_experiences_with_groq_skips_oversized_entries(monkeypatch):
     class _OversizedCompletions:
         @staticmethod
