@@ -292,6 +292,7 @@ def test_submit_discipline_keywords_clicks_clears_types_and_enters(monkeypatch):
     monkeypatch.setattr(scraper_main, "_find_visible_people_search_input", lambda _scraper: fake_input)
     monkeypatch.setattr(scraper_main.time, "sleep", lambda _s: None)
     monkeypatch.setattr(scraper_main.random, "uniform", lambda _a, _b: 0.01)
+    monkeypatch.setattr(scraper_main.sys, "platform", "win32")
 
     ok = scraper_main._submit_discipline_keywords(scraper, "software engineering")
 
