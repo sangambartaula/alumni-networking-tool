@@ -14,6 +14,27 @@ logger = logging.getLogger(__name__)
 env_path = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=env_path)
 
+
+def test_scraped_profile_payload_normalizes_name_and_location():
+    """Regression coverage for scraper DB upsert payload normalization."""
+    from backend.db_core_scrape import _build_alumni_upsert_payload
+
+    payload = _build_alumni_upsert_payload({
+        "profile_url": "https://www.linkedin.com/in/martha-loredo/",
+        "name": "martha loredo",
+        "location": "Dallas, Texas, United States",
+        "latitude": "32.7762719",
+        "longitude": "-96.7968559",
+    })
+
+    assert payload["first_name"] == "Martha"
+    assert payload["last_name"] == "Loredo"
+    assert payload["linkedin_url"] == "https://www.linkedin.com/in/martha-loredo"
+    assert payload["location"] == "Dallas, Texas, United States"
+    assert payload["latitude"] == 32.7762719
+    assert payload["longitude"] == -96.7968559
+
+
 def test_connection():
     """Test MySQL connection, latency, and basic query functionality."""
     host = os.getenv("MYSQLHOST")
