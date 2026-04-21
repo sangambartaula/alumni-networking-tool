@@ -1205,20 +1205,23 @@ class FlagManagerDialog(QDialog):
         return rows
 
     def _load_rows_from_legacy_file(self):
-        flagged_urls = {}
+        flagged_entries = []
         if os.path.exists(self.txt_path):
             with open(self.txt_path, 'r', encoding='utf-8') as f:
                 for line in f:
-                    parts = line.split('#')
-                    url = parts[0].strip().rstrip('/')
+                    raw_line = line.strip()
+                    if not raw_line:
+                        continue
+                    url_part, _, reason_part = raw_line.partition('#')
+                    url = url_part.strip().rstrip('/')
                     if not url:
                         continue
-                    reason = "Needs Manual Review"
-                    if len(parts) > 1:
-                        reason = parts[-1].strip() or reason
-                    flagged_urls[self._normalize_url(url)] = reason
+                    flagged_entries.append({
+                        "linkedin_url": url,
+                        "reason": reason_part.strip() or "Needs Manual Review",
+                    })
 
-        rows = []
+        csv_rows_by_url = {}
         if os.path.exists(self.csv_path):
             with open(self.csv_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
@@ -1226,35 +1229,69 @@ class FlagManagerDialog(QDialog):
                     url = (row.get('linkedin_url', '') or row.get('profile_url', '')).strip().rstrip('/')
                     if not url:
                         continue
-                    url_key = self._normalize_url(url)
-                    if url_key not in flagged_urls:
-                        continue
+                    csv_rows_by_url.setdefault(self._normalize_url(url), row)
+
+        rows = []
+        conn = None
+        try:
+            try:
+                conn = self._get_connection()
+            except Exception:
+                conn = None
+
+            for flagged_entry in flagged_entries:
+                url = flagged_entry["linkedin_url"]
+                reason = flagged_entry["reason"]
+                csv_row = csv_rows_by_url.get(self._normalize_url(url))
+                if csv_row:
                     rows.append({
                         "run": "legacy",
-                        "date": (row.get('scraped_at', '') or '')[:10] or "Unknown",
-                        "name": f"{row.get('first', '')} {row.get('last', '')}".strip(),
-                        "reason": flagged_urls.get(url_key, "Needs Manual Review"),
+                        "date": (csv_row.get('scraped_at', '') or '')[:10] or "Unknown",
+                        "name": f"{csv_row.get('first', '')} {csv_row.get('last', '')}".strip(),
+                        "reason": reason,
                         "linkedin_url": url,
-                        "grad_year": str(row.get('grad_year', '') or row.get('graduation_year', '') or ''),
-                        "degree": row.get('degree', '') or '',
-                        "major": row.get('major', '') or '',
-                        "discipline": row.get('discipline', '') or '',
-                        "current_job_title": row.get('title', '') or row.get('job_title', '') or '',
-                        "company": row.get('company', '') or '',
-                        "location": row.get('location', '') or '',
-                        "exp2_title": row.get('exp_2_title', '') or row.get('exp2_title', '') or '',
-                        "exp2_company": row.get('exp_2_company', '') or row.get('exp2_company', '') or '',
-                        "exp3_title": row.get('exp_3_title', '') or row.get('exp3_title', '') or '',
-                        "exp3_company": row.get('exp_3_company', '') or row.get('exp3_company', '') or '',
+                        "grad_year": str(csv_row.get('grad_year', '') or csv_row.get('graduation_year', '') or ''),
+                        "degree": csv_row.get('degree', '') or '',
+                        "major": csv_row.get('major', '') or '',
+                        "discipline": csv_row.get('discipline', '') or '',
+                        "current_job_title": csv_row.get('title', '') or csv_row.get('job_title', '') or '',
+                        "company": csv_row.get('company', '') or '',
+                        "location": csv_row.get('location', '') or '',
+                        "exp2_title": csv_row.get('exp_2_title', '') or csv_row.get('exp2_title', '') or '',
+                        "exp2_company": csv_row.get('exp_2_company', '') or csv_row.get('exp2_company', '') or '',
+                        "exp3_title": csv_row.get('exp_3_title', '') or csv_row.get('exp3_title', '') or '',
+                        "exp3_company": csv_row.get('exp_3_company', '') or csv_row.get('exp3_company', '') or '',
                     })
+                    continue
 
-        def get_date(entry):
-            try:
-                return datetime.fromisoformat((entry.get("date") or "").replace('Z', '+00:00'))
-            except Exception:
-                return datetime.min
+                alumni = self._fetch_alumni_row(conn, url) if conn else {}
+                first = (alumni.get("first_name") or "").strip()
+                last = (alumni.get("last_name") or "").strip()
+                rows.append({
+                    "run": "legacy",
+                    "date": str(alumni.get("scraped_at") or "")[:10] if alumni.get("scraped_at") else "Unknown",
+                    "name": f"{first} {last}".strip(),
+                    "reason": reason,
+                    "linkedin_url": url,
+                    "grad_year": "" if alumni.get("grad_year") is None else str(alumni.get("grad_year")),
+                    "degree": alumni.get("degree") or "",
+                    "major": alumni.get("major") or "",
+                    "discipline": alumni.get("discipline") or "",
+                    "current_job_title": alumni.get("current_job_title") or "",
+                    "company": alumni.get("company") or "",
+                    "location": alumni.get("location") or "",
+                    "exp2_title": alumni.get("exp2_title") or "",
+                    "exp2_company": alumni.get("exp2_company") or "",
+                    "exp3_title": alumni.get("exp3_title") or "",
+                    "exp3_company": alumni.get("exp3_company") or "",
+                })
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
-        rows.sort(key=get_date, reverse=True)
         return rows
 
     def _set_item(self, row_idx, col_idx, text, editable=False):

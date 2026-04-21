@@ -238,3 +238,43 @@ def test_preflight_status_ready_keeps_friendly_guidance_and_raw_detail(qapp, tmp
     assert "timed out" in app._cloud_status_detail_cache
     assert "Guidance:" in app.preflight_details_box.toPlainText()
     assert "Details: Cloud probe failed" in app.preflight_details_box.toPlainText()
+
+
+def test_flag_manager_shows_every_txt_entry_even_when_csv_is_missing_rows(qapp, tmp_path, monkeypatch):
+    output_dir = Path(tmp_path) / "scraper" / "output"
+    output_dir.mkdir(parents=True)
+
+    (output_dir / "flagged_for_review.txt").write_text(
+        "\n".join([
+            "https://www.linkedin.com/in/alpha # Missing Grad Year",
+            "https://www.linkedin.com/in/beta # Missing Company but Job Title Present",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    (output_dir / "UNT_Alumni_Data.csv").write_text(
+        "\n".join([
+            "linkedin_url,first,last,scraped_at,grad_year",
+            "https://www.linkedin.com/in/alpha,Alpha,User,2026-04-01T12:00:00,2024",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(scraper_gui.FlagManagerDialog, "load_runs", lambda self: None)
+
+    def _raise_no_db(self):
+        raise RuntimeError("database unavailable in test")
+
+    monkeypatch.setattr(scraper_gui.FlagManagerDialog, "_get_connection", _raise_no_db)
+
+    dialog = scraper_gui.FlagManagerDialog(str(tmp_path))
+    try:
+        assert dialog.table.rowCount() == 2
+        assert dialog.table.item(0, 5).text() == "https://www.linkedin.com/in/alpha"
+        assert dialog.table.item(1, 5).text() == "https://www.linkedin.com/in/beta"
+        assert dialog.table.item(0, 3).text() == "Alpha User"
+        assert dialog.table.item(1, 3).text() == ""
+        assert dialog.table.item(1, 4).text() == "Missing Company but Job Title Present"
+    finally:
+        dialog.close()
