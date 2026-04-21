@@ -295,6 +295,38 @@ class TestScraperLogic:
         assert result["__status__"] == "NOT_UNT_ALUM"
         assert scroll_calls == ["scroll"]
 
+    def test_extract_all_experiences_falls_back_to_css_when_groq_returns_empty(self, monkeypatch):
+        scraper = LinkedInScraper()
+        soup = BeautifulSoup(
+            """
+            <section componentkey="profileExperienceTopLevelSection">
+              <h2>Experience</h2>
+              <div data-view-name="profile-component-entity">
+                <div class="t-bold"><span aria-hidden="true">Embedded Systems Intern</span></div>
+                <span class="t-14 t-normal"><span aria-hidden="true">Acme Robotics · Internship</span></span>
+                <span class="pvs-entity__caption-wrapper" aria-hidden="true">Jan 2024 - Present</span>
+              </div>
+            </section>
+            """,
+            "html.parser",
+        )
+
+        monkeypatch.setattr(scraper_module, "is_groq_available", lambda: True)
+        monkeypatch.setattr(
+            scraper_module,
+            "extract_experiences_with_groq",
+            lambda *_args, **_kwargs: ([], 77),
+        )
+
+        experiences = scraper._extract_all_experiences(soup, max_entries=3, profile_name="Test User")
+
+        assert scraper._last_exp_tokens == 77
+        assert len(experiences) == 1
+        assert experiences[0]["title"] == "Embedded Systems Intern"
+        assert experiences[0]["company"] == "Acme Robotics · Internship"
+        assert experiences[0]["employment_type"] == "Internship"
+        assert experiences[0]["end"]["is_present"] is True
+
     def test_extract_top_card_keeps_metropolitan_area_location(self):
         scraper = LinkedInScraper()
         soup = BeautifulSoup(
