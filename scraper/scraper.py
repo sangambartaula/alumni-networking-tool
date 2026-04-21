@@ -1665,10 +1665,10 @@ class LinkedInScraper:
                     if parsed:
                         logger.debug(f"Groq extracted {len(parsed)} experience(s)")
                         return parsed[:max_entries]
-                        
+
+                logger.debug("Groq experience extraction returned no usable jobs; falling back to CSS extraction.")
             except Exception as e:
                 logger.warning(f"Groq extraction failed: {e}")
-            return parsed[:max_entries]
         
         # ============================================================
         # APPROACH 1: Direct CSS selector extraction (LinkedIn's structure)
