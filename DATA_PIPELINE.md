@@ -2,6 +2,9 @@
 
 This document outlines the artificial intelligence and data transformation pipelines used by the alumni scraper.
 
+> [!IMPORTANT]
+> **Strict Groq Engine Execution**: When a Groq API key is present (`is_groq_available() == True`), the scraper enforces a strict AI-only extraction logic for complex blocks like Profile Experience and Education. It will **not** attempt to rescue empty AI responses using CSS/DOM scraping fallbacks. This ensures output quality remains high and cross-platform structure errors from varying local machine encodings are prevented.
+
 ## Geocoding Fallback Rules
 
 Primary geocoding uses OpenStreetMap/Nominatim via `backend/geocoding.py`.

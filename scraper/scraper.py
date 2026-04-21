@@ -720,9 +720,10 @@ class LinkedInScraper:
                             edu_entries,
                         )
 
-            css_entries = self._extract_education_entries(soup)
-            if css_entries:
-                edu_entries = self._merge_education_entries(edu_entries, css_entries)
+            elif not is_groq_available():
+                css_entries = self._extract_education_entries(soup)
+                if css_entries:
+                    edu_entries = self._merge_education_entries(edu_entries, css_entries)
             
             if not self._has_unt_education(edu_entries):
                 top_card_entries = self._extract_education_from_top_card(soup)
@@ -918,7 +919,7 @@ class LinkedInScraper:
     def _append_standardization_log(filename, raw, standardized):
         if raw and standardized and raw != standardized:
             try:
-                with open(f"scraper/output/{filename}", "a") as f:
+                with open(f"scraper/output/{filename}", "a", encoding="utf-8") as f:
                     f.write(f"{raw} -> {standardized}\n")
             except Exception:
                 pass
@@ -998,7 +999,7 @@ class LinkedInScraper:
             )
 
             if data.get("discipline") and data.get("discipline") != "Unknown":
-                with open("scraper/output/inferred_disciplines.txt", "a") as f:
+                with open("scraper/output/inferred_disciplines.txt", "a", encoding="utf-8") as f:
                     f.write(
                         f"{data.get('name')} | {data.get('degree')} | "
                         f"{data.get('job_title')} -> {data['discipline']}\n"
@@ -1667,6 +1668,7 @@ class LinkedInScraper:
                         
             except Exception as e:
                 logger.warning(f"Groq extraction failed: {e}")
+            return parsed[:max_entries]
         
         # ============================================================
         # APPROACH 1: Direct CSS selector extraction (LinkedIn's structure)
@@ -1710,7 +1712,7 @@ class LinkedInScraper:
                         segs = [s.strip() for s in text.split("·")]
                         if len(segs) >= 2 and _EMP_LINE_TAIL.match(segs[-1]):
                             emp_css = segs[-1]
-                    candidate_company = _clean_doubled(self._clean_company(text))
+                    candidate_company = _clean_doubled(text.strip())
                     from entity_classifier import is_location
                     if is_location(candidate_company):
                         parent_ul = container.find_parent('ul')
@@ -1719,7 +1721,7 @@ class LinkedInScraper:
                             if outer_container:
                                 outer_title_elem = outer_container.select_one('.t-bold span[aria-hidden="true"]') or outer_container.select_one('.t-bold')
                                 if outer_title_elem:
-                                    candidate_company = _clean_doubled(self._clean_company(outer_title_elem.get_text(strip=True)))
+                                    candidate_company = _clean_doubled(outer_title_elem.get_text(strip=True).strip())
                                     emp_css = ""
                     if self._looks_like_company_noise(candidate_company):
                         continue
@@ -2386,17 +2388,16 @@ class LinkedInScraper:
             time.sleep(3)
             
             detail_soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            entries = self._extract_education_entries(detail_soup)
+            entries = []
             if is_groq_available():
                 groq_results, _edu_tokens = extract_education_with_groq(
                     str(detail_soup.find("main") or detail_soup),
                     profile_name="unknown",
                 )
                 if groq_results:
-                    entries = self._merge_education_entries(
-                        self._build_education_entries_from_groq(groq_results),
-                        entries,
-                    )
+                    entries = self._build_education_entries_from_groq(groq_results)
+            else:
+                entries = self._extract_education_entries(detail_soup)
 
             entries = self._sort_education_entries(entries)
             all_edus = list(dict.fromkeys([e.get("school", "") for e in entries if e.get("school")]))
@@ -2482,8 +2483,9 @@ class LinkedInScraper:
 
                 entries = self._build_education_entries_from_groq(groq_results)
 
-            css_entries = self._extract_education_entries(detail_soup)
-            entries = self._merge_education_entries(entries, css_entries)
+            else:
+                css_entries = self._extract_education_entries(detail_soup)
+                entries = self._merge_education_entries(entries, css_entries)
             entries = self._sort_education_entries(entries)
 
             return entries, token_count

@@ -30,6 +30,8 @@ Additional utilities include `pandas`, `pytest`, `Pillow`, etc.
 - **LinkedIn Rate Limits**: The scraping component is strictly constrained by LinkedIn's anti-automation checks. Without a Sales Navigator account, routine scraping must be heavily throttled (default safety target: ~50 profiles/day maximum). Repeated warnings or checkpoints require multi-day cooldowns to prevent account bans.
 - **Production Architecture**: The system is designed to run as a **single centrally hosted instance** utilizing a shared MySQL database to ensure data parity across all staff members. Multiple disconnected staff instances will cause severe data fragmentation and overwrite conflicts.
 - **Geocoding API**: Nominatim is a free geocoding service and is heavily rate-limited; large manual backfills should be run slowly or scheduled during off-hours.
+- **Strict AI Extraction Requirements**: To prevent data corruption seen on different operating systems (macOS vs. Windows rendering inconsistencies), the system does **not** rely on CSS fallbacks for profile scraping when Groq is available. If LinkedIn's HTML structure changes and Groq fails to find data, the fallback is explicitly short-circuited.
+- **Console UTF-8 Requirement**: Native execution on Windows devices has been stabilized by forcing all internal components to use `encoding="utf-8"`, alleviating issues where log writes and console outputs crashed the backend processing flow.
 
 ## 5. Description of Deployment Artifacts
 If the project is compiled or bundled using the provided builder scripts (`build_windows_app.bat` or `build_mac_app.command`), the final deployment artifact resides in the `dist` directory. The structure of the primary repository artifacts is as follows:

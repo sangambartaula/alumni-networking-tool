@@ -1659,7 +1659,7 @@ def run_review_mode(scraper, nav, history_mgr):
     
     # Read URLs from file, filtering out blocked profiles
     from settings import is_blocked_url
-    with open(flagged_file, 'r') as f:
+    with open(flagged_file, 'r', encoding='utf-8') as f:
         raw_urls = [line.strip() for line in f if line.strip() and line.strip().startswith('http')]
     
     # Strip comment suffixes (e.g. "url # flagged for review (bulk)")
@@ -1873,10 +1873,10 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
     # 2. Remove from flagged_for_review.txt
     try:
         if flagged_file.exists():
-            with open(flagged_file, 'r') as f:
+            with open(flagged_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
             kept = [l for l in lines if l.split('#')[0].strip().rstrip('/') not in normalized_dead]
-            with open(flagged_file, 'w') as f:
+            with open(flagged_file, 'w', encoding='utf-8') as f:
                 f.writelines(kept)
             logger.info(f"🗑️  Removed {len(lines) - len(kept)} entries from flagged_for_review.txt")
     except Exception as e:
@@ -1888,7 +1888,7 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
         if visited_csv.exists():
             rows = []
             removed = 0
-            with open(visited_csv, 'r') as f:
+            with open(visited_csv, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 fieldnames = reader.fieldnames
                 for row in reader:
@@ -1897,7 +1897,7 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
                         removed += 1
                     else:
                         rows.append(row)
-            with open(visited_csv, 'w', newline='') as f:
+            with open(visited_csv, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
