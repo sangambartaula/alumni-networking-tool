@@ -65,7 +65,9 @@ The system comes with the following pre-configured admin accounts mapping to fol
 
 To grant elevated permissions to additional staff members post-deployment, you can easily add them via the Users tab in the Web App settings once logged in.
 
-**Note:** For the initial environment variables (`.env`), you must securely generate and supply string credentials for `SECRET_KEY` (Flask sessions), `LINKEDIN_CLIENT_SECRET`, `MYSQLPASSWORD`, and `GROQ_API_KEY`. The admin passwords are created upon running the initial seeding based on a default initialization, their hashes are automatically assigned in the DB.
+**Note:** For the initial environment variables (`.env`), you must securely generate and supply string credentials for `SECRET_KEY` (Flask sessions), `LINKEDIN_CLIENT_SECRET`, `MYSQLPASSWORD`, and `GROQ_API_KEY`.
+
+**Important Auth Clarification:** No default admin plaintext passwords are generated or distributed. Default admin emails are seeded with `admin` role, and admin access is granted when the user signs in with LinkedIn and LinkedIn returns a matching authorized email. Password-based self-registration is disabled when LinkedIn OAuth is configured to prevent pre-claiming another user's email.
 
 ## 8. Deployment Process
 

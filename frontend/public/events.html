@@ -146,6 +146,10 @@
               <input id="eventTimeInput" type="time" />
             </label>
             <label class="event-form-field">
+              <span>Event Location</span>
+              <input id="eventLocationInput" type="text" placeholder="Remote or 123 Main St, Denton, TX" />
+            </label>
+            <label class="event-form-field">
               <span>Sender Name</span>
               <input id="senderNameInput" type="text" placeholder="Jane Doe" />
             </label>
@@ -168,26 +172,15 @@
           <div class="event-builder-section-head">
             <h3>Templates</h3>
             <label class="events-toggle">
-              <input id="randomTemplateModeInput" type="checkbox" />
-              <span>Random Template Mode</span>
+              <input id="useDefaultTemplatesInput" type="checkbox" checked />
+              <span>Use Default Templates</span>
             </label>
           </div>
+          <p class="event-builder-help">Default templates rotate randomly when enabled.</p>
           <label class="event-form-field">
-            <span>Selected Template</span>
-            <select id="templateSelect"></select>
+            <span>Custom Template Body</span>
+            <textarea id="customTemplateBodyInput" rows="8" placeholder="Dear {first_name}, {sender_name} from {sender_org} invites you to {event_name} at {location} on {date} at {time}. RSVP: {rsvp_link}"></textarea>
           </label>
-          <label class="event-form-field">
-            <span>Template Name</span>
-            <input id="templateNameInput" type="text" placeholder="Create a new template name" />
-          </label>
-          <label class="event-form-field">
-            <span>Template Body</span>
-            <textarea id="templateBodyInput" rows="10" placeholder="Use placeholders like {first_name}, {event_name}, or {parking_info}"></textarea>
-          </label>
-          <div class="events-inline-actions">
-            <button id="saveTemplateBtn" class="btn action-btn" type="button">Save Template</button>
-            <button id="newTemplateBtn" class="btn secondary" type="button">New Template</button>
-          </div>
         </div>
 
         <div class="event-builder-section">
@@ -200,11 +193,6 @@
         </div>
 
         <div class="event-builder-section">
-          <div class="event-builder-section-head">
-            <h3>Last Generated Message</h3>
-            <span id="eventsVisitedCount" class="events-results-count">0 opened</span>
-          </div>
-          <pre id="messagePreview" class="message-preview">Select a location, fill in event details, then click “View LinkedIn” on a card.</pre>
           <div id="eventsToast" class="events-toast" aria-live="polite"></div>
         </div>
       </aside>

@@ -21,7 +21,6 @@ let eventsPinMarker = null;
 let eventsLocationClusters = [];
 let eventsCurrentPage = 1;
 const EVENTS_PAGE_SIZE = 25;
-const EVENTS_TEMPLATE_STORAGE_KEY = 'events_message_templates_v1';
 const EVENTS_BUILDER_STORAGE_KEY = 'events_builder_state_v1';
 const DEFAULT_EVENT_TEMPLATES = [
   {
@@ -43,8 +42,6 @@ Additional Info: {additional_info}
 Hope you can join us, RSVP here: {rsvp_link}`,
   },
 ];
-let eventsTemplates = [];
-let activeTemplateId = DEFAULT_EVENT_TEMPLATES[0].id;
 let eventsToastTimer = null;
 
 /*
@@ -133,48 +130,20 @@ function resolveStateAbbr(input) {
   return US_STATE_ABBR[lower] || lower;
 }
 
-function slugifyTemplateId(value) {
-  const base = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return base || `template-${Date.now()}`;
-}
-
 function getDefaultBuilderState() {
   return {
     event_name: '',
     event_date: '',
     event_time: '',
+    event_location: '',
     sender_name: '',
     sender_org: '',
     rsvp_link: '',
     additional_info: '',
-    random_template_mode: false,
+    use_default_templates: true,
+    custom_template_body: `Dear {first_name}, {sender_name} from {sender_org} would like to invite you to {event_name}. This event will take place at {location} on {date} at {time}. Additional info: {additional_info}. Please RSVP here: {rsvp_link}`,
     custom_variables: [],
-    selected_template_id: DEFAULT_EVENT_TEMPLATES[0].id,
   };
-}
-
-function loadTemplates() {
-  try {
-    const raw = localStorage.getItem(EVENTS_TEMPLATE_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    const customTemplates = Array.isArray(parsed)
-      ? parsed.filter(t => t && typeof t.name === 'string' && typeof t.body === 'string')
-      : [];
-    eventsTemplates = [...DEFAULT_EVENT_TEMPLATES, ...customTemplates];
-  } catch (_error) {
-    eventsTemplates = [...DEFAULT_EVENT_TEMPLATES];
-  }
-}
-
-function saveCustomTemplates() {
-  const customTemplates = eventsTemplates.filter(
-    template => !DEFAULT_EVENT_TEMPLATES.some(defaultTemplate => defaultTemplate.id === template.id)
-  );
-  localStorage.setItem(EVENTS_TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplates));
 }
 
 function loadBuilderState() {
@@ -197,52 +166,39 @@ function persistBuilderState() {
     event_name: document.getElementById('eventNameInput')?.value.trim() || '',
     event_date: document.getElementById('eventDateInput')?.value || '',
     event_time: document.getElementById('eventTimeInput')?.value || '',
+    event_location: document.getElementById('eventLocationInput')?.value.trim() || '',
     sender_name: document.getElementById('senderNameInput')?.value.trim() || '',
     sender_org: document.getElementById('senderOrgInput')?.value.trim() || '',
     rsvp_link: document.getElementById('rsvpLinkInput')?.value.trim() || '',
     additional_info: document.getElementById('additionalInfoInput')?.value.trim() || '',
-    random_template_mode: Boolean(document.getElementById('randomTemplateModeInput')?.checked),
-    selected_template_id: activeTemplateId,
+    use_default_templates: Boolean(document.getElementById('useDefaultTemplatesInput')?.checked),
+    custom_template_body: document.getElementById('customTemplateBodyInput')?.value || '',
     custom_variables: getCustomVariables(),
   };
   localStorage.setItem(EVENTS_BUILDER_STORAGE_KEY, JSON.stringify(payload));
 }
 
-function renderTemplateOptions() {
-  const select = document.getElementById('templateSelect');
-  if (!select) return;
-  select.innerHTML = eventsTemplates
-    .map(template => `<option value="${escapeAttribute(template.id)}">${escapeHtml(template.name)}</option>`)
-    .join('');
-  if (!eventsTemplates.some(template => template.id === activeTemplateId)) {
-    activeTemplateId = eventsTemplates[0]?.id || DEFAULT_EVENT_TEMPLATES[0].id;
+function getTemplateForMode(isDefaultMode) {
+  if (isDefaultMode) {
+    const index = Math.floor(Math.random() * DEFAULT_EVENT_TEMPLATES.length);
+    return DEFAULT_EVENT_TEMPLATES[index] || DEFAULT_EVENT_TEMPLATES[0];
   }
-  select.value = activeTemplateId;
-}
-
-function getActiveTemplate() {
-  return eventsTemplates.find(template => template.id === activeTemplateId) || eventsTemplates[0] || DEFAULT_EVENT_TEMPLATES[0];
-}
-
-function getTemplateFromEditor() {
-  const baseTemplate = getActiveTemplate();
-  const nameInput = document.getElementById('templateNameInput');
-  const bodyInput = document.getElementById('templateBodyInput');
-  const editorName = nameInput?.value.trim() || baseTemplate?.name || 'Untitled Template';
-  const editorBody = bodyInput?.value || baseTemplate?.body || '';
+  const customBody = document.getElementById('customTemplateBodyInput')?.value || '';
   return {
-    id: activeTemplateId,
-    name: editorName,
-    body: editorBody,
+    id: 'custom-template',
+    name: 'Custom Template',
+    body: customBody || getDefaultBuilderState().custom_template_body,
   };
 }
 
-function populateTemplateEditor(template) {
-  const currentTemplate = template || getActiveTemplate();
-  const nameInput = document.getElementById('templateNameInput');
-  const bodyInput = document.getElementById('templateBodyInput');
-  if (nameInput) nameInput.value = currentTemplate?.name || '';
-  if (bodyInput) bodyInput.value = currentTemplate?.body || '';
+function syncTemplateModeUI() {
+  const useDefault = Boolean(document.getElementById('useDefaultTemplatesInput')?.checked);
+  const customBodyInput = document.getElementById('customTemplateBodyInput');
+  if (!customBodyInput) return;
+  customBodyInput.disabled = useDefault;
+  customBodyInput.title = useDefault
+    ? 'Turn off Use Default Templates to edit your custom message body.'
+    : '';
 }
 
 function renderCustomVariables(variables) {
@@ -294,11 +250,12 @@ function formatDisplayTime(timeValue) {
 }
 
 function getBuilderValues() {
-  const locationName = window.eventsState.selectedLocation?.name || '';
+  const locationName = document.getElementById('eventLocationInput')?.value.trim() || '';
   return {
     event_name: document.getElementById('eventNameInput')?.value.trim() || '',
     event_date: document.getElementById('eventDateInput')?.value || '',
     event_time: document.getElementById('eventTimeInput')?.value || '',
+    event_location: locationName,
     sender_name: document.getElementById('senderNameInput')?.value.trim() || '',
     sender_org: document.getElementById('senderOrgInput')?.value.trim() || '',
     rsvp_link: document.getElementById('rsvpLinkInput')?.value.trim() || '',
@@ -306,30 +263,28 @@ function getBuilderValues() {
     location: locationName,
     date: formatDisplayDate(document.getElementById('eventDateInput')?.value || ''),
     time: formatDisplayTime(document.getElementById('eventTimeInput')?.value || ''),
-    random_template_mode: Boolean(document.getElementById('randomTemplateModeInput')?.checked),
+    use_default_templates: Boolean(document.getElementById('useDefaultTemplatesInput')?.checked),
   };
 }
 
 function chooseTemplateForClick() {
   const values = getBuilderValues();
-  if (!values.random_template_mode) return getTemplateFromEditor();
-  const index = Math.floor(Math.random() * eventsTemplates.length);
-  return eventsTemplates[index] || getActiveTemplate();
+  return getTemplateForMode(values.use_default_templates);
 }
 
 function cleanupGeneratedMessage(message) {
   return message
     .replace(/\{[a-z0-9_]+\}/gi, '')
     .split('\n')
-    .map(line => line.replace(/[ \t]+$/g, ''))
+    .map(line => line.trim())
     .filter(line => {
       const trimmed = line.trim();
       if (!trimmed) return false;
       if (/^[A-Za-z ]+:\s*$/.test(trimmed)) return false;
       return true;
     })
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .join(' ')
+    .replace(/\s{2,}/g, ' ')
     .trim();
 }
 
@@ -380,12 +335,6 @@ async function copyTextToClipboard(text) {
   document.body.removeChild(textarea);
 }
 
-function updateVisitedCount() {
-  const countEl = document.getElementById('eventsVisitedCount');
-  if (!countEl) return;
-  countEl.textContent = `${window.eventsState.visitedLinkedInIds.size} opened`;
-}
-
 function showEventsToast(message, isError = false) {
   const toast = document.getElementById('eventsToast');
   if (!toast) return;
@@ -397,31 +346,8 @@ function showEventsToast(message, isError = false) {
   }, 3200);
 }
 
-function updateMessagePreview(message) {
-  const preview = document.getElementById('messagePreview');
-  if (preview) preview.textContent = message || 'No message generated yet.';
-}
-
-function refreshDraftPreview() {
-  const draftTemplate = getTemplateFromEditor();
-  const sampleUser = {
-    id: 'preview-user',
-    name: 'Sample Alumni',
-    first: 'Sample',
-    last: 'Alumni',
-    role: 'Software Engineer',
-    company: 'Example Co',
-    location: window.eventsState.selectedLocation?.name || 'Selected event location',
-    linkedin: 'https://www.linkedin.com/in/sample',
-  };
-  const { message } = generateMessageForUser(sampleUser, draftTemplate);
-  updateMessagePreview(message || 'Select a location, fill in event details, then click “View LinkedIn” on a card.');
-}
-
 function markVisitedLinkedIn(userId) {
   window.eventsState.visitedLinkedInIds.add(userId);
-  updateVisitedCount();
-  refreshDraftPreview();
 }
 
 async function handleLinkedInOutreach(user) {
@@ -432,7 +358,6 @@ async function handleLinkedInOutreach(user) {
   }
 
   const { message, template } = generateMessageForUser(user);
-  updateMessagePreview(message);
   persistBuilderState();
 
   try {
@@ -448,19 +373,18 @@ async function handleLinkedInOutreach(user) {
 }
 
 function initializeEventBuilder() {
-  loadTemplates();
   const savedState = loadBuilderState();
-  activeTemplateId = savedState.selected_template_id || DEFAULT_EVENT_TEMPLATES[0].id;
-  renderTemplateOptions();
 
   const fieldMap = {
     eventNameInput: savedState.event_name,
     eventDateInput: savedState.event_date,
     eventTimeInput: savedState.event_time,
+    eventLocationInput: savedState.event_location,
     senderNameInput: savedState.sender_name,
     senderOrgInput: savedState.sender_org,
     rsvpLinkInput: savedState.rsvp_link,
     additionalInfoInput: savedState.additional_info,
+    customTemplateBodyInput: savedState.custom_template_body,
   };
 
   Object.entries(fieldMap).forEach(([id, value]) => {
@@ -468,18 +392,17 @@ function initializeEventBuilder() {
     if (element) element.value = value || '';
   });
 
-  const randomToggle = document.getElementById('randomTemplateModeInput');
-  if (randomToggle) randomToggle.checked = Boolean(savedState.random_template_mode);
+  const defaultToggle = document.getElementById('useDefaultTemplatesInput');
+  if (defaultToggle) defaultToggle.checked = Boolean(savedState.use_default_templates);
 
   renderCustomVariables(savedState.custom_variables);
-  populateTemplateEditor(getActiveTemplate());
-  updateVisitedCount();
+  syncTemplateModeUI();
 
   console.info('Events integration summary', {
     stateKeys: Object.keys(window.eventsState),
     userShape: ['id', 'name', 'first', 'last', 'role', 'company', 'location', 'class', 'linkedin', 'linkedin_url', '_distance'],
     linkedInFields: ['linkedin', 'linkedin_url'],
-    cardAction: 'View LinkedIn copies template message, opens LinkedIn, and marks visited in frontend session state.',
+    cardAction: 'View LinkedIn copies template message and opens LinkedIn.',
   });
 }
 
@@ -890,7 +813,6 @@ function selectLocation(type, name, lat, lng) {
 
   // Apply filter
   applyLocationFilter();
-  refreshDraftPreview();
 }
 
 function dropPin(lat, lng) {
@@ -948,7 +870,6 @@ function clearSelection() {
   if (pagination) pagination.innerHTML = '';
 
   eventsCurrentPage = 1;
-  refreshDraftPreview();
 }
 
 // ═══════════════════════════════════════════════
@@ -1233,20 +1154,19 @@ function setupEventListeners() {
   const radiusInput = document.getElementById('eventsRadiusInput');
   const clearBtn = document.getElementById('eventsClearBtn');
   const sortSelect = document.getElementById('eventsSortSelect');
-  const templateSelect = document.getElementById('templateSelect');
-  const saveTemplateBtn = document.getElementById('saveTemplateBtn');
-  const newTemplateBtn = document.getElementById('newTemplateBtn');
   const addVariableBtn = document.getElementById('addVariableBtn');
   const variablesList = document.getElementById('customVariablesList');
   const builderInputs = [
     'eventNameInput',
     'eventDateInput',
     'eventTimeInput',
+    'eventLocationInput',
     'senderNameInput',
     'senderOrgInput',
     'rsvpLinkInput',
     'additionalInfoInput',
-    'randomTemplateModeInput',
+    'useDefaultTemplatesInput',
+    'customTemplateBodyInput',
   ].map(id => document.getElementById(id)).filter(Boolean);
 
   // Search input → autocomplete
@@ -1358,63 +1278,13 @@ function setupEventListeners() {
   builderInputs.forEach(input => {
     input.addEventListener('input', () => {
       persistBuilderState();
-      refreshDraftPreview();
+      syncTemplateModeUI();
     });
     input.addEventListener('change', () => {
       persistBuilderState();
-      refreshDraftPreview();
+      syncTemplateModeUI();
     });
   });
-
-  if (templateSelect) {
-    templateSelect.addEventListener('change', () => {
-      activeTemplateId = templateSelect.value;
-      populateTemplateEditor(getActiveTemplate());
-      persistBuilderState();
-      refreshDraftPreview();
-    });
-  }
-
-  if (saveTemplateBtn) {
-    saveTemplateBtn.addEventListener('click', () => {
-      const name = document.getElementById('templateNameInput')?.value.trim() || '';
-      const body = document.getElementById('templateBodyInput')?.value || '';
-      if (!name) {
-        showEventsToast('Template name is required.', true);
-        return;
-      }
-
-      let template = eventsTemplates.find(existing => existing.id === activeTemplateId);
-      if (!template || DEFAULT_EVENT_TEMPLATES.some(defaultTemplate => defaultTemplate.id === template.id)) {
-        template = { id: slugifyTemplateId(name), name, body };
-        eventsTemplates.push(template);
-      } else {
-        template.name = name;
-        template.body = body;
-      }
-
-      activeTemplateId = template.id;
-      saveCustomTemplates();
-      renderTemplateOptions();
-      templateSelect.value = activeTemplateId;
-      persistBuilderState();
-      refreshDraftPreview();
-      showEventsToast(`Saved template “${name}”.`);
-    });
-  }
-
-  if (newTemplateBtn) {
-    newTemplateBtn.addEventListener('click', () => {
-      activeTemplateId = eventsTemplates[0]?.id || DEFAULT_EVENT_TEMPLATES[0].id;
-      const nameInput = document.getElementById('templateNameInput');
-      const bodyInput = document.getElementById('templateBodyInput');
-      if (nameInput) nameInput.value = '';
-      if (bodyInput) bodyInput.value = '';
-      if (templateSelect) templateSelect.value = activeTemplateId;
-      refreshDraftPreview();
-      showEventsToast('Started a new unsaved template.');
-    });
-  }
 
   if (addVariableBtn) {
     addVariableBtn.addEventListener('click', () => {
@@ -1422,7 +1292,6 @@ function setupEventListeners() {
       current.push({ name: '', value: '' });
       renderCustomVariables(current);
       persistBuilderState();
-      refreshDraftPreview();
     });
   }
 
@@ -1434,7 +1303,6 @@ function setupEventListeners() {
         target.value = target.value.replace(/[^a-z0-9_]/g, '').toLowerCase();
       }
       persistBuilderState();
-      refreshDraftPreview();
     });
 
     variablesList.addEventListener('click', (event) => {
@@ -1448,7 +1316,6 @@ function setupEventListeners() {
         rows.splice(index, 1);
         renderCustomVariables(rows);
         persistBuilderState();
-        refreshDraftPreview();
       }
     });
   }
