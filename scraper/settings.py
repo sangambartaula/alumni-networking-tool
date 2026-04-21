@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import logging
 import time
@@ -391,6 +392,11 @@ BLOCKED_PROFILE_SLUGS = {
     "sarahjohnson",
 }
 
+BLOCKED_PROFILE_SLUG_PATTERNS = (
+    # Local fixtures and stale test placeholders should never enter a live scrape queue.
+    re.compile(r"^test(?:[-_](?:user|person|profile))?$"),
+)
+
 
 def is_blocked_url(url: str) -> bool:
     """Return True if the LinkedIn URL belongs to a blocked profile."""
@@ -398,4 +404,6 @@ def is_blocked_url(url: str) -> bool:
         return False
     # Normalize: strip trailing slash, take last path segment
     slug = url.rstrip("/").split("/")[-1].split("#")[0].split("?")[0].lower()
-    return slug in BLOCKED_PROFILE_SLUGS
+    if slug in BLOCKED_PROFILE_SLUGS:
+        return True
+    return any(pattern.fullmatch(slug) for pattern in BLOCKED_PROFILE_SLUG_PATTERNS)
