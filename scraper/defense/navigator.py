@@ -1,5 +1,7 @@
 import logging
 import os
+import sys
+from urllib.parse import urlparse
 from selenium.common.exceptions import WebDriverException
 
 from .backoff import BackoffController
@@ -34,6 +36,23 @@ CHALLENGE_MARKERS = [
     "unusual activity",
 ]
 
+ALLOWED_LINKEDIN_HOSTS = {"linkedin.com", "www.linkedin.com"}
+ALLOWED_LINKEDIN_PATH_PREFIXES = (
+    "/home",
+    "/login",
+    "/uas/login",
+    "/search",
+    "/search/",
+    "/feed",
+    "/in",
+    "/in/",
+    "/company/",
+    "/school/",
+    "/jobs/",
+    "/groups/",
+)
+ALLOWED_LINKEDIN_EXACT_PATHS = {"", "/"}
+
 class SafeNavigator:
     """
     A safe wrapper around driver.get(url):
@@ -47,6 +66,48 @@ class SafeNavigator:
         self.backoff = BackoffController()
         self.health = PageHealthChecker()
         self.proxies = ProxyManager()
+
+    def _is_familiar_linkedin_url(self, url: str) -> bool:
+        if not url:
+            return False
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        host = (parsed.netloc or "").lower().strip()
+        if host not in ALLOWED_LINKEDIN_HOSTS:
+            return False
+
+        path = (parsed.path or "").strip()
+        if path in ALLOWED_LINKEDIN_EXACT_PATHS:
+            return True
+
+        return any(path.startswith(prefix) for prefix in ALLOWED_LINKEDIN_PATH_PREFIXES)
+
+    def _wait_for_user_on_unfamiliar_url(self, url: str) -> bool:
+        logger.warning("⏸️ Unfamiliar URL detected: %s", url)
+        logger.warning("Scraper paused for safety.")
+
+        if not hasattr(sys.stdin, "isatty") or not sys.stdin.isatty():
+            logger.warning("Non-interactive terminal detected; cannot prompt. Stopping navigation.")
+            return False
+
+        logger.warning("Type 'allow' to continue this URL once, or 'exit' to stop the run.")
+        while True:
+            try:
+                response = input("[unfamiliar-url] allow/exit: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                return False
+
+            if response == "allow":
+                logger.warning("User approved unfamiliar URL once: %s", url)
+                return True
+            if response in {"exit", "quit", "force exit"}:
+                logger.warning("User aborted run after unfamiliar URL: %s", url)
+                return False
+
+            logger.warning("Unknown response '%s'. Type 'allow' or 'exit'.", response)
 
     def _is_page_healthy(self):
         """Check if the current page is a real LinkedIn page, not a challenge."""
@@ -68,10 +129,17 @@ class SafeNavigator:
             return False
 
     def get(self, url: str) -> bool:
+        if not self._is_familiar_linkedin_url(url):
+            return self._wait_for_user_on_unfamiliar_url(url)
+
         for attempt in range(self.max_retries + 1):
             try:
                 logger.info(f"🌐 GET: {url} (attempt {attempt+1}/{self.max_retries+1})")
                 self.driver.get(url)
+
+                current_url = getattr(self.driver, "current_url", "") or ""
+                if not self._is_familiar_linkedin_url(current_url):
+                    return self._wait_for_user_on_unfamiliar_url(current_url)
 
                 # small normal delay to reduce flakiness
                 self.backoff.normal_delay()

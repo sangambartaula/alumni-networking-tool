@@ -14,7 +14,7 @@ from database import save_visited_profile, get_all_visited_profiles, normalize_u
 
 from settings import (
     logger, UPDATE_FREQUENCY, VISITED_HISTORY_FILE, 
-    VISITED_HISTORY_COLUMNS, OUTPUT_CSV, CSV_COLUMNS
+    VISITED_HISTORY_COLUMNS, OUTPUT_CSV, CSV_COLUMNS, is_blocked_url
 )
 from scraper_utils import parse_frequency, clean_job_title
 
@@ -482,7 +482,6 @@ def save_profile_to_csv(profile_data):
             return False
 
         # Block fake/placeholder profiles
-        from settings import is_blocked_url
         if is_blocked_url(profile_data.get('profile_url', '')):
             logger.info(f"🚫 Blocked profile skipped: {profile_data.get('profile_url')}")
             return False

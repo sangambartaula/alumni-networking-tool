@@ -16,8 +16,41 @@ alumni_bp = Blueprint("alumni", __name__)
 _SENIORITY_ALLOWED = ["Intern", "Mid", "Senior", "Manager", "Executive"]
 
 _ROLE_HINT_RE = re.compile(
-    r"\b(engineer|developer|analyst|manager|director|architect|administrator|scientist|consultant|technician|specialist|officer|president|founder|partner|professor|researcher|student|intern|assistant|coordinator)\b",
+    r"\b(engineer|developer|analyst|manager|director|architect|administrator|scientist|consultant|"
+    r"technician|specialist|officer|president|founder|partner|professor|researcher|student|intern|"
+    r"assistant|coordinator|designer|writer)\b",
     re.I,
+)
+
+try:
+    from scraper.job_title_normalization import normalize_title_deterministic as _normalize_job_title_deterministic
+except Exception:
+    _normalize_job_title_deterministic = None
+
+_LEADERSHIP_TITLE_SIGNAL = re.compile(
+    r"\b(ceo|cto|coo|cfo|cmo|chief|president|founder|co-founder|owner|chair|evp|svp)\b",
+    re.I,
+)
+
+_TRUSTED_TITLE_WITHOUT_ROLE_TOKEN = frozenset(
+    {
+        "CEO",
+        "CTO",
+        "COO",
+        "CFO",
+        "CMO",
+        "VP",
+        "President",
+        "Executive",
+        "Director",
+        "Professor",
+        "Postdoctoral Researcher",
+        "Doctoral Candidate",
+        "Intern",
+        "Student",
+        "Graduate Assistant",
+        "Executive Assistant",
+    }
 )
 
 
@@ -134,7 +167,25 @@ def _normalize_requested_discipline(value):
     return value.strip()
 
 
-def _canonical_role_title(value):
+def _raw_title_signals_professional_role(title: str) -> bool:
+    t = (title or "").strip()
+    if not t:
+        return False
+    without_level_suffix = re.sub(r"\s+(?:level\s*)?(?:i{1,5}|[1-9])$", "", t, flags=re.I).strip()
+    without_seniority = re.sub(r"^(?:senior|sr\.?|junior|jr\.?|lead)\s+", "", without_level_suffix, flags=re.I).strip()
+    canonical_title = without_seniority or without_level_suffix or t
+    low = re.sub(r"\s+", " ", canonical_title.lower())
+    flat = re.sub(r"[^a-z0-9]+", " ", low).strip()
+    if _ROLE_HINT_RE.search(flat):
+        return True
+    if flat in {"principal", "member", "student"}:
+        return True
+    if _LEADERSHIP_TITLE_SIGNAL.search(low):
+        return True
+    return False
+
+
+def _canonical_role_title_legacy(value):
     title = (value or "").strip()
     if not title:
         return ""
@@ -145,7 +196,6 @@ def _canonical_role_title(value):
     low = re.sub(r"\s+", " ", canonical_title.lower())
     flat = re.sub(r"[^a-z0-9]+", " ", low).strip()
 
-    # Keep education/program labels separate from professional role buckets.
     if "ai4all" not in flat:
         ai_signal = (
             bool(re.search(r"\b(ai|aiml|ml|llm)\b", flat))
@@ -193,6 +243,41 @@ def _canonical_role_title(value):
     if not _ROLE_HINT_RE.search(flat) and flat not in {"principal", "member", "student"}:
         return ""
     return canonical_title
+
+
+def _canonical_role_title(value):
+    title = (value or "").strip()
+    if not title:
+        return ""
+
+    flat = re.sub(r"[^a-z0-9]+", " ", re.sub(r"\s+", " ", title.lower()).strip()).strip()
+
+    if "ai4all" not in flat:
+        ai_signal = (
+            bool(re.search(r"\b(ai|aiml|ml|llm)\b", flat))
+            or "machine learning" in flat
+            or "generative ai" in flat
+        )
+        ai_role_signal = bool(
+            re.search(
+                r"\b(engineer|developer|scientist|software|mlops|data|python|associate|project|projects)\b",
+                flat,
+            )
+        )
+        if ai_signal and ai_role_signal:
+            return "AI / ML Engineer"
+
+    if _normalize_job_title_deterministic is None:
+        return _canonical_role_title_legacy(value)
+
+    normed = (_normalize_job_title_deterministic(title) or "").strip()
+    if not normed:
+        return ""
+
+    if not _raw_title_signals_professional_role(title) and normed not in _TRUSTED_TITLE_WITHOUT_ROLE_TOKEN:
+        return ""
+
+    return normed
 
 
 def _canonical_company_name(value):
@@ -565,6 +650,7 @@ def api_get_alumni():
                                 str(row.get("location") or ""),
                                 str(row.get("discipline") or ""),
                                 str(row.get("standardized_major") or ""),
+                                str(row_role or ""),
                             ]
                         ).lower()
                         if query_text not in haystack:

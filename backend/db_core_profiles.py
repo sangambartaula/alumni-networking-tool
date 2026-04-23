@@ -176,21 +176,31 @@ def get_authorized_emails():
     Get all authorized emails from the database.
     Returns a list of dicts with email, added_at, added_by_user_id, and notes.
     """
-    try:
-        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
-            cur.execute("""
+    full_select = """
                 SELECT email, added_at, added_by_user_id, notes
                 FROM authorized_emails
                 ORDER BY added_at DESC
-            """)
-            emails = cur.fetchall()
-        
-        # Convert datetime objects to strings for JSON serialization
+            """
+    minimal_select = """
+                SELECT email
+                FROM authorized_emails
+                ORDER BY email ASC
+            """
+    try:
+        with managed_db_cursor(get_connection, dictionary=True) as (_conn, cur):
+            try:
+                cur.execute(full_select)
+            except Exception:
+                cur.execute(minimal_select)
+            emails = cur.fetchall() or []
+
         for email_record in emails:
-            added_at = email_record.get('added_at')
-            if hasattr(added_at, 'isoformat'):
-                email_record['added_at'] = added_at.isoformat()
-        
+            added_at = email_record.get("added_at")
+            if hasattr(added_at, "isoformat"):
+                email_record["added_at"] = added_at.isoformat()
+            email_record.setdefault("added_by_user_id", None)
+            email_record.setdefault("notes", None)
+
         return emails
     except Exception as err:
         logger.error(f"Error fetching authorized emails: {err}")

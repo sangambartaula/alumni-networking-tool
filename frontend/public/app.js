@@ -765,7 +765,7 @@ function _buildClassLocationLine(profile) {
 // Create profile list item element (horizontal row)
 function createListItem(p) {
   const educationLine = _buildEducationLine(p);
-  const roleLine = p.role || p.headline || '';
+  const roleLine = p.current_job_title || p.title || p.headline || '';
   const classLocationLine = _buildClassLocationLine(p);
 
   const item = document.createElement('div');

@@ -61,12 +61,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  const emailWhitelistSection = document.getElementById('emailWhitelistSection');
+
   // Open settings modal
-  settingsBtn.addEventListener('click', function () {
+  settingsBtn.addEventListener('click', async function () {
     settingsModal.style.display = 'block';
-    loadAuthorizedEmails();
+    await fetchCurrentUser();
+    if (currentUser && currentUser.role === 'admin') {
+      if (emailWhitelistSection) emailWhitelistSection.style.display = 'block';
+      loadAuthorizedEmails();
+    } else {
+      if (emailWhitelistSection) emailWhitelistSection.style.display = 'none';
+      if (emailList) {
+        emailList.innerHTML = '<li class="empty">Email whitelist is managed by administrators.</li>';
+      }
+    }
     loadScraperActivity();
-    fetchCurrentUser();
   });
 
   // Close settings modal
@@ -172,14 +182,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Load authorized emails from API
   async function loadAuthorizedEmails() {
+    if (!emailList) return;
+    if (!currentUser || currentUser.role !== 'admin') {
+      return;
+    }
     try {
       const response = await fetch('/api/authorized-emails');
-      const data = await response.json();
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        console.error('Invalid JSON from authorized-emails:', parseErr);
+        emailList.innerHTML = '<li class="error">Error loading emails (invalid server response)</li>';
+        return;
+      }
 
-      if (data.success) {
+      if (response.ok && data.success) {
         displayEmails(data.emails);
       } else {
-        emailList.innerHTML = '<li class="error">Error loading emails</li>';
+        const msg = (data && (data.error || data.message)) || response.statusText || 'Request failed';
+        emailList.innerHTML = `<li class="error">Could not load whitelist: ${escapeHtml(msg)}</li>`;
       }
     } catch (error) {
       console.error('Error fetching emails:', error);

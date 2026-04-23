@@ -122,7 +122,7 @@ def test_graduate_student_maps_to_student():
     [
         ("Summer Intern", "Intern"),
         ("Software Engineer Intern", "Software Engineer"),
-        ("Associate Engineer", "Mechanical Engineer"),
+        ("Associate Engineer", "Engineer"),
         ("Workday Engineer", "Software Engineer"),
         ("Apple Engineer", "Software Engineer"),
     ],

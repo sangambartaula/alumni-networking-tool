@@ -2071,6 +2071,16 @@ def main():
     os.environ["SCRAPE_RUN_UUID"] = _current_scrape_run_uuid
     reset_groq_accuracy_risk_events()
 
+    try:
+        scraper_dir = str(Path(__file__).resolve().parent)
+        if scraper_dir not in sys.path:
+            sys.path.insert(0, scraper_dir)
+        from job_title_normalization import reset_title_normalization_session_counters
+
+        reset_title_normalization_session_counters()
+    except Exception as title_sess_err:
+        logger.debug("Job title session reset skipped: %s", title_sess_err)
+
     selected_disciplines = _get_selected_search_disciplines() if config.SCRAPER_MODE == "search" else []
     try:
         _current_scrape_run_id = create_scrape_run(
@@ -2226,6 +2236,16 @@ def main():
         logger.info("SUMMARY|groq_accuracy_risk_count=%s", len(groq_accuracy_events))
         if _geocode_failure_locations:
             logger.info("SUMMARY|unknown_locations=%s", "; ".join(sorted(_geocode_failure_locations)[:10]))
+
+        try:
+            scraper_dir = str(Path(__file__).resolve().parent)
+            if scraper_dir not in sys.path:
+                sys.path.insert(0, scraper_dir)
+            from job_title_normalization import export_new_groq_titles_session_summary
+
+            export_new_groq_titles_session_summary()
+        except Exception as title_export_err:
+            logger.debug("Job title Groq session export skipped: %s", title_export_err)
 
         if _current_scrape_run_id:
             finalize_scrape_run(

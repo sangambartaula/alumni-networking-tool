@@ -4,16 +4,16 @@ Job Title Normalization Module
 Maps semantically equivalent job titles to a single standardized category.
 Preserves all original raw job title values — only the normalized mapping is stored.
 
-Two strategies:
-  1. Deterministic: cleanup + dictionary lookup (fast, offline, no API cost).
-     Preferred for known, common titles to ensure 100% latency-free matching.
-  2. Groq-based:    LLM classification against existing normalized titles.
-     Used for "long-tail" titles to find semantic matches that the map might miss.
+Architecture:
+  1. Groq-first (when GROQ_API_KEY is set and the groq SDK is available): the model
+     proposes a short bucket label with strict JSON + post-validation in code.
+  2. Deterministic fallback: TITLE_MAP + regex compaction — used only when Groq is
+     unavailable, fails validation, or callers pass use_groq=False.
 
 Usage:
     from job_title_normalization import get_or_create_normalized_title
 
-    norm_id = get_or_create_normalized_title(raw_title)
+    norm_id = get_or_create_normalized_title(conn, raw_title, use_groq=True)
     # norm_id is the PK in normalized_job_titles table (or None on failure)
 """
 
@@ -21,11 +21,16 @@ import os
 import re
 import json
 import logging
+from pathlib import Path
+from typing import Any
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from groq_client import apply_groq_retry_delay
+try:
+    from groq_client import apply_groq_retry_delay
+except ImportError:
+    from scraper.groq_client import apply_groq_retry_delay
 
 apply_groq_retry_delay()
 
@@ -58,7 +63,7 @@ TITLE_MAP = {
     "associate software engineer": "Software Engineer",
     "associate software": "Software Engineer",
     "associate software intern": "Software Engineer",
-    "software systems engineer": "Software Engineer",
+    "software systems engineer": "Systems Engineer",
     "member of technical staff": "Software Engineer",
     "mts": "Software Engineer",
     "smts": "Software Engineer",
@@ -80,8 +85,8 @@ TITLE_MAP = {
     "junior software engineer": "Software Engineer",
     "jr. software engineer": "Software Engineer",
     "vice president lead software engineer": "Software Engineer",
-    "principal systems engineer": "Software Engineer",
-    "lead systems engineer": "Software Engineer",
+    "principal systems engineer": "Systems Engineer",
+    "lead systems engineer": "Systems Engineer",
     "sr. director of software engineering": "Director",
     "director of software engineering": "Director",
     "vp of software engineering": "VP",
@@ -106,6 +111,9 @@ TITLE_MAP = {
     "fullstack engineer": "Software Engineer",
     "full stack web developer": "Software Engineer",
     "full stack .net developer": "Software Engineer",
+    "full stack java developer": "Software Engineer",
+    "full stack python developer": "Software Engineer",
+    "full stack python (aws) developer": "Software Engineer",
     "java full stack developer": "Software Engineer",
     "java fullstack developer": "Software Engineer",
     "sr. full stack java developer": "Software Engineer",
@@ -115,6 +123,8 @@ TITLE_MAP = {
     "frontend developer": "Software Engineer",
     "front-end developer": "Software Engineer",
     "front end developer": "Software Engineer",
+    "front end software engineer": "Software Engineer",
+    "frontend software engineer": "Software Engineer",
     "frontend engineer": "Software Engineer",
     "front-end engineer": "Software Engineer",
     "senior ui developer": "Software Engineer",
@@ -189,9 +199,9 @@ TITLE_MAP = {
     "cloud architect": "DevOps Engineer",
     "infrastructure / cloud engineer": "DevOps Engineer",
     "infrastructure engineer": "DevOps Engineer",
-    "solutions architect": "Software Engineer",
+    "solutions architect": "Solutions Architect",
     "solution advisor": "Consultant",
-    "jr. system architect": "Software Engineer",
+    "jr. system architect": "Solutions Architect",
     "systems administrator": "Systems Administrator",
     "system administrator": "Systems Administrator",
     "sys admin": "Systems Administrator",
@@ -200,22 +210,22 @@ TITLE_MAP = {
     "network administrator": "Network Engineer",
 
     # ── Systems Engineering ──
-    "system engineer": "Software Engineer",
-    "systems engineer": "Software Engineer",
-    "systems engineer hil": "Software Engineer",
-    "technical systems engineer": "Software Engineer",
-    "assistant system design engineer": "Software Engineer",
-    "assistant system engineer": "Software Engineer",
+    "system engineer": "Systems Engineer",
+    "systems engineer": "Systems Engineer",
+    "systems engineer hil": "Systems Engineer",
+    "technical systems engineer": "Systems Engineer",
+    "assistant system design engineer": "Systems Engineer",
+    "assistant system engineer": "Systems Engineer",
 
     # ── Security ──
-    "cybersecurity analyst": "Software Engineer",
-    "cyber security analyst": "Software Engineer",
-    "information security analyst": "Software Engineer",
-    "cybersecurity analyst (graduate assistant)": "Software Engineer",
-    "security engineer": "Software Engineer",
-    "cybersecurity engineer": "Software Engineer",
-    "sr. cyber security engineer": "Software Engineer",
-    "security analyst": "Software Engineer",
+    "cybersecurity analyst": "Security Analyst",
+    "cyber security analyst": "Security Analyst",
+    "information security analyst": "Security Analyst",
+    "cybersecurity analyst (graduate assistant)": "Security Analyst",
+    "security engineer": "Security Engineer",
+    "cybersecurity engineer": "Security Engineer",
+    "sr. cyber security engineer": "Security Engineer",
+    "security analyst": "Security Analyst",
 
     # ── QA & Testing ──
     "qa engineer": "Software Engineer",
@@ -233,10 +243,10 @@ TITLE_MAP = {
     "quality supervisor": "Manager",
 
     # ── Engineering (general, mechanical, civil, etc.) ──
-    "engineer": "Mechanical Engineer",
-    "engineer i": "Mechanical Engineer",
-    "engineer ii": "Mechanical Engineer",
-    "associate engineer": "Mechanical Engineer",
+    "engineer": "Engineer",
+    "engineer i": "Engineer",
+    "engineer ii": "Engineer",
+    "associate engineer": "Engineer",
     "mechanical engineer": "Mechanical Engineer",
     "mechanical design engineer": "Mechanical Engineer",
     "mechanical engineering intern": "Mechanical Engineer",
@@ -262,14 +272,12 @@ TITLE_MAP = {
     "advanced manufacturing engineer senior": "Mechanical Engineer",
     "general manager / manufacturing engineer": "Manager",
     "intermediate professional, electrical engineering": "Mechanical Engineer",
-    "assistant engineer": "Mechanical Engineer",
+    "assistant engineer": "Engineer",
     "engineering co-op": "Intern",
     "staff engineer": "Mechanical Engineer",
     "principal engineer": "Mechanical Engineer",
     "electrical engineer": "Mechanical Engineer",
     "automation engineer": "Mechanical Engineer",
-    "design engineer": "Mechanical Engineer",
-    "residential and commercial buildings": "Mechanical Engineer",
 
     # ── Management & Leadership ──
     "engineering manager": "Manager",
@@ -283,7 +291,6 @@ TITLE_MAP = {
     "senior project manager": "Project Manager",
     "sr project manager": "Project Manager",
     "sr. project manager": "Project Manager",
-    "project manager ii": "Project Manager",
     "assistant project manager": "Project Manager",
     "project management coordinator": "Project Manager",
     "project management intern": "Project Manager",
@@ -337,11 +344,10 @@ TITLE_MAP = {
     "retail manager": "Manager",
     "real estate / retail manager": "Manager",
     "patient access manager": "Manager",
-    "vp of sales": "Sales",
-    "vp sales executive": "Sales",
-    "president": "VP",
-    "executive": "VP",
-    "principal": "Manager",
+    "vp of sales": "VP",
+    "vp sales executive": "VP",
+    "president": "President",
+    "executive": "Executive",
     "property manager": "Manager",
 
     # ── Consulting & IT ──
@@ -427,6 +433,7 @@ TITLE_MAP = {
     "student leader": "Student",
     "student worker": "Student",
     "community assistant": "Student",
+    "program assistant for youth programs": "Student",
     "graduate student": "Student",
     "member": "Student",
     "team member": "Student",
@@ -443,23 +450,23 @@ TITLE_MAP = {
     "jp morgan all star code": "Student",
 
     # ── Design & Creative ──
-    "ux designer": "Marketing",
-    "ui designer": "Marketing",
-    "ui/ux designer": "Marketing",
-    "ux/ui designer": "Marketing",
-    "product designer": "Marketing",
-    "graphic designer": "Marketing",
-    "creative & art design": "Marketing",
-    "3d asset and level designer": "Marketing",
-    "bim coordinator": "Project Manager",
-    "descriptive metadata writer": "Marketing",
-    "technical writer": "Marketing",
-    "graphic design intern": "Marketing",
-    "digital personal shopper": "Marketing",
-    "development executive": "Marketing",
-    "special effects design": "Marketing",
-    "design": "Marketing",
-    "architectural designer": "Marketing",
+    "ux designer": "UI/UX Designer",
+    "ui designer": "UI/UX Designer",
+    "ui/ux designer": "UI/UX Designer",
+    "ux/ui designer": "UI/UX Designer",
+    "product designer": "Designer",
+    "graphic designer": "Designer",
+    "creative & art design": "Designer",
+    "3d asset and level designer": "Designer",
+    "bim coordinator": "Coordinator",
+    "descriptive metadata writer": "Writer",
+    "technical writer": "Writer",
+    "graphic design intern": "Designer",
+    "digital personal shopper": "Designer",
+    "development executive": "Designer",
+    "special effects design": "Designer",
+    "design": "Designer",
+    "architectural designer": "Designer",
 
     # ── Sales ──
     "sales associate": "Sales",
@@ -468,6 +475,9 @@ TITLE_MAP = {
     "account executive": "Sales",
     "sales executive": "Sales",
     "retail specialist": "Sales",
+
+    "executive assistant": "Executive Assistant",
+    "senior executive assistant": "Executive Assistant",
 
     # ── Human Resources ──
     "recruiter": "Human Resources",
@@ -490,8 +500,8 @@ TITLE_MAP = {
     "personal banker": "Finance / Accounting",
     "title clerk": "Finance / Accounting",
     "due diligence associate": "Finance / Accounting",
-    "assistant vice president - financial solutions advisor": "Finance / Accounting",
-    "assistant vice president": "Finance / Accounting",
+    "assistant vice president - financial solutions advisor": "VP",
+    "assistant vice president": "VP",
 
     # ── Customer Service ──
     "client support associate": "Customer Service",
@@ -521,17 +531,16 @@ TITLE_MAP = {
     "product specialist": "Operations",
     "administrative": "Operations",
     "administrative assistant": "Operations",
+    "admin assistant": "Operations",
     "professional": "Operations",
     "intermediate professional": "Mechanical Engineer",
 
     # ── Construction & Field ──
     "field project coordinator": "Project Manager",
-    "residential and commercial buildings": "Mechanical Engineer",
 
     # ── Operations & Other ──
     "retail manager": "Manager",
     "real estate / retail manager": "Manager",
-    "retail specialist": "Sales",
     "credentialing coordinator": "Manager",
     "office staff": "Manager",
     "warehouse team member": "Manager",
@@ -555,10 +564,15 @@ _PREFERRED_TITLE_BUCKETS = [
     "Data Scientist",
     "Data Analyst",
     "DevOps Engineer",
+    "Engineer",
     "Mechanical Engineer",
     "Civil Engineer",
     "Field Engineer",
     "Project Engineer",
+    "Systems Engineer",
+    "Security Engineer",
+    "Security Analyst",
+    "Solutions Architect",
     "Researcher",
     "Graduate Assistant",
     "Student",
@@ -567,6 +581,10 @@ _PREFERRED_TITLE_BUCKETS = [
     "Database Administrator",
     "Systems Administrator",
     "Network Engineer",
+    "UI/UX Designer",
+    "Designer",
+    "Writer",
+    "Coordinator",
     "Manager",
     "Customer Service",
     "Sales",
@@ -580,11 +598,14 @@ _PREFERRED_TITLE_BUCKETS = [
     "CFO",
     "CMO",
     "VP",
+    "President",
+    "Executive",
     "Director",
     "Professor",
     "Doctoral Candidate",
     "Postdoctoral Researcher",
     "Operations",
+    "Executive Assistant",
     "Ambassador",
     "Peer Mentor",
     "Technician",
@@ -602,9 +623,9 @@ _STALE_TITLE_REMAP = {
     "software developer": "Software Engineer",
     "backend engineer": "Software Engineer",
     "frontend engineer": "Software Engineer",
-    "systems engineer": "Software Engineer",
-    "security engineer": "Software Engineer",
-    "cybersecurity analyst": "Software Engineer",
+    "systems engineer": "Systems Engineer",
+    "security engineer": "Security Engineer",
+    "cybersecurity analyst": "Security Analyst",
     "qa engineer": "Software Engineer",
     "quality engineer": "Software Engineer",
     "cloud engineer": "DevOps Engineer",
@@ -620,7 +641,7 @@ _STALE_TITLE_REMAP = {
     "seasonal sales associate": "Sales",
     "account executive": "Sales",
     "recruiter": "Human Resources",
-    "graphic designer": "Marketing",
+    "graphic designer": "Designer",
     "marketing specialist": "Marketing",
     "marketing consultant": "Marketing",
     "cashier": "Customer Service",
@@ -711,7 +732,7 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
             "software", "data", "devops", "cloud", "network", "systems",
             "mechanical", "civil", "field", "project", "research", "application",
             "database", "quality", "security", "test", "manufacturing", "industrial",
-            "electrical", "automation", "process",
+            "electrical", "automation", "process", "solutions", "enterprise",
         }
         if prefix not in generic_engineering_prefixes:
             return "Software Engineer"
@@ -730,8 +751,12 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
         return "CFO"
     if re.search(r"\b(cmo|chief marketing officer)\b", low):
         return "CMO"
-    if re.search(r"\b(vp|vice president|president|cio|ciso|executive vice|evp|svp)\b", low):
+    if re.search(r"\b(executive vice president|vice president|vp|ciso|cio|evp|svp)\b", low):
         return "VP"
+    if re.search(r"\bpresident\b", low) and not re.search(r"\bvice\s+president\b", low):
+        return "President"
+    if low == "executive":
+        return "Executive"
 
     # 2. Engineering & Tech Roles (Specific before generic)
     if re.search(r"\b(ai|artificial intelligence|machine learning|\bml\b)\b", low):
@@ -747,7 +772,24 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     if re.search(r"\b(network engineer|network administrator)\b", low):
         return "Network Engineer"
 
-    if re.search(r"\b(software|frontend|front-end|backend|back-end|fullstack|full-stack|web developer|mainframe|syteline|sdet|qa\b|quality assurance|test engineer|systems? engineer|security engineer|cybersecurity|solutions architect)\b", low):
+    if re.search(
+        r"\b(solutions?\s+architect|enterprise\s+architect|technical\s+architect|software\s+architect|"
+        r"application\s+architect|cloud\s+solutions?\s+architect)\b",
+        low,
+    ):
+        return "Solutions Architect"
+    if re.search(r"\b(security\s+engineer|cyber\s*security\s+engineer)\b", low):
+        return "Security Engineer"
+    if re.search(r"\b(systems?\s+engineer)\b", low):
+        return "Systems Engineer"
+    if re.search(r"\b(cyber\s*security|information\s+security)\b", low) and re.search(r"\b(analyst)\b", low):
+        return "Security Analyst"
+
+    if re.search(
+        r"\b(software|frontend|front[\s-]?end|backend|back[\s-]?end|fullstack|full[\s-]?stack|"
+        r"web developer|mainframe|syteline|sdet|qa\b|quality assurance|test engineer)\b",
+        low,
+    ):
         return "Software Engineer"
 
     # 3. Data Roles
@@ -773,7 +815,17 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
         return "Human Resources"
     if re.search(r"\b(accountant|financial|finance|banker|title clerk|due diligence)\b", low):
         return "Finance / Accounting"
-    if re.search(r"\b(marketing|graphic design|ux design|ui design|product design|technical writer|digital personal|game design|designer)\b", low):
+    if re.search(r"\b(ui/ux|ux/ui|ux designer|ui designer)\b", low):
+        return "UI/UX Designer"
+    if re.search(r"\b(technical writer|metadata writer|copywriter)\b", low):
+        return "Writer"
+    if re.search(
+        r"\b(graphic|product designer|ux\b|ui\b|\bdesigner\b|3d asset|level designer|creative\s*&\s*art|"
+        r"special effects design|architectural designer)\b",
+        low,
+    ) and not re.search(r"\bengineer\b", low):
+        return "Designer"
+    if re.search(r"\b(marketing|digital personal|game design)\b", low):
         return "Marketing"
     if re.search(r"\b(sales|account executive|retail.*development|business development)\b", low):
         return "Sales"
@@ -789,6 +841,15 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
     # 7. Mechanical / Traditional Engineering
     if re.search(r"\b(mechanical|manufacturing|industrial|piping|controls|design engineer|engineering technician|assembly|drafter|cad)\b", low):
         return "Mechanical Engineer"
+
+    # 7b. Generic engineer with no stronger domain hint
+    if re.search(r"\bengineer\b", low) and not re.search(
+        r"\b(software|frontend|backend|full\s*stack|web|java|python|data|devops|sre|cloud|network|systems|"
+        r"security|mechanical|civil|electrical|manufacturing|industrial|field|project|biomedical|piping|controls|"
+        r"automation|design|solutions|enterprise|application|quality|test|ai|ml|database|infrastructure)\b",
+        low,
+    ):
+        return "Engineer"
 
     # 8. Customer Service (includes IT support/help desk)
     if re.search(r"\b(customer service|customer support|client service|front desk|cashier|crew member|server trainer|patient access|it support|help desk|technical support|desktop support)\b", low):
@@ -902,6 +963,8 @@ def _cleanup_title(raw: str) -> str:
     if not raw:
         return ""
     t = raw.strip()
+    t = re.sub(r"\bdevelope\b", "developer", t, flags=re.I)
+    t = re.sub(r"\bdevelopor\b", "developer", t, flags=re.I)
     t = re.sub(r'\s+', ' ', t)
     t = _strip_trailing_location_fragment(t)
     
@@ -946,13 +1009,23 @@ def _strip_company_prefix_from_role(text: str) -> str:
         return ""
 
     # One-token org prefix + one-token role (e.g., Workday Engineer).
+    # Guard against legitimate domain titles like "Data Scientist".
     m_simple = re.match(
-        r"^[A-Za-z0-9&.+'-]+\s+(Engineer|Developer|Analyst|Manager|Consultant|Architect|Scientist|Designer|Technician|Administrator|Specialist)$",
+        r"^([A-Za-z0-9&.+'-]+)\s+(Engineer|Developer|Analyst|Manager|Consultant|Architect|Scientist|Designer|Technician|Administrator|Specialist)$",
         t,
         re.IGNORECASE,
     )
     if m_simple:
-        return m_simple.group(1)
+        prefix = m_simple.group(1).casefold()
+        non_company_prefixes = {
+            "software", "data", "devops", "cloud", "network", "systems", "mechanical",
+            "civil", "project", "research", "security", "quality", "product", "application",
+            "database", "business", "financial", "operations", "marketing", "sales",
+            "customer", "executive", "technical", "human", "information", "technology",
+            "machine", "ai", "ml",
+        }
+        if prefix not in non_company_prefixes:
+            return m_simple.group(2)
 
     # One-token org prefix + two-word role family (e.g., Apple Software Engineer).
     m_two = re.match(
@@ -1040,169 +1113,495 @@ def normalize_title_deterministic(raw_title: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# GROQ-BASED NORMALIZATION (for future scraping)
+# GROQ-FIRST SESSION STATE (taxonomy review + metrics)
 # ---------------------------------------------------------------------------
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+NEW_GROQ_TITLES: set[str] = set()
+_TITLE_NORM_SESSION_STATS: dict[str, int] = {
+    "groq_calls": 0,
+    "groq_http_errors": 0,
+    "groq_invalid_json": 0,
+    "groq_invalid_output": 0,
+    "groq_retries": 0,
+    "deterministic_fallbacks": 0,
+    "groq_accepted": 0,
+    "new_titles_recorded": 0,
+}
 
+
+def reset_title_normalization_session_counters() -> None:
+    """Clear per-scrape-run taxonomy review set and diagnostic counters."""
+    global NEW_GROQ_TITLES, _TITLE_NORM_SESSION_STATS
+    NEW_GROQ_TITLES.clear()
+    for k in _TITLE_NORM_SESSION_STATS:
+        _TITLE_NORM_SESSION_STATS[k] = 0
+
+
+def get_title_normalization_session_stats() -> dict[str, int]:
+    return dict(_TITLE_NORM_SESSION_STATS)
+
+
+def _bump_stat(key: str, n: int = 1) -> None:
+    _TITLE_NORM_SESSION_STATS[key] = _TITLE_NORM_SESSION_STATS.get(key, 0) + n
+
+
+def export_new_groq_titles_session_summary(output_dir: Path | None = None) -> None:
+    """
+    Log and append NEW_GROQ_TITLES discovered this run (for manual taxonomy review).
+    Safe to call even when the set is empty.
+    """
+    stats = get_title_normalization_session_stats()
+    logger.info(
+        "Job title normalization session stats: groq_calls=%s accepted=%s invalid_output=%s "
+        "http_errors=%s bad_json=%s retries=%s deterministic_fallbacks=%s new_titles_recorded=%s",
+        stats.get("groq_calls", 0),
+        stats.get("groq_accepted", 0),
+        stats.get("groq_invalid_output", 0),
+        stats.get("groq_http_errors", 0),
+        stats.get("groq_invalid_json", 0),
+        stats.get("groq_retries", 0),
+        stats.get("deterministic_fallbacks", 0),
+        stats.get("new_titles_recorded", 0),
+    )
+    if not NEW_GROQ_TITLES:
+        logger.info("NEW_GROQ_TITLES (this run): (none)")
+        return
+    lines = sorted(NEW_GROQ_TITLES)
+    logger.info("NEW_GROQ_TITLES (this run, %s entries):\n%s", len(lines), "\n".join(f"  - {t}" for t in lines))
+    base = output_dir or (Path(__file__).resolve().parent / "output")
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        out_path = base / "new_groq_titles_last_run.txt"
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        logger.info("Wrote NEW_GROQ_TITLES list to %s", out_path)
+    except OSError as exc:
+        logger.warning("Could not write NEW_GROQ_TITLES file: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# GROQ CLIENT + PROMPTS
+# ---------------------------------------------------------------------------
+
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 _groq_client = None
 
 
+def _groq_api_key() -> str:
+    return (os.getenv("GROQ_API_KEY") or "").strip()
+
+
 def _get_groq_client():
-    """Lazy-init Groq client."""
+    """Lazy-init Groq client (re-reads API key from environment)."""
     global _groq_client
+    if not _groq_api_key():
+        return None
     if _groq_client is not None:
         return _groq_client
-    if not GROQ_API_KEY:
-        return None
     try:
         from groq import Groq
-        _groq_client = Groq(api_key=GROQ_API_KEY)
+
+        _groq_client = Groq(api_key=_groq_api_key())
         return _groq_client
     except ImportError:
         logger.warning("groq package not installed — Groq normalization disabled")
         return None
     except Exception as e:
-        logger.error(f"Failed to init Groq client: {e}")
+        logger.error("Failed to init Groq client: %s", e)
         return None
 
 
-def _coerce_existing_title_choice(candidate: str, existing_titles: list[str]) -> str:
-    """
-    Normalize an LLM title output and restore exact existing title casing when possible.
-    """
-    if not candidate or not isinstance(candidate, str):
-        return ""
+def is_groq_configured_for_titles() -> bool:
+    return bool(_groq_api_key())
 
-    cleaned = re.sub(r"\s+", " ", candidate).strip().strip('"\'')
-    cleaned = re.sub(r"\s*[|:;,.!?]+\s*$", "", cleaned).strip()
 
+_VAGUE_TITLE_FOLD = frozenset(
+    {
+        "other",
+        "unknown",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "misc",
+        "miscellaneous",
+        "various",
+        "tbd",
+        "unspecified",
+        "general",
+        "untitled",
+        "title",
+        "role",
+        "position",
+    }
+)
+
+_LEAKAGE_HINT = re.compile(
+    r"(\bat\s+[A-Za-z][A-Za-z\s'.-]{2,40}\b|,\s*(texas|california|usa|u\.s\.a\.|united states|"
+    r"india|canada|uk|china|mexico|florida|new york)\b|\b(inc\.?|llc|ltd\.?|corp\.?|corporation|company)\b|"
+    r"\bremote\b|\bhybrid\b|\bon-?site\b)",
+    re.IGNORECASE,
+)
+
+
+def _word_count_title(text: str) -> int:
+    t = (text or "").strip()
+    if not t:
+        return 0
+    return len(t.split())
+
+
+def _maybe_compact_executive_title(text: str) -> str | None:
+    """
+    If Groq returned a long VP-style string, compact to the controlled VP bucket.
+    """
+    low = (text or "").casefold()
+    if re.search(r"\bvice\s+president\b", low) or re.search(r"\bvp\b", low):
+        return "VP"
+    if re.search(r"\bpresident\b", low) and not re.search(r"\bvice\s+president\b", low):
+        return "President"
+    return None
+
+
+def _truncate_to_max_words(text: str, max_words: int = 4) -> str:
+    parts = (text or "").strip().split()
+    if len(parts) <= max_words:
+        return (text or "").strip()
+    return " ".join(parts[:max_words]).strip()
+
+
+def _is_trivial_raw_skip_groq(cleaned: str) -> bool:
+    """Noise titles that should not consume a Groq call."""
+    low = (cleaned or "").strip().casefold()
+    if not low or len(low) <= 1:
+        return True
+    return low in _VAGUE_TITLE_FOLD or low in {"-", "--", "—", "…"}
+
+
+def _deterministic_strong_match(raw_title: str) -> str:
+    """
+    Return a deterministic bucket for obvious/known titles (exact map hit).
+    Used to avoid unnecessary Groq calls and terminal noise on low-ambiguity cases.
+    """
+    cleaned = _cleanup_title(raw_title or "")
     if not cleaned:
         return ""
+    mapped = TITLE_MAP.get(cleaned.casefold())
+    if not mapped:
+        return ""
+    return _compact_normalized_title(mapped, raw_title=cleaned).strip()
 
-    existing_map = {}
+
+def _record_new_groq_title_if_needed(canonical: str) -> None:
+    if not canonical:
+        return
+    if canonical.casefold() not in _PREFERRED_BUCKETS_SET:
+        before = len(NEW_GROQ_TITLES)
+        NEW_GROQ_TITLES.add(canonical)
+        if len(NEW_GROQ_TITLES) > before:
+            _bump_stat("new_titles_recorded")
+
+
+def _coerce_existing_title_choice(candidate: str, existing_titles: list[str]) -> str:
+    if not candidate or not isinstance(candidate, str):
+        return ""
+    cleaned = re.sub(r"\s+", " ", candidate).strip().strip('"\'')
+    cleaned = re.sub(r"\s*[|:;,.!?]+\s*$", "", cleaned).strip()
+    if not cleaned:
+        return ""
+    existing_map: dict[str, str] = {}
     for title in existing_titles or []:
         if isinstance(title, str) and title.strip():
             existing_map[title.strip().casefold()] = title.strip()
-
     match = existing_map.get(cleaned.casefold())
     return match if match else cleaned
 
 
-def normalize_title_with_groq(raw_title: str, existing_titles: list) -> str:
+def _merged_prompt_titles(existing_titles: list[str], limit: int = 200) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for t in list(_PREFERRED_TITLE_BUCKETS) + list(existing_titles or []):
+        if not isinstance(t, str):
+            continue
+        s = t.strip()
+        if not s:
+            continue
+        k = s.casefold()
+        if k in seen:
+            continue
+        seen.add(k)
+        merged.append(s)
+        if len(merged) >= limit:
+            break
+    return merged
+
+
+def _is_vague_title_fold(s: str) -> bool:
+    fold = (s or "").strip().casefold()
+    return not fold or fold in _VAGUE_TITLE_FOLD
+
+
+def _validate_groq_normalized_title(
+    raw_title: str,
+    title: str,
+    match_type: str,
+    existing_fold: set[str],
+) -> tuple[bool, str, str]:
     """
-    Use Groq LLM to classify a raw job title.
-
-    Args:
-        raw_title:       The raw scraped job title.
-        existing_titles: List of already-known normalized titles in the DB.
-
-    Returns:
-        A normalized title string (either an existing one or a new suggestion).
-        Falls back to deterministic normalization on any failure.
+    Enforce ontology + length + hygiene in code (not in the prompt alone).
+    Returns (ok, reason, final_title).
     """
-    client = _get_groq_client()
-    if not client:
-        logger.info("Groq unavailable — falling back to deterministic normalization")
-        return normalize_title_deterministic(raw_title)
+    mt = (match_type or "").strip().lower()
+    if mt not in {"existing", "new", "empty"}:
+        return False, f"bad_match_type:{match_type!r}", ""
 
-    # Build prompt
-    titles_list = "\n".join(f"- {t}" for t in existing_titles[:180])  # keep prompt lean
-    raw_text = (raw_title or "").strip()[:180]
+    t = (title or "").strip()
+    t = _cleanup_title(t)
+    t = _strip_company_prefix_from_role(t)
 
+    if mt == "empty":
+        ok = not t
+        return ok, "empty_ok" if ok else "empty_with_text", ""
+
+    if not t:
+        return False, "empty_title", ""
+
+    if _is_vague_title_fold(t):
+        return False, "vague", ""
+
+    if "\n" in t or "\t" in t or len(t) > 96:
+        return False, "format", ""
+
+    if _looks_like_location_only_title(t) or _LEAKAGE_HINT.search(t):
+        return False, "location_or_company_leakage", ""
+
+    wc = _word_count_title(t)
+    if wc > 4:
+        compact = _maybe_compact_executive_title(t)
+        if compact and _word_count_title(compact) <= 4:
+            t = compact
+            wc = _word_count_title(t)
+        else:
+            t2 = _truncate_to_max_words(t, 4)
+            if _word_count_title(t2) <= 4 and t2 and not _is_vague_title_fold(t2):
+                t = t2
+                wc = _word_count_title(t)
+        if wc > 4:
+            return False, "too_many_words", ""
+
+    # If Groq returns a near-miss label outside ontology (e.g., "Systems Analyst"),
+    # attempt canonical compaction into a preferred bucket before rejecting.
+    fold = t.casefold()
+    in_preferred = fold in _PREFERRED_BUCKETS_SET
+    in_existing = fold in existing_fold
+    if not in_preferred and not in_existing:
+        compact = _compact_normalized_title(t, raw_title=raw_title).strip()
+        if compact:
+            compact_fold = compact.casefold()
+            compact_wc = _word_count_title(compact)
+            if compact_wc <= 4 and (
+                compact_fold in _PREFERRED_BUCKETS_SET or compact_fold in existing_fold
+            ):
+                t = compact
+                wc = compact_wc
+                fold = compact_fold
+                in_preferred = fold in _PREFERRED_BUCKETS_SET
+                in_existing = fold in existing_fold
+
+    if not in_preferred and not in_existing:
+        # Permit concise, clean novel titles even if the model labeled them
+        # as "existing". This keeps taxonomy evolution possible while still
+        # enforcing hard safety/format constraints in code.
+        if wc > 4:
+            return False, "new_title_too_long", ""
+        return True, "accepted_new_title", t.strip()
+
+    return True, "ok", t.strip()
+
+
+def _apply_stale_remap(title: str) -> str:
+    if not title:
+        return title
+    return _STALE_TITLE_REMAP.get(title.casefold(), title)
+
+
+def _build_groq_user_prompt(raw_text: str, merged_titles: list[str], strict: bool) -> str:
+    titles_list = "\n".join(f"- {t}" for t in merged_titles)
+    raw_trim = (raw_text or "").strip()[:220]
     preferred_list = "\n".join(f"- {t}" for t in _PREFERRED_TITLE_BUCKETS)
+    strict_extra = ""
+    if strict:
+        strict_extra = (
+            "\nSTRICT MODE: Output must be max 4 words. Must be exactly one preferred bucket string "
+            "when possible. No punctuation except slashes in known buckets (e.g. AI / ML Engineer). "
+            "match_type must be 'existing' or 'empty' unless you are 100% sure a new 2-4 word function title is required.\n"
+        )
+    return f"""You are a job-title normalization engine.
 
-    prompt = f"""You are a job-title normalization engine. Accuracy matters above all.
+Task: map the raw LinkedIn job title to ONE short standardized label.
 
-Task:
-Given a raw job title and existing normalized titles, produce one standardized normalized title.
-
-Rules:
-1. If an existing title is semantically equivalent, return that EXACT existing string.
-2. Prefer one of these canonical buckets when semantically equivalent:
+Canonical buckets (prefer exact spelling when semantically equivalent):
 {preferred_list}
-3. Otherwise return a new concise base function title (1-4 words). Do NOT return "Other" unless there is absolutely no way to infer a role.
-4. Remove seniority/level modifiers (Senior, Junior, II, III, Intern, Lead, etc.).
-5. Remove org-specific fragments (department names, "at <university/company>").
-6. Keep common technical acronyms when core to the role (QA, SRE, DevOps, UI/UX).
-7. If raw title is empty/noise (N/A, unknown), return an empty string.
-8. For memberships/officer roles in student clubs/orgs (e.g., WiCyS), normalize to "Student".
-9. "Member of Technical Staff" is a software engineering role → "Software Engineer".
-10. Executive titles: "CEO" → "CEO", "CTO" → "CTO", "COO" → "COO", "CFO" → "CFO", "CMO" → "CMO". VP/Vice President → "VP".
-11. "Database Administrator", "Systems Administrator", "Network Engineer" should remain their own specific titles.
-12. Civil Engineer, Field Engineer, Project Engineer remain distinct titles.
-13. Graduate students in experience sections with no assistant title → "Student".
-14. If the title is ambiguous, create a reasonable standardized title for a professional dashboard — do NOT default to "Other".
-15. Never include company names in normalized titles (e.g., "Workday Engineer" -> "Software Engineer").
-16. Never output location text as a normalized title (e.g., "Denton, Texas").
-17. Intern handling:
-    - Keep "Intern" only when role context is truly absent (e.g., "Summer Intern").
-    - If role context exists (e.g., "Software Engineer Intern"), return the base role ("Software Engineer").
-    - "Engineering Co-op" → "Intern".
-18. Associate handling:
-    - Drop "Associate" when a concrete role exists (e.g., "Associate Engineer" → "Mechanical Engineer").
-    - Do NOT return "Associate" as a standalone title. If no role context exists, use "Operations".
-19. "Accountant", "Senior Accountant" → "Finance / Accounting" (not a separate bucket).
-20. IT support, help desk, technical support, desktop support → "Customer Service" (not "Software Engineer").
-21. Company/product-prefixed titles: strip the company name (e.g., "Workday Engineer" → "Software Engineer", "Salesforce Developer" → "Software Engineer", "AWS DevOps Engineer" → "DevOps Engineer").
-22. "Managing Director" → "Director" (not "Manager").
-23. Generic "Engineer" without software context → "Mechanical Engineer".
-24. "Flight Attendant", "Cashier", "Crew Member", "Server Trainer", "Pharmacy Technician" → "Customer Service".
-25. Software-role collapsing:
-    - "Software Developer", "Software Engineer", "Software Dev", "Senior Software Developer", "Lead Software Developer", "Software Engineer I/II/III" are the same role family.
-    - Normalize all of those to "Software Engineer".
-    - Remove level and seniority qualifiers while preserving the role family.
-26. Do NOT collapse different role families into "Software Engineer".
-    - Examples that should stay distinct: "Data Analyst", "Product Manager", "Designer", "QA Engineer", "DevOps Engineer", "Network Engineer".
-27. Director handling:
-    - Director-level software titles should map to "Director".
-    - Example: "Director of Software Engineering" -> "Director".
 
-Examples:
-- "Senior Software Developer" -> "Software Engineer"
-- "Software Engineer II" -> "Software Engineer"
-- "Lead Software Developer" -> "Software Engineer"
-- "Director of Software Engineering" -> "Director"
-
-Existing normalized titles:
+Also consider these known normalized titles from the database (exact string match when equivalent):
 {titles_list}
 
-Raw title: "{raw_text}"
+Rules (summary):
+- Software-focused IC roles → Software Engineer when appropriate; keep Project Manager, Director, VP, CEO, CTO, etc. distinct.
+- AI/ML-focused engineering → AI / ML Engineer; data modeling/research → Data Scientist; pipelines/warehousing → Data Engineer.
+- Students / interns / graduate assistants / researchers → Student, Intern, Graduate Assistant, Researcher as appropriate.
+- Never put company names, cities, regions, or departments in normalized_title.
+- If the raw title is meaningless noise, return normalized_title "" and match_type "empty".
+{strict_extra}
+Raw title: "{raw_trim}"
 
-Return JSON only:
-{{"normalized_title":"<string>", "match_type":"existing|new|empty"}}"""
+Return JSON ONLY with keys normalized_title (string) and match_type (one of: existing, new, empty)."""
 
+
+def _call_groq_title_json(prompt: str) -> dict[str, Any] | None:
+    client = _get_groq_client()
+    if not client:
+        return None
+    _bump_stat("groq_calls")
     try:
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
                 {
                     "role": "system",
-                    "content": "Output strictly valid JSON with normalized_title and match_type only."
+                    "content": 'Reply with JSON only: {"normalized_title": string, "match_type": "existing"|"new"|"empty"}. No other keys.',
                 },
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=40
+            max_tokens=96,
         )
-        payload = json.loads(response.choices[0].message.content)
-        result = _coerce_existing_title_choice(payload.get("normalized_title", ""), existing_titles)
-        # Post-Groq sanitization: remap stale DB titles that Groq may have matched
-        # against existing entries. These entries were consolidated in the
-        # normalization overhaul and shouldn't appear as standalone buckets.
-        result = _STALE_TITLE_REMAP.get(result.casefold(), result) if result else result
-        if result.casefold() in {"n/a", "na", "none", "null", "unknown", "other"}:
-            logger.warning(f"Groq returned non-title value for {raw_title!r}: {result!r}")
-            return normalize_title_deterministic(raw_title)
-        if result and len(result) < 100:
-            return result
-        logger.warning(f"Groq returned suspicious title result: {result!r}")
-        return normalize_title_deterministic(raw_title)
-    except Exception as e:
-        logger.error(f"Groq normalization failed: {e}")
-        return normalize_title_deterministic(raw_title)
+        raw = response.choices[0].message.content or ""
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        _bump_stat("groq_invalid_json")
+        logger.warning("Groq title JSON parse failed: %s", exc)
+        return None
+    except Exception as exc:
+        _bump_stat("groq_http_errors")
+        logger.error("Groq title normalization request failed: %s", exc)
+        return None
+
+
+def _groq_classify_once(raw_title: str, merged_titles: list[str], strict: bool) -> tuple[str, str] | None:
+    prompt = _build_groq_user_prompt(raw_title, merged_titles, strict=strict)
+    payload = _call_groq_title_json(prompt)
+    if not isinstance(payload, dict):
+        return None
+    nt = payload.get("normalized_title", "")
+    mt = payload.get("match_type", "")
+    if not isinstance(nt, str):
+        nt = str(nt) if nt is not None else ""
+    if not isinstance(mt, str):
+        mt = str(mt) if mt is not None else ""
+    return nt, mt
+
+
+def groq_normalize_title_validated(raw_title: str, existing_titles: list[str]) -> str | None:
+    """
+    Groq-first classification with code-side validation and a single strict retry.
+
+    Returns:
+        Accepted normalized title string, or None to signal deterministic fallback.
+    """
+    if not _groq_api_key() or _get_groq_client() is None:
+        return None
+
+    merged = _merged_prompt_titles(existing_titles)
+    existing_fold = {str(x).strip().casefold() for x in merged if str(x).strip()}
+
+    last_invalid: tuple[int, str, str, str] | None = None
+    for attempt, strict in enumerate((False, True)):
+        if attempt == 1:
+            _bump_stat("groq_retries")
+        parsed = _groq_classify_once(raw_title, merged, strict=strict)
+        if not parsed:
+            continue
+        nt_raw, mt_raw = parsed
+        coerced = _coerce_existing_title_choice(nt_raw, merged)
+        coerced = _apply_stale_remap(coerced)
+        ok, reason, final_t = _validate_groq_normalized_title(raw_title, coerced, mt_raw, existing_fold)
+        if ok:
+            final = _cleanup_title(final_t).strip()
+            final = _strip_company_prefix_from_role(final)
+            if mt_raw.strip().lower() == "empty" or not final:
+                _bump_stat("groq_accepted")
+                return ""
+            _bump_stat("groq_accepted")
+            if final.casefold() not in _PREFERRED_BUCKETS_SET:
+                _record_new_groq_title_if_needed(final)
+            return final
+        _bump_stat("groq_invalid_output")
+        last_invalid = (attempt + 1, coerced, mt_raw, reason)
+        logger.debug(
+            "Groq title candidate rejected (attempt %s/%s) for raw=%r title=%r match_type=%r reason=%s",
+            attempt + 1,
+            2,
+            raw_title,
+            coerced,
+            mt_raw,
+            reason,
+        )
+    if last_invalid:
+        attempt_n, coerced, mt_raw, reason = last_invalid
+        logger.warning(
+            "Invalid Groq job title output after retry (last_attempt=%s/%s) for raw=%r title=%r match_type=%r reason=%s",
+            attempt_n,
+            2,
+            raw_title,
+            coerced,
+            mt_raw,
+            reason,
+        )
+    return None
+
+
+def normalize_title_with_groq(raw_title: str, existing_titles: list) -> str:
+    """
+    Back-compat wrapper: Groq-first with deterministic fallback.
+    """
+    g = groq_normalize_title_validated(raw_title, list(existing_titles or []))
+    if g is not None:
+        return g
+    _bump_stat("deterministic_fallbacks")
+    return normalize_title_deterministic(raw_title)
+
+
+def resolve_title_for_scrape(raw_title: str, extra_existing: list[str] | None = None) -> str:
+    """
+    Resolve a display / CSV normalized title during scraping (no DB connection).
+    Uses Groq-first when configured; merges optional extra labels (e.g. JSON lookup values).
+    """
+    raw = (raw_title or "").strip()
+    if not raw:
+        return ""
+    cleaned = _cleanup_title(raw)
+    if not cleaned:
+        return ""
+
+    strong = _deterministic_strong_match(raw)
+    if strong:
+        return strong
+
+    merged_extra = list(extra_existing or [])
+    if _groq_api_key() and _get_groq_client() is not None and not _is_trivial_raw_skip_groq(cleaned):
+        g = groq_normalize_title_validated(raw, merged_extra)
+        if g is not None:
+            if not g.strip():
+                return ""
+            return g.strip()
+        _bump_stat("deterministic_fallbacks")
+    else:
+        if not _groq_api_key():
+            logger.debug("GROQ_API_KEY unset — deterministic job title normalization for scrape path")
+        _bump_stat("deterministic_fallbacks")
+    out = normalize_title_deterministic(raw_title) or ""
+    return out.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1220,22 +1619,21 @@ def get_all_normalized_titles(conn) -> list:
         return []
 
 
-def get_or_create_normalized_title(conn, raw_title: str, use_groq: bool = False) -> int | None:
+def get_or_create_normalized_title(conn, raw_title: str, use_groq: bool = True) -> int | None:
     """
-    Main entry point. Returns the normalized_job_title_id for a given raw title.
+    Returns the normalized_job_title_id for a given raw title.
 
-    1. If use_groq=True, consult Groq first against existing normalized titles.
-    2. Otherwise use deterministic normalization.
-    3. INSERT OR IGNORE into normalized_job_titles.
-    4. Return the id.
+    When use_groq is True and Groq is configured, Groq is consulted first; deterministic
+    normalization is only used if Groq is unavailable or fails validation (never overrides
+    a validated Groq result).
 
     Args:
         conn:      Active DB connection (MySQL or SQLite-wrapped).
         raw_title: The raw job title string.
-        use_groq:  Whether to attempt Groq classification.
+        use_groq:  When False, use deterministic normalization only (for migrations / tests).
 
     Returns:
-        Integer ID from normalized_job_titles, or None on failure.
+        Integer ID from normalized_job_titles, or None on failure / empty title.
     """
     if not raw_title or not raw_title.strip():
         return None
@@ -1244,48 +1642,55 @@ def get_or_create_normalized_title(conn, raw_title: str, use_groq: bool = False)
     if not cleaned:
         return None
 
-    if use_groq:
-        existing = get_all_normalized_titles(conn)
-        existing_titles = [r['normalized_title'] for r in existing]
-        norm = normalize_title_with_groq(raw_title, existing_titles)
-    else:
+    norm: str | None = None
+    strong = _deterministic_strong_match(raw_title)
+    if strong:
+        norm = strong
+    use_llm = bool(use_groq) and bool(_groq_api_key()) and _get_groq_client() is not None
+
+    if norm is None and use_llm and not _is_trivial_raw_skip_groq(cleaned):
+        existing_rows = get_all_normalized_titles(conn)
+        existing_titles = [r["normalized_title"] for r in existing_rows if r.get("normalized_title")]
+        norm = groq_normalize_title_validated(raw_title, existing_titles)
+
+    if norm is None:
+        if use_groq:
+            _bump_stat("deterministic_fallbacks")
         norm = normalize_title_deterministic(raw_title)
+    elif norm == "":
+        return None
 
     if not norm or not str(norm).strip():
         return None
 
-    # Step 3: upsert into normalized_job_titles
     try:
         with conn.cursor() as cur:
-            # Try INSERT IGNORE / ON CONFLICT
             try:
                 cur.execute(
                     "INSERT INTO normalized_job_titles (normalized_title) VALUES (%s) "
                     "ON DUPLICATE KEY UPDATE normalized_title = VALUES(normalized_title)",
-                    (norm,)
+                    (norm,),
                 )
             except Exception:
-                # SQLite fallback syntax
                 cur.execute(
                     "INSERT OR IGNORE INTO normalized_job_titles (normalized_title) VALUES (?)",
-                    (norm,)
+                    (norm,),
                 )
 
-            # Fetch the id
             try:
                 cur.execute(
                     "SELECT id FROM normalized_job_titles WHERE normalized_title = %s",
-                    (norm,)
+                    (norm,),
                 )
             except Exception:
                 cur.execute(
                     "SELECT id FROM normalized_job_titles WHERE normalized_title = ?",
-                    (norm,)
+                    (norm,),
                 )
 
             row = cur.fetchone()
             if row:
-                return row['id'] if isinstance(row, dict) else row[0]
+                return row["id"] if isinstance(row, dict) else row[0]
             return None
     except Exception as e:
         logger.error(f"Error in get_or_create_normalized_title: {e}")

@@ -60,20 +60,15 @@ class ProfileDetailModal {
   open(alumniOrId, triggerElement) {
     this.triggerEl = triggerElement || null;
 
-    // If it's an object with an id, use the data we have
+    // If it's an object with an id, render immediately then refresh with canonical detail payload.
     if (alumniOrId && typeof alumniOrId === 'object') {
-      // Check if we have detailed fields already (school, exp2_title, etc.)
-      const hasDetail = alumniOrId.school || alumniOrId.exp2_title || alumniOrId.school2;
-      if (hasDetail) {
-        this._render(alumniOrId);
-        this._show();
-      } else {
-        // We have basic data — show it, then try to fetch full detail
-        this._render(alumniOrId);
-        this._show();
-        if (alumniOrId.id) {
-          this._fetchAndRender(alumniOrId.id);
-        }
+      this._render(alumniOrId);
+      this._show();
+
+      // Some list/analytics payloads can be partial (for example school + major but missing degree).
+      // Re-fetch by ID to prevent stale or incomplete modal fields.
+      if (alumniOrId.id) {
+        this._fetchAndRender(alumniOrId.id);
       }
     } else if (typeof alumniOrId === 'number' || (typeof alumniOrId === 'string' && !isNaN(alumniOrId))) {
       // ID only — need to fetch
@@ -262,8 +257,8 @@ class ProfileDetailModal {
     // Education 1 (UNT primary)
     const edu1 = this._formatEducation(
       data.school || 'University of North Texas',
-      data.degree || data.full_degree,
-      data.major,
+      data.degree_raw || data.degree || data.full_degree,
+      data.major_raw || data.major,
       data.school_start_date,
       data.grad_year
     );
@@ -339,7 +334,7 @@ class ProfileDetailModal {
     // Experience 1
     const exp1 = this._formatExperience(
       data.company,
-      data.current_job_title || data.role,
+      data.current_job_title || data.title || data.headline,
       data.job_start_date,
       data.job_end_date
     );

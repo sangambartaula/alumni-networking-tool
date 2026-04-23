@@ -34,7 +34,7 @@ from groq_extractor_education import extract_education_with_groq
 from scraper_utils import determine_work_study_status
 
 try:
-    from job_title_normalization import normalize_title_deterministic, normalize_title_with_groq
+    from job_title_normalization import normalize_title_deterministic, resolve_title_for_scrape
     from company_normalization import normalize_company_deterministic, normalize_company_with_groq
     from degree_normalization import standardize_degree
     from major_normalization import standardize_major, standardize_major_list
@@ -188,13 +188,10 @@ def _resolve_standardized_title(raw_title: str, title_lookup: dict[str, str] | N
 
     if _NORM_AVAILABLE:
         try:
-            if config.USE_GROQ:
-                existing_titles = list(dict.fromkeys(lookup.values()))
-                normalized = normalize_title_with_groq(raw, existing_titles) or raw
-            else:
-                normalized = normalize_title_deterministic(raw) or raw
+            extra = list(title_lookup.values()) if title_lookup else []
+            normalized = resolve_title_for_scrape(raw, extra_existing=extra) or raw
         except Exception:
-            normalized = raw
+            normalized = normalize_title_deterministic(raw) or raw
     else:
         normalized = raw
 
@@ -1315,10 +1312,9 @@ class LinkedInScraper:
             return ""
 
         try:
-            resolved, _score = _resolve_standardized_title(raw_title)
-            return resolved or ""
+            return resolve_title_for_scrape(raw_title, extra_existing=None) or ""
         except Exception:
-            return ""
+            return normalize_title_deterministic(raw_title) or ""
 
     def _has_unt_graduate_assistant_experience(self, all_experiences) -> bool:
         if not all_experiences:
