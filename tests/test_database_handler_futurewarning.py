@@ -18,7 +18,7 @@ def test_save_profile_to_csv_avoids_futurewarning_on_append(monkeypatch, tmp_pat
 
     profile = {
         "name": "Test Person",
-        "profile_url": "https://www.linkedin.com/in/test-person",
+        "profile_url": "https://www.linkedin.com/in/qa-sample-person",
         "school": "University of North Texas",
         "degree": "Master's degree",
         "major": "Computer Science",
