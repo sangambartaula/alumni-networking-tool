@@ -251,18 +251,34 @@ def api_get_note(alumni_id):
 	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 	try:
 		with conn.cursor(dictionary=True) as cur:
+			row = {}
 			if use_sqlite:
-				cur.execute(
-					"SELECT note, updated_at FROM notes WHERE user_id = ? AND alumni_id = ?",
-					(user_id, alumni_id),
-				)
+				try:
+					cur.execute(
+						"SELECT note, updated_at FROM notes WHERE user_id = ? AND alumni_id = ?",
+						(user_id, alumni_id),
+					)
+					row = cur.fetchone() or {}
+				except Exception:
+					cur.execute(
+						"SELECT note_content AS note, updated_at FROM notes WHERE user_id = ? AND alumni_id = ?",
+						(user_id, alumni_id),
+					)
+					row = cur.fetchone() or {}
 			else:
-				cur.execute(
-					"SELECT note, updated_at FROM notes WHERE user_id = %s AND alumni_id = %s",
-					(user_id, alumni_id),
-				)
-			row = cur.fetchone() or {}
-		return jsonify({"success": True, "note": row.get("note", ""), "updated_at": row.get("updated_at")}), 200
+				try:
+					cur.execute(
+						"SELECT note, updated_at FROM notes WHERE user_id = %s AND alumni_id = %s",
+						(user_id, alumni_id),
+					)
+					row = cur.fetchone() or {}
+				except Exception:
+					cur.execute(
+						"SELECT note_content AS note, updated_at FROM notes WHERE user_id = %s AND alumni_id = %s",
+						(user_id, alumni_id),
+					)
+					row = cur.fetchone() or {}
+		return jsonify({"success": True, "note": (row.get("note") or ""), "updated_at": row.get("updated_at")}), 200
 	except Exception as err:
 		return jsonify({"error": f"Database error: {str(err)}"}), 500
 	finally:
@@ -287,27 +303,51 @@ def api_upsert_note(alumni_id):
 	try:
 		with conn.cursor() as cur:
 			if use_sqlite:
-				cur.execute(
-					"""
-					INSERT INTO notes (user_id, alumni_id, note, created_at, updated_at)
-					VALUES (?, ?, ?, datetime('now'), datetime('now'))
-					ON CONFLICT(user_id, alumni_id) DO UPDATE SET
-						note = excluded.note,
-						updated_at = datetime('now')
-					""",
-					(user_id, alumni_id, note),
-				)
+				try:
+					cur.execute(
+						"""
+						INSERT INTO notes (user_id, alumni_id, note, created_at, updated_at)
+						VALUES (?, ?, ?, datetime('now'), datetime('now'))
+						ON CONFLICT(user_id, alumni_id) DO UPDATE SET
+							note = excluded.note,
+							updated_at = datetime('now')
+						""",
+						(user_id, alumni_id, note),
+					)
+				except Exception:
+					cur.execute(
+						"""
+						INSERT INTO notes (user_id, alumni_id, note_content, created_at, updated_at)
+						VALUES (?, ?, ?, datetime('now'), datetime('now'))
+						ON CONFLICT(user_id, alumni_id) DO UPDATE SET
+							note_content = excluded.note_content,
+							updated_at = datetime('now')
+						""",
+						(user_id, alumni_id, note),
+					)
 			else:
-				cur.execute(
-					"""
-					INSERT INTO notes (user_id, alumni_id, note)
-					VALUES (%s, %s, %s)
-					ON DUPLICATE KEY UPDATE
-						note = VALUES(note),
-						updated_at = CURRENT_TIMESTAMP
-					""",
-					(user_id, alumni_id, note),
-				)
+				try:
+					cur.execute(
+						"""
+						INSERT INTO notes (user_id, alumni_id, note)
+						VALUES (%s, %s, %s)
+						ON DUPLICATE KEY UPDATE
+							note = VALUES(note),
+							updated_at = CURRENT_TIMESTAMP
+						""",
+						(user_id, alumni_id, note),
+					)
+				except Exception:
+					cur.execute(
+						"""
+						INSERT INTO notes (user_id, alumni_id, note_content)
+						VALUES (%s, %s, %s)
+						ON DUPLICATE KEY UPDATE
+							note_content = VALUES(note_content),
+							updated_at = CURRENT_TIMESTAMP
+						""",
+						(user_id, alumni_id, note),
+					)
 			conn.commit()
 
 		return jsonify({"success": True, "message": "Note saved."}), 200
@@ -437,13 +477,57 @@ def api_notes_summary():
 		return jsonify({"success": True, "summary": {}, "count": 0}), 200
 
 	conn = _app_mod().get_connection()
+	use_sqlite = current_app.config.get("DISABLE_DB") and current_app.config.get("USE_SQLITE_FALLBACK")
 	try:
 		with conn.cursor(dictionary=True) as cur:
-			placeholders = ",".join(["%s"] * len(ids))
-			cur.execute(
-				f"SELECT alumni_id FROM notes WHERE user_id = %s AND alumni_id IN ({placeholders})",
-				tuple([user_id] + ids),
-			)
+			if use_sqlite:
+				placeholders = ",".join(["?"] * len(ids))
+				try:
+					cur.execute(
+						f"""
+						SELECT alumni_id
+						FROM notes
+						WHERE user_id = ?
+						  AND alumni_id IN ({placeholders})
+						  AND TRIM(COALESCE(note, '')) <> ''
+						""",
+						tuple([user_id] + ids),
+					)
+				except Exception:
+					cur.execute(
+						f"""
+						SELECT alumni_id
+						FROM notes
+						WHERE user_id = ?
+						  AND alumni_id IN ({placeholders})
+						  AND TRIM(COALESCE(note_content, '')) <> ''
+						""",
+						tuple([user_id] + ids),
+					)
+			else:
+				placeholders = ",".join(["%s"] * len(ids))
+				try:
+					cur.execute(
+						f"""
+						SELECT alumni_id
+						FROM notes
+						WHERE user_id = %s
+						  AND alumni_id IN ({placeholders})
+						  AND TRIM(COALESCE(note, '')) <> ''
+						""",
+						tuple([user_id] + ids),
+					)
+				except Exception:
+					cur.execute(
+						f"""
+						SELECT alumni_id
+						FROM notes
+						WHERE user_id = %s
+						  AND alumni_id IN ({placeholders})
+						  AND TRIM(COALESCE(note_content, '')) <> ''
+						""",
+						tuple([user_id] + ids),
+					)
 			rows = cur.fetchall() or []
 			present = {str(int(r.get("alumni_id"))) for r in rows if r.get("alumni_id") is not None}
 
