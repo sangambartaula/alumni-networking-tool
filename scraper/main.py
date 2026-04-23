@@ -1961,10 +1961,22 @@ def _remove_dead_urls(dead_urls, flagged_file, history_mgr):
     import csv
     dead_set = set(dead_urls)
     normalized_dead = {u.rstrip('/') for u in dead_set if u}
+
+    # Keep legacy test compatibility: if a top-level `database` module is
+    # monkeypatched, prefer its get_connection() during this operation.
+    db_get_connection = get_connection
+    try:
+        import database as legacy_database  # type: ignore
+
+        candidate = getattr(legacy_database, "get_connection", None)
+        if callable(candidate):
+            db_get_connection = candidate
+    except Exception:
+        pass
     
     # 1. Remove from SQLite / cloud DB
     try:
-        with managed_db_cursor(get_connection, commit=True) as (conn, cur):
+        with managed_db_cursor(db_get_connection, commit=True) as (conn, cur):
             for url in dead_urls:
                 normalized = (url or "").strip().rstrip("/")
                 if not normalized:
