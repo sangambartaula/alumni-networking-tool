@@ -27,6 +27,31 @@ def init_db():
             """)
             logger.info("users table created/verified")
 
+            # Backfill/repair users auth columns for older deployments.
+            # This is safe to run repeatedly and avoids auth failures when
+            # legacy tables are missing password fields.
+            user_auth_columns = [
+                ("password_hash", "VARCHAR(255) DEFAULT NULL"),
+                ("auth_type", "VARCHAR(20) DEFAULT 'linkedin_only'"),
+                ("must_change_password", "BOOLEAN DEFAULT FALSE"),
+                ("failed_attempts", "INT DEFAULT 0"),
+                ("lock_until", "DATETIME DEFAULT NULL"),
+            ]
+            for col_name, col_def in user_auth_columns:
+                try:
+                    cur.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+                    logger.info("Added users.%s column", col_name)
+                except Exception as col_err:
+                    err_text = str(col_err).lower()
+                    if (
+                        "duplicate column name" in err_text
+                        or "already exists" in err_text
+                        or "1060" in err_text
+                    ):
+                        pass
+                    else:
+                        logger.debug("Could not add users.%s: %s", col_name, col_err)
+
             # Create authorized_emails table (full schema with tracking fields)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS authorized_emails (

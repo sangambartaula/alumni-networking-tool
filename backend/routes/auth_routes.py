@@ -18,6 +18,55 @@ from database import (
     update_user_password,
 )
 from middleware import _get_session_email, _is_logged_in, api_login_required, is_authorized_user
+def _fetch_user_auth_snapshot(cur, user_email: str) -> tuple[bool, str]:
+    """
+    Return (has_password, auth_type) for existing user with broad schema fallback.
+    Avoid '?' fallback on MySQL, which causes parameter-style errors.
+    """
+    has_password = False
+    auth_type = "linkedin_only"
+    # Newer schema
+    try:
+        cur.execute(
+            "SELECT password_hash, auth_type FROM users WHERE LOWER(email) = LOWER(%s)",
+            (user_email,),
+        )
+        row = cur.fetchone()
+        if row:
+            has_password = bool(row[0] if not isinstance(row, dict) else row.get("password_hash"))
+            auth_type = (row[1] if not isinstance(row, dict) else row.get("auth_type")) or auth_type
+            return has_password, str(auth_type)
+    except Exception:
+        pass
+
+    # Older schema: auth_type missing
+    try:
+        cur.execute(
+            "SELECT password_hash FROM users WHERE LOWER(email) = LOWER(%s)",
+            (user_email,),
+        )
+        row = cur.fetchone()
+        if row:
+            has_password = bool(row[0] if not isinstance(row, dict) else row.get("password_hash"))
+            return has_password, auth_type
+    except Exception:
+        pass
+
+    # Minimal schema: just detect existence.
+    try:
+        cur.execute(
+            "SELECT id FROM users WHERE LOWER(email) = LOWER(%s)",
+            (user_email,),
+        )
+        row = cur.fetchone()
+        if row:
+            return False, auth_type
+    except Exception:
+        pass
+
+    return False, auth_type
+
+
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -226,7 +275,9 @@ def api_auth_create_password():
     current_type = user.get("auth_type", "linkedin_only")
     new_type = "both" if current_type == "linkedin_only" else current_type
 
-    update_user_password(email, hash_password(new_pw), auth_type=new_type)
+    updated = update_user_password(email, hash_password(new_pw), auth_type=new_type)
+    if not updated:
+        return jsonify({"error": "Could not save password due to a database schema issue. Contact admin."}), 500
     return jsonify(
         {"success": True, "message": "Password created. You can now log in with email and password."}
     ), 200
@@ -253,7 +304,9 @@ def api_auth_force_change_password():
     if not valid:
         return jsonify({"error": "Password does not meet requirements.", "details": failures}), 400
 
-    update_user_password(email, hash_password(new_pw))
+    updated = update_user_password(email, hash_password(new_pw))
+    if not updated:
+        return jsonify({"error": "Could not save password due to a database schema issue. Contact admin."}), 500
     session.pop("must_change_password", None)
     return jsonify({"success": True, "message": "Password set successfully.", "redirect": "/alumni"}), 200
 
@@ -337,25 +390,8 @@ def linkedin_callback():
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    "SELECT password_hash, auth_type FROM users WHERE LOWER(email) = LOWER(%s)",
-                    (user_email,),
-                )
-            except Exception:
-                cur.execute(
-                    "SELECT password_hash, auth_type FROM users WHERE LOWER(email) = LOWER(?)",
-                    (user_email,),
-                )
-
-            existing_row = cur.fetchone()
-            if existing_row:
-                has_password = bool(
-                    existing_row[0] if not isinstance(existing_row, dict) else existing_row.get("password_hash")
-                )
-                new_auth_type = "both" if has_password else "linkedin_only"
-            else:
-                new_auth_type = "linkedin_only"
+            has_password, existing_auth_type = _fetch_user_auth_snapshot(cur, user_email)
+            new_auth_type = "both" if has_password else (existing_auth_type or "linkedin_only")
 
             upsert_params = (
                 linkedin_profile.get("sub"),
