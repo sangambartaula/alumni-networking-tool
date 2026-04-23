@@ -28,6 +28,13 @@ def _app_mod():
     return sys.modules.get("app") or sys.modules.get("__main__") or importlib.import_module("app")
 
 
+def _is_meaningful_location_label(value):
+    text = (value or "").strip()
+    if not text:
+        return False
+    return text.lower() not in {"not found", "unknown", "n/a"}
+
+
 def classify_degree(degree, _headline):
     t = (degree or "").lower()
     if "phd" in t or "doctor" in t:
@@ -222,6 +229,7 @@ def get_heatmap_data():
                     location_clusters[cluster_key] = 0
                     location_details[cluster_key] = {
                         "location": row.get("location"),
+                        "location_counts": {},
                         "latitude": lat,
                         "longitude": lon,
                         "continent": continent,
@@ -229,6 +237,10 @@ def get_heatmap_data():
                     }
 
                 location_clusters[cluster_key] += 1
+                row_location = (row.get("location") or "").strip()
+                if _is_meaningful_location_label(row_location):
+                    counts = location_details[cluster_key]["location_counts"]
+                    counts[row_location] = counts.get(row_location, 0) + 1
                 location_details[cluster_key]["sample_alumni"].append(
                     {
                         "id": row.get("id"),
@@ -254,11 +266,18 @@ def get_heatmap_data():
             for cluster_key, count in location_clusters.items():
                 details = location_details[cluster_key]
                 max_count = max(max_count, count)
+                location_counts = details.get("location_counts") or {}
+                resolved_location = details.get("location") or ""
+                if location_counts:
+                    resolved_location = sorted(
+                        location_counts.items(),
+                        key=lambda item: (-item[1], item[0].lower()),
+                    )[0][0]
                 locations.append(
                     {
                         "latitude": details["latitude"],
                         "longitude": details["longitude"],
-                        "location": details["location"],
+                        "location": resolved_location,
                         "continent": details["continent"],
                         "count": count,
                         "sample_alumni": details["sample_alumni"],
