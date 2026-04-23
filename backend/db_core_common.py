@@ -1,4 +1,4 @@
-import mysql.connector
+﻿import mysql.connector
 import pandas as pd
 import os
 import logging
@@ -492,7 +492,8 @@ def get_connection():
         user=MYSQL_USER,
         password=MYSQL_PASSWORD,
         database=MYSQL_DATABASE,
-        port=MYSQL_PORT
+        port=MYSQL_PORT,
+        connection_timeout=5,
     )
 
 
@@ -503,7 +504,8 @@ def get_direct_mysql_connection():
         user=MYSQL_USER,
         password=MYSQL_PASSWORD,
         database=MYSQL_DATABASE,
-        port=MYSQL_PORT
+        port=MYSQL_PORT,
+        connection_timeout=5,
     )
 
 

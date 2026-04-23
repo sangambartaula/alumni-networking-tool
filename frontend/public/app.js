@@ -26,6 +26,7 @@ let bookmarkedTotalCount = 0;
 let sortDirection = 'desc';
 let activeQueryState = null;
 let activeRequestToken = 0;
+let roleOptionsCache = [];
 let currentDirectoryPage = 1;
 // Backend currently caps alumni page size at 500.
 const alumniChunkSize = 500;
@@ -1290,6 +1291,20 @@ function getCanonicalRoleTitle(value) {
   return canonicalTitle;
 }
 
+async function refreshRoleOptionsCache() {
+  try {
+    const resp = await fetch('/api/alumni/filter-options?field=role&limit=500');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const options = Array.isArray(data?.options) ? data.options : [];
+    roleOptionsCache = options
+      .map(v => getCanonicalRoleTitle(v))
+      .filter(Boolean);
+  } catch (err) {
+    console.debug('Role options cache refresh failed', err);
+  }
+}
+
 function populateFilters(list) {
   const isValid = val => val && !['Unknown', 'Not Found', 'N/A'].includes(val);
 
@@ -1303,11 +1318,15 @@ function populateFilters(list) {
   }
 
   const locations = Array.from(new Set(list.map(x => x.location).filter(isValid))).sort();
-  const roles = Array.from(
-    new Set(
-      list
-        .map(x => getCanonicalRoleTitle(x.normalized_title || x.role || x.current_job_title))
-        .filter(isValid)
+  const rolesFromCache = roleOptionsCache.filter(isValid);
+  const roles = (rolesFromCache.length
+    ? Array.from(new Set(rolesFromCache))
+    : Array.from(
+      new Set(
+        list
+          .map(x => getCanonicalRoleTitle(x.normalized_title || x.normalized_job_title || x.role))
+          .filter(isValid)
+      )
     )
   ).sort();
   const companies = Array.from(new Set(list.map(x => getNormalizedCompany(x.company)).filter(isValid))).sort();
@@ -1622,6 +1641,7 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
     }
 
     if (initializeFilters && !filtersInitialized && loadedAlumni.length) {
+      await refreshRoleOptionsCache();
       populateFilters(loadedAlumni);
       filtersInitialized = true;
     }
@@ -1633,6 +1653,7 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
       loadedAlumni = fakeAlumni.map(mapAlumniRecord);
       totalAlumniCount = loadedAlumni.length;
       if (initializeFilters && !filtersInitialized) {
+        await refreshRoleOptionsCache();
         populateFilters(loadedAlumni);
         filtersInitialized = true;
       }

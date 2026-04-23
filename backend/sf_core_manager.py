@@ -425,7 +425,8 @@ class ConnectionManager:
             user=MYSQL_USER,
             password=MYSQL_PASSWORD,
             database=MYSQL_DATABASE,
-            port=MYSQL_PORT
+            port=MYSQL_PORT,
+            connection_timeout=5,
         )
     
     def _register_mysql_functions(self, conn):

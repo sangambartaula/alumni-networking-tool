@@ -84,7 +84,7 @@ TITLE_MAP = {
     "lead validation engineer": "Software Engineer",
     "junior software engineer": "Software Engineer",
     "jr. software engineer": "Software Engineer",
-    "vice president lead software engineer": "Software Engineer",
+    "vice president lead software engineer": "VP",
     "principal systems engineer": "Systems Engineer",
     "lead systems engineer": "Systems Engineer",
     "sr. director of software engineering": "Director",
@@ -1100,6 +1100,12 @@ def normalize_title_deterministic(raw_title: str) -> str:
         stripped_all = _SENIORITY_SUFFIX.sub('', stripped_all).strip()
         if stripped_all != key and stripped_all in TITLE_MAP:
             candidate = TITLE_MAP[stripped_all]
+
+    if candidate is None:
+        # Preserve executive hierarchy before seniority stripping.
+        executive_candidate = _compact_normalized_title(cleaned, raw_title=cleaned)
+        if executive_candidate in {"CEO", "CTO", "COO", "CFO", "CMO", "VP", "President", "Executive", "Director"}:
+            candidate = executive_candidate
 
     if candidate is None:
         # No deterministic match — keep cleaned title as category with seniority stripped.

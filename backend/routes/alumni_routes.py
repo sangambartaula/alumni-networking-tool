@@ -318,7 +318,8 @@ def _map_alumni_item(row):
     last = row.get("last_name") or ""
     full_name = f"{first} {last}".strip()
     title = row.get("current_job_title") or row.get("headline") or ""
-    normalized_title = _canonical_role_title(title)
+    normalized_from_db = (row.get("normalized_job_title") or "").strip()
+    normalized_title = _canonical_role_title(normalized_from_db or title)
     standardized_major = (row.get("standardized_major") or "").strip()
     standardized_majors = [standardized_major] if standardized_major else []
     updated_at = row.get("updated_at") or row.get("created_at")
@@ -348,6 +349,7 @@ def _map_alumni_item(row):
         "title": title,
         "role": normalized_title,
         "normalized_title": normalized_title,
+        "normalized_job_title": normalized_from_db,
         "current_job_title": row.get("current_job_title") or "",
         "headline": row.get("headline") or "",
         "company": row.get("company"),
@@ -547,8 +549,10 @@ def api_get_alumni():
                a.working_while_studying, a.working_while_studying_status,
                a.seniority_level, a.relevant_experience_months,
              a.latitude, a.longitude,
-               a.created_at, a.updated_at
+               a.created_at, a.updated_at,
+               njt.normalized_title AS normalized_job_title
         FROM alumni a
+        LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
         {where_sql}
         ORDER BY {order_clause}
         LIMIT %s OFFSET %s
@@ -589,8 +593,10 @@ def api_get_alumni():
                            a.working_while_studying, a.working_while_studying_status,
                            a.seniority_level, a.relevant_experience_months,
                            a.latitude, a.longitude,
-                           a.created_at, a.updated_at
+                           a.created_at, a.updated_at,
+                           njt.normalized_title AS normalized_job_title
                     FROM alumni a
+                    LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
                     {where_sql}
                     ORDER BY {order_clause}
                 """
@@ -604,7 +610,12 @@ def api_get_alumni():
                 for row in all_rows:
                     row_status = compute_unt_alumni_status_from_row(row)
                     row_bucket = row.get("seniority_level") or classify_seniority_bucket(row.get("current_job_title"), None)
-                    row_role = _canonical_role_title(row.get("current_job_title") or row.get("headline") or "")
+                    row_role = _canonical_role_title(
+                        row.get("normalized_job_title")
+                        or row.get("current_job_title")
+                        or row.get("headline")
+                        or ""
+                    )
                     row_company = _canonical_company_name(row.get("company") or "")
                     row_degree = _normalize_degree_to_filter_label(row.get("degree") or "")
                     row_wws = _normalize_working_while_studying_value(
@@ -736,8 +747,10 @@ def api_alumni_filter_alias():
                a.working_while_studying, a.working_while_studying_status,
                a.seniority_level, a.relevant_experience_months,
              a.latitude, a.longitude,
-               a.created_at, a.updated_at
+               a.created_at, a.updated_at,
+               njt.normalized_title AS normalized_job_title
         FROM alumni a
+        LEFT JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
         {where_sql}
         ORDER BY LOWER(a.first_name) ASC, LOWER(a.last_name) ASC
     """
@@ -862,10 +875,10 @@ def api_filter_options():
         limit = 15
     limit = max(1, min(100, limit))
 
-    field_map = {"location": "location", "company": "company"}
+    field_map = {"location": "location", "company": "company", "role": "normalized_job_title"}
     column = field_map.get(field)
     if not column:
-        return jsonify({"success": False, "error": "Invalid field. Use 'location' or 'company'."}), 400
+        return jsonify({"success": False, "error": "Invalid field. Use 'location', 'company', or 'role'."}), 400
 
     excludes = set()
     for raw in request.args.getlist("exclude"):
@@ -877,28 +890,50 @@ def api_filter_options():
     conn = _app_mod().get_connection()
     try:
         with conn.cursor(dictionary=True) as cur:
-            sql = f"""
-                SELECT a.{column} AS option_value
-                FROM alumni a
-                WHERE a.{column} IS NOT NULL
-                  AND TRIM(a.{column}) <> ''
-            """
-            params = []
-            if q:
-                sql += f" AND LOWER(a.{column}) LIKE %s"
-                params.append(f"%{q.lower()}%")
+            if field == "role":
+                sql = """
+                    SELECT njt.normalized_title AS option_value, COUNT(*) AS option_count
+                    FROM alumni a
+                    JOIN normalized_job_titles njt ON a.normalized_job_title_id = njt.id
+                    WHERE njt.normalized_title IS NOT NULL
+                      AND TRIM(njt.normalized_title) <> ''
+                """
+                params = []
+                if q:
+                    sql += " AND LOWER(njt.normalized_title) LIKE %s"
+                    params.append(f"%{q.lower()}%")
+                sql += " GROUP BY njt.normalized_title"
+                cur.execute(sql, tuple(params))
+                rows = cur.fetchall() or []
+                counts = {}
+                for row in rows:
+                    value = (row.get("option_value") or "").strip()
+                    if not value or value.lower() in excludes:
+                        continue
+                    counts[value] = int(row.get("option_count") or 0)
+            else:
+                sql = f"""
+                    SELECT a.{column} AS option_value
+                    FROM alumni a
+                    WHERE a.{column} IS NOT NULL
+                      AND TRIM(a.{column}) <> ''
+                """
+                params = []
+                if q:
+                    sql += f" AND LOWER(a.{column}) LIKE %s"
+                    params.append(f"%{q.lower()}%")
 
-            cur.execute(sql, tuple(params))
-            rows = cur.fetchall() or []
+                cur.execute(sql, tuple(params))
+                rows = cur.fetchall() or []
 
-        counts = {}
-        for row in rows:
-            value = (row.get("option_value") or "").strip()
-            if not value:
-                continue
-            if value.lower() in excludes:
-                continue
-            counts[value] = counts.get(value, 0) + 1
+                counts = {}
+                for row in rows:
+                    value = (row.get("option_value") or "").strip()
+                    if not value:
+                        continue
+                    if value.lower() in excludes:
+                        continue
+                    counts[value] = counts.get(value, 0) + 1
 
         options = rank_filter_option_counts(counts, query=q, limit=limit)
         return jsonify({"success": True, "field": field, "query": q, "options": options, "count": len(options)}), 200
