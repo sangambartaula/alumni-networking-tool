@@ -172,7 +172,10 @@ class ProfileDetailModal {
     const titleEl = this.overlay.querySelector('#profileDetailTitle');
     const linkedinBtn = this.overlay.querySelector('#profileDetailLinkedIn');
 
-    const name = this._safe(data.name);
+    const sourceName = this._safe(data.name);
+    const name = (window.PrivacyMode && typeof window.PrivacyMode.getDisplayName === 'function')
+      ? window.PrivacyMode.getDisplayName(sourceName)
+      : sourceName;
     titleEl.textContent = name || 'Alumni Profile';
 
     // LinkedIn button

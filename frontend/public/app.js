@@ -763,6 +763,13 @@ function _buildClassLocationLine(profile) {
   return location;
 }
 
+function getRedactedDisplayName(rawName) {
+  if (window.PrivacyMode && typeof window.PrivacyMode.getDisplayName === 'function') {
+    return window.PrivacyMode.getDisplayName(rawName);
+  }
+  return String(rawName || '').trim();
+}
+
 function normalizeDegreeToFilterLabel(value) {
   const text = (value || '').trim().toLowerCase();
   if (!text) return '';
@@ -777,6 +784,7 @@ function createListItem(p) {
   const educationLine = _buildEducationLine(p);
   const roleLine = p.current_job_title || p.title || p.headline || '';
   const classLocationLine = _buildClassLocationLine(p);
+  const displayName = getRedactedDisplayName(p.name) || 'N/A';
 
   const item = document.createElement('div');
   item.className = 'list-item';
@@ -784,7 +792,7 @@ function createListItem(p) {
   item.innerHTML = `
       <div class="list-main">
         <div class="list-details">
-          <h3 class="name">${p.name}</h3>
+          <h3 class="name">${displayName}</h3>
           ${educationLine ? `<p class="education">${educationLine}</p>` : ''}
           ${roleLine ? `<p class="role">${roleLine}</p>` : ''}
           ${classLocationLine ? `<div class="class">${classLocationLine}</div>` : ''}
@@ -803,7 +811,7 @@ function createListItem(p) {
           </a>
           <button class="btn connect" type="button">Connect</button>
           <button class="btn star" type="button" title="Bookmark this alumni">&#9734;</button>
-          <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${p.name}">
+          <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${displayName}">
             <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>

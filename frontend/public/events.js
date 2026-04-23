@@ -426,6 +426,13 @@ function _buildClassLocationLine(profile) {
   return location;
 }
 
+function getEventsDisplayName(rawName) {
+  if (window.PrivacyMode && typeof window.PrivacyMode.getDisplayName === 'function') {
+    return window.PrivacyMode.getDisplayName(rawName);
+  }
+  return String(rawName || '').trim();
+}
+
 // ═══════════════════════════════════════════════
 // CARD RENDERING (copied from app.js createListItem)
 // ═══════════════════════════════════════════════
@@ -433,6 +440,7 @@ function createEventsListItem(p) {
   const educationLine = _buildEducationLine(p);
   const roleLine = p.role || p.headline || '';
   const classLocationLine = _buildClassLocationLine(p);
+  const displayName = getEventsDisplayName(p.name) || 'N/A';
 
   const item = document.createElement('div');
   item.className = 'list-item';
@@ -448,7 +456,7 @@ function createEventsListItem(p) {
   item.innerHTML = `
     <div class="list-main">
       <div class="list-details">
-        <h3 class="name">${escapeHtml(p.name)}${distanceTag}</h3>
+        <h3 class="name">${escapeHtml(displayName)}${distanceTag}</h3>
         ${educationLine ? `<p class="education">${escapeHtml(educationLine)}</p>` : ''}
         ${roleLine ? `<p class="role">${escapeHtml(roleLine)}</p>` : ''}
         ${classLocationLine ? `<div class="class">${escapeHtml(classLocationLine)}</div>` : ''}

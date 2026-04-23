@@ -11,6 +11,13 @@ let selectedUntAlumniStatus = '';
 let allLocations = new Set();
 let allCompanies = new Set();
 let filteredTableRenderToken = 0;
+
+function getAnalyticsDisplayName(rawName) {
+  if (window.PrivacyMode && typeof window.PrivacyMode.getDisplayName === 'function') {
+    return window.PrivacyMode.getDisplayName(rawName);
+  }
+  return String(rawName || '').trim();
+}
 const analyticsChunkSize = 500;
 let gradYearRangeMin = null;
 let gradYearRangeMax = null;
@@ -2263,9 +2270,10 @@ function filterAlumni(filterType, filterValue) {
 function buildFilteredAlumniRow(alumni) {
   const linkedinUrl = alumni.linkedin || alumni.linkedin_url || '';
   const profileId = alumni.id || '';
+  const displayName = getAnalyticsDisplayName(alumni.name || 'N/A') || 'N/A';
   return `
     <tr data-alumni-id="${profileId}">
-      <td><strong>${alumni.name || 'N/A'}</strong></td>
+      <td><strong>${displayName}</strong></td>
       <td>${alumni.current_job_title || 'N/A'}</td>
       <td>${alumni.company || 'N/A'}</td>
       <td>${alumni.location || 'N/A'}</td>

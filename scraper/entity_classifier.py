@@ -351,7 +351,7 @@ class EntityClassifier:
     def _tier2_spacy_ner(self, text: str) -> Optional[Tuple[str, float]]:
         """Use spaCy NER to classify entities."""
         nlp = _get_nlp_nonblocking()
-        if not nlp:
+        if not nlp or not callable(nlp):
             return None
         
         doc = nlp(text)

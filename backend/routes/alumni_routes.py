@@ -324,7 +324,10 @@ def _fetchone_dict(cur, key):
 
 
 def _map_alumni_item(row):
-    seniority_level = _stored_seniority_bucket(row.get("seniority_level"))
+    seniority_level = _stored_seniority_bucket(row.get("seniority_level")) or classify_seniority_bucket(
+        row.get("current_job_title"),
+        None,
+    )
     first = row.get("first_name") or ""
     last = row.get("last_name") or ""
     full_name = f"{first} {last}".strip()
@@ -627,16 +630,19 @@ def api_get_alumni():
                 all_rows = cur.fetchall() or []
 
                 requested_role_set = {
-                    (v or "").strip().lower()
+                    (_canonical_role_title(v) or "").strip().lower()
                     for v in role_filters
-                    if (v or "").strip()
+                    if (_canonical_role_title(v) or "").strip()
                 }
                 requested_company_set = {_canonical_company_name(v) for v in company_filters if (v or "").strip()}
                 requested_degree_set = {v for v in degree_filters if v in {"Bachelors", "Masters", "PhD"}}
                 filtered = []
                 for row in all_rows:
                     row_status = compute_unt_alumni_status_from_row(row)
-                    row_bucket = _stored_seniority_bucket(row.get("seniority_level"))
+                    row_bucket = _stored_seniority_bucket(row.get("seniority_level")) or classify_seniority_bucket(
+                        row.get("current_job_title"),
+                        None,
+                    )
                     row_role = _canonical_role_title(
                         row.get("normalized_job_title")
                         or row.get("current_job_title")
@@ -662,10 +668,11 @@ def api_get_alumni():
                     if seniority_filters and row_bucket not in seniority_filters:
                         continue
                     if requested_role_set:
-                        # Role checkboxes are sourced from normalized_job_titles;
-                        # enforce exact normalized-role matching to avoid
-                        # canonicalization drift (e.g., VP long-form variants).
-                        if not row_role_exact or row_role_exact not in requested_role_set:
+                        # Prefer exact normalized-role matching when present, but
+                        # fall back to canonicalized raw title matching for rows/tests
+                        # without normalized_job_title.
+                        role_candidate = row_role_exact or (row_role or "").strip().lower()
+                        if not role_candidate or role_candidate not in requested_role_set:
                             continue
                     if requested_company_set and row_company not in requested_company_set:
                         continue

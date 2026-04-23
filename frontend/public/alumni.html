@@ -381,6 +381,16 @@
         </button>
       </div>
       <div class="modal-body">
+        <div class="settings-section">
+          <h3>Privacy</h3>
+          <p class="help-text">Hide alumni names across all pages for demos and presentations.</p>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+            <input type="checkbox" id="privacyModeToggle">
+            Redact names (show "Name Hidden")
+          </label>
+          <small id="privacyModeStatus" class="help-text" style="display:block;margin-top:8px;"></small>
+        </div>
+
         <div id="emailWhitelistSection" class="settings-section">
           <h3>Email Whitelist</h3>
           <p class="help-text">Add emails to grant access to this platform. Faculty with @unt.edu email addresses
@@ -555,6 +565,7 @@
     </div>
   </div>
 
+  <script src="/privacy_mode.js"></script>
   <script src="/settings.js"></script>
 
   <script src="/profile_modal.js"></script>

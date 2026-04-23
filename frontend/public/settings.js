@@ -24,6 +24,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const confirmMessage = document.getElementById('confirmMessage');
   const scraperActivityBody = document.getElementById('scraperActivityBody');
   const scraperActivityTotal = document.getElementById('scraperActivityTotal');
+  const privacyModeToggle = document.getElementById('privacyModeToggle');
+  const privacyModeStatus = document.getElementById('privacyModeStatus');
 
   // Temporary storage for email being added
   let pendingEmail = null;
@@ -63,9 +65,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
   const emailWhitelistSection = document.getElementById('emailWhitelistSection');
 
+  function syncPrivacyModeUI() {
+    if (!privacyModeToggle) return;
+    const enabled = !!(window.PrivacyMode && window.PrivacyMode.isEnabled && window.PrivacyMode.isEnabled());
+    privacyModeToggle.checked = enabled;
+    if (privacyModeStatus) {
+      privacyModeStatus.textContent = enabled
+        ? 'Privacy mode is ON. Alumni names are currently hidden on all pages.'
+        : 'Privacy mode is OFF. Alumni names are shown normally.';
+    }
+  }
+
   // Open settings modal
   settingsBtn.addEventListener('click', async function () {
     settingsModal.style.display = 'block';
+    syncPrivacyModeUI();
     await fetchCurrentUser();
     if (currentUser && currentUser.role === 'admin') {
       if (emailWhitelistSection) emailWhitelistSection.style.display = 'block';
@@ -78,6 +92,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     loadScraperActivity();
   });
+
+  if (privacyModeToggle) {
+    privacyModeToggle.addEventListener('change', function () {
+      if (!(window.PrivacyMode && window.PrivacyMode.setEnabled)) return;
+      window.PrivacyMode.setEnabled(privacyModeToggle.checked);
+      syncPrivacyModeUI();
+      window.location.reload();
+    });
+  }
 
   // Close settings modal
   closeSettingsModal.addEventListener('click', function () {

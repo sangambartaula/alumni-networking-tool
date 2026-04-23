@@ -15,6 +15,13 @@ let heatLayer2D = null; // New 2D heatmap layer
 let activeHeatmapRequestToken = 0;
 let currentDatasetServerFiltered = false;
 
+function getHeatmapDisplayName(rawName) {
+  if (window.PrivacyMode && typeof window.PrivacyMode.getDisplayName === 'function') {
+    return window.PrivacyMode.getDisplayName(rawName);
+  }
+  return String(rawName || '').trim();
+}
+
 // Filter state
 let hiddenLocations = new Set();
 let hiddenCompanies = new Set();
@@ -1144,7 +1151,7 @@ function create2DPopupContent(location) {
   const alumniItems = visibleAlumni
     .map(a => `
       <div style="padding: 10px; border-bottom: 1px solid #eee; background: #f9f9f9; margin-bottom: 5px; border-radius: 4px;">
-        <div style="font-weight: 600; color: #333; font-size: 14px;">${a.name}</div>
+        <div style="font-weight: 600; color: #333; font-size: 14px;">${getHeatmapDisplayName(a.name) || 'Name Hidden'}</div>
         <div style="color: #666; font-size: 13px; margin-top: 4px;">${a.company || 'Company not specified'}</div>
         <div style="color: #888; font-size: 12px; margin-top: 2px;">${a.position || a.role || 'Position not specified'}</div>
         ${a.linkedin ? `<a href="${a.linkedin}" target="_blank" style="color: #0a66c2; font-size: 12px; text-decoration: none; display: inline-block; margin-top: 4px;">View LinkedIn Profile →</a>` : ''}
@@ -1173,7 +1180,7 @@ function create3DPopupContent(location) {
   const alumniItems = visibleAlumni
     .map(a => `
       <div style="padding: 10px; border-bottom: 1px solid #eee; background: #f9f9f9; margin-bottom: 5px; border-radius: 4px;">
-        <div style="font-weight: 600; color: #333; font-size: 14px;">${a.name}</div>
+        <div style="font-weight: 600; color: #333; font-size: 14px;">${getHeatmapDisplayName(a.name) || 'Name Hidden'}</div>
         <div style="color: #666; font-size: 13px; margin-top: 4px;">${a.company || 'Company not specified'}</div>
         <div style="color: #888; font-size: 12px; margin-top: 2px;">${a.position || a.role || 'Position not specified'}</div>
         ${a.linkedin ? `<a href="${a.linkedin}" target="_blank" style="color: #0a66c2; font-size: 12px; text-decoration: none; display: inline-block; margin-top: 4px;">View LinkedIn Profile →</a>` : ''}

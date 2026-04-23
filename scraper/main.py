@@ -40,7 +40,12 @@ _configure_utf8_stdio()
 import settings as config
 import scraper_utils as utils
 import database_handler
-from scraper import LinkedInScraper
+try:
+    # Running from project root: scraper is a package directory.
+    from scraper.scraper import LinkedInScraper
+except Exception:
+    # Running with scraper/ on sys.path: scraper.py is a top-level module.
+    from scraper import LinkedInScraper
 from settings import logger
 
 # Backend
