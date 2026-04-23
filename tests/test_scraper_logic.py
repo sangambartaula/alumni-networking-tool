@@ -112,7 +112,11 @@ class TestScraperLogic:
         }
 
         monkeypatch.setattr(scraper_module.config, "USE_GROQ", True)
-        monkeypatch.setattr(scraper_module, "normalize_title_with_groq", lambda raw, existing: "Site Engineer")
+        monkeypatch.setattr(
+            scraper_module,
+            "resolve_title_for_scrape",
+            lambda raw, extra_existing=None: "Site Engineer",
+        )
         monkeypatch.setattr(scraper_module, "normalize_title_deterministic", lambda raw: "Software Engineer")
 
         resolved, score = _resolve_standardized_title("Site Engineer", lookup)
