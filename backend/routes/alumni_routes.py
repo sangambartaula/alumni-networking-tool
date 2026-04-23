@@ -153,6 +153,11 @@ def classify_seniority_bucket(title, _stored):
     return "Others"
 
 
+def _stored_seniority_bucket(value):
+    level = (value or "").strip()
+    return level if level in _SENIORITY_ALLOWED else ""
+
+
 def _normalize_requested_discipline(value):
     v = (value or "").strip().lower()
     if not v:
@@ -316,7 +321,7 @@ def _fetchone_dict(cur, key):
 
 
 def _map_alumni_item(row):
-    seniority_level = row.get("seniority_level") or classify_seniority_bucket(row.get("current_job_title"), None)
+    seniority_level = _stored_seniority_bucket(row.get("seniority_level"))
     first = row.get("first_name") or ""
     last = row.get("last_name") or ""
     full_name = f"{first} {last}".strip()
@@ -628,7 +633,7 @@ def api_get_alumni():
                 filtered = []
                 for row in all_rows:
                     row_status = compute_unt_alumni_status_from_row(row)
-                    row_bucket = row.get("seniority_level") or classify_seniority_bucket(row.get("current_job_title"), None)
+                    row_bucket = _stored_seniority_bucket(row.get("seniority_level"))
                     row_role = _canonical_role_title(
                         row.get("normalized_job_title")
                         or row.get("current_job_title")
