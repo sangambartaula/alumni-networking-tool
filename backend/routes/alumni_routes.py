@@ -142,7 +142,10 @@ def classify_seniority_bucket(title, _stored):
         return "Others"
     if re.search(r"\bintern\b|\bco-?op\b", t):
         return "Intern"
-    if re.search(r"\bvp\b|vice president|director|head of|chief|cto|ceo|cfo", t):
+    if re.search(
+        r"\bvp\b|vice president|\bdirector\b|head of|\bchief\b|\bcto\b|\bceo\b|\bcfo\b|\bcoo\b|\bcmo\b",
+        t,
+    ):
         return "Executive"
     if re.search(r"\bmanager\b|\bmgr\b|lead", t):
         return "Manager"
