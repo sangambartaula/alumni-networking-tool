@@ -409,8 +409,8 @@ TITLE_MAP = {
     "graduate student assistant": "Graduate Assistant",
     "graduate assistant/ teaching fellow": "Graduate Assistant",
     "graduate graduate assistant-deep six lab": "Graduate Assistant",
-    "student assistant": "Student",
-    "student assistant for ms analytics": "Student",
+    "student assistant": "Student Assistant",
+    "student assistant for ms analytics": "Student Assistant",
     "graduate student at university of north texas": "Student",
     "enterprise data warehousing teaching assistant": "Graduate Assistant",
     "instructional assistant": "Graduate Assistant",
@@ -575,6 +575,7 @@ _PREFERRED_TITLE_BUCKETS = [
     "Solutions Architect",
     "Researcher",
     "Graduate Assistant",
+    "Student Assistant",
     "Student",
     "Project Manager",
     "Application Engineer",
@@ -655,6 +656,7 @@ _STALE_TITLE_REMAP = {
     "member": "Student",
     "team member": "Student",
     "community assistant": "Student",
+    "student assistant": "Student Assistant",
     "graduate researcher": "Graduate Assistant",
     "design engineer": "Mechanical Engineer",
     "manufacturing engineer": "Mechanical Engineer",
@@ -870,6 +872,8 @@ def _compact_normalized_title(candidate: str, raw_title: str = "") -> str:
         return "Researcher"
     if re.search(r"\b(graduate assistant|teaching assistant|instructional assistant|supplemental instructor)\b", low):
         return "Graduate Assistant"
+    if re.search(r"\bstudent assistant\b", low):
+        return "Student Assistant"
 
     # 11. Student Catch-all
     if re.search(r"\bambassador\b", low):

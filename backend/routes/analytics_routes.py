@@ -235,6 +235,7 @@ def get_heatmap_data():
                         "name": f"{row.get('first_name', '')} {row.get('last_name', '')}".strip(),
                         "role": row.get("current_job_title") or row.get("headline") or "Alumni",
                         "company": row.get("company"),
+                        "location": row.get("location"),
                         "linkedin": row.get("linkedin_url"),
                         "created_at": row.get("created_at").isoformat()
                         if hasattr(row.get("created_at"), "isoformat")

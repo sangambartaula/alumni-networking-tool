@@ -1,4 +1,6 @@
 import importlib
+import logging
+import os
 import re
 import sys
 
@@ -11,6 +13,7 @@ from utils import rank_filter_option_counts
 
 
 alumni_bp = Blueprint("alumni", __name__)
+logger = logging.getLogger(__name__)
 
 
 _SENIORITY_ALLOWED = ["Intern", "Mid", "Senior", "Manager", "Executive"]
@@ -398,6 +401,7 @@ def serve_events_css():
 
 @alumni_bp.route("/api/alumni", methods=["GET"])
 def api_get_alumni():
+    req_pid = os.getpid()
     try:
         limit = int(request.args.get("limit", 250))
     except Exception:
@@ -422,6 +426,17 @@ def api_get_alumni():
         return jsonify({"error": "Invalid major_logic. Use 'and' or 'or'."}), 400
 
     query_text = (request.args.get("q", "") or "").strip().lower()
+    logger.info(
+        "api_alumni request pid=%s offset=%s limit=%s role=%s company=%s location=%s q=%s seniority=%s",
+        req_pid,
+        offset,
+        limit,
+        role_filters,
+        company_filters,
+        location_filters,
+        query_text,
+        seniority_filters,
+    )
     wws_filter = (request.args.get("working_while_studying", "") or "").strip().lower()
     if wws_filter and wws_filter not in {"yes", "no"}:
         return jsonify({"error": "Invalid working_while_studying. Use yes or no."}), 400
@@ -686,6 +701,16 @@ def api_get_alumni():
 
         items = [_map_alumni_item(row) for row in rows]
         has_more = (offset + len(items)) < total
+        logger.info(
+            "api_alumni response pid=%s offset=%s returned=%s total=%s has_more=%s role=%s company=%s",
+            req_pid,
+            offset,
+            len(items),
+            total,
+            has_more,
+            role_filters,
+            company_filters,
+        )
         return jsonify(
             {
                 "success": True,
@@ -699,6 +724,14 @@ def api_get_alumni():
             }
         ), 200
     except Exception as err:
+        logger.exception(
+            "api_alumni failure pid=%s offset=%s limit=%s role=%s company=%s",
+            req_pid,
+            offset,
+            limit,
+            role_filters,
+            company_filters,
+        )
         return jsonify({"error": f"Database error: {str(err)}"}), 500
     finally:
         try:

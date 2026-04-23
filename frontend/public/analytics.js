@@ -25,9 +25,9 @@ const ANALYTICS_SENIORITY_OPTIONS = ['Intern', 'Mid', 'Senior', 'Manager', 'Exec
 function normalizeDegreeToFilterLabel(value) {
   const normalized = (value || '').trim().toLowerCase();
   if (!normalized) return '';
-  if (normalized === 'undergraduate' || normalized === 'bachelors') return 'Bachelors';
-  if (normalized === 'graduate' || normalized === 'masters') return 'Masters';
-  if (normalized === 'phd') return 'PhD';
+  if (normalized.includes('phd') || normalized.includes('doctor')) return 'PhD';
+  if (normalized.includes('master') || normalized === 'graduate' || normalized === 'masters' || normalized === 'ms' || normalized === 'm.s') return 'Masters';
+  if (normalized.includes('bachelor') || normalized === 'undergraduate' || normalized === 'bachelors' || normalized === 'bs' || normalized === 'b.s') return 'Bachelors';
   return '';
 }
 
@@ -983,7 +983,7 @@ function filterAlumniData(data) {
     }
 
     if (selectedAnalyticsDegrees.size > 0) {
-      const degree = normalizeDegreeToFilterLabel(alumni.degree);
+      const degree = normalizeDegreeToFilterLabel(alumni.degree_raw || alumni.full_degree || alumni.degree);
       if (!selectedAnalyticsDegrees.has(degree)) return false;
     }
 

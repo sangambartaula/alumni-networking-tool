@@ -142,7 +142,6 @@ function getDefaultBuilderState() {
     additional_info: '',
     use_default_templates: true,
     custom_template_body: `Dear {first_name}, {sender_name} from {sender_org} would like to invite you to {event_name}. This event will take place at {location} on {date} at {time}. Additional info: {additional_info}. Please RSVP here: {rsvp_link}`,
-    custom_variables: [],
   };
 }
 
@@ -154,7 +153,6 @@ function loadBuilderState() {
     return {
       ...defaults,
       ...parsed,
-      custom_variables: Array.isArray(parsed.custom_variables) ? parsed.custom_variables : defaults.custom_variables,
     };
   } catch (_error) {
     return defaults;
@@ -173,7 +171,6 @@ function persistBuilderState() {
     additional_info: document.getElementById('additionalInfoInput')?.value.trim() || '',
     use_default_templates: Boolean(document.getElementById('useDefaultTemplatesInput')?.checked),
     custom_template_body: document.getElementById('customTemplateBodyInput')?.value || '',
-    custom_variables: getCustomVariables(),
   };
   localStorage.setItem(EVENTS_BUILDER_STORAGE_KEY, JSON.stringify(payload));
 }
@@ -199,36 +196,6 @@ function syncTemplateModeUI() {
   customBodyInput.title = useDefault
     ? 'Turn off Use Default Templates to edit your custom message body.'
     : '';
-}
-
-function renderCustomVariables(variables) {
-  const container = document.getElementById('customVariablesList');
-  if (!container) return;
-  const rows = Array.isArray(variables) && variables.length ? variables : [{ name: '', value: '' }];
-  container.innerHTML = rows.map((variable, index) => `
-    <div class="custom-variable-row" data-index="${index}">
-      <input type="text" class="custom-variable-name" placeholder="parking_info" value="${escapeAttribute(variable.name || '')}" />
-      <input type="text" class="custom-variable-value" placeholder="Value" value="${escapeAttribute(variable.value || '')}" />
-      <button type="button" class="custom-variable-remove">Remove</button>
-    </div>
-  `).join('');
-}
-
-function getCustomVariables() {
-  const rows = Array.from(document.querySelectorAll('.custom-variable-row'));
-  return rows.map(row => ({
-    name: row.querySelector('.custom-variable-name')?.value.trim() || '',
-    value: row.querySelector('.custom-variable-value')?.value.trim() || '',
-  }));
-}
-
-function buildCustomVariableMap() {
-  const variables = {};
-  getCustomVariables().forEach(variable => {
-    if (!/^[a-z0-9_]+$/.test(variable.name)) return;
-    variables[variable.name] = variable.value;
-  });
-  return variables;
 }
 
 function formatDisplayDate(dateValue) {
@@ -291,7 +258,6 @@ function cleanupGeneratedMessage(message) {
 function generateMessageForUser(user, templateOverride) {
   const template = templateOverride || chooseTemplateForClick();
   const builderValues = getBuilderValues();
-  const customVariables = buildCustomVariableMap();
   const nameParts = String(user.name || '').trim().split(/\s+/).filter(Boolean);
   const placeholders = {
     first_name: user.first || nameParts[0] || '',
@@ -309,7 +275,6 @@ function generateMessageForUser(user, templateOverride) {
     additional_info: builderValues.additional_info,
     date: builderValues.date,
     time: builderValues.time,
-    ...customVariables,
   };
 
   const rendered = (template?.body || '').replace(/\{([a-z0-9_]+)\}/gi, (_match, key) => placeholders[key] || '');
@@ -394,8 +359,6 @@ function initializeEventBuilder() {
 
   const defaultToggle = document.getElementById('useDefaultTemplatesInput');
   if (defaultToggle) defaultToggle.checked = Boolean(savedState.use_default_templates);
-
-  renderCustomVariables(savedState.custom_variables);
   syncTemplateModeUI();
 
   console.info('Events integration summary', {
@@ -994,6 +957,7 @@ function mapHeatmapAlumniToCard(alumni, cluster, distance) {
   const parts = name.split(/\s+/);
   const clusterLocation = (cluster?.location || '').trim();
   const alumniLocation = (alumni.location || '').trim();
+  const resolvedLocation = _isMeaningfulLocationValue(alumniLocation) ? alumniLocation : clusterLocation;
 
   return {
     id: alumni.id,
@@ -1003,9 +967,8 @@ function mapHeatmapAlumniToCard(alumni, cluster, distance) {
     role: alumni.role || alumni.position || '',
     headline: '',
     company: alumni.company || '',
-    // Prefer cluster location because it is the geocoded location used for
-    // radius filtering; sample_alumni.location can be stale/free-text.
-    location: clusterLocation || alumniLocation,
+    // Prefer each profile's own location label; fallback to cluster label.
+    location: resolvedLocation,
     class: alumni.grad_year || '',
     linkedin: alumni.linkedin || '',
     linkedin_url: alumni.linkedin || '',
@@ -1158,8 +1121,6 @@ function setupEventListeners() {
   const radiusInput = document.getElementById('eventsRadiusInput');
   const clearBtn = document.getElementById('eventsClearBtn');
   const sortSelect = document.getElementById('eventsSortSelect');
-  const addVariableBtn = document.getElementById('addVariableBtn');
-  const variablesList = document.getElementById('customVariablesList');
   const builderInputs = [
     'eventNameInput',
     'eventDateInput',
@@ -1289,40 +1250,6 @@ function setupEventListeners() {
       syncTemplateModeUI();
     });
   });
-
-  if (addVariableBtn) {
-    addVariableBtn.addEventListener('click', () => {
-      const current = getCustomVariables();
-      current.push({ name: '', value: '' });
-      renderCustomVariables(current);
-      persistBuilderState();
-    });
-  }
-
-  if (variablesList) {
-    variablesList.addEventListener('input', (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement)) return;
-      if (target.classList.contains('custom-variable-name')) {
-        target.value = target.value.replace(/[^a-z0-9_]/g, '').toLowerCase();
-      }
-      persistBuilderState();
-    });
-
-    variablesList.addEventListener('click', (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (!target.classList.contains('custom-variable-remove')) return;
-      const rows = getCustomVariables();
-      const row = target.closest('.custom-variable-row');
-      const index = Number(row?.getAttribute('data-index'));
-      if (Number.isInteger(index)) {
-        rows.splice(index, 1);
-        renderCustomVariables(rows);
-        persistBuilderState();
-      }
-    });
-  }
 }
 
 // Helper: center map on first city of a state

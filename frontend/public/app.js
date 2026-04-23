@@ -763,6 +763,15 @@ function _buildClassLocationLine(profile) {
   return location;
 }
 
+function normalizeDegreeToFilterLabel(value) {
+  const text = (value || '').trim().toLowerCase();
+  if (!text) return '';
+  if (text.includes('phd') || text.includes('doctor')) return 'PhD';
+  if (text.includes('master') || text === 'ms' || text === 'm.s' || text === 'graduate') return 'Masters';
+  if (text.includes('bachelor') || text === 'undergraduate' || text === 'bs' || text === 'b.s') return 'Bachelors';
+  return '';
+}
+
 // Create profile list item element (horizontal row)
 function createListItem(p) {
   const educationLine = _buildEducationLine(p);
@@ -1336,9 +1345,12 @@ function populateFilters(list) {
   const stdMajors = Array.from(new Set(
     list.flatMap(x => (x.standardized_majors || []).filter(Boolean))
   )).filter(m => m !== 'Other').sort();
-  const degrees = ['Bachelors', 'Masters', 'PhD'].filter(level =>
-    list.some(x => x.degree === level && isValid(level))
+  const degreeSet = new Set(
+    list
+      .map(x => normalizeDegreeToFilterLabel(x.degree_raw || x.full_degree || x.degree))
+      .filter(Boolean)
   );
+  const degrees = ['Bachelors', 'Masters', 'PhD'].filter(level => degreeSet.has(level));
 
   const selectedLocations = new Set(Array.from(document.querySelectorAll('input[name="location"]:checked')).map(i => i.value));
   const selectedRoles = new Set(Array.from(document.querySelectorAll('input[name="role"]:checked')).map(i => i.value));
@@ -1588,6 +1600,13 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
 
   const queryState = collectQueryState();
   activeQueryState = queryState;
+  console.debug('[alumni] fetch start', {
+    requestToken,
+    reset,
+    roleFilters: queryState.role,
+    locationFilters: queryState.loc,
+    companyFilters: queryState.company,
+  });
 
   isLoadingAlumni = true;
   renderProfiles(loadedAlumni);
@@ -1605,12 +1624,21 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
     // Auto-page through all results so the full dataset is loaded without manual "Load more".
     while (hasMore) {
       if (requestToken !== activeRequestToken) {
+        console.debug('[alumni] abort stale request before fetch', { requestToken, activeRequestToken });
         return;
       }
 
       const params = buildAlumniQueryParams(queryState, offset, alumniChunkSize);
       const resp = await fetch(`/api/alumni?${params.toString()}`);
+      if (requestToken !== activeRequestToken) {
+        console.debug('[alumni] abort stale request after fetch', { requestToken, activeRequestToken });
+        return;
+      }
       const data = await resp.json();
+      if (requestToken !== activeRequestToken) {
+        console.debug('[alumni] abort stale request after json parse', { requestToken, activeRequestToken });
+        return;
+      }
       const items = Array.isArray(data.items)
         ? data.items
         : (Array.isArray(data.alumni) ? data.alumni : []);
@@ -1631,6 +1659,7 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
       hasMore = Boolean(data.has_more) && items.length > 0;
 
       if (requestToken !== activeRequestToken) {
+        console.debug('[alumni] abort stale request after merge', { requestToken, activeRequestToken });
         return;
       }
       renderProfiles(loadedAlumni);
@@ -1639,6 +1668,12 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
     if (!Number.isFinite(totalAlumniCount) || totalAlumniCount <= 0) {
       totalAlumniCount = loadedAlumni.length;
     }
+    console.debug('[alumni] fetch complete', {
+      requestToken,
+      total: totalAlumniCount,
+      loadedCount: loadedAlumni.length,
+      roleFilters: queryState.role,
+    });
 
     if (initializeFilters && !filtersInitialized && loadedAlumni.length) {
       await refreshRoleOptionsCache();

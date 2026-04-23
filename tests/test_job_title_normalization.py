@@ -115,6 +115,7 @@ def test_member_of_technical_staff():
 def test_graduate_student_maps_to_student():
     assert normalize_title_deterministic("Graduate Student") == "Student"
     assert normalize_title_deterministic("Graduate Student at University of North Texas") == "Student"
+    assert normalize_title_deterministic("Student Assistant") == "Student Assistant"
 
 
 @pytest.mark.parametrize(
