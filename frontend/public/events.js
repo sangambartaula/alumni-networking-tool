@@ -992,6 +992,8 @@ function applyLocationFilter() {
 function mapHeatmapAlumniToCard(alumni, cluster, distance) {
   const name = alumni.name || '';
   const parts = name.split(/\s+/);
+  const clusterLocation = (cluster?.location || '').trim();
+  const alumniLocation = (alumni.location || '').trim();
 
   return {
     id: alumni.id,
@@ -1001,7 +1003,9 @@ function mapHeatmapAlumniToCard(alumni, cluster, distance) {
     role: alumni.role || alumni.position || '',
     headline: '',
     company: alumni.company || '',
-    location: alumni.location || (cluster ? cluster.location : ''),
+    // Prefer cluster location because it is the geocoded location used for
+    // radius filtering; sample_alumni.location can be stale/free-text.
+    location: clusterLocation || alumniLocation,
     class: alumni.grad_year || '',
     linkedin: alumni.linkedin || '',
     linkedin_url: alumni.linkedin || '',

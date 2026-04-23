@@ -1298,7 +1298,7 @@ async function refreshRoleOptionsCache() {
     const data = await resp.json();
     const options = Array.isArray(data?.options) ? data.options : [];
     roleOptionsCache = options
-      .map(v => getCanonicalRoleTitle(v))
+      .map((opt) => (opt && typeof opt.value === 'string' ? opt.value.trim() : ''))
       .filter(Boolean);
   } catch (err) {
     console.debug('Role options cache refresh failed', err);

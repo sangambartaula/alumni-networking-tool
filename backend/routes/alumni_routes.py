@@ -603,7 +603,11 @@ def api_get_alumni():
                 cur.execute(full_query, params)
                 all_rows = cur.fetchall() or []
 
-                requested_role_set = {_canonical_role_title(v) for v in role_filters if (v or "").strip()}
+                requested_role_set = {
+                    (v or "").strip().lower()
+                    for v in role_filters
+                    if (v or "").strip()
+                }
                 requested_company_set = {_canonical_company_name(v) for v in company_filters if (v or "").strip()}
                 requested_degree_set = {v for v in degree_filters if v in {"Bachelors", "Masters", "PhD"}}
                 filtered = []
@@ -616,6 +620,7 @@ def api_get_alumni():
                         or row.get("headline")
                         or ""
                     )
+                    row_role_exact = (row.get("normalized_job_title") or "").strip().lower()
                     row_company = _canonical_company_name(row.get("company") or "")
                     row_degree = _normalize_degree_to_filter_label(row.get("degree") or "")
                     row_wws = _normalize_working_while_studying_value(
@@ -633,8 +638,12 @@ def api_get_alumni():
                         continue
                     if seniority_filters and row_bucket not in seniority_filters:
                         continue
-                    if requested_role_set and row_role not in requested_role_set:
-                        continue
+                    if requested_role_set:
+                        # Role checkboxes are sourced from normalized_job_titles;
+                        # enforce exact normalized-role matching to avoid
+                        # canonicalization drift (e.g., VP long-form variants).
+                        if not row_role_exact or row_role_exact not in requested_role_set:
+                            continue
                     if requested_company_set and row_company not in requested_company_set:
                         continue
                     if requested_degree_set and row_degree not in requested_degree_set:
