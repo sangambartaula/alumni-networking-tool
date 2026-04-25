@@ -74,29 +74,42 @@ class ConnectionManager:
     
     def _cleanup(self):
         """Clean up resources on shutdown."""
+        # We're invoked via atexit at interpreter shutdown. By that point
+        # logging StreamHandlers may point at already-closed stdout/stderr
+        # (notably under pytest), and the logging module would normally print
+        # its own "--- Logging error ---" tracebacks via handleError(). We
+        # silence those here for the duration of cleanup, then restore.
+        original_raise_exceptions = logging.raiseExceptions
+        logging.raiseExceptions = False
         try:
-            logger.info("🛑 Shutting down SQLite fallback system...")
-        except Exception:
-            pass
-        self._shutting_down = True
-        
-        # Stop retry thread.
-        # Skip join when called from inside the retry thread itself, otherwise
-        # Thread.join() raises RuntimeError ("cannot join current thread").
-        self._stop_retry.set()
-        if (
-            self._retry_thread
-            and self._retry_thread.is_alive()
-            and threading.current_thread() is not self._retry_thread
-        ):
-            self._retry_thread.join(timeout=2)
-            if self._retry_thread.is_alive():
-                logger.warning("⚠️ Retry thread did not stop cleanly")
-        
-        try:
-            logger.info("✅ SQLite fallback system shut down")
-        except Exception:
-            pass
+            try:
+                logger.info("🛑 Shutting down SQLite fallback system...")
+            except Exception:
+                pass
+            self._shutting_down = True
+
+            # Stop retry thread.
+            # Skip join when called from inside the retry thread itself, otherwise
+            # Thread.join() raises RuntimeError ("cannot join current thread").
+            self._stop_retry.set()
+            if (
+                self._retry_thread
+                and self._retry_thread.is_alive()
+                and threading.current_thread() is not self._retry_thread
+            ):
+                self._retry_thread.join(timeout=2)
+                if self._retry_thread.is_alive():
+                    try:
+                        logger.warning("⚠️ Retry thread did not stop cleanly")
+                    except Exception:
+                        pass
+
+            try:
+                logger.info("✅ SQLite fallback system shut down")
+            except Exception:
+                pass
+        finally:
+            logging.raiseExceptions = original_raise_exceptions
     
     def _init_sqlite(self):
         """Initialize SQLite database with required tables and optimizations."""
