@@ -32,6 +32,88 @@ def _isolate_scrape_persistence(monkeypatch):
     monkeypatch.setattr(scraper_main, "session_profiles_scraped", 0)
 
 
+def _cleanup_discipline_test_fixture_leaks_from_cloud():
+    """Remove alumni rows for URLs used only in this module (if they ever hit MySQL).
+
+    ``_isolate_scrape_persistence`` mocks ``upsert_scraped_profile``, but rows can remain
+    if tests were run without that mock. Deletes after the module finishes.
+    """
+    try:
+        import mysql.connector
+    except ImportError:
+        return
+
+    env_path = project_root / ".env"
+    if not env_path.exists():
+        return
+
+    from dotenv import load_dotenv
+
+    load_dotenv(env_path)
+    host = os.getenv("MYSQLHOST", "").strip()
+    user = os.getenv("MYSQLUSER", "").strip()
+    password = os.getenv("MYSQLPASSWORD", "").strip()
+    database = os.getenv("MYSQL_DATABASE", "").strip()
+    if not all([host, user, database]):
+        return
+
+    patterns = (
+        "https://www.linkedin.com/in/john-doe%",
+        "https://www.linkedin.com/in/same-person%",
+    )
+    try:
+        conn = mysql.connector.connect(
+            host=host,
+            user=user,
+            password=password,
+            database=database,
+            port=int(os.getenv("MYSQLPORT", "3306")),
+        )
+        try:
+            cur = conn.cursor()
+            for pat in patterns:
+                cur.execute("DELETE FROM alumni WHERE linkedin_url LIKE %s", (pat,))
+            conn.commit()
+            cur.close()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _cleanup_discipline_test_fixture_leaks_from_sqlite():
+    """Same URLs on local SQLite mirror if the file exists."""
+    db_path = project_root / "backend" / "alumni_backup.db"
+    if not db_path.exists():
+        return
+    try:
+        import sqlite3
+    except ImportError:
+        return
+    patterns = (
+        "https://www.linkedin.com/in/john-doe%",
+        "https://www.linkedin.com/in/same-person%",
+    )
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.cursor()
+            for pat in patterns:
+                cur.execute("DELETE FROM alumni WHERE linkedin_url LIKE ?", (pat,))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _teardown_discipline_test_alumni_leaks():
+    yield
+    _cleanup_discipline_test_fixture_leaks_from_cloud()
+    _cleanup_discipline_test_fixture_leaks_from_sqlite()
+
+
 class _DummyNav:
     def __init__(self, ok=True):
         self.ok = ok

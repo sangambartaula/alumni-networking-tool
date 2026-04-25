@@ -38,15 +38,33 @@ class ConnectionManager:
         # Load sync state
         self._load_sync_state()
 
+        startup_cloud_pull_done = False
         # Do not stay offline by default if cloud is currently reachable.
         if self._is_offline:
             try:
                 if self.check_cloud_connection():
                     logger.info("☁️ Cloud reachable at startup; leaving offline fallback mode.")
                     self._sync_and_go_online()
+                    startup_cloud_pull_done = True
             except Exception as e:
                 logger.warning(f"⚠️ Cloud startup recovery failed; staying in fallback mode: {e}")
-        
+
+        # When already online, refresh local SQLite from cloud (pull-only, no _pending_sync push).
+        # Skips if we just pulled in _sync_and_go_online, if still offline, or if disabled via env.
+        if (
+            not startup_cloud_pull_done
+            and not self._is_offline
+            and os.environ.get("SKIP_SQLITE_STARTUP_PULL", "").strip().lower() not in ("1", "true", "yes")
+        ):
+            try:
+                if self.check_cloud_connection():
+                    self._pull_cloud_to_local(incremental=bool(self._last_cloud_sync))
+                    self._last_cloud_sync = utc_now()
+                    self._save_sync_state()
+                    logger.info("✅ Local SQLite updated from cloud at startup (pull-only).")
+            except Exception as e:
+                logger.warning(f"⚠️ Startup cloud→SQLite pull failed: {e}")
+
         # Register cleanup on shutdown
         atexit.register(self._cleanup)
     
@@ -973,4 +991,15 @@ class ConnectionManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def pull_from_cloud_only(self, incremental: bool = True) -> dict:
+        """Copy cloud (MySQL) into local SQLite without pushing _pending_sync."""
+        if not self.check_cloud_connection():
+            return {"success": False, "error": "Cloud is not reachable"}
+        try:
+            self._pull_cloud_to_local(incremental=incremental)
+            self._last_cloud_sync = utc_now()
+            self._save_sync_state()
+            return {"success": True, "last_sync": self._last_cloud_sync}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 

@@ -421,7 +421,31 @@ def _build_alumni_upsert_payload(profile_data):
     payload['major'] = major
     payload['discipline'] = discipline
 
+    if _parse_bool(profile_data.get("skip_offline_sync_queue")) or _parse_bool(
+        profile_data.get("skip_cloud_sync_queue")
+    ):
+        payload["skip_offline_sync_queue"] = True
+
     return payload
+
+
+def _should_queue_alumni_for_pending_cloud_sync(payload: dict) -> bool:
+    """If False, local SQLite is updated but the row is not added to _pending_sync."""
+    if not payload:
+        return True
+    if payload.get("skip_offline_sync_queue"):
+        return False
+    url = (payload.get("linkedin_url") or "").lower()
+    # Synthetic slugs from raw-field / immutability lab tests
+    for marker in ("raw-immutability-test", "raw-overwrite-test"):
+        if marker in url:
+            return False
+    extra = os.getenv("ALUMNI_SKIP_OFFLINE_SYNC_QUEUE", "").strip()
+    for part in extra.split(","):
+        p = part.strip().lower()
+        if p and p in url:
+            return False
+    return True
 
 
 def _upsert_alumni_payload(cur, payload):
@@ -630,7 +654,7 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
                 # queue this upsert for later cloud synchronization.
                 try:
                     manager = getattr(conn, "_manager", None)
-                    if manager:
+                    if manager and _should_queue_alumni_for_pending_cloud_sync(payload):
                         manager.record_pending_change(
                             table_name="alumni",
                             primary_key={"linkedin_url": payload.get("linkedin_url")},
@@ -679,7 +703,11 @@ def upsert_scraped_profile(profile_data, allow_cloud=True, run_id=None):
 
         # Queue for cloud sync if the primary write didn't go to cloud
         # (e.g., cloud disabled after 5 consecutive failures, or DISABLE_DB=1)
-        if not status.get("cloud_written") and not status.get("cloud_queued"):
+        if (
+            not status.get("cloud_written")
+            and not status.get("cloud_queued")
+            and _should_queue_alumni_for_pending_cloud_sync(payload)
+        ):
             try:
                 manager.record_pending_change(
                     table_name="alumni",
