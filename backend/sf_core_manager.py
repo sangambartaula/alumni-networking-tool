@@ -80,9 +80,15 @@ class ConnectionManager:
             pass
         self._shutting_down = True
         
-        # Stop retry thread
+        # Stop retry thread.
+        # Skip join when called from inside the retry thread itself, otherwise
+        # Thread.join() raises RuntimeError ("cannot join current thread").
         self._stop_retry.set()
-        if self._retry_thread and self._retry_thread.is_alive():
+        if (
+            self._retry_thread
+            and self._retry_thread.is_alive()
+            and threading.current_thread() is not self._retry_thread
+        ):
             self._retry_thread.join(timeout=2)
             if self._retry_thread.is_alive():
                 logger.warning("⚠️ Retry thread did not stop cleanly")
@@ -522,9 +528,14 @@ class ConnectionManager:
         if not self._is_offline:
             return
         
-        # Stop retry thread
+        # Stop retry thread.
+        # _go_online() is invoked from the retry thread (via _sync_and_go_online),
+        # so we must not join ourselves -- doing so raises RuntimeError.
         self._stop_retry.set()
-        if self._retry_thread:
+        if (
+            self._retry_thread
+            and threading.current_thread() is not self._retry_thread
+        ):
             self._retry_thread.join(timeout=2)
         
         self._is_offline = False

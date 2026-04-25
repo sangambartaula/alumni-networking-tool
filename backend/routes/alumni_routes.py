@@ -7,7 +7,7 @@ import sys
 from flask import Blueprint, jsonify, request, send_from_directory
 
 from geocoding import geocode_location
-from middleware import login_required
+from middleware import api_login_required, login_required
 from unt_alumni_status import compute_unt_alumni_status_from_row
 from utils import rank_filter_option_counts
 
@@ -485,10 +485,15 @@ def api_get_alumni():
         field = "grad_year_from" if "grad_year_from" in str(e) else "grad_year_to"
         return _validation_error(str(e), field)
 
+    # When `bookmarked_only=1`, restrict results to alumni the current user has
+    # bookmarked via /api/user-interactions (interaction_type='bookmarked').
+    # The actual filtering is added to the WHERE clause below using EXISTS so it
+    # composes cleanly with all other filters and pagination.
     bookmarked_only = (request.args.get("bookmarked_only", "0") or "0").strip().lower() in {"1", "true", "yes"}
+    bookmarked_user_id = None
     if bookmarked_only:
-        uid = _app_mod().get_current_user_id()
-        if not uid:
+        bookmarked_user_id = _app_mod().get_current_user_id()
+        if not bookmarked_user_id:
             return jsonify({"error": "User not found"}), 401
 
     sort_key = (request.args.get("sort", "name") or "name").strip().lower()
@@ -563,6 +568,14 @@ def api_get_alumni():
     elif has_standardized_major_filters:
         where_clauses.append("(" + " OR ".join(["LOWER(a.standardized_major) = LOWER(%s)"] * len(standardized_major_filters)) + ")")
         params.extend(standardized_major_filters)
+
+    if bookmarked_only and bookmarked_user_id:
+        where_clauses.append(
+            "EXISTS (SELECT 1 FROM user_interactions ui "
+            "WHERE ui.alumni_id = a.id AND ui.user_id = %s "
+            "AND ui.interaction_type = 'bookmarked')"
+        )
+        params.append(bookmarked_user_id)
 
     where_sql = ""
     if where_clauses:
@@ -863,6 +876,7 @@ def api_get_alumni_detail(alumni_id):
 
 
 @alumni_bp.route("/api/alumni/<int:alumni_id>", methods=["PUT"])
+@api_login_required
 def api_update_alumni(alumni_id):
     data = request.get_json(silent=True) or {}
     updates = {}

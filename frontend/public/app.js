@@ -789,34 +789,42 @@ function createListItem(p) {
   const item = document.createElement('div');
   item.className = 'list-item';
   item.setAttribute('data-id', p.id);
+  // All untrusted strings (from API/scrape data) are routed through escapeHtml
+  // before injection into innerHTML to prevent stored/reflected XSS.
+  const safeName = escapeHtml(displayName);
+  const safeEducation = educationLine ? escapeHtml(educationLine) : '';
+  const safeRole = roleLine ? escapeHtml(roleLine) : '';
+  const safeClassLocation = classLocationLine ? escapeHtml(classLocationLine) : '';
+  const safeId = escapeHtml(p.id);
+  const safeLinkedin = escapeHtml(p.linkedin || '#');
   item.innerHTML = `
       <div class="list-main">
         <div class="list-details">
-          <h3 class="name">${displayName}</h3>
-          ${educationLine ? `<p class="education">${educationLine}</p>` : ''}
-          ${roleLine ? `<p class="role">${roleLine}</p>` : ''}
-          ${classLocationLine ? `<div class="class">${classLocationLine}</div>` : ''}
+          <h3 class="name">${safeName}</h3>
+          ${safeEducation ? `<p class="education">${safeEducation}</p>` : ''}
+          ${safeRole ? `<p class="role">${safeRole}</p>` : ''}
+          ${safeClassLocation ? `<div class="class">${safeClassLocation}</div>` : ''}
         </div>
         <div class="list-actions">
 
-          <button class="btn profile-view" type="button" title="View full profile" data-alumni-id="${p.id}">
+          <button class="btn profile-view" type="button" title="View full profile" data-alumni-id="${safeId}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
           </button>
 
-          <a class="btn link" href="${p.linkedin}" target="_blank" rel="noopener" title="View LinkedIn Profile">
+          <a class="btn link" href="${safeLinkedin}" target="_blank" rel="noopener" title="View LinkedIn Profile">
             <img src="/assets/linkedin.svg" alt="LinkedIn" class="linkedin-icon" />
           </a>
           <button class="btn connect" type="button">Connect</button>
           <button class="btn star" type="button" title="Bookmark this alumni">&#9734;</button>
-          <button class="btn notes" type="button" title="Add note" data-alumni-id="${p.id}" data-alumni-name="${displayName}">
+          <button class="btn notes" type="button" title="Add note" data-alumni-id="${safeId}" data-alumni-name="${safeName}">
             <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>
           </button>
-          <button class="btn edit" type="button" title="Edit entry" data-alumni-id="${p.id}">
+          <button class="btn edit" type="button" title="Edit entry" data-alumni-id="${safeId}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -1373,65 +1381,27 @@ function populateFilters(list) {
   const stdMajorChecks = document.getElementById('stdMajorChecks');
   const degreeChecks = document.getElementById('degreeChecks');
 
-  if (locChecks) {
-    locChecks.innerHTML = '';
-    locations.forEach(v => {
+  // Filter values come from the API (locations, roles, companies, majors, etc.)
+  // and are injected into both an attribute and visible text via innerHTML.
+  // Always escape to neutralize any HTML-special chars in the source data.
+  const renderCheckboxes = (container, name, values, selectedSet) => {
+    if (!container) return;
+    container.innerHTML = '';
+    values.forEach(v => {
+      const safeValue = escapeHtml(v);
       const label = document.createElement('label');
       label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="location" value="${v}" ${selectedLocations.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
-      locChecks.appendChild(label);
+      label.innerHTML = `<input type="checkbox" name="${name}" value="${safeValue}" ${selectedSet.has(v) ? 'checked' : ''} /> <span>${safeValue}</span>`;
+      container.appendChild(label);
     });
-  }
+  };
 
-  if (roleChecks) {
-    roleChecks.innerHTML = '';
-    roles.forEach(v => {
-      const label = document.createElement('label');
-      label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="role" value="${v}" ${selectedRoles.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
-      roleChecks.appendChild(label);
-    });
-  }
-
-  if (companyChecks) {
-    companyChecks.innerHTML = '';
-    companies.forEach(v => {
-      const label = document.createElement('label');
-      label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="company" value="${v}" ${selectedCompanies.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
-      companyChecks.appendChild(label);
-    });
-  }
-
-  if (majorChecks) {
-    majorChecks.innerHTML = '';
-    majors.forEach(v => {
-      const label = document.createElement('label');
-      label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="major" value="${v}" ${selectedMajors.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
-      majorChecks.appendChild(label);
-    });
-  }
-
-  if (stdMajorChecks) {
-    stdMajorChecks.innerHTML = '';
-    stdMajors.forEach(v => {
-      const label = document.createElement('label');
-      label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="standardized_major" value="${v}" ${selectedStdMajors.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
-      stdMajorChecks.appendChild(label);
-    });
-  }
-
-  if (degreeChecks) {
-    degreeChecks.innerHTML = '';
-    degrees.forEach(v => {
-      const label = document.createElement('label');
-      label.className = 'check';
-      label.innerHTML = `<input type="checkbox" name="degree" value="${v}" ${selectedDegrees.has(v) ? 'checked' : ''} /> <span>${v}</span>`;
-      degreeChecks.appendChild(label);
-    });
-  }
+  renderCheckboxes(locChecks, 'location', locations, selectedLocations);
+  renderCheckboxes(roleChecks, 'role', roles, selectedRoles);
+  renderCheckboxes(companyChecks, 'company', companies, selectedCompanies);
+  renderCheckboxes(majorChecks, 'major', majors, selectedMajors);
+  renderCheckboxes(stdMajorChecks, 'standardized_major', stdMajors, selectedStdMajors);
+  renderCheckboxes(degreeChecks, 'degree', degrees, selectedDegrees);
 }
 
 function mapAlumniRecord(a) {

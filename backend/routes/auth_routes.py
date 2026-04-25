@@ -359,7 +359,17 @@ def linkedin_callback():
         "client_secret": current_app.config.get("LINKEDIN_CLIENT_SECRET"),
     }
 
-    resp = requests.post(token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+    # Use explicit timeouts so a stalled LinkedIn upstream cannot hang a worker.
+    try:
+        resp = requests.post(
+            token_url,
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        current_app.logger.error("LinkedIn token request failed: %s", exc)
+        return "Error contacting LinkedIn for access token", 502
     if resp.status_code != 200:
         return f"Error fetching access token: {resp.text}", 400
 
@@ -367,7 +377,15 @@ def linkedin_callback():
     session["linkedin_token"] = access_token
 
     headers = {"Authorization": f"Bearer {access_token}"}
-    userinfo_resp = requests.get("https://api.linkedin.com/v2/userinfo", headers=headers)
+    try:
+        userinfo_resp = requests.get(
+            "https://api.linkedin.com/v2/userinfo",
+            headers=headers,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        current_app.logger.error("LinkedIn userinfo request failed: %s", exc)
+        return "Error contacting LinkedIn for user info", 502
     if userinfo_resp.status_code != 200:
         return f"Error fetching LinkedIn user info: {userinfo_resp.text}", 400
 

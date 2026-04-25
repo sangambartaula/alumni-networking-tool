@@ -598,6 +598,37 @@ def test_api_alumni_bookmarked_only_requires_user_context(client):
     assert payload["error"] == "User not found"
 
 
+def test_api_alumni_bookmarked_only_filters_by_user_via_exists(client, monkeypatch):
+    rows = [_alumni_row(1, "Alice", "Anderson")]
+    query_log = []
+
+    with client.session_transaction() as sess:
+        sess["linkedin_token"] = "fake_token"
+
+    monkeypatch.setattr(backend_app, "get_current_user_id", lambda: 99)
+    monkeypatch.setattr(
+        backend_app,
+        "get_connection",
+        lambda: _FakeConn(lambda: _AlumniCursor(rows, query_log)),
+    )
+
+    resp = client.get("/api/alumni?bookmarked_only=1&limit=10&offset=0")
+    payload = resp.get_json()
+
+    assert resp.status_code == 200
+    assert payload["success"] is True
+
+    # Both the count and select queries must include the bookmarked-EXISTS guard
+    # bound to the current user's id.
+    bookmarked_queries = [
+        (q, p) for q, p in query_log
+        if "user_interactions" in q and "interaction_type = 'bookmarked'" in q
+    ]
+    assert bookmarked_queries, "Expected EXISTS clause referencing user_interactions"
+    for _, params in bookmarked_queries:
+        assert 99 in params, "Expected current user_id (99) in query params"
+
+
 def test_api_user_interactions_supports_alumni_id_filter(client, monkeypatch):
     with client.session_transaction() as sess:
         sess["linkedin_token"] = "fake_token"

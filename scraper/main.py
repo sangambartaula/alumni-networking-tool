@@ -1220,8 +1220,24 @@ def _save_and_track(data, input_url, history_mgr):
     # Check if canonical URL was already saved in this session under a different input URL
     if original_url and history_mgr.should_skip(canonical_url):
         logger.info(f"  ↩️  Profile Already Visited, Skipping: {canonical_url}")
-        # Canonical URL is authoritative; clean stale source URL records.
-        _canonicalize_redirect_url(original_url, canonical_url, history_mgr)
+        # Only canonicalize (which deletes the old URL row) when the canonical URL
+        # was actually persisted before. If `should_skip` is True purely because we
+        # visited the canonical URL but did NOT save it (e.g. flagged/non-UNT),
+        # deleting the old URL row would erase the only stored copy of this person.
+        canonical_key = _normalize_profile_url(canonical_url)
+        canonical_entry = getattr(history_mgr, "visited_history", {}) or {}
+        canonical_saved = (
+            (canonical_entry.get(canonical_key) or {}).get("saved", "no").lower() == "yes"
+        )
+        if canonical_saved:
+            _canonicalize_redirect_url(original_url, canonical_url, history_mgr)
+        else:
+            logger.info(
+                "  ↩️  Skipping redirect canonicalization for %s -> %s "
+                "(canonical URL was visited but not saved; preserving old URL row)",
+                original_url,
+                canonical_url,
+            )
         return False
     
     if database_handler.save_profile_to_csv(data):
