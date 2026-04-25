@@ -1533,6 +1533,8 @@ function collectQueryState() {
   const untAlumniStatusRadio = document.querySelector('input[name="untAlumniStatus"]:checked');
   const untAlumniStatus = untAlumniStatusRadio ? untAlumniStatusRadio.value : '';
 
+  // UI collects experience in years, but API/filtering logic stores months.
+  // Convert once here so downstream query builders stay consistent.
   // Experience range (in years from UI, converted to months for API)
   const expMinYears = expMinInput && expMinInput.value.trim() !== '' ? parseInt(expMinInput.value, 10) : null;
   const expMaxYears = expMaxInput && expMaxInput.value.trim() !== '' ? parseInt(expMaxInput.value, 10) : null;
@@ -1579,6 +1581,7 @@ function buildAlumniQueryParams(queryState, offset, limit) {
   queryState.seniority.forEach(v => params.append('seniority', v));
   queryState.major.forEach(v => params.append('major', v));
   queryState.standardized_major.forEach(v => params.append('standardized_major', v));
+  // Only send major_logic when both pipelines are active.
   if (queryState.major.length && queryState.standardized_major.length) {
     params.set('major_logic', queryState.majorLogic || 'and');
   }
@@ -1629,8 +1632,12 @@ async function fetchAlumniPage({ reset = false, initializeFilters = false } = {}
     let hasMore = true;
     const seenIds = new Set();
 
+    // Auto-page through all results so client-side interactions (directory
+    // pagination, local sorting, interaction overlays) operate on one coherent
+    // in-memory dataset.
     // Auto-page through all results so the full dataset is loaded without manual "Load more".
     while (hasMore) {
+      // Abort stale responses whenever a newer request starts (filter churn).
       if (requestToken !== activeRequestToken) {
         console.debug('[alumni] abort stale request before fetch', { requestToken, activeRequestToken });
         return;

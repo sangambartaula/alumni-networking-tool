@@ -1138,6 +1138,8 @@ def _save_and_track(data, input_url, history_mgr):
     original_url = _normalize_profile_url(data.pop("_original_url", None))  # Remove internal key before save
     target_url = canonical_url or input_url
 
+    # Some validator paths can explicitly block persistence while still marking
+    # the profile as visited/flagged to prevent repeated expensive retries.
     save_block_code = str(data.get("__skip_save__", "") or "").strip()
     save_block_reason = str(data.get("__skip_save_reason", "") or "").strip()
     if save_block_code == "experience_count_mismatch" and save_block_reason:
@@ -1169,6 +1171,8 @@ def _save_and_track(data, input_url, history_mgr):
             record_scrape_run_flag(_current_scrape_run_id, canonical_url, review_reason)
             _flagged_urls_this_run.add(canonical_url)
 
+    # Geocode once on raw location; if unknown, optionally normalize location text
+    # via Groq and retry exactly once.
     if data.get("location") and (data.get("latitude") is None or data.get("longitude") is None):
         location_text = str(data.get("location", "")).strip()
         try:
@@ -1221,7 +1225,11 @@ def _save_and_track(data, input_url, history_mgr):
         return False
     
     if database_handler.save_profile_to_csv(data):
-        # Cloud-first persistence with SQLite mirror; CSV remains source backup.
+        # Persistence order:
+        # 1) CSV write (durable backup / local artifact),
+        # 2) cloud upsert attempt,
+        # 3) SQLite mirror/fallback queue according to returned status.
+        # This keeps one consistent status contract for all scraper modes.
         try:
             upsert_payload = dict(data)
             truncated_fields = _truncate_cloud_limited_fields(upsert_payload)
@@ -1434,6 +1442,8 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
             return save_scrape_state(state_mode_key, search_url, page_num)
         return save_keyword_state(state_mode_key, search_url, page_num)
 
+    # Resume semantics are intentionally conservative: only continue from saved
+    # state when both URL and recency checks pass; otherwise restart page 1.
     state = _load_state()
     state_url = (state or {}).get("search_url") if state else ""
     if state and _is_legacy_boolean_keywords_url(state_url) and "discipline:" in state_mode_key:
@@ -1458,6 +1468,8 @@ def _run_search_results_mode(scraper, nav, history_mgr, base_url, state_mode_key
         logger.info(f"↪ Starting {mode_label} from page 1")
 
     while True:
+        # Stop/threshold checks are repeated at loop boundaries and per profile
+        # so long pages can terminate quickly without processing stale work.
         if should_stop():
             return "stopped", (session_profiles_scraped - mode_start_count)
         if _mode_quota_reached():
@@ -1575,6 +1587,9 @@ def run_discipline_search_mode(scraper, nav, history_mgr, discipline_aliases):
         label = DISCIPLINE_ALIAS_LABELS.get(alias, alias)
         logger.info(f"--- MODE: Discipline Search ({label}) ---")
 
+        # Each discipline has two primary clusters; we persist rotation state so
+        # repeated runs distribute sampling across both clusters over time.
+        # Once the threshold is reached on one cluster, flip to the other.
         # Load rotation state
         rot_state = load_discipline_rotation(alias)
         active_cluster = 0

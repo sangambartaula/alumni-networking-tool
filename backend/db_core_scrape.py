@@ -440,6 +440,7 @@ def _should_queue_alumni_for_pending_cloud_sync(payload: dict) -> bool:
     for marker in ("raw-immutability-test", "raw-overwrite-test"):
         if marker in url:
             return False
+    # Ops override: comma-separated URL markers to skip queueing without code edits.
     extra = os.getenv("ALUMNI_SKIP_OFFLINE_SYNC_QUEUE", "").strip()
     for part in extra.split(","):
         p = part.strip().lower()

@@ -69,6 +69,20 @@ To grant elevated permissions to additional staff members post-deployment, you c
 
 **Important Auth Clarification:** No default admin plaintext passwords are generated or distributed. Default admin emails are seeded with `admin` role, and admin access is granted when the user signs in with LinkedIn and LinkedIn returns a matching authorized email. Password-based self-registration is disabled when LinkedIn OAuth is configured to prevent pre-claiming another user's email.
 
+### Access Policy and Unauthorized-User Notice
+
+- Users must be authorized before they can register/login successfully.
+- If a user is not authorized, auth endpoints return a denial message (for example: `"Your email is not authorized to register. Please contact an admin."`).
+- The practical onboarding flow is:
+  1. An authorized admin logs in.
+  2. Admin opens **Settings**.
+  3. Admin adds the new user's email to the authorized/whitelist list.
+  4. The new user can then register/login.
+
+Default authorized admins for initial setup:
+- `seifollah.nasrazadani@unt.edu` (Dr. Seifollah Nasrazadani)
+- `paul.krueger@unt.edu` (Dean Paul Krueger)
+
 ## 8. Deployment Process
 
 ### First-Time Setup
@@ -95,6 +109,85 @@ If you prefer running from source or encounter build errors, you can bypass the 
 2. **Install Dependencies:** `pip install -r requirements.txt`
 3. **Configure Environment:** Copy `.env.example` to `.env` and populate your keys manually.
 4. **Initialize Database:** Run `python backend/database.py`.
+
+### Credentials and Environment Setup (Groq, LinkedIn OAuth, MySQL)
+
+Use this checklist when filling `.env` (either from GUI Settings or manually).
+
+#### A) Groq API key (AI extraction/normalization)
+
+1. Create/sign in to a Groq account at [https://console.groq.com](https://console.groq.com).
+2. Generate an API key from the API Keys section.
+3. Set in `.env`:
+   - `GROQ_API_KEY=<your_key>`
+4. Optional behavior flags (recommended defaults):
+   - `MAJOR_USE_GROQ_FALLBACK=1`
+   - `GEOCODE_USE_GROQ_FALLBACK=1`
+
+If `GROQ_API_KEY` is missing, scraper still runs but AI-assisted extraction quality can degrade.
+
+#### B) LinkedIn OAuth app (staff login)
+
+1. Open LinkedIn Developer portal at [https://www.linkedin.com/developers/](https://www.linkedin.com/developers/) and create an app.
+2. In app settings, configure OAuth:
+   - Add your callback/redirect URL:
+     - `http://127.0.0.1:5000/auth/linkedin/callback`
+     - plus your production callback URL if centrally hosted.
+3. Copy app credentials into `.env`:
+   - `LINKEDIN_CLIENT_ID=<client_id>`
+   - `LINKEDIN_CLIENT_SECRET=<client_secret>`
+4. Set runtime origin values used by auth/routes:
+   - `BASE_URL` or equivalent host URL used by your deployment.
+5. Restart backend after changing OAuth settings.
+
+If OAuth is enabled but callback/credentials mismatch, login will fail with redirect/auth errors.
+
+#### LinkedIn OAuth optional (email/password-only mode)
+
+Yes, the app still works without LinkedIn OAuth if you operate in direct email/password mode.
+
+- In this mode, users authenticate through `/api/auth/register` + `/api/auth/login`.
+- Whitelist enforcement still applies: users must be in authorized emails list.
+- Recommendation:
+  - Keep LinkedIn OAuth disabled/unconfigured if you do not plan to use it.
+  - Ensure at least one admin account can log in and manage whitelist entries in Settings.
+
+#### C) MySQL database settings
+
+1. Provision/create a MySQL database (8.0+ recommended).
+2. Create a DB user with read/write/schema migration permissions for this database.
+3. Set in `.env`:
+   - `MYSQLHOST=<host>`
+   - `MYSQLPORT=3306`
+   - `MYSQLUSER=<user>`
+   - `MYSQLPASSWORD=<password>`
+   - `MYSQL_DATABASE=<database_name>`
+4. Run initialization once:
+   - `python backend/database.py`
+5. Confirm connection by starting backend:
+   - `python backend/app.py`
+
+For team usage, point everyone to the same centralized MySQL instance.
+
+### Prefill Database From `UNT_Alumni_Data.csv`
+
+If the receiving team's database is empty, provide them your latest
+`scraper/output/UNT_Alumni_Data.csv` file and use this process:
+
+1. Place the CSV at exactly:
+   - `scraper/output/UNT_Alumni_Data.csv`
+2. Confirm `.env` points to the target MySQL instance:
+   - `MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQL_DATABASE`
+3. Run database initialization/import:
+   - `python backend/database.py`
+4. Start backend and verify data is present:
+   - `python backend/app.py`
+   - Open the Alumni page and confirm records appear.
+
+Notes:
+- This import path is intended for initial bootstrap into an empty DB.
+- Keep one authoritative CSV snapshot during transition to avoid parallel conflicting seeds.
+- If importing into a DB that already has records, align on overwrite/merge expectations before running.
 
 ### Start the Central System (Day-to-day)
 1. **Activate the Virtual Environment** (as shown above).

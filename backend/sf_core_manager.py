@@ -38,6 +38,10 @@ class ConnectionManager:
         # Load sync state
         self._load_sync_state()
 
+        # Startup behavior is intentionally split:
+        # 1) if we were offline and cloud is back, reconcile pending changes first,
+        # 2) otherwise do pull-only refresh so local SQLite mirrors cloud without
+        #    accidentally pushing stale pending queue entries.
         startup_cloud_pull_done = False
         # Do not stay offline by default if cloud is currently reachable.
         if self._is_offline:
@@ -581,6 +585,7 @@ class ConnectionManager:
             synced_ids = []
             
             try:
+                # Replay in created order to preserve local intent ordering.
                 for row in pending:
                     sync_id = row['id']
                     table_name = row['table_name']
@@ -593,6 +598,8 @@ class ConnectionManager:
                         conflict = self._check_conflict(mysql_conn, table_name, pk, old_data)
                         
                         if conflict:
+                            # Conflict policy: cloud wins; preserve discarded local
+                            # payload in _discarded_changes for operator review.
                             # Log discarded change with details
                             self._log_discarded_change(
                                 sqlite_conn, table_name, pk, new_data, conflict,
@@ -841,6 +848,8 @@ class ConnectionManager:
                 cur.execute(query, (self._last_cloud_sync,))
                 rows = cur.fetchall()
         else:
+            # Full sync is authoritative: clear local table then rehydrate from
+            # cloud snapshot to avoid drift from historical local-only edits.
             # Full sync - first clear existing data for full sync
             sqlite_conn.execute(f"DELETE FROM {table_name}")
             

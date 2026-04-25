@@ -278,6 +278,8 @@ def _canonical_role_title(value):
         if ai_signal and ai_role_signal:
             return "AI / ML Engineer"
 
+    # Keep legacy fallback so this route can still serve requests in
+    # constrained environments where normalization module import fails.
     if _normalize_job_title_deterministic is None:
         return _canonical_role_title_legacy(value)
 
@@ -324,6 +326,8 @@ def _fetchone_dict(cur, key):
 
 
 def _map_alumni_item(row):
+    # API response keeps compatibility aliases used across alumni/events/analytics
+    # frontend modules (title/current_job_title/role/normalized_title, etc.).
     seniority_level = _stored_seniority_bucket(row.get("seniority_level")) or classify_seniority_bucket(
         row.get("current_job_title"),
         None,
@@ -425,6 +429,8 @@ def api_get_alumni():
         offset = 0
     offset = max(0, offset)
 
+    # Parsing is centralized here, while filtering is split between SQL and
+    # Python post-processing to preserve backward-compatible behavior.
     location_filters = _parse_multi_value_param("location", split_commas=False)
     role_filters = _parse_multi_value_param("role", split_commas=False)
     company_filters = _parse_multi_value_param("company", split_commas=False)
